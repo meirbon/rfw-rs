@@ -42,7 +42,7 @@
             "name": "Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/rust-raytracer.exe",
+            "program": "${workspaceFolder}/target/debug/rust-raytracer",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -53,7 +53,8 @@
                 }
             ],
             "externalConsole": false,
-            "preLaunchTask": "cargo build"
+            "preLaunchTask": "cargo build",
+            "MIMode": "lldb"
         },
         {
             "name": "Release Launch",
@@ -70,7 +71,8 @@
                 }
             ],
             "externalConsole": false,
-            "preLaunchTask": "cargo build release"
+            "preLaunchTask": "cargo build release",
+            "MIMode": "lldb"
         }
     ]
 }
