@@ -1,11 +1,14 @@
 #![feature(clamp)]
+
 use nalgebra_glm::*;
 use rayon::prelude::*;
 
 mod camera;
 mod constants;
+mod utils;
 
 use camera::*;
+use utils::*;
 use cpu_fb_template::{run_app, KeyCode};
 
 struct App {
@@ -14,6 +17,7 @@ struct App {
 
     pixels: Vec<Vec4>,
     camera: Camera,
+    timer: Timer,
 }
 
 impl App {
@@ -23,6 +27,7 @@ impl App {
             height,
             pixels: vec![zero(); (width * height) as usize],
             camera: Camera::new(vec3(0.0, 0.0, 0.0), width, height, 40.0),
+            timer: Timer::new(),
         }
     }
 
@@ -60,6 +65,9 @@ impl cpu_fb_template::App for App {
         &mut self,
         states: &cpu_fb_template::KeyHandler,
     ) -> Option<cpu_fb_template::Request> {
+        let elapsed = self.timer.elapsed_in_millis();
+        self.timer.reset();
+
         if states.pressed(KeyCode::Escape) {
             return Some(cpu_fb_template::Request::Exit);
         }
@@ -99,8 +107,8 @@ impl cpu_fb_template::App for App {
             pos_change.y -= 1.0;
         }
 
-        view_change = view_change * 0.1;
-        pos_change = pos_change * 0.1;
+        view_change = view_change * elapsed * 0.002;
+        pos_change = pos_change * elapsed * 0.002;
 
         if view_change != zero::<Vec3>() {
             self.camera.translate_target(&view_change);
