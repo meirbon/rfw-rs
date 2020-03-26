@@ -22,17 +22,16 @@ impl App {
             width,
             height,
             pixels: vec![zero(); (width * height) as usize],
-            camera: Camera::new(zero(), width, height, 60.0, 0.1, 0.1),
+            camera: Camera::new(vec3(0.0, 0.0, 0.0), width, height, 40.0),
         }
     }
 
     pub fn blit_pixels(&self, fb: &mut [u8]) {
-        fb.chunks_exact_mut(4).enumerate().for_each(|(i, pixel)| {
+        fb.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
             let color: &Vec4 = &self.pixels[i];
-            let red = ((color.x * 255.0) as u32).clamp(0, 255) as u8;
-            let green = ((color.y * 255.0) as u32).clamp(0, 255) as u8;
-            let blue = ((color.z * 255.0) as u32).clamp(0, 255) as u8;
-
+            let red = (color.x.clamp(0.0, 1.0) * 255.0) as u8;
+            let green = (color.y.clamp(0.0, 1.0) * 255.0) as u8;
+            let blue = (color.z.clamp(0.0, 1.0) * 255.0) as u8;
             pixel.copy_from_slice(&[red, green, blue, 0xff]);
         });
     }
@@ -42,20 +41,17 @@ impl cpu_fb_template::App for App {
     fn render(&mut self, fb: &mut [u8]) {
         let uw = self.width as usize;
 
-        let camera = &self.camera;
+        let view = self.camera.get_view();
+        let pixels = &mut self.pixels;
 
-        self.pixels
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, pixel)| {
-                let x = (i % uw) as u32;
-                let y = (i / uw) as u32;
+        pixels.into_iter().enumerate().for_each(|(i, pixel)| {
+            let x = (i % uw) as u32;
+            let y = (i / uw) as u32;
+            let ray = view.generate_ray(x, y);
+            let dir = normalize(&ray.direction);
 
-                let ray = camera.generate_ray(x, y);
-                let dir = &ray.direction;
-
-                *pixel = vec4(dir.x, dir.y, dir.z, 1.0);
-            });
+            *pixel = vec4(dir.x, dir.y, dir.z, 1.0);
+        });
 
         self.blit_pixels(fb);
     }
@@ -78,10 +74,10 @@ impl cpu_fb_template::App for App {
             view_change.y -= 1.0;
         }
         if states.pressed(KeyCode::Left) {
-            view_change.x += 1.0;
+            view_change.x -= 1.0;
         }
         if states.pressed(KeyCode::Right) {
-            view_change.x -= 1.0;
+            view_change.x += 1.0;
         }
 
         if states.pressed(KeyCode::W) {
@@ -103,12 +99,15 @@ impl cpu_fb_template::App for App {
             pos_change.y -= 1.0;
         }
 
+        view_change = view_change * 0.1;
+        pos_change = pos_change * 0.1;
+
         if view_change != zero::<Vec3>() {
-            self.camera.rotate(view_change.x, view_change.y);
+            self.camera.translate_target(&view_change);
         }
 
         if pos_change != zero::<Vec3>() {
-            self.camera.move_relative(&pos_change);
+            self.camera.translate_relative(&pos_change);
         }
 
         None
