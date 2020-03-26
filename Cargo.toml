@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 cpu-fb-template = { git = "https://github.com/MeirBon/cpu-fb-template.git" }
+nalgebra-glm = "0.6.0"
+rayon = "1.3.0"
