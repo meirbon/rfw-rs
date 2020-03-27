@@ -6,56 +6,76 @@ use rayon::prelude::*;
 mod camera;
 mod constants;
 mod utils;
+mod scene;
+mod bvh;
 
 use camera::*;
 use utils::*;
+use scene::*;
 use cpu_fb_template::{run_app, KeyCode};
 
 struct App {
     pub width: u32,
     pub height: u32,
 
-    pixels: Vec<Vec4>,
+    pixels: Vec<Vec<Vec4>>,
     camera: Camera,
     timer: Timer,
+    scene: Scene,
 }
 
 impl App {
     pub fn new(width: u32, height: u32) -> App {
+        let mut scene = Scene::new();
+        scene.spheres.push(Sphere::new(vec3(0.0, 0.0, 2.0), 0.5, 0));
+
         App {
             width,
             height,
-            pixels: vec![zero(); (width * height) as usize],
-            camera: Camera::new(vec3(0.0, 0.0, 0.0), width, height, 40.0),
+            pixels: vec![vec![zero(); width as usize]; height as usize],
+            camera: Camera::new(width, height),
             timer: Timer::new(),
+            scene,
         }
     }
 
     pub fn blit_pixels(&self, fb: &mut [u8]) {
-        fb.par_chunks_mut(4).enumerate().for_each(|(i, pixel)| {
-            let color: &Vec4 = &self.pixels[i];
-            let red = (color.x.clamp(0.0, 1.0) * 255.0) as u8;
-            let green = (color.y.clamp(0.0, 1.0) * 255.0) as u8;
-            let blue = (color.z.clamp(0.0, 1.0) * 255.0) as u8;
-            pixel.copy_from_slice(&[red, green, blue, 0xff]);
+        let line_chunk = 4 * self.width as usize;
+        let pixels = &self.pixels;
+
+        let fb_iterator = fb.par_chunks_mut(line_chunk).enumerate();
+
+        fb_iterator.for_each(|(y, fb_pixels)| {
+            let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
+            for (x, pixel) in line_iterator {
+                let color = &pixels[y][x];
+                let red = (color.x.clamp(0.0, 1.0) * 255.0) as u8;
+                let green = (color.y.clamp(0.0, 1.0) * 255.0) as u8;
+                let blue = (color.z.clamp(0.0, 1.0) * 255.0) as u8;
+                pixel.copy_from_slice(&[red, green, blue, 0xff]);
+            }
         });
     }
 }
 
 impl cpu_fb_template::App for App {
     fn render(&mut self, fb: &mut [u8]) {
-        let uw = self.width as usize;
-
         let view = self.camera.get_view();
         let pixels = &mut self.pixels;
+        let scene = &self.scene;
 
-        pixels.into_iter().enumerate().for_each(|(i, pixel)| {
-            let x = (i % uw) as u32;
-            let y = (i / uw) as u32;
-            let ray = view.generate_ray(x, y);
-            let dir = normalize(&ray.direction);
+        pixels.par_iter_mut().enumerate().for_each(|(y, pixels)| {
+            let y = y as u32;
+            for (x, pixel) in pixels.iter_mut().enumerate() {
+                let x = x as u32;
+                let ray = view.generate_ray(x, y);
 
-            *pixel = vec4(dir.x, dir.y, dir.z, 1.0);
+                *pixel = if let Some(hit) = scene.intersect(&ray.origin, &ray.direction) {
+                    vec4(hit.normal.x, hit.normal.y, hit.normal.z, 1.0)
+                } else {
+                    zero()
+                }
+            }
         });
 
         self.blit_pixels(fb);
@@ -95,10 +115,10 @@ impl cpu_fb_template::App for App {
             pos_change.z -= 1.0;
         }
         if states.pressed(KeyCode::A) {
-            pos_change.x += 1.0;
+            pos_change.x -= 1.0;
         }
         if states.pressed(KeyCode::D) {
-            pos_change.x -= 1.0;
+            pos_change.x += 1.0;
         }
         if states.pressed(KeyCode::E) {
             pos_change.y += 1.0;
@@ -126,13 +146,13 @@ impl cpu_fb_template::App for App {
     fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        self.pixels.resize((width * height) as usize, zero());
+        self.pixels = vec![vec![zero(); width as usize]; height as usize];
         self.camera.resize(width, height);
     }
 }
 
 fn main() {
-    let width = 1024;
+    let width = 512;
     let height = 512;
     let app = App::new(width, height);
 
