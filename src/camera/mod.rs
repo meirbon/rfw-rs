@@ -126,8 +126,16 @@ impl Camera {
         let screen_size = (self.fov * (1.0 / 2.0) * (1.0 / (180.0 / PI))).tan();
         let center = pos + self.focal_distance * forward;
 
-        let scaled_right = screen_size * right * self.focal_distance * self.aspect_ratio;
-        let scaled_up = screen_size * self.focal_distance * up;
+        let (scaled_right, scaled_up) = {
+            let scaled_right = screen_size * right * self.focal_distance;
+            let scaled_up = screen_size * self.focal_distance * up;
+
+            if self.width > self.height {
+                (scaled_right * self.aspect_ratio, scaled_up)
+            } else {
+                (scaled_right, scaled_up * self.aspect_ratio)
+            }
+        };
 
         let p1 = center - scaled_right + scaled_up;
         let p2 = center + scaled_right + scaled_up;

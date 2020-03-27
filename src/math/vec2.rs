@@ -1,5 +1,4 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign, Div, DivAssign, Mul, MulAssign, Index, IndexMut};
-use std::convert::Into;
 use crate::math::*;
 
 #[repr(C)]

@@ -1,5 +1,6 @@
 use crate::bvh::*;
 use crate::math::*;
+use crate::utils::Timer;
 
 pub struct Sphere {
     pos: Vec3,
@@ -151,7 +152,9 @@ impl Scene {
         }
 
         let mut bvh = BVH::new(self.spheres.len());
+        let timer = Timer::new();
         bvh.build(aabbs.as_slice());
+        println!("Building took: {}", timer.elapsed_in_millis());
         self.bvh = Some(bvh);
     }
 }

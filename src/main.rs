@@ -14,7 +14,6 @@ use utils::*;
 use scene::*;
 use math::*;
 use cpu_fb_template::{run_app, KeyCode};
-use crate::bvh::BVHNode;
 
 struct App {
     pub width: u32,
@@ -29,11 +28,9 @@ struct App {
 impl App {
     pub fn new(width: u32, height: u32) -> App {
         let mut scene = Scene::new();
-        for y in -2..3 {
-            for x in -5..6 {
-                for i in 0..20 {
-                    scene.spheres.push(Sphere::new(vec3(x as f32, y as f32, 2.0 + i as f32), 0.5, 0));
-                }
+        for x in -20..21 {
+            for i in -20..21 {
+                scene.spheres.push(Sphere::new(vec3(x as f32, 0.0, 2.0 + i as f32), 0.5, 0));
             }
         }
         scene.build_bvh();

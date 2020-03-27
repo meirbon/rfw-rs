@@ -4,6 +4,7 @@ pub use aabb::AABB;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
+use std::sync::mpsc::{Sender, Receiver, channel};
 
 use crate::scene::RayHit;
 use crate::math::*;
@@ -25,6 +26,7 @@ impl BVH {
         }
     }
 
+    #[cfg(feature="multithreading")]
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
@@ -37,6 +39,36 @@ impl BVH {
         for aabb in aabbs { self.nodes[0].bounds.grow_bb(aabb); }
 
         BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
+    }
+    #[cfg(not(feature="multithreading"))]
+    pub fn build(&mut self, aabbs: &[AABB]) {
+        assert_eq!(aabbs.len(), (self.nodes.len() / 2));
+        assert_eq!(aabbs.len(), self.prim_indices.len());
+
+        let mut pool_ptr = Arc::new(AtomicUsize::new(2));
+        let depth = 1;
+
+        let mut root_bounds = AABB::new();
+
+        root_bounds.left_first = 0;
+        root_bounds.count = aabbs.len() as i32;
+        for aabb in aabbs { root_bounds.grow_bb(aabb); }
+
+        let (sender, receiver) = channel();
+
+        crossbeam::scope(|s| {
+            let prim_indices = self.prim_indices.as_mut_slice();
+            let thread_count = Arc::new(AtomicUsize::new(1));
+            let handle = s.spawn(move |s| {
+                BVHNode::subdivide_mt(0, root_bounds, aabbs, sender, prim_indices, depth, pool_ptr, thread_count, s);
+            });
+
+            for payload in receiver.iter() {
+                self.nodes[payload.index].bounds = payload.bounds;
+            }
+
+            handle.join().unwrap();
+        }).unwrap();
     }
 }
 
@@ -51,10 +83,15 @@ impl Display for BVHNode {
     }
 }
 
-struct NewNodeInfo {
+pub struct NewNodeInfo {
     pub left: usize,
     pub left_box: AABB,
     pub right_box: AABB,
+}
+
+pub struct NodeUpdatePayLoad {
+    pub index: usize,
+    pub bounds: AABB,
 }
 
 impl BVHNode {
@@ -68,19 +105,80 @@ impl BVHNode {
         }
     }
 
+    pub fn subdivide_mt<'a>(
+        index: usize,
+        mut bounds: AABB,
+        aabbs: &'a [aabb::AABB],
+        update_node: Sender<NodeUpdatePayLoad>,
+        prim_indices: &'a mut [u32],
+        depth: u32,
+        pool_ptr: Arc<AtomicUsize>,
+        thread_count: Arc<AtomicUsize>,
+        scope: &crossbeam::thread::Scope<'a>,
+    ) {
+        let depth = depth + 1;
+        if bounds.count <= Self::MAX_PRIMITIVES || depth >= Self::MAX_DEPTH {
+            update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
+            return;
+        }
+
+        if let Some(new_nodes) = Self::partition(&bounds, aabbs, prim_indices, pool_ptr.clone()) {
+            bounds.left_first = new_nodes.left as i32;
+            bounds.count = -1;
+            update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
+
+            let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
+
+            let threads = thread_count.fetch_add(1, Ordering::Relaxed);
+            if threads > num_cpus::get() {
+                if new_nodes.left_box.count > 0 {
+                    Self::subdivide_mt(new_nodes.left, new_nodes.left_box, aabbs, update_node.clone(),
+                                       left_indices, depth, pool_ptr.clone(), thread_count.clone(), scope);
+                } else {
+                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
+                }
+
+                if new_nodes.right_box.count > 0 {
+                    Self::subdivide_mt(new_nodes.left + 1, new_nodes.right_box, aabbs, update_node,
+                                       right_indices, depth, pool_ptr.clone(), thread_count.clone(), scope);
+                } else {
+                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
+                }
+            } else {
+                let left = new_nodes.left;
+                let left_box = new_nodes.left_box;
+                let sender = update_node.clone();
+                let tc = thread_count.clone();
+                let pp = pool_ptr.clone();
+
+                if left_box.count > 0 {
+                    scope.spawn(move |s| {
+                        Self::subdivide_mt(left, left_box, aabbs, sender, left_indices, depth, pp, tc, s);
+                    });
+                } else {
+                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: left_box }).unwrap();
+                }
+
+                if new_nodes.right_box.count > 0 {
+                    Self::subdivide_mt(new_nodes.left + 1, new_nodes.right_box, aabbs, update_node, right_indices, depth, pool_ptr.clone(), thread_count, scope);
+                } else {
+                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
+                }
+            }
+        }
+    }
+
     pub fn subdivide(index: usize, aabbs: &[aabb::AABB], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
         let depth = depth + 1;
         if tree[index].bounds.count <= Self::MAX_PRIMITIVES || depth >= Self::MAX_DEPTH {
             return;
         }
 
-        if let Some(new_nodes) = tree[index].partition(aabbs, prim_indices, pool_ptr.clone()) {
+        if let Some(new_nodes) = Self::partition(&tree[index].bounds, aabbs, prim_indices, pool_ptr.clone()) {
             tree[index].bounds.left_first = new_nodes.left as i32;
             tree[index].bounds.count = -1;
 
-            // TODO: Figure out how to split tree in multiple splices as well and enable multithreaded BVH building
             let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
-
             {
                 tree[new_nodes.left].bounds = new_nodes.left_box;
                 if tree[new_nodes.left].bounds.count > 0 {
@@ -97,7 +195,7 @@ impl BVHNode {
         }
     }
 
-    pub fn partition(&mut self, aabbs: &[aabb::AABB], prim_indices: &mut [u32], pool_ptr: Arc<AtomicUsize>) -> Option<NewNodeInfo> {
+    pub fn partition(bounds: &AABB, aabbs: &[aabb::AABB], prim_indices: &mut [u32], pool_ptr: Arc<AtomicUsize>) -> Option<NewNodeInfo> {
         let mut lowest_cost = 1e34 as f32;
         let mut best_split = 0.0 as f32;
         let mut best_axis = 0;
@@ -105,15 +203,15 @@ impl BVHNode {
         let mut best_left_box = AABB::new();
         let mut best_right_box = AABB::new();
 
-        let mut parent_cost = self.bounds.area() * self.bounds.count as f32;
-        let lengths = self.bounds.lengths();
+        let mut parent_cost = bounds.area() * bounds.count as f32;
+        let lengths = bounds.lengths();
 
         let bin_size = 1.0 / (Self::BINS + 2) as f32;
 
         for axis in 0..3 {
             for i in 1..(Self::BINS + 2) {
                 let bin_offset = i as f32 * bin_size;
-                let split_offset = self.bounds.min[axis] + lengths[axis] * bin_offset;
+                let split_offset = bounds.min[axis] + lengths[axis] * bin_offset;
 
                 let mut left_count = 0;
                 let mut right_count = 0;
@@ -122,7 +220,7 @@ impl BVHNode {
                 let mut right_box = AABB::new();
 
                 let (left_area, right_area) = {
-                    for idx in 0..self.bounds.count {
+                    for idx in 0..bounds.count {
                         let idx = unsafe { *prim_indices.get_unchecked(idx as usize) as usize };
                         let aabb = unsafe { aabbs.get_unchecked(idx) };
 
@@ -155,11 +253,11 @@ impl BVHNode {
             return None;
         }
 
-        let left_first = self.bounds.left_first;
+        let left_first = bounds.left_first;
         let mut left_count = 0;
-        let mut right_first = self.bounds.left_first;
-        let mut right_count = self.bounds.count;
-        for idx in 0..self.bounds.count {
+        let mut right_first = bounds.left_first;
+        let mut right_count = bounds.count;
+        for idx in 0..bounds.count {
             let aabb = unsafe { aabbs.get_unchecked(*prim_indices.get_unchecked(idx as usize) as usize) };
             let center = aabb.center()[best_axis];
 
