@@ -18,31 +18,22 @@ impl Display for AABB {
 impl AABB {
     pub fn new() -> AABB {
         AABB {
-            min: vec3(1e34, 1e34, 1e34),
+            min: all(1e34),
             left_first: -1,
-            max: vec3(-1e34, -1e34, -1e34),
+            max: all(-1e34),
             count: -1,
         }
     }
 
     pub fn intersect(&self, origin: Vec3, dir_inverse: Vec3, t: f32) -> Option<(f32, f32)> {
-        let t1 = (self.min.x - origin.x) * dir_inverse.x;
-        let t2 = (self.max.x - origin.x) * dir_inverse.x;
+        let t1 = (self.min - origin) * dir_inverse;
+        let t2 = (self.max - origin) * dir_inverse;
 
-        let t_min = t1.min(t2);
-        let t_max = t1.max(t2);
+        let t_min = min(t1, t2);
+        let t_max = max(t1, t2);
 
-        let t1 = (self.min.y - origin.y) * dir_inverse.y;
-        let t2 = (self.max.y - origin.y) * dir_inverse.y;
-
-        let t_min = t_min.max(t1.min(t2));
-        let t_max = t_max.min(t1.max(t2));
-
-        let t1 = (self.min.z - origin.z) * dir_inverse.z;
-        let t2 = (self.max.z - origin.z) * dir_inverse.z;
-
-        let t_min = t_min.max(t1.min(t2));
-        let t_max = t_max.min(t1.max(t2));
+        let t_min = t_min.x.max(t_min.y.max(t_min.z));
+        let t_max = t_max.x.min(t_max.y.min(t_max.z));
 
         if t_max > t_min && t_min < t {
             return Some((t_min, t_max));
@@ -52,13 +43,13 @@ impl AABB {
     }
 
     pub fn grow(&mut self, pos: Vec3) {
-        self.min = min(self.min, pos) as Vec3;
-        self.max = max(self.max, pos) as Vec3;
+        self.min = min(self.min, pos);
+        self.max = max(self.max, pos);
     }
 
     pub fn grow_bb(&mut self, aabb: &AABB) {
-        self.min = min(self.min, aabb.min) as Vec3;
-        self.max = max(self.max, aabb.max) as Vec3;
+        self.min = min(self.min, aabb.min);
+        self.max = max(self.max, aabb.max);
     }
 
     pub fn offset_by(&mut self, delta: f32) {
@@ -68,18 +59,18 @@ impl AABB {
 
     pub fn union_of(&self, bb: &AABB) -> AABB {
         AABB {
-            min: min(self.min, bb.min) as Vec3,
+            min: min(self.min, bb.min),
             left_first: -1,
-            max: max(self.max, bb.max) as Vec3,
+            max: max(self.max, bb.max),
             count: -1,
         }
     }
 
     pub fn intersection(&self, bb: &AABB) -> AABB {
         AABB {
-            min: max(self.min, bb.min) as Vec3,
+            min: max(self.min, bb.min),
             left_first: -1,
-            max: min(self.max, bb.max) as Vec3,
+            max: min(self.max, bb.max),
             count: -1,
         }
     }
@@ -104,8 +95,8 @@ impl AABB {
         self.max - self.min
     }
 
-    pub fn longest_axis(&self) -> u32 {
-        let mut a: u32 = 0;
+    pub fn longest_axis(&self) -> usize {
+        let mut a: usize = 0;
         if self.extend(1) > self.extend(0) {
             a = 1;
         }
@@ -115,12 +106,7 @@ impl AABB {
         a
     }
 
-    pub fn extend(&self, axis: u32) -> f32 {
-        match axis {
-            0 => self.max.x - self.min.x,
-            1 => self.max.y - self.min.y,
-            2 => self.max.z - self.min.z,
-            _ => panic!(format!("Invalid axis: {}", axis))
-        }
+    pub fn extend(&self, axis: usize) -> f32 {
+        self.max[axis] - self.min[axis]
     }
 }

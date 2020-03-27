@@ -31,25 +31,12 @@ impl BVH {
 
         let mut pool_ptr = Arc::new(AtomicUsize::new(2));
         let depth = 1;
-        let mut bounds = AABB::new();
-        for aabb in aabbs { bounds.grow_bb(aabb); }
 
-        self.nodes[0].bounds = bounds;
         self.nodes[0].bounds.left_first = 0;
         self.nodes[0].bounds.count = aabbs.len() as i32;
+        for aabb in aabbs { self.nodes[0].bounds.grow_bb(aabb); }
 
         BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
-
-        let pool = pool_ptr.load(Ordering::Acquire);
-
-        println!("left_first: {}, pool_ptr: {}", self.nodes[0].bounds.left_first, pool);
-        for i in 0..pool {
-            println!("node: {}, {}", i, &self.nodes[i]);
-        }
-
-        for i in &self.prim_indices {
-            println!("{}", i);
-        }
     }
 }
 
@@ -88,9 +75,6 @@ impl BVHNode {
         }
 
         if let Some(new_nodes) = tree[index].partition(aabbs, prim_indices, pool_ptr.clone()) {
-            let left_first = tree[index].bounds.left_first;
-            let right_first = left_first + new_nodes.left_box.count as i32;
-
             tree[index].bounds.left_first = new_nodes.left as i32;
             tree[index].bounds.count = -1;
 
@@ -118,8 +102,6 @@ impl BVHNode {
         let mut best_split = 0.0 as f32;
         let mut best_axis = 0;
 
-        let mut best_left_count = 0;
-        let mut best_right_count = 0;
         let mut best_left_box = AABB::new();
         let mut best_right_box = AABB::new();
 
@@ -131,13 +113,7 @@ impl BVHNode {
         for axis in 0..3 {
             for i in 1..(Self::BINS + 2) {
                 let bin_offset = i as f32 * bin_size;
-
-                let split_offset = match axis {
-                    0 => self.bounds.min.x + lengths.x * bin_offset,
-                    1 => self.bounds.min.y + lengths.y * bin_offset,
-                    2 => self.bounds.min.z + lengths.z * bin_offset,
-                    _ => 0.0
-                };
+                let split_offset = self.bounds.min[axis] + lengths[axis] * bin_offset;
 
                 let mut left_count = 0;
                 let mut right_count = 0;
@@ -147,17 +123,12 @@ impl BVHNode {
 
                 let (left_area, right_area) = {
                     for idx in 0..self.bounds.count {
-                        let aabb = unsafe { aabbs.get_unchecked(idx as usize) };
+                        let idx = unsafe { *prim_indices.get_unchecked(idx as usize) as usize };
+                        let aabb = unsafe { aabbs.get_unchecked(idx) };
 
-                        let center = aabb.center();
-                        let is_left = match axis {
-                            0 => center.x <= split_offset,
-                            1 => center.y <= split_offset,
-                            2 => center.z <= split_offset,
-                            _ => true
-                        };
+                        let center = aabb.center()[axis];
 
-                        if is_left {
+                        if center <= split_offset {
                             left_box.grow_bb(aabb);
                             left_count = left_count + 1;
                         } else {
@@ -176,8 +147,6 @@ impl BVHNode {
                     best_axis = axis;
                     best_left_box = left_box;
                     best_right_box = right_box;
-                    best_left_count = left_count;
-                    best_right_count = right_count;
                 }
             }
         }
@@ -192,17 +161,9 @@ impl BVHNode {
         let mut right_count = self.bounds.count;
         for idx in 0..self.bounds.count {
             let aabb = unsafe { aabbs.get_unchecked(*prim_indices.get_unchecked(idx as usize) as usize) };
-
-            let center = aabb.center();
-            let center = match best_axis {
-                0 => center.x,
-                1 => center.y,
-                2 => center.z,
-                _ => 0.0
-            };
+            let center = aabb.center()[best_axis];
 
             if center <= best_split {
-                // prim_indices.swap((left_first + idx) as usize, (left_first + left_count) as usize);
                 prim_indices.swap((idx) as usize, (left_count) as usize);
                 left_count = left_count + 1;
                 right_first = right_first + 1;
@@ -211,12 +172,14 @@ impl BVHNode {
         }
 
         let left = pool_ptr.fetch_add(2, Ordering::SeqCst);
-        let right = left - 1;
 
         best_left_box.left_first = left_first;
         best_left_box.count = left_count;
+        best_left_box.offset_by(crate::constants::EPSILON);
+
         best_right_box.left_first = right_first;
         best_right_box.count = right_count;
+        best_right_box.offset_by(crate::constants::EPSILON);
 
         Some(NewNodeInfo {
             left,
@@ -293,7 +256,7 @@ impl BVHNode {
             return depth;
         }
 
-        loop {
+        while stack_ptr >= 0 {
             depth = depth + 1;
             let node = &tree[hit_stack[stack_ptr as usize] as usize];
             stack_ptr = stack_ptr - 1;
@@ -314,17 +277,90 @@ impl BVHNode {
                 depth += (new_stack_ptr - stack_ptr) as u32;
                 stack_ptr = new_stack_ptr;
             }
-
-
-            if stack_ptr < 0 {
-                break;
-            }
         }
 
         depth
     }
 
     pub fn traverse<I, N, U>(
+        &self,
+        tree: &[BVHNode],
+        prim_indices: &[u32],
+        origin: Vec3,
+        dir: Vec3,
+        t_min: f32,
+        intersection_test: I,
+        get_normal: N,
+        get_uv: U,
+    ) -> Option<RayHit>
+        where I: Fn(usize) -> Option<f32> + Copy,
+              N: Fn(usize, f32, Vec3) -> Vec3,
+              U: Fn(usize, f32, Vec3, Vec3) -> Vec2
+    {
+        let mut hit_index: i32 = -1;
+        let mut t = 1e34;
+
+        self.traverse_recursive(tree, prim_indices, origin, 1.0 / dir, t_min, &mut t, &mut hit_index, &intersection_test);
+
+        if hit_index < 0 {
+            return None;
+        }
+
+        let hit_index = hit_index as usize;
+        let p: Vec3 = origin + dir * t;
+        let normal = get_normal(hit_index, t, p);
+        let uv = get_uv(hit_index, t, p, normal);
+
+        Some(RayHit {
+            normal,
+            t,
+            uv,
+        })
+    }
+
+    fn traverse_recursive<I>(&self, tree: &[BVHNode],
+                             prim_indices: &[u32],
+                             origin: Vec3,
+                             dir_inverse: Vec3,
+                             t_min: f32,
+                             t: &mut f32,
+                             hit_id: &mut i32,
+                             intersection_test: &I)
+        where I: Fn(usize) -> Option<f32>
+    {
+        if self.bounds.count > -1 {
+            for i in 0..self.bounds.count {
+                let prim_id = prim_indices[(self.bounds.left_first + i) as usize];
+                if let Some(new_t) = intersection_test(prim_id as usize) {
+                    if new_t < *t && new_t > t_min {
+                        *t = new_t;
+                        *hit_id = prim_id as i32;
+                    }
+                }
+            }
+        } else {
+            let left = tree[self.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, *t);
+            let right = tree[(self.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, *t);
+            if left.is_some() & &right.is_some() {
+                let (t_near_left, _) = left.unwrap();
+                let (t_near_right, _) = right.unwrap();
+
+                if t_near_left < t_near_right {
+                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                } else {
+                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                }
+            } else if left.is_some() {
+                tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+            } else if right.is_some() {
+                tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+            }
+        }
+    }
+
+    pub fn traverse_stack<I, N, U>(
         tree: &[BVHNode],
         prim_indices: &[u32],
         origin: Vec3,
@@ -345,7 +381,7 @@ impl BVHNode {
 
         let dir_inverse = vec3(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
         hit_stack[stack_ptr as usize] = 0;
-        loop {
+        while stack_ptr >= 0 {
             let node = &tree[hit_stack[stack_ptr as usize] as usize];
             stack_ptr = stack_ptr - 1;
 
@@ -353,7 +389,7 @@ impl BVHNode {
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
                     if let Some(new_t) = intersection_test(prim_id as usize) {
-                        if new_t < t && t > t_min {
+                        if new_t < t && new_t > t_min {
                             t = new_t;
                             hit_index = prim_id as i32;
                         }
@@ -363,10 +399,6 @@ impl BVHNode {
                 let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
                 let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
                 stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
-            }
-
-            if stack_ptr < 0 {
-                break;
             }
         }
 

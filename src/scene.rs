@@ -74,10 +74,22 @@ impl Scene {
 
     pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<RayHit> {
         if let Some(bvh) = &self.bvh {
-            return BVHNode::traverse(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(), origin, direction, 1e-5,
-                                     |i| { self.spheres[i].intersect(origin, direction) },
-                                     |i, t, p| -> Vec3{ self.spheres[i].get_normal(p) },
-                                     |i, t, p, n| -> Vec2 { self.spheres[i].get_uv(n) },
+            let intersection = |i| -> Option<f32> { self.spheres[i as usize].intersect(origin, direction) };
+            let normal = |i, t, p| -> Vec3 { self.spheres[i as usize].get_normal(p) };
+            let uv = |i, t, p, n| -> Vec2 { self.spheres[i as usize].get_uv(n) };
+
+            // return bvh.nodes[0].traverse(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
+            //                              origin,
+            //                              direction,
+            //                              1e-5,
+            //                              intersection,
+            //                              normal,
+            //                              uv);
+
+            return BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(), origin, direction, 1e-5,
+                                     intersection,
+                                     normal,
+                                     uv,
             );
         }
 

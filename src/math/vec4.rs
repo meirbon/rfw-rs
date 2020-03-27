@@ -352,10 +352,10 @@ impl DivAssign<f32> for Vec4 {
     }
 }
 
-impl Index<u32> for Vec4 {
+impl Index<usize> for Vec4 {
     type Output = f32;
 
-    fn index(&self, index: u32) -> &<Self as Index<u32>>::Output {
+    fn index(&self, index: usize) -> &<Self as Index<usize>>::Output {
         match index {
             0 => &self.x,
             1 => &self.y,
@@ -366,8 +366,8 @@ impl Index<u32> for Vec4 {
     }
 }
 
-impl IndexMut<u32> for Vec4 {
-    fn index_mut(&mut self, index: u32) -> &mut <Self as Index<u32>>::Output {
+impl IndexMut<usize> for Vec4 {
+    fn index_mut(&mut self, index: usize) -> &mut <Self as Index<usize>>::Output {
         match index {
             0 => &mut self.x,
             1 => &mut self.y,

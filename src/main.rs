@@ -79,17 +79,6 @@ impl cpu_fb_template::App for App {
                 let x = x as u32;
                 let ray = view.generate_ray(x, y);
 
-
-                // let depth = scene.depth_test(ray.origin, ray.direction) as i32;
-                // if depth > 0 {
-                //     let red = if depth > 2 { depth as f32 / 32.0 } else { 0.0 };
-                //     let green = (16 - depth).max(0) as f32 / 16.0;
-                //     let blue = 0.0;
-                //     *pixel = vec4(red, green, blue, 1.0);
-                // } else {
-                //     *pixel = zero();
-                // }
-
                 *pixel = if let Some(hit) = scene.intersect(ray.origin, ray.direction) {
                     vec4(hit.normal.x, hit.normal.y, hit.normal.z, 1.0)
                 } else {
