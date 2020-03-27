@@ -1,6 +1,5 @@
 #![feature(clamp)]
 
-use nalgebra_glm::*;
 use rayon::prelude::*;
 
 mod camera;
@@ -8,11 +7,14 @@ mod constants;
 mod utils;
 mod scene;
 mod bvh;
+mod math;
 
 use camera::*;
 use utils::*;
 use scene::*;
+use math::*;
 use cpu_fb_template::{run_app, KeyCode};
+use crate::bvh::BVHNode;
 
 struct App {
     pub width: u32,
@@ -27,12 +29,19 @@ struct App {
 impl App {
     pub fn new(width: u32, height: u32) -> App {
         let mut scene = Scene::new();
-        scene.spheres.push(Sphere::new(vec3(0.0, 0.0, 2.0), 0.5, 0));
+        for y in -2..3 {
+            for x in -5..6 {
+                for i in 0..20 {
+                    scene.spheres.push(Sphere::new(vec3(x as f32, y as f32, 2.0 + i as f32), 0.5, 0));
+                }
+            }
+        }
+        scene.build_bvh();
 
         App {
             width,
             height,
-            pixels: vec![vec![zero(); width as usize]; height as usize],
+            pixels: vec![vec![Vec4::new_single(0.0); width as usize]; height as usize],
             camera: Camera::new(width, height),
             timer: Timer::new(),
             scene,
@@ -48,10 +57,10 @@ impl App {
         fb_iterator.for_each(|(y, fb_pixels)| {
             let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
             for (x, pixel) in line_iterator {
-                let color = &pixels[y][x];
-                let red = (color.x.clamp(0.0, 1.0) * 255.0) as u8;
-                let green = (color.y.clamp(0.0, 1.0) * 255.0) as u8;
-                let blue = (color.z.clamp(0.0, 1.0) * 255.0) as u8;
+                let color = clamp(pixels[y][x], 0.0, 1.0);
+                let red = (color.x * 255.0) as u8;
+                let green = (color.y * 255.0) as u8;
+                let blue = (color.z * 255.0) as u8;
                 pixel.copy_from_slice(&[red, green, blue, 0xff]);
             }
         });
@@ -70,7 +79,18 @@ impl cpu_fb_template::App for App {
                 let x = x as u32;
                 let ray = view.generate_ray(x, y);
 
-                *pixel = if let Some(hit) = scene.intersect(&ray.origin, &ray.direction) {
+
+                // let depth = scene.depth_test(ray.origin, ray.direction) as i32;
+                // if depth > 0 {
+                //     let red = if depth > 2 { depth as f32 / 32.0 } else { 0.0 };
+                //     let green = (16 - depth).max(0) as f32 / 16.0;
+                //     let blue = 0.0;
+                //     *pixel = vec4(red, green, blue, 1.0);
+                // } else {
+                //     *pixel = zero();
+                // }
+
+                *pixel = if let Some(hit) = scene.intersect(ray.origin, ray.direction) {
                     vec4(hit.normal.x, hit.normal.y, hit.normal.z, 1.0)
                 } else {
                     zero()
@@ -130,7 +150,7 @@ impl cpu_fb_template::App for App {
         view_change = view_change * elapsed * 0.002;
         pos_change = pos_change * elapsed * 0.002;
 
-        if view_change != zero::<Vec3>() {
+        if view_change != zero() {
             self.camera.translate_target(&view_change);
         }
 

@@ -1,10 +1,18 @@
-use nalgebra_glm::*;
+use crate::math::*;
+use std::fmt::{Display, Formatter};
 
+#[derive(Debug, Clone)]
 pub struct AABB {
     pub min: Vec3,
     pub left_first: i32,
     pub max: Vec3,
     pub count: i32,
+}
+
+impl Display for AABB {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})", self.min.x, self.min.y, self.min.z, self.left_first, self.max.x, self.max.y, self.max.z, self.count)
+    }
 }
 
 impl AABB {
@@ -17,7 +25,7 @@ impl AABB {
         }
     }
 
-    pub fn intersect(&self, origin: &Vec3, dir_inverse: &Vec3, t: f32) -> Option<(f32, f32)> {
+    pub fn intersect(&self, origin: Vec3, dir_inverse: Vec3, t: f32) -> Option<(f32, f32)> {
         let t1 = (self.min.x - origin.x) * dir_inverse.x;
         let t2 = (self.max.x - origin.x) * dir_inverse.x;
 
@@ -43,55 +51,57 @@ impl AABB {
         None
     }
 
-    pub fn grow(&mut self, pos: &Vec3) {
-        self.min = min2(&self.min, pos) as Vec3;
-        self.max = max2(&self.max, pos) as Vec3;
+    pub fn grow(&mut self, pos: Vec3) {
+        self.min = min(self.min, pos) as Vec3;
+        self.max = max(self.max, pos) as Vec3;
     }
 
     pub fn grow_bb(&mut self, aabb: &AABB) {
-        self.min = min2(&self.min, &aabb.min) as Vec3;
-        self.max = max2(&self.max, &aabb.max) as Vec3;
+        self.min = min(self.min, aabb.min) as Vec3;
+        self.max = max(self.max, aabb.max) as Vec3;
     }
 
     pub fn offset_by(&mut self, delta: f32) {
-        // self.min = &self.min - delta;
-        // self.max = &self.max + delta;
+        self.min = self.min - vec3(delta, delta, delta);
+        self.max = self.max + vec3(delta, delta, delta);
     }
 
     pub fn union_of(&self, bb: &AABB) -> AABB {
         AABB {
-            min: min2(&self.min, &bb.min) as Vec3,
+            min: min(self.min, bb.min) as Vec3,
             left_first: -1,
-            max: max2(&self.max, &bb.max) as Vec3,
+            max: max(self.max, bb.max) as Vec3,
             count: -1,
         }
     }
 
     pub fn intersection(&self, bb: &AABB) -> AABB {
         AABB {
-            min: max2(&self.min, &bb.min) as Vec3,
+            min: max(self.min, bb.min) as Vec3,
             left_first: -1,
-            max: min2(&self.max, &bb.max) as Vec3,
+            max: min(self.max, bb.max) as Vec3,
             count: -1,
         }
     }
 
     pub fn volume(&self) -> f32 {
-        let length = &self.max - &self.min;
+        let length = self.max - self.min;
         return length.x * length.y * length.z;
     }
 
     pub fn center(&self) -> Vec3 {
-        (&self.min + &self.max) * 0.5
+        (self.min + self.max) * 0.5
     }
 
     pub fn area(&self) -> f32 {
-        let e = &self.max - &self.min;
-        0.0.max(e.x * e.y + e.x * e.z + e.y * e.z)
+        let e = self.max - self.min;
+        let value: f32 = e.x * e.y + e.x * e.z + e.y * e.z;
+
+        0.0_f32.max(value)
     }
 
     pub fn lengths(&self) -> Vec3 {
-        &self.max - &self.min
+        self.max - self.min
     }
 
     pub fn longest_axis(&self) -> u32 {
