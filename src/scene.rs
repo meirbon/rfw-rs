@@ -1,6 +1,7 @@
 use crate::bvh::*;
-use crate::math::*;
 use crate::utils::Timer;
+
+use glam::*;
 
 pub struct Sphere {
     pos: Vec3,
@@ -18,11 +19,11 @@ impl Sphere {
     }
 
     pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<f32> {
-        let a = dot(direction, direction);
+        let a = direction.dot(direction);
         let r_pos = origin - self.pos;
 
-        let b = (direction * 2.0).dot(&r_pos);
-        let r_pos2 = r_pos.dot(&r_pos);
+        let b = (direction * 2.0).dot(r_pos);
+        let r_pos2 = r_pos.dot(r_pos);
         let c = r_pos2 - self.radius2;
 
         let d: f32 = (b * b) - (4.0 * a * c);
@@ -42,15 +43,14 @@ impl Sphere {
     }
 
     pub fn get_uv(&self, n: Vec3) -> Vec2 {
-        let u = n.x.atan2(n.z) * (1.0 / (2.0 * std::f32::consts::PI)) + 0.5;
-        let v = n.y * 0.5 + 0.5;
+        let u = n.x().atan2(n.z()) * (1.0 / (2.0 * std::f32::consts::PI)) + 0.5;
+        let v = n.y() * 0.5 + 0.5;
 
         vec2(u, v)
     }
 
     pub fn get_normal(&self, p: Vec3) -> Vec3 {
-        let dir: Vec3 = p - &self.pos;
-        dir.normalize()
+        (p - self.pos).normalize()
     }
 }
 
@@ -65,6 +65,7 @@ pub struct Scene {
     pub bvh: Option<BVH>,
 }
 
+#[allow(dead_code)]
 impl Scene {
     pub fn new() -> Scene {
         Scene {
@@ -76,8 +77,8 @@ impl Scene {
     pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<RayHit> {
         if let Some(bvh) = &self.bvh {
             let intersection = |i| -> Option<f32> { self.spheres[i as usize].intersect(origin, direction) };
-            let normal = |i, t, p| -> Vec3 { self.spheres[i as usize].get_normal(p) };
-            let uv = |i, t, p, n| -> Vec2 { self.spheres[i as usize].get_uv(n) };
+            let normal = |i, _, p| -> Vec3 { self.spheres[i as usize].get_normal(p) };
+            let uv = |i, _, _, n| -> Vec2 { self.spheres[i as usize].get_uv(n) };
 
             // return bvh.nodes[0].traverse(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
             //                              origin,
@@ -88,9 +89,9 @@ impl Scene {
             //                              uv);
 
             return BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(), origin, direction, 1e-5,
-                                     intersection,
-                                     normal,
-                                     uv,
+                                           intersection,
+                                           normal,
+                                           uv,
             );
         }
 
@@ -140,7 +141,7 @@ impl Scene {
         for sphere in &self.spheres {
             let mut aabb = AABB::new();
             let radius = sphere.radius2.sqrt();
-            let radius = radius + crate::constants::EPSILON;
+            let radius: Vec3 = [radius + crate::constants::EPSILON; 3].into();
 
             let min = sphere.pos - radius;
             let max = sphere.pos + radius;

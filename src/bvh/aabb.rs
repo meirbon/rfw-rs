@@ -1,4 +1,4 @@
-use crate::math::*;
+use glam::*;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone)]
@@ -11,16 +11,18 @@ pub struct AABB {
 
 impl Display for AABB {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})", self.min.x, self.min.y, self.min.z, self.left_first, self.max.x, self.max.y, self.max.z, self.count)
+        write!(f, "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})",
+               self.min.x(), self.min.y(), self.min.z(), self.left_first, self.max.x(), self.max.y(), self.max.z(), self.count)
     }
 }
 
+#[allow(dead_code)]
 impl AABB {
     pub fn new() -> AABB {
         AABB {
-            min: all(1e34),
+            min: [1e34; 3].into(),
             left_first: -1,
-            max: all(-1e34),
+            max: [-1e34; 3].into(),
             count: -1,
         }
     }
@@ -29,11 +31,11 @@ impl AABB {
         let t1 = (self.min - origin) * dir_inverse;
         let t2 = (self.max - origin) * dir_inverse;
 
-        let t_min = min(t1, t2);
-        let t_max = max(t1, t2);
+        let t_min = t1.min(t2);
+        let t_max = t1.max(t2);
 
-        let t_min = t_min.x.max(t_min.y.max(t_min.z));
-        let t_max = t_max.x.min(t_max.y.min(t_max.z));
+        let t_min = t_min.x().max(t_min.y().max(t_min.z()));
+        let t_max = t_max.x().min(t_max.y().min(t_max.z()));
 
         if t_max > t_min && t_min < t {
             return Some((t_min, t_max));
@@ -43,13 +45,13 @@ impl AABB {
     }
 
     pub fn grow(&mut self, pos: Vec3) {
-        self.min = min(self.min, pos);
-        self.max = max(self.max, pos);
+        self.min = self.min.min(pos);
+        self.max = self.max.max(pos);
     }
 
     pub fn grow_bb(&mut self, aabb: &AABB) {
-        self.min = min(self.min, aabb.min);
-        self.max = max(self.max, aabb.max);
+        self.min = self.min.min(aabb.min);
+        self.max = self.max.max(aabb.max);
     }
 
     pub fn offset_by(&mut self, delta: f32) {
@@ -59,25 +61,25 @@ impl AABB {
 
     pub fn union_of(&self, bb: &AABB) -> AABB {
         AABB {
-            min: min(self.min, bb.min),
+            min: self.min.min(bb.min),
             left_first: -1,
-            max: max(self.max, bb.max),
+            max: self.max.max(bb.max),
             count: -1,
         }
     }
 
     pub fn intersection(&self, bb: &AABB) -> AABB {
         AABB {
-            min: max(self.min, bb.min),
+            min: self.min.max(bb.min),
             left_first: -1,
-            max: min(self.max, bb.max),
+            max: self.max.min(bb.max),
             count: -1,
         }
     }
 
     pub fn volume(&self) -> f32 {
         let length = self.max - self.min;
-        return length.x * length.y * length.z;
+        return length.x() * length.y() * length.z();
     }
 
     pub fn center(&self) -> Vec3 {
@@ -86,7 +88,7 @@ impl AABB {
 
     pub fn area(&self) -> f32 {
         let e = self.max - self.min;
-        let value: f32 = e.x * e.y + e.x * e.z + e.y * e.z;
+        let value: f32 = e.x() * e.y() + e.x() * e.z() + e.y() * e.z();
 
         0.0_f32.max(value)
     }

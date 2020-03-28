@@ -1,6 +1,7 @@
-use nalgebra_glm;
-use crate::math::*;
+// use nalgebra_glm;
+// use crate::math::*;
 use std::f32::consts::PI;
+use glam::*;
 
 #[derive(Copy, Clone)]
 pub struct Ray {
@@ -18,12 +19,12 @@ impl Ray {
     }
 
     pub fn reflect_self(&mut self, p: Vec3, n: Vec3) {
-        self.direction = self.direction - n * dot(n, self.direction);
+        self.direction = self.direction - n * n.dot(self.direction);
         self.origin = p + self.direction * crate::constants::EPSILON;
     }
 
     pub fn reflect(&self, p: Vec3, n: Vec3) -> Ray {
-        let tmp: Vec3 = n * dot(n, self.direction) * 2.0;
+        let tmp: Vec3 = n * n.dot(self.direction) * 2.0;
         let dir = self.direction - tmp;
         Ray::new(p + dir * crate::constants::EPSILON, dir)
     }
@@ -107,9 +108,9 @@ impl CameraView {
 impl Camera {
     pub fn new(width: u32, height: u32) -> Camera {
         Camera {
-            pos: vec3(0.0, 0.0, 0.0),
-            up: vec3(0.0, 1.0, 0.0),
-            direction: vec3(0.0, 0.0, 1.0),
+            pos: Vec3::new(0.0, 0.0, 0.0),
+            up: Vec3::new(0.0, 1.0, 0.0),
+            direction: Vec3::new(0.0, 0.0, 1.0),
             fov: 40.0,
             width,
             height,
@@ -122,34 +123,26 @@ impl Camera {
     pub fn get_view(&self) -> CameraView {
         let (right, up, forward) = self.calculate_matrix();
         let pos = self.pos;
-        let spread_angle = (self.fov * PI / 180.0) * (1.0 / self.height as f32);
-        let screen_size = (self.fov * (1.0 / 2.0) * (1.0 / (180.0 / PI))).tan();
+        let fov = self.fov;
+        let spread_angle = (fov * std::f32::consts::PI / 180.0) * (1.0 / self.height as f32);
+        let screen_size = (fov * 0.5 / (180.0 / std::f32::consts::PI)).tan();
         let center = pos + self.focal_distance * forward;
 
-        let (scaled_right, scaled_up) = {
-            let scaled_right = screen_size * right * self.focal_distance;
-            let scaled_up = screen_size * self.focal_distance * up;
-
-            if self.width > self.height {
-                (scaled_right * self.aspect_ratio, scaled_up)
-            } else {
-                (scaled_right, scaled_up * self.aspect_ratio)
-            }
-        };
-
-        let p1 = center - scaled_right + scaled_up;
-        let p2 = center + scaled_right + scaled_up;
-        let p3 = center - scaled_right - scaled_up;
+        let p1 = center - screen_size * right * self.focal_distance * self.aspect_ratio + screen_size * self.focal_distance * up;
+        let p2 = center + screen_size * right * self.focal_distance * self.aspect_ratio + screen_size * self.focal_distance * up;
+        let p3 = center - screen_size * right * self.focal_distance * self.aspect_ratio - screen_size * self.focal_distance * up;
 
         let aperture = self.aperture;
+        let right = p2 - p1;
+        let up = p3 - p1;
 
         CameraView {
             pos: pos as Vec3,
             lens_size: aperture,
-            right: (p2 - p1).normalize(),
+            right,
             spread_angle,
-            up: (p3 - p1).normalize(),
-            epsilon: 1e-5,
+            up,
+            epsilon: crate::constants::EPSILON,
             p1,
             inv_width: 1.0 / self.width as f32,
             inv_height: 1.0 / self.height as f32,
@@ -170,47 +163,37 @@ impl Camera {
         self.aspect_ratio = width as f32 / height as f32;
     }
 
-    pub fn translate_relative(&mut self, delta: &Vec3) {
+    pub fn translate_relative(&mut self, delta: Vec3) {
         let (right, up, forward) = self.calculate_matrix();
-        self.pos += delta.x * right + delta.y * up + delta.z * forward;
+        self.pos += delta.x() * right + delta.y() * up + delta.z() * forward;
     }
 
-    pub fn translate_target(&mut self, delta: &Vec3) {
+    pub fn translate_target(&mut self, delta: Vec3) {
         let (right, up, forward) = self.calculate_matrix();
-        self.direction = normalize(self.direction + delta.x * right + delta.y * up + delta.z * forward);
+        self.direction = (self.direction + delta.x() * right + delta.y() * up + delta.z() * forward).normalize();
     }
 
     pub fn look_at(&mut self, origin: Vec3, target: Vec3) {
         self.pos = origin;
-        self.direction = normalize(target - origin);
+        self.direction = (target - origin).normalize();
     }
 
-    pub fn get_matrix(&self, near_plane: f32, far_plane: f32) -> nalgebra_glm::Mat4 {
+    pub fn get_matrix(&self, near_plane: f32, far_plane: f32) -> Mat4 {
         let up = vec3(0.0, 1.0, 0.0);
         let fov_dist = (self.fov * 0.5).to_radians().tan();
 
-        // TODO: Implement these functions in our own math lib
-        let identity = nalgebra_glm::identity() as nalgebra_glm::Mat4;
-        let flip = nalgebra_glm::scale(&identity, &nalgebra_glm::vec3(-1.0, -1.0, -1.0));
-        let projection = nalgebra_glm::perspective(
-            self.aspect_ratio,
-            self.fov.to_radians(),
-            near_plane,
-            far_plane,
-        );
-        let view = nalgebra_glm::look_at(
-            &nalgebra_glm::vec3(self.pos.x, self.pos.y, self.pos.z),
-            &(&nalgebra_glm::vec3(self.pos.x, self.pos.y, self.pos.z) + &nalgebra_glm::vec3(self.direction.x * fov_dist, self.direction.y * fov_dist, self.direction.z * fov_dist)),
-            &nalgebra_glm::vec3(up.x, up.y, up.z));
+        let flip = Mat4::from_scale([-1.0; 3].into());
+        let projection = Mat4::perspective_rh_gl(self.fov.to_radians(), self.aspect_ratio, near_plane, far_plane);
+        let view = Mat4::look_at_rh(self.pos, self.pos + self.direction * fov_dist, up);
 
         projection * flip * view
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
         let y: Vec3 = vec3(0.0, 1.0, 0.0);
-        let z: Vec3 = self.direction;
-        let x: Vec3 = cross(z, y);
-        let y: Vec3 = cross(x, z);
+        let z: Vec3 = self.direction.normalize();
+        let x: Vec3 = z.cross(y).normalize();
+        let y: Vec3 = x.cross(z);
         (x, y, z)
     }
 }

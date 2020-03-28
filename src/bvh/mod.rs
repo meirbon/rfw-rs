@@ -4,10 +4,10 @@ pub use aabb::AABB;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
-use std::sync::mpsc::{Sender, Receiver, channel};
+use std::sync::mpsc::{Sender, channel};
 
 use crate::scene::RayHit;
-use crate::math::*;
+use glam::*;
 
 pub struct BVH {
     pub nodes: Vec<BVHNode>,
@@ -26,7 +26,7 @@ impl BVH {
         }
     }
 
-    #[cfg(feature="multithreading")]
+    #[cfg(feature = "multithreading")]
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
@@ -40,12 +40,12 @@ impl BVH {
 
         BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
     }
-    #[cfg(not(feature="multithreading"))]
+    #[cfg(not(feature = "multithreading"))]
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
 
-        let mut pool_ptr = Arc::new(AtomicUsize::new(2));
+        let pool_ptr = Arc::new(AtomicUsize::new(2));
         let depth = 1;
 
         let mut root_bounds = AABB::new();
@@ -94,6 +94,7 @@ pub struct NodeUpdatePayLoad {
     pub bounds: AABB,
 }
 
+#[allow(dead_code)]
 impl BVHNode {
     const BINS: usize = 9;
     const MAX_PRIMITIVES: i32 = 5;
@@ -196,14 +197,14 @@ impl BVHNode {
     }
 
     pub fn partition(bounds: &AABB, aabbs: &[aabb::AABB], prim_indices: &mut [u32], pool_ptr: Arc<AtomicUsize>) -> Option<NewNodeInfo> {
-        let mut lowest_cost = 1e34 as f32;
         let mut best_split = 0.0 as f32;
         let mut best_axis = 0;
 
         let mut best_left_box = AABB::new();
         let mut best_right_box = AABB::new();
 
-        let mut parent_cost = bounds.area() * bounds.count as f32;
+        let parent_cost = bounds.area() * bounds.count as f32;
+        let mut lowest_cost = parent_cost;
         let lengths = bounds.lengths();
 
         let bin_size = 1.0 / (Self::BINS + 2) as f32;
@@ -295,7 +296,7 @@ impl BVHNode {
                                    intersection_test: I) -> u32
         where I: Fn(usize) -> Option<f32> + Copy
     {
-        let dir_inverse = 1.0 / dir;
+        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
 
         let mut depth = 0;
         if self.bounds.count > -1 {
@@ -348,7 +349,7 @@ impl BVHNode {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
         let mut t = 1e34;
-        let dir_inverse = vec3(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
+        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
 
         if tree[0].bounds.intersect(origin, dir_inverse, t).is_none() {
             return depth;
@@ -398,7 +399,7 @@ impl BVHNode {
         let mut hit_index: i32 = -1;
         let mut t = 1e34;
 
-        self.traverse_recursive(tree, prim_indices, origin, 1.0 / dir, t_min, &mut t, &mut hit_index, &intersection_test);
+        self.traverse_recursive(tree, prim_indices, origin, Vec3::new(1.0, 1.0, 1.0) / dir, t_min, &mut t, &mut hit_index, &intersection_test);
 
         if hit_index < 0 {
             return None;
@@ -477,7 +478,7 @@ impl BVHNode {
         let mut stack_ptr: i32 = 0;
         let mut t = 1e34;
 
-        let dir_inverse = vec3(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
+        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
         hit_stack[stack_ptr as usize] = 0;
         while stack_ptr >= 0 {
             let node = &tree[hit_stack[stack_ptr as usize] as usize];

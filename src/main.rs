@@ -7,12 +7,12 @@ mod constants;
 mod utils;
 mod scene;
 mod bvh;
-mod math;
 
 use camera::*;
 use utils::*;
 use scene::*;
-use math::*;
+
+use glam::*;
 use cpu_fb_template::{run_app, KeyCode};
 
 struct App {
@@ -38,7 +38,7 @@ impl App {
         App {
             width,
             height,
-            pixels: vec![vec![Vec4::new_single(0.0); width as usize]; height as usize],
+            pixels: vec![vec![[0.0; 4].into(); width as usize]; height as usize],
             camera: Camera::new(width, height),
             timer: Timer::new(),
             scene,
@@ -54,10 +54,10 @@ impl App {
         fb_iterator.for_each(|(y, fb_pixels)| {
             let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
             for (x, pixel) in line_iterator {
-                let color = clamp(pixels[y][x], 0.0, 1.0);
-                let red = (color.x * 255.0) as u8;
-                let green = (color.y * 255.0) as u8;
-                let blue = (color.z * 255.0) as u8;
+                let color = pixels[y][x].max([0.0; 4].into()).min([1.0; 4].into());
+                let red = (color.x() * 255.0) as u8;
+                let green = (color.y() * 255.0) as u8;
+                let blue = (color.z() * 255.0) as u8;
                 pixel.copy_from_slice(&[red, green, blue, 0xff]);
             }
         });
@@ -74,12 +74,16 @@ impl cpu_fb_template::App for App {
             let y = y as u32;
             for (x, pixel) in pixels.iter_mut().enumerate() {
                 let x = x as u32;
+
                 let ray = view.generate_ray(x, y);
 
+                // use rand::random;
+                // let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
+
                 *pixel = if let Some(hit) = scene.intersect(ray.origin, ray.direction) {
-                    vec4(hit.normal.x, hit.normal.y, hit.normal.z, 1.0)
+                    (hit.normal.x(), hit.normal.y(), hit.normal.z(), 1.0).into()
                 } else {
-                    zero()
+                    [0.0; 4].into()
                 }
             }
         });
@@ -98,51 +102,26 @@ impl cpu_fb_template::App for App {
             return Some(cpu_fb_template::Request::Exit);
         }
 
-        let mut view_change: Vec3 = zero();
-        let mut pos_change: Vec3 = zero();
+        let mut view_change = Vec3::new(0.0, 0.0, 0.0);
+        let mut pos_change = Vec3::new(0.0, 0.0, 0.0);
 
-        if states.pressed(KeyCode::Up) {
-            view_change.y += 1.0;
-        }
-        if states.pressed(KeyCode::Down) {
-            view_change.y -= 1.0;
-        }
-        if states.pressed(KeyCode::Left) {
-            view_change.x -= 1.0;
-        }
-        if states.pressed(KeyCode::Right) {
-            view_change.x += 1.0;
-        }
+        if states.pressed(KeyCode::Up) { view_change += (0.0, 1.0, 0.0).into(); }
+        if states.pressed(KeyCode::Down) { view_change -= (0.0, 1.0, 0.0).into(); }
+        if states.pressed(KeyCode::Left) { view_change -= (1.0, 0.0, 0.0).into(); }
+        if states.pressed(KeyCode::Right) { view_change += (1.0, 0.0, 0.0).into(); }
 
-        if states.pressed(KeyCode::W) {
-            pos_change.z += 1.0;
-        }
-        if states.pressed(KeyCode::S) {
-            pos_change.z -= 1.0;
-        }
-        if states.pressed(KeyCode::A) {
-            pos_change.x -= 1.0;
-        }
-        if states.pressed(KeyCode::D) {
-            pos_change.x += 1.0;
-        }
-        if states.pressed(KeyCode::E) {
-            pos_change.y += 1.0;
-        }
-        if states.pressed(KeyCode::Q) {
-            pos_change.y -= 1.0;
-        }
+        if states.pressed(KeyCode::W) { pos_change += (0.0, 0.0, 1.0).into(); }
+        if states.pressed(KeyCode::S) { pos_change -= (0.0, 0.0, 1.0).into(); }
+        if states.pressed(KeyCode::A) { pos_change -= (1.0, 0.0, 0.0).into(); }
+        if states.pressed(KeyCode::D) { pos_change += (1.0, 0.0, 0.0).into(); }
+        if states.pressed(KeyCode::E) { pos_change += (0.0, 1.0, 0.0).into(); }
+        if states.pressed(KeyCode::Q) { pos_change -= (0.0, 1.0, 0.0).into(); }
 
-        view_change = view_change * elapsed * 0.002;
-        pos_change = pos_change * elapsed * 0.002;
+        let view_change = view_change * elapsed * 0.002;
+        let pos_change = pos_change * elapsed * 0.002;
 
-        if view_change != zero() {
-            self.camera.translate_target(&view_change);
-        }
-
-        if pos_change != zero::<Vec3>() {
-            self.camera.translate_relative(&pos_change);
-        }
+        if view_change != [0.0; 3].into() { self.camera.translate_target(view_change); }
+        if pos_change != [0.0; 3].into() { self.camera.translate_relative(pos_change); }
 
         None
     }
@@ -152,7 +131,7 @@ impl cpu_fb_template::App for App {
     fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
-        self.pixels = vec![vec![zero(); width as usize]; height as usize];
+        self.pixels = vec![vec![[0.0; 4].into(); width as usize]; height as usize];
         self.camera.resize(width, height);
     }
 }
