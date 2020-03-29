@@ -29,35 +29,23 @@ impl BVH {
     }
 
     pub fn construct<T: Intersect>(objects: &[T]) -> BVH {
-        let mut aabbs = vec![AABB::new(); objects.len()];
-
-        aabbs.par_iter_mut().enumerate().for_each(|(i, aabb)| {
-            *aabb = objects[i].bounds();
-        });
-
+        let aabbs: Vec<AABB> = objects.into_par_iter().map(|o| { o.bounds() }).collect::<Vec<AABB>>();
         let mut bvh = BVH::new(objects.len());
         bvh.build(aabbs.as_slice());
         bvh
     }
 
-    // pub fn build(&mut self, aabbs: &[AABB]) {
-    //     assert_eq!(aabbs.len(), (self.nodes.len() / 2));
-    //     assert_eq!(aabbs.len(), self.prim_indices.len());
-    //
-    //     let pool_ptr = Arc::new(AtomicUsize::new(2));
-    //     let depth = 1;
-    //
-    //     self.nodes[0].bounds.left_first = 0;
-    //     self.nodes[0].bounds.count = aabbs.len() as i32;
-    //     for aabb in aabbs { self.nodes[0].bounds.grow_bb(aabb); }
-    //
-    //     BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
-    // }
-
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
 
+        let centers = aabbs.into_iter().map(|bb| {
+            let mut center = [0.0; 3];
+            for i in 0..3 {
+                center[i] = (bb.min[i] + bb.max[i]) * 0.5;
+            }
+            center
+        }).collect::<Vec<[f32; 3]>>();
         let pool_ptr = Arc::new(AtomicUsize::new(2));
         let depth = 1;
 
@@ -68,26 +56,22 @@ impl BVH {
         for aabb in aabbs { root_bounds.grow_bb(aabb); }
         self.nodes[0].bounds = root_bounds.clone();
 
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let prim_indices = self.prim_indices.as_mut_slice();
+        let thread_count = Arc::new(AtomicUsize::new(1));
+        let handle = crossbeam::scope(|s| {
+            BVHNode::subdivide_mt(0, root_bounds, aabbs, &centers, sender, prim_indices, depth, pool_ptr.clone(), thread_count, num_cpus::get(), s);
+        });
 
-        if false {
-            BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
-        } else {
-            let (sender, receiver) = std::sync::mpsc::channel();
-            let prim_indices = self.prim_indices.as_mut_slice();
-            let thread_count = Arc::new(AtomicUsize::new(1));
-            let handle = crossbeam::scope(|s| {
-                BVHNode::subdivide_mt(0, root_bounds, aabbs, sender, prim_indices, depth, pool_ptr.clone(), thread_count, num_cpus::get(), s);
-            });
-
-            for payload in receiver.iter() {
-                if payload.index >= self.nodes.len() {
-                    panic!("Index was {} but only {} nodes available, bounds: {}", payload.index, self.nodes.len(), payload.bounds);
-                }
-                self.nodes[payload.index].bounds = payload.bounds;
+        for payload in receiver.iter() {
+            if payload.index >= self.nodes.len() {
+                panic!("Index was {} but only {} nodes available, bounds: {}", payload.index, self.nodes.len(), payload.bounds);
             }
-
-            handle.unwrap();
+            self.nodes[payload.index].bounds = payload.bounds;
         }
+
+        handle.unwrap();
+
         let node_count = pool_ptr.load(Ordering::SeqCst);
         self.nodes.resize(node_count, BVHNode::new());
 
@@ -175,6 +159,7 @@ impl BVHNode {
         index: usize,
         mut bounds: AABB,
         aabbs: &'a [aabb::AABB],
+        centers: &'a [[f32; 3]],
         update_node: Sender<NodeUpdatePayLoad>,
         prim_indices: &'a mut [u32],
         depth: u32,
@@ -190,78 +175,79 @@ impl BVHNode {
             return;
         }
 
-        if let Some(new_nodes) = Self::partition(&bounds, aabbs, prim_indices, pool_ptr.clone()) {
-            bounds.left_first = new_nodes.left as i32;
-            bounds.count = -1;
-            update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
+        let new_nodes = Self::partition(&bounds, aabbs, centers, prim_indices, pool_ptr.clone());
+        if new_nodes.is_none() { return; }
 
-            let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
-            let threads = thread_count.load(Ordering::SeqCst);
+        let new_nodes = new_nodes.unwrap();
+        bounds.left_first = new_nodes.left as i32;
+        bounds.count = -1;
+        update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
 
-            let mut handle = None;
+        let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
+        let threads = thread_count.load(Ordering::SeqCst);
 
-            if new_nodes.left_box.count > Self::MAX_PRIMITIVES {
-                let left = new_nodes.left;
-                let left_box = new_nodes.left_box;
-                let sender = update_node.clone();
-                let tc = thread_count.clone();
-                let pp = pool_ptr.clone();
+        let mut handle = None;
 
-                if threads < num_cpus::get() {
-                    thread_count.fetch_add(1, Ordering::SeqCst);
-                    handle = Some(scope.spawn(move |s| {
-                        Self::subdivide_mt(left, left_box, aabbs, sender, left_indices, depth, pp, tc, max_threads, s);
-                    }));
-                } else {
-                    Self::subdivide_mt(left, left_box, aabbs, sender, left_indices, depth, pp, tc, max_threads, scope);
-                }
+        if new_nodes.left_box.count > Self::MAX_PRIMITIVES {
+            let left = new_nodes.left;
+            let left_box = new_nodes.left_box;
+            let sender = update_node.clone();
+            let tc = thread_count.clone();
+            let pp = pool_ptr.clone();
+
+            if threads < num_cpus::get() {
+                thread_count.fetch_add(1, Ordering::SeqCst);
+                handle = Some(scope.spawn(move |s| {
+                    Self::subdivide_mt(left, left_box, aabbs, centers, sender, left_indices, depth, pp, tc, max_threads, s);
+                }));
             } else {
-                update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
+                Self::subdivide_mt(left, left_box, aabbs, centers, sender, left_indices, depth, pp, tc, max_threads, scope);
             }
+        } else {
+            update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
+        }
 
-            if new_nodes.right_box.count > Self::MAX_PRIMITIVES {
-                let right = new_nodes.left + 1;
-                let right_box = new_nodes.right_box;
-                Self::subdivide_mt(right, right_box, aabbs, update_node, right_indices, depth, pool_ptr, thread_count.clone(), max_threads, scope);
-            } else {
-                update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
-            }
+        if new_nodes.right_box.count > Self::MAX_PRIMITIVES {
+            let right = new_nodes.left + 1;
+            let right_box = new_nodes.right_box;
+            Self::subdivide_mt(right, right_box, aabbs, centers, update_node, right_indices, depth, pool_ptr, thread_count.clone(), max_threads, scope);
+        } else {
+            update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
+        }
 
-            if let Some(handle) = handle {
-                handle.join().unwrap();
-                thread_count.fetch_sub(1, Ordering::SeqCst);
-            }
+        if let Some(handle) = handle {
+            handle.join().unwrap();
+            thread_count.fetch_sub(1, Ordering::SeqCst);
         }
     }
 
-    pub fn subdivide(index: usize, aabbs: &[aabb::AABB], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
+    // Reference single threaded subdivide method
+    pub fn subdivide(index: usize, aabbs: &[aabb::AABB], centers: &[[f32; 3]], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
         let depth = depth + 1;
         if depth >= Self::MAX_DEPTH {
             return;
         }
 
-        if let Some(new_nodes) = Self::partition(&tree[index].bounds, aabbs, prim_indices, pool_ptr.clone()) {
-            tree[index].bounds.left_first = new_nodes.left as i32;
-            tree[index].bounds.count = -1;
+        let new_nodes = Self::partition(&tree[index].bounds, aabbs, centers, prim_indices, pool_ptr.clone());
+        if new_nodes.is_none() { return; }
+        let new_nodes = new_nodes.unwrap();
 
-            let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
-            {
-                tree[new_nodes.left].bounds = new_nodes.left_box;
-                if tree[new_nodes.left].bounds.count > Self::MAX_PRIMITIVES {
-                    Self::subdivide(new_nodes.left, aabbs, tree, left_indices, depth, pool_ptr.clone());
-                }
-            }
+        tree[index].bounds.left_first = new_nodes.left as i32;
+        tree[index].bounds.count = -1;
 
-            {
-                tree[new_nodes.left + 1].bounds = new_nodes.right_box;
-                if tree[new_nodes.left + 1].bounds.count > Self::MAX_PRIMITIVES {
-                    Self::subdivide(new_nodes.left + 1, aabbs, tree, right_indices, depth, pool_ptr.clone());
-                }
-            }
+        let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
+        tree[new_nodes.left].bounds = new_nodes.left_box;
+        if tree[new_nodes.left].bounds.count > Self::MAX_PRIMITIVES {
+            Self::subdivide(new_nodes.left, aabbs, centers, tree, left_indices, depth, pool_ptr.clone());
+        }
+
+        tree[new_nodes.left + 1].bounds = new_nodes.right_box;
+        if tree[new_nodes.left + 1].bounds.count > Self::MAX_PRIMITIVES {
+            Self::subdivide(new_nodes.left + 1, aabbs, centers, tree, right_indices, depth, pool_ptr.clone());
         }
     }
 
-    pub fn partition(bounds: &AABB, aabbs: &[aabb::AABB], prim_indices: &mut [u32], pool_ptr: Arc<AtomicUsize>) -> Option<NewNodeInfo> {
+    pub fn partition(bounds: &AABB, aabbs: &[aabb::AABB], centers: &[[f32; 3]], prim_indices: &mut [u32], pool_ptr: Arc<AtomicUsize>) -> Option<NewNodeInfo> {
         let mut best_split = 0.0 as f32;
         let mut best_axis = 0;
 
@@ -288,9 +274,8 @@ impl BVHNode {
                 let (left_area, right_area) = {
                     for idx in 0..bounds.count {
                         let idx = unsafe { *prim_indices.get_unchecked(idx as usize) as usize };
+                        let center = centers[idx][axis];
                         let aabb = unsafe { aabbs.get_unchecked(idx) };
-
-                        let center = aabb.center()[axis];
 
                         if center <= split_offset {
                             left_box.grow_bb(aabb);
@@ -315,25 +300,23 @@ impl BVHNode {
             }
         }
 
-        if parent_cost < lowest_cost {
-            return None;
-        }
+        if parent_cost < lowest_cost { return None; }
 
         let left_first = bounds.left_first;
         let mut left_count = 0;
-        let mut right_first = bounds.left_first;
-        let mut right_count = bounds.count;
+
         for idx in 0..bounds.count {
-            let aabb = unsafe { aabbs.get_unchecked(*prim_indices.get_unchecked(idx as usize) as usize) };
-            let center = aabb.center()[best_axis];
+            let id = unsafe { *prim_indices.get_unchecked(idx as usize) as usize };
+            let center = centers[id][best_axis];
 
             if center <= best_split {
                 prim_indices.swap((idx) as usize, (left_count) as usize);
                 left_count = left_count + 1;
-                right_first = right_first + 1;
-                right_count = right_count - 1;
             }
         }
+
+        let right_first = bounds.left_first + left_count;
+        let right_count = bounds.count - left_count;
 
         let left = pool_ptr.fetch_add(2, Ordering::SeqCst);
 

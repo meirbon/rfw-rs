@@ -23,7 +23,7 @@ impl Timer {
         let elapsed = self.elapsed();
         let secs = elapsed.as_secs() as u32;
         let millis = elapsed.subsec_millis();
-        (secs * 1_000_000 + millis) as f32
+        (secs * 1_000 + millis) as f32
     }
 }
 
