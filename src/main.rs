@@ -1,19 +1,21 @@
 #![feature(clamp)]
 
 use rayon::prelude::*;
+use glam::*;
+use cpu_fb_template::{run_app, KeyCode};
 
 mod camera;
 mod constants;
 mod utils;
 mod scene;
 mod bvh;
+mod objects;
+mod material;
 
 use camera::*;
 use utils::*;
 use scene::*;
-
-use glam::*;
-use cpu_fb_template::{run_app, KeyCode};
+use material::*;
 
 struct App {
     pub width: u32,
@@ -23,16 +25,21 @@ struct App {
     camera: Camera,
     timer: Timer,
     scene: Scene,
+    materials: MaterialList,
 }
 
 impl App {
     pub fn new(width: u32, height: u32) -> App {
+        let mut materials = MaterialList::new();
         let mut scene = Scene::new();
-        for x in -20..21 {
-            for i in -20..21 {
-                scene.spheres.push(Sphere::new(vec3(x as f32, 0.0, 2.0 + i as f32), 0.5, 0));
-            }
-        }
+
+        let sphere = Box::new(objects::Obj::new("models/sphere.obj", &mut materials).unwrap().into_mesh());
+        let sphere = scene.add_object(sphere);
+
+        (-2..3).for_each(|x| (3..8).for_each(|z| {
+            scene.add_instance(sphere, Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0)));
+        }));
+
         scene.build_bvh();
 
         App {
@@ -42,6 +49,7 @@ impl App {
             camera: Camera::new(width, height),
             timer: Timer::new(),
             scene,
+            materials,
         }
     }
 
@@ -54,7 +62,8 @@ impl App {
         fb_iterator.for_each(|(y, fb_pixels)| {
             let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
             for (x, pixel) in line_iterator {
-                let color = pixels[y][x].max([0.0; 4].into()).min([1.0; 4].into());
+                let color = unsafe { pixels.get_unchecked(y).get_unchecked(x) };
+                let color = color.max([0.0; 4].into()).min([1.0; 4].into());
                 let red = (color.x() * 255.0) as u8;
                 let green = (color.y() * 255.0) as u8;
                 let blue = (color.z() * 255.0) as u8;
@@ -81,7 +90,8 @@ impl cpu_fb_template::App for App {
                 // let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
 
                 *pixel = if let Some(hit) = scene.intersect(ray.origin, ray.direction) {
-                    (hit.normal.x(), hit.normal.y(), hit.normal.z(), 1.0).into()
+                    let normal = hit.normal.abs();
+                    (normal.x(), normal.y(), normal.z(), 1.0).into()
                 } else {
                     [0.0; 4].into()
                 }
@@ -118,7 +128,7 @@ impl cpu_fb_template::App for App {
         if states.pressed(KeyCode::Q) { pos_change -= (0.0, 1.0, 0.0).into(); }
 
         let view_change = view_change * elapsed * 0.002;
-        let pos_change = pos_change * elapsed * 0.002;
+        let pos_change = pos_change * elapsed * 0.05;
 
         if view_change != [0.0; 3].into() { self.camera.translate_target(view_change); }
         if pos_change != [0.0; 3].into() { self.camera.translate_relative(pos_change); }

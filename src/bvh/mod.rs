@@ -1,13 +1,14 @@
 pub mod aabb;
 
 pub use aabb::AABB;
+
+use glam::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Sender, Receiver};
 
-use crate::scene::RayHit;
-use glam::*;
+use crate::objects::{Intersect, HitRecord};
 
 pub struct BVH {
     pub nodes: Vec<BVHNode>,
@@ -26,12 +27,39 @@ impl BVH {
         }
     }
 
+    #[cfg(not(feature = "multithreading"))]
+    pub fn construct<T: Intersect>(objects: &[T]) -> BVH {
+        let mut aabbs = vec![AABB::new(); objects.len()];
+
+        aabbs.iter_mut().enumerate().for_each(|(i, aabb)| {
+            *aabb = objects[i].bounds();
+        });
+
+        let mut bvh = BVH::new(objects.len());
+        bvh.build(aabbs.as_slice());
+        bvh
+    }
+
     #[cfg(feature = "multithreading")]
+    pub fn construct<T: Intersect + Sync>(objects: &[T]) -> BVH {
+        use rayon::prelude::*;
+        let mut aabbs = vec![AABB::new(); objects.len()];
+
+        aabbs.par_iter_mut().enumerate().for_each(|(i, aabb)| {
+            *aabb = objects[i].bounds();
+        });
+
+        let mut bvh = BVH::new(objects.len());
+        bvh.build(aabbs.as_slice());
+        bvh
+    }
+
+    #[cfg(not(feature = "multithreading"))]
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
 
-        let mut pool_ptr = Arc::new(AtomicUsize::new(2));
+        let pool_ptr = Arc::new(AtomicUsize::new(2));
         let depth = 1;
 
         self.nodes[0].bounds.left_first = 0;
@@ -40,7 +68,8 @@ impl BVH {
 
         BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
     }
-    #[cfg(not(feature = "multithreading"))]
+
+    #[cfg(feature = "multithreading")]
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
@@ -54,7 +83,7 @@ impl BVH {
         root_bounds.count = aabbs.len() as i32;
         for aabb in aabbs { root_bounds.grow_bb(aabb); }
 
-        let (sender, receiver) = channel();
+        let (sender, receiver) = std::sync::mpsc::channel();
 
         crossbeam::scope(|s| {
             let prim_indices = self.prim_indices.as_mut_slice();
@@ -64,11 +93,56 @@ impl BVH {
             });
 
             for payload in receiver.iter() {
+                if payload.index >= self.nodes.len() {
+                    panic!("Index was {} but only {} nodes available, bounds: {}", payload.index, self.nodes.len(), payload.bounds);
+                }
                 self.nodes[payload.index].bounds = payload.bounds;
             }
 
             handle.join().unwrap();
         }).unwrap();
+    }
+
+    pub fn traverse<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> Option<HitRecord>
+        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>
+    {
+        BVHNode::traverse_stack(
+            self.nodes.as_slice(),
+            self.prim_indices.as_slice(),
+            origin,
+            direction,
+            t_min,
+            t_max,
+            intersection_test,
+        )
+    }
+
+    pub fn traverse_t<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> Option<f32>
+        where I: Fn(usize, f32, f32) -> Option<f32>
+    {
+        BVHNode::traverse_t(
+            self.nodes.as_slice(),
+            self.prim_indices.as_slice(),
+            origin,
+            direction,
+            t_min,
+            t_max,
+            intersection_test,
+        )
+    }
+
+    pub fn occludes<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> bool
+        where I: Fn(usize, f32, f32) -> bool
+    {
+        BVHNode::occludes(
+            self.nodes.as_slice(),
+            self.prim_indices.as_slice(),
+            origin,
+            direction,
+            t_min,
+            t_max,
+            intersection_test,
+        )
     }
 }
 
@@ -119,6 +193,7 @@ impl BVHNode {
     ) {
         let depth = depth + 1;
         if bounds.count <= Self::MAX_PRIMITIVES || depth >= Self::MAX_DEPTH {
+            bounds.count = 0;
             update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
             return;
         }
@@ -132,14 +207,14 @@ impl BVHNode {
 
             let threads = thread_count.fetch_add(1, Ordering::Relaxed);
             if threads > num_cpus::get() {
-                if new_nodes.left_box.count > 0 {
+                if new_nodes.left_box.count > Self::MAX_PRIMITIVES {
                     Self::subdivide_mt(new_nodes.left, new_nodes.left_box, aabbs, update_node.clone(),
                                        left_indices, depth, pool_ptr.clone(), thread_count.clone(), scope);
                 } else {
                     update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
                 }
 
-                if new_nodes.right_box.count > 0 {
+                if new_nodes.right_box.count > Self::MAX_PRIMITIVES {
                     Self::subdivide_mt(new_nodes.left + 1, new_nodes.right_box, aabbs, update_node,
                                        right_indices, depth, pool_ptr.clone(), thread_count.clone(), scope);
                 } else {
@@ -171,7 +246,7 @@ impl BVHNode {
 
     pub fn subdivide(index: usize, aabbs: &[aabb::AABB], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
         let depth = depth + 1;
-        if tree[index].bounds.count <= Self::MAX_PRIMITIVES || depth >= Self::MAX_DEPTH {
+        if depth >= Self::MAX_DEPTH {
             return;
         }
 
@@ -182,14 +257,14 @@ impl BVHNode {
             let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
             {
                 tree[new_nodes.left].bounds = new_nodes.left_box;
-                if tree[new_nodes.left].bounds.count > 0 {
+                if tree[new_nodes.left].bounds.count > Self::MAX_PRIMITIVES {
                     Self::subdivide(new_nodes.left, aabbs, tree, left_indices, depth, pool_ptr.clone());
                 }
             }
 
             {
                 tree[new_nodes.left + 1].bounds = new_nodes.right_box;
-                if tree[new_nodes.left + 1].bounds.count > 0 {
+                if tree[new_nodes.left + 1].bounds.count > Self::MAX_PRIMITIVES {
                     Self::subdivide(new_nodes.left + 1, aabbs, tree, right_indices, depth, pool_ptr.clone());
                 }
             }
@@ -203,8 +278,8 @@ impl BVHNode {
         let mut best_left_box = AABB::new();
         let mut best_right_box = AABB::new();
 
+        let mut lowest_cost = 1e34;
         let parent_cost = bounds.area() * bounds.count as f32;
-        let mut lowest_cost = parent_cost;
         let lengths = bounds.lengths();
 
         let bin_size = 1.0 / (Self::BINS + 2) as f32;
@@ -343,7 +418,7 @@ impl BVHNode {
         t_min: f32,
         intersection_test: I,
     ) -> u32
-        where I: Fn(usize) -> Option<f32>
+        where I: Fn(usize, f32, f32) -> Option<f32>
     {
         let mut depth = 0;
         let mut hit_stack = [0; 32];
@@ -363,7 +438,7 @@ impl BVHNode {
             if node.bounds.count > -1 { // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
-                    if let Some(new_t) = intersection_test(prim_id as usize) {
+                    if let Some(new_t) = intersection_test(prim_id as usize, t_min, t) {
                         if new_t < t && t > t_min {
                             t = new_t;
                         }
@@ -388,33 +463,18 @@ impl BVHNode {
         origin: Vec3,
         dir: Vec3,
         t_min: f32,
+        t_max: f32,
         intersection_test: I,
-        get_normal: N,
-        get_uv: U,
-    ) -> Option<RayHit>
-        where I: Fn(usize) -> Option<f32> + Copy,
-              N: Fn(usize, f32, Vec3) -> Vec3,
-              U: Fn(usize, f32, Vec3, Vec3) -> Vec2
+    ) -> Option<HitRecord>
+        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>,
     {
         let mut hit_index: i32 = -1;
-        let mut t = 1e34;
+        let mut t = t_max;
+        let mut hit_record = None;
 
-        self.traverse_recursive(tree, prim_indices, origin, Vec3::new(1.0, 1.0, 1.0) / dir, t_min, &mut t, &mut hit_index, &intersection_test);
+        self.traverse_recursive(tree, prim_indices, origin, Vec3::new(1.0, 1.0, 1.0) / dir, t_min, &mut t, &mut hit_index, &mut hit_record, &intersection_test);
 
-        if hit_index < 0 {
-            return None;
-        }
-
-        let hit_index = hit_index as usize;
-        let p: Vec3 = origin + dir * t;
-        let normal = get_normal(hit_index, t, p);
-        let uv = get_uv(hit_index, t, p, normal);
-
-        Some(RayHit {
-            normal,
-            t,
-            uv,
-        })
+        hit_record
     }
 
     fn traverse_recursive<I>(&self, tree: &[BVHNode],
@@ -424,17 +484,16 @@ impl BVHNode {
                              t_min: f32,
                              t: &mut f32,
                              hit_id: &mut i32,
+                             hit_record: &mut Option<HitRecord>,
                              intersection_test: &I)
-        where I: Fn(usize) -> Option<f32>
+        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>
     {
         if self.bounds.count > -1 {
             for i in 0..self.bounds.count {
                 let prim_id = prim_indices[(self.bounds.left_first + i) as usize];
-                if let Some(new_t) = intersection_test(prim_id as usize) {
-                    if new_t < *t && new_t > t_min {
-                        *t = new_t;
-                        *hit_id = prim_id as i32;
-                    }
+                if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, *t) {
+                    *t = new_t;
+                    *hit_record = Some(new_hit);
                 }
             }
         } else {
@@ -445,38 +504,35 @@ impl BVHNode {
                 let (t_near_right, _) = right.unwrap();
 
                 if t_near_left < t_near_right {
-                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
-                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
+                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
                 } else {
-                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
-                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
+                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
                 }
             } else if left.is_some() {
-                tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
             } else if right.is_some() {
-                tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, intersection_test);
+                tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
             }
         }
     }
 
-    pub fn traverse_stack<I, N, U>(
+    pub fn traverse_stack<I>(
         tree: &[BVHNode],
         prim_indices: &[u32],
         origin: Vec3,
         dir: Vec3,
         t_min: f32,
+        t_max: f32,
         intersection_test: I,
-        get_normal: N,
-        get_uv: U,
-    ) -> Option<RayHit>
-        where I: Fn(usize) -> Option<f32>,
-              N: Fn(usize, f32, Vec3) -> Vec3,
-              U: Fn(usize, f32, Vec3, Vec3) -> Vec2
+    ) -> Option<HitRecord>
+        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>
     {
-        let mut hit_index: i32 = -1;
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
-        let mut t = 1e34;
+        let mut t = t_max;
+        let mut hit_record = None;
 
         let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
         hit_stack[stack_ptr as usize] = 0;
@@ -487,11 +543,9 @@ impl BVHNode {
             if node.bounds.count > -1 { // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
-                    if let Some(new_t) = intersection_test(prim_id as usize) {
-                        if new_t < t && new_t > t_min {
-                            t = new_t;
-                            hit_index = prim_id as i32;
-                        }
+                    if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, t) {
+                        t = new_t;
+                        hit_record = Some(new_hit);
                     }
                 }
             } else {
@@ -501,20 +555,81 @@ impl BVHNode {
             }
         }
 
-        if hit_index < 0 {
-            return None;
+        hit_record
+    }
+
+    pub fn traverse_t<I>(
+        tree: &[BVHNode],
+        prim_indices: &[u32],
+        origin: Vec3,
+        dir: Vec3,
+        t_min: f32,
+        t_max: f32,
+        intersection_test: I,
+    ) -> Option<f32>
+        where I: Fn(usize, f32, f32) -> Option<f32>
+    {
+        let mut hit_stack = [0; 32];
+        let mut stack_ptr: i32 = 0;
+        let mut t = t_max;
+
+        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        hit_stack[stack_ptr as usize] = 0;
+        while stack_ptr >= 0 {
+            let node = &tree[hit_stack[stack_ptr as usize] as usize];
+            stack_ptr = stack_ptr - 1;
+
+            if node.bounds.count > -1 { // Leaf node
+                for i in 0..node.bounds.count {
+                    let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
+                    if let Some(new_t) = intersection_test(prim_id as usize, t_min, t) {
+                        t = new_t;
+                    }
+                }
+            } else {
+                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
+                stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
+            }
         }
 
-        let hit_index = hit_index as usize;
-        let p: Vec3 = origin + dir * t;
-        let normal = get_normal(hit_index, t, p);
-        let uv = get_uv(hit_index, t, p, normal);
+        if t < t_max { Some(t) } else { None }
+    }
 
-        Some(RayHit {
-            normal,
-            t,
-            uv,
-        })
+    pub fn occludes<I>(
+        tree: &[BVHNode],
+        prim_indices: &[u32],
+        origin: Vec3,
+        dir: Vec3,
+        t_min: f32,
+        t_max: f32,
+        intersection_test: I,
+    ) -> bool
+        where I: Fn(usize, f32, f32) -> bool
+    {
+        let mut hit_stack = [0; 32];
+        let mut stack_ptr: i32 = 0;
+        let mut t = t_max;
+
+        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        hit_stack[stack_ptr as usize] = 0;
+        while stack_ptr >= 0 {
+            let node = &tree[hit_stack[stack_ptr as usize] as usize];
+            stack_ptr = stack_ptr - 1;
+
+            if node.bounds.count > -1 { // Leaf node
+                for i in 0..node.bounds.count {
+                    let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
+                    if intersection_test(prim_id as usize, t_min, t) { return true; }
+                }
+            } else {
+                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
+                stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
+            }
+        }
+
+        false
     }
 
     fn sort_nodes(

@@ -1,135 +1,87 @@
 use crate::bvh::*;
 use crate::utils::Timer;
-
 use glam::*;
+use rayon::prelude::*;
+use crate::objects::*;
+use crate::utils::*;
+use std::sync::Arc;
 
-pub struct Sphere {
-    pos: Vec3,
-    radius2: f32,
-    pub mat_id: u32,
+enum SceneFlags {
+    Dirty = 0,
 }
 
-impl Sphere {
-    pub fn new(pos: Vec3, radius: f32, mat_id: u32) -> Sphere {
-        Sphere {
-            pos,
-            radius2: radius * radius,
-            mat_id,
-        }
+impl Into<u8> for SceneFlags {
+    fn into(self) -> u8 {
+        self as u8
     }
-
-    pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<f32> {
-        let a = direction.dot(direction);
-        let r_pos = origin - self.pos;
-
-        let b = (direction * 2.0).dot(r_pos);
-        let r_pos2 = r_pos.dot(r_pos);
-        let c = r_pos2 - self.radius2;
-
-        let d: f32 = (b * b) - (4.0 * a * c);
-
-        if d < 0.0 {
-            return None;
-        }
-
-        let div_2a = 1.0 / (2.0 * a);
-
-        let sqrt_d = if d > 0.0 { d.sqrt() } else { 0.0 };
-
-        let t1 = ((-b) + sqrt_d) * div_2a;
-        let t2 = ((-b) - sqrt_d) * div_2a;
-
-        if t1 > 0.0 && t1 < t2 { Some(t1) } else { Some(t2) }
-    }
-
-    pub fn get_uv(&self, n: Vec3) -> Vec2 {
-        let u = n.x().atan2(n.z()) * (1.0 / (2.0 * std::f32::consts::PI)) + 0.5;
-        let v = n.y() * 0.5 + 0.5;
-
-        vec2(u, v)
-    }
-
-    pub fn get_normal(&self, p: Vec3) -> Vec3 {
-        (p - self.pos).normalize()
-    }
-}
-
-pub struct RayHit {
-    pub normal: Vec3,
-    pub t: f32,
-    pub uv: Vec2,
 }
 
 pub struct Scene {
-    pub spheres: Vec<Sphere>,
-    pub bvh: Option<BVH>,
+    objects: Vec<Arc<Box<dyn Intersect>>>,
+    instances: Vec<Instance>,
+    aabbs: Vec<AABB>,
+    bvh: Option<BVH>,
+    flags: Flags,
 }
 
 #[allow(dead_code)]
 impl Scene {
     pub fn new() -> Scene {
         Scene {
-            spheres: vec![],
+            objects: Vec::new(),
+            instances: Vec::new(),
             bvh: None,
+            aabbs: Vec::new(),
+            flags: Flags::new(),
         }
     }
 
-    pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<RayHit> {
-        if let Some(bvh) = &self.bvh {
-            let intersection = |i| -> Option<f32> { self.spheres[i as usize].intersect(origin, direction) };
-            let normal = |i, _, p| -> Vec3 { self.spheres[i as usize].get_normal(p) };
-            let uv = |i, _, _, n| -> Vec2 { self.spheres[i as usize].get_uv(n) };
+    pub fn add_object(&mut self, object: Box<dyn Intersect>) -> usize {
+        self.objects.push(Arc::new(object));
+        self.objects.len() - 1
+    }
 
-            // return bvh.nodes[0].traverse(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
-            //                              origin,
-            //                              direction,
-            //                              1e-5,
-            //                              intersection,
-            //                              normal,
-            //                              uv);
+    pub fn add_instance(&mut self, index: usize, transform: Mat4) -> usize {
+        self.instances.push(Instance::new(self.objects[index].clone(), transform));
+        self.flags.set_flag(SceneFlags::Dirty);
+        self.instances.len() - 1
+    }
 
-            return BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(), origin, direction, 1e-5,
-                                           intersection,
-                                           normal,
-                                           uv,
-            );
-        }
-
-        let mut t = 1e34 as f32;
-        let mut hit_id = -1;
-
-        for (i, sphere) in self.spheres.iter().enumerate() {
-            if let Some(new_t) = sphere.intersect(origin, direction) {
-                if new_t < t {
-                    t = new_t;
-                    hit_id = i as i32;
-                }
+    pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<HitRecord> {
+        let mut hit_record = None;
+        let mut t = crate::constants::DEFAULT_T_MAX;
+        for instance in &self.instances {
+            if let Some(hit) = instance.intersect(origin, direction, crate::constants::DEFAULT_T_MIN, t) {
+                t = hit.t;
+                hit_record = Some(hit);
             }
         }
 
-        if hit_id >= 0 {
-            let p: Vec3 = origin + direction * t;
-            let sphere = unsafe { self.spheres.get_unchecked(hit_id as usize) };
-            let normal = sphere.get_normal(p);
-            let uv = sphere.get_uv(normal);
+        // if let Some(bvh) = &self.bvh {
+        //     let intersection = |i, t_min, t_max| -> Option<(f32, HitRecord)> {
+        //         if let Some(hit) = self.instances[i as usize].intersect(origin, direction, t_min, t_max) {
+        //             Some((hit.t, hit))
+        //         } else {
+        //             None
+        //         }
+        //     };
+        //
+        //     hit_record = BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
+        //                                          origin, direction, 1e-5,
+        //                                          crate::constants::DEFAULT_T_MAX,
+        //                                          intersection);
+        // } else {
+        //     panic!("Invalid BVH!");
+        // }
 
-            return Some(RayHit { normal, t, uv });
-        }
-
-        None
+        hit_record
     }
 
     pub fn depth_test(&self, origin: Vec3, direction: Vec3) -> u32 {
         let mut depth = 0;
         if let Some(bvh) = &self.bvh {
-            // let mut t = 1e34;
-            // let dir_inverse = vec3(1.0 / direction.x, 1.0 / direction.y, 1.0 / direction.z);
-            // if bvh.nodes[0].bounds.intersect(origin, dir_inverse, 1e34).is_some() {
-            //     depth = 1 +
-            //         bvh.nodes[0].depth_test_recursive(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(), origin, direction, 1e-5, &mut t, |i| { self.spheres[i].intersect(origin, direction) });
-            // }
             depth += BVHNode::depth_test(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(), origin, direction, 1e-5,
-                                         |i| { self.spheres[i].intersect(origin, direction) },
+                                         |i, t_min, t_max| { self.instances[i].intersect_t(origin, direction, t_min, t_max) },
             );
         }
         depth
@@ -137,26 +89,9 @@ impl Scene {
 
 
     pub fn build_bvh(&mut self) {
-        let mut aabbs = Vec::with_capacity(self.spheres.len());
-        for sphere in &self.spheres {
-            let mut aabb = AABB::new();
-            let radius = sphere.radius2.sqrt();
-            let radius: Vec3 = [radius + crate::constants::EPSILON; 3].into();
-
-            let min = sphere.pos - radius;
-            let max = sphere.pos + radius;
-
-            aabb.min = min;
-            aabb.max = max;
-
-            aabbs.push(aabb);
+        if self.flags.has_flag(SceneFlags::Dirty) || self.bvh.is_none() { // Need to rebuild bvh
+            self.bvh = Some(BVH::construct(self.instances.as_slice()));
         }
-
-        let mut bvh = BVH::new(self.spheres.len());
-        let timer = Timer::new();
-        bvh.build(aabbs.as_slice());
-        println!("Building took: {}", timer.elapsed_in_millis());
-        self.bvh = Some(bvh);
     }
 }
 

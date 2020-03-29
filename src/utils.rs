@@ -26,3 +26,26 @@ impl Timer {
         (secs * 1_000_000 + millis) as f32
     }
 }
+
+
+pub struct Flags {
+    bits: u32,
+}
+
+impl Flags {
+    pub fn new() -> Flags {
+        Flags { bits: 0 }
+    }
+
+    pub fn set_flag<T: Into<u8>>(&mut self, flag: T) {
+        self.bits |= flag.into() as u8 as u32;
+    }
+
+    pub fn unset_flag<T: Into<u8>>(&mut self, flag: T) {
+        self.bits &= (!(flag.into() as u8)) as u32;
+    }
+
+    pub fn has_flag<T: Into<u8>>(&self, flag: T) -> bool {
+        self.bits & (flag.into() as u8) as u32 > 0
+    }
+}
