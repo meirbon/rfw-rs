@@ -37,7 +37,7 @@ impl App {
         let sphere = scene.add_object(sphere);
 
         (-2..3).for_each(|x| (3..8).for_each(|z| {
-            scene.add_instance(sphere, Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0)));
+            scene.add_instance(sphere, Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0))).unwrap();
         }));
 
         scene.build_bvh();

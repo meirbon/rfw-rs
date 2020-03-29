@@ -609,7 +609,6 @@ impl BVHNode {
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
-        let mut t = t_max;
 
         let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
         hit_stack[stack_ptr as usize] = 0;
@@ -620,11 +619,11 @@ impl BVHNode {
             if node.bounds.count > -1 { // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
-                    if intersection_test(prim_id as usize, t_min, t) { return true; }
+                    if intersection_test(prim_id as usize, t_min, t_max) { return true; }
                 }
             } else {
-                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
-                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
+                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t_max);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t_max);
                 stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
             }
         }

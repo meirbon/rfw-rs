@@ -25,6 +25,14 @@ impl Instance {
             object,
         }
     }
+
+    pub fn get_transform(&self) -> Mat4 { self.transform }
+
+    pub fn set_transform(&mut self, transform: Mat4) {
+        self.inverse = transform.inverse();
+        self.normal_transform = self.inverse.transpose();
+        self.bounds = self.object.bounds().transformed(transform);
+    }
 }
 
 impl Intersect for Instance {
@@ -33,7 +41,7 @@ impl Intersect for Instance {
     }
 
     fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        if self.bounds.intersect(origin,  Vec3::one() / direction, t_max).is_none() {
+        if self.bounds.intersect(origin, Vec3::one() / direction, t_max).is_none() {
             return None;
         }
 
