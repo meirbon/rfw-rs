@@ -5,6 +5,7 @@ use std::error::Error;
 use crate::utils::*;
 use crate::material::*;
 use crate::objects::Mesh;
+use crate::objects::mesh::ToMesh;
 
 enum ObjFlags {
     HasNormals = 1,
@@ -75,11 +76,17 @@ impl Obj {
                     [mesh.normals[i0], mesh.normals[i1], mesh.normals[i2]]
                 } else { [0.0; 3] };
 
-                vertices.push(vec3(pos[0], pos[1], pos[2]));
-                normals.push(vec3(normal[0], normal[1], normal[2]));
-                uvs.push(vec2(0.0, 0.0)); // TODO
+                let uv = if !mesh.texcoords.is_empty() {
+                    flags.set_flag(ObjFlags::HasUvs);
+                    [mesh.texcoords[idx * 2], mesh.texcoords[idx * 2 + 1]]
+                } else { [0.0; 2] };
+
+                vertices.push(pos.into());
+                normals.push(normal.into());
+                uvs.push(uv.into());
+
                 if i % 3 == 0 {
-                    let material_id = if mesh.material_id.is_some() { material_indices[mesh.material_id.unwrap()] } else { 0 };
+                    let material_id = if mesh.material_id.is_some() { material_indices[mesh.material_id.unwrap()] } else { mat_manager.get_default() };
                     material_ids.push(material_id as u32);
                 }
 
@@ -96,8 +103,10 @@ impl Obj {
             flags,
         })
     }
+}
 
-    pub fn into_mesh(self) -> Mesh {
+impl ToMesh for Obj {
+    fn into_mesh(self) -> Mesh {
         Mesh::new(
             self.vertices.as_slice(),
             self.normals.as_slice(),

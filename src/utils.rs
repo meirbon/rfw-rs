@@ -32,6 +32,7 @@ pub struct Flags {
     bits: u32,
 }
 
+#[allow(dead_code)]
 impl Flags {
     pub fn new() -> Flags {
         Flags { bits: 0 }

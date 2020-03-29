@@ -5,6 +5,7 @@ pub struct MaterialList {
     materials: Vec<Material>,
 }
 
+#[allow(dead_code)]
 impl MaterialList {
     pub fn new() -> MaterialList {
         let materials = vec![Material::new(vec3(1.0, 0.0, 0.0), 1.0, vec3(1.0, 0.0, 0.0), 1.0)];
@@ -37,6 +38,10 @@ impl MaterialList {
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &Material {
         self.materials.get_unchecked_mut(index)
     }
+
+    pub fn get_default(&self) -> usize {
+        0
+    }
 }
 
 impl Index<usize> for MaterialList {
@@ -57,11 +62,10 @@ impl IndexMut<usize> for MaterialList {
 #[derive(Debug, Copy, Clone)]
 pub struct Material {
     pub color: Vec3,
-    pub roughness: f32,
-
     pub specular: Vec3,
-    pub opacity: f32,
 
+    pub opacity: f32,
+    pub roughness: f32,
     pub diffuse_tex: i32,
     pub normal_tex: i32,
 }

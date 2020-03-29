@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
 use std::sync::mpsc::{Sender, Receiver};
+use rayon::prelude::*;
 
 use crate::objects::{Intersect, HitRecord};
 
@@ -27,22 +28,7 @@ impl BVH {
         }
     }
 
-    #[cfg(not(feature = "multithreading"))]
     pub fn construct<T: Intersect>(objects: &[T]) -> BVH {
-        let mut aabbs = vec![AABB::new(); objects.len()];
-
-        aabbs.iter_mut().enumerate().for_each(|(i, aabb)| {
-            *aabb = objects[i].bounds();
-        });
-
-        let mut bvh = BVH::new(objects.len());
-        bvh.build(aabbs.as_slice());
-        bvh
-    }
-
-    #[cfg(feature = "multithreading")]
-    pub fn construct<T: Intersect + Sync>(objects: &[T]) -> BVH {
-        use rayon::prelude::*;
         let mut aabbs = vec![AABB::new(); objects.len()];
 
         aabbs.par_iter_mut().enumerate().for_each(|(i, aabb)| {
@@ -54,22 +40,20 @@ impl BVH {
         bvh
     }
 
-    #[cfg(not(feature = "multithreading"))]
-    pub fn build(&mut self, aabbs: &[AABB]) {
-        assert_eq!(aabbs.len(), (self.nodes.len() / 2));
-        assert_eq!(aabbs.len(), self.prim_indices.len());
+    // pub fn build(&mut self, aabbs: &[AABB]) {
+    //     assert_eq!(aabbs.len(), (self.nodes.len() / 2));
+    //     assert_eq!(aabbs.len(), self.prim_indices.len());
+    //
+    //     let pool_ptr = Arc::new(AtomicUsize::new(2));
+    //     let depth = 1;
+    //
+    //     self.nodes[0].bounds.left_first = 0;
+    //     self.nodes[0].bounds.count = aabbs.len() as i32;
+    //     for aabb in aabbs { self.nodes[0].bounds.grow_bb(aabb); }
+    //
+    //     BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
+    // }
 
-        let pool_ptr = Arc::new(AtomicUsize::new(2));
-        let depth = 1;
-
-        self.nodes[0].bounds.left_first = 0;
-        self.nodes[0].bounds.count = aabbs.len() as i32;
-        for aabb in aabbs { self.nodes[0].bounds.grow_bb(aabb); }
-
-        BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
-    }
-
-    #[cfg(feature = "multithreading")]
     pub fn build(&mut self, aabbs: &[AABB]) {
         assert_eq!(aabbs.len(), (self.nodes.len() / 2));
         assert_eq!(aabbs.len(), self.prim_indices.len());
@@ -82,14 +66,17 @@ impl BVH {
         root_bounds.left_first = 0;
         root_bounds.count = aabbs.len() as i32;
         for aabb in aabbs { root_bounds.grow_bb(aabb); }
+        self.nodes[0].bounds = root_bounds.clone();
 
-        let (sender, receiver) = std::sync::mpsc::channel();
 
-        crossbeam::scope(|s| {
+        if false {
+            BVHNode::subdivide(0, aabbs, self.nodes.as_mut_slice(), self.prim_indices.as_mut_slice(), depth, pool_ptr.clone());
+        } else {
+            let (sender, receiver) = std::sync::mpsc::channel();
             let prim_indices = self.prim_indices.as_mut_slice();
             let thread_count = Arc::new(AtomicUsize::new(1));
-            let handle = s.spawn(move |s| {
-                BVHNode::subdivide_mt(0, root_bounds, aabbs, sender, prim_indices, depth, pool_ptr, thread_count, s);
+            let handle = crossbeam::scope(|s| {
+                BVHNode::subdivide_mt(0, root_bounds, aabbs, sender, prim_indices, depth, pool_ptr.clone(), thread_count, num_cpus::get(), s);
             });
 
             for payload in receiver.iter() {
@@ -99,8 +86,12 @@ impl BVH {
                 self.nodes[payload.index].bounds = payload.bounds;
             }
 
-            handle.join().unwrap();
-        }).unwrap();
+            handle.unwrap();
+        }
+        let node_count = pool_ptr.load(Ordering::SeqCst);
+        self.nodes.resize(node_count, BVHNode::new());
+
+        println!("Building done");
     }
 
     pub fn traverse<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> Option<HitRecord>
@@ -189,10 +180,11 @@ impl BVHNode {
         depth: u32,
         pool_ptr: Arc<AtomicUsize>,
         thread_count: Arc<AtomicUsize>,
+        max_threads: usize,
         scope: &crossbeam::thread::Scope<'a>,
     ) {
         let depth = depth + 1;
-        if bounds.count <= Self::MAX_PRIMITIVES || depth >= Self::MAX_DEPTH {
+        if depth >= Self::MAX_DEPTH {
             bounds.count = 0;
             update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
             return;
@@ -204,42 +196,40 @@ impl BVHNode {
             update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
 
             let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
+            let threads = thread_count.load(Ordering::SeqCst);
 
-            let threads = thread_count.fetch_add(1, Ordering::Relaxed);
-            if threads > num_cpus::get() {
-                if new_nodes.left_box.count > Self::MAX_PRIMITIVES {
-                    Self::subdivide_mt(new_nodes.left, new_nodes.left_box, aabbs, update_node.clone(),
-                                       left_indices, depth, pool_ptr.clone(), thread_count.clone(), scope);
-                } else {
-                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
-                }
+            let mut handle = None;
 
-                if new_nodes.right_box.count > Self::MAX_PRIMITIVES {
-                    Self::subdivide_mt(new_nodes.left + 1, new_nodes.right_box, aabbs, update_node,
-                                       right_indices, depth, pool_ptr.clone(), thread_count.clone(), scope);
-                } else {
-                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
-                }
-            } else {
+            if new_nodes.left_box.count > Self::MAX_PRIMITIVES {
                 let left = new_nodes.left;
                 let left_box = new_nodes.left_box;
                 let sender = update_node.clone();
                 let tc = thread_count.clone();
                 let pp = pool_ptr.clone();
 
-                if left_box.count > 0 {
-                    scope.spawn(move |s| {
-                        Self::subdivide_mt(left, left_box, aabbs, sender, left_indices, depth, pp, tc, s);
-                    });
+                if threads < num_cpus::get() {
+                    thread_count.fetch_add(1, Ordering::SeqCst);
+                    handle = Some(scope.spawn(move |s| {
+                        Self::subdivide_mt(left, left_box, aabbs, sender, left_indices, depth, pp, tc, max_threads, s);
+                    }));
                 } else {
-                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: left_box }).unwrap();
+                    Self::subdivide_mt(left, left_box, aabbs, sender, left_indices, depth, pp, tc, max_threads, scope);
                 }
+            } else {
+                update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
+            }
 
-                if new_nodes.right_box.count > 0 {
-                    Self::subdivide_mt(new_nodes.left + 1, new_nodes.right_box, aabbs, update_node, right_indices, depth, pool_ptr.clone(), thread_count, scope);
-                } else {
-                    update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
-                }
+            if new_nodes.right_box.count > Self::MAX_PRIMITIVES {
+                let right = new_nodes.left + 1;
+                let right_box = new_nodes.right_box;
+                Self::subdivide_mt(right, right_box, aabbs, update_node, right_indices, depth, pool_ptr, thread_count.clone(), max_threads, scope);
+            } else {
+                update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
+            }
+
+            if let Some(handle) = handle {
+                handle.join().unwrap();
+                thread_count.fetch_sub(1, Ordering::SeqCst);
             }
         }
     }

@@ -4,6 +4,10 @@ use rayon::prelude::*;
 use crate::objects::*;
 use crate::bvh::*;
 
+pub trait ToMesh {
+    fn into_mesh(self) -> Mesh;
+}
+
 pub struct Mesh {
     triangles: Vec<Triangle>,
     materials: Vec<u32>,
@@ -51,9 +55,33 @@ impl Mesh {
             };
         });
 
+        let timer = crate::utils::Timer::new();
         let bvh = BVH::construct(triangles.as_slice());
+        println!("Building bvh took: {} ms", timer.elapsed_in_millis());
 
         Mesh { triangles, bvh, materials: Vec::from(material_ids) }
+    }
+
+    pub fn scale(mut self, scaling: f32) -> Self {
+        let scaling = Mat4::from_scale(Vec3::new(scaling, scaling, scaling));
+
+        self.triangles.par_iter_mut().for_each(|t| {
+            let vertex0 = scaling * Vec4::new(t.vertex0.x(), t.vertex0.y(), t.vertex0.z(), 1.0);
+            let vertex1 = scaling * Vec4::new(t.vertex1.x(), t.vertex1.y(), t.vertex1.z(), 1.0);
+            let vertex2 = scaling * Vec4::new(t.vertex2.x(), t.vertex2.y(), t.vertex2.z(), 1.0);
+
+            let vertex0 = Vec3::new(vertex0.x(), vertex0.y(), vertex0.z());
+            let vertex1 = Vec3::new(vertex1.x(), vertex1.y(), vertex1.z());
+            let vertex2 = Vec3::new(vertex2.x(), vertex2.y(), vertex2.z());
+
+            t.vertex0 = vertex0;
+            t.vertex1 = vertex1;
+            t.vertex2 = vertex2;
+        });
+
+        self.bvh = BVH::construct(self.triangles.as_slice());
+
+        self
     }
 }
 

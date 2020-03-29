@@ -110,9 +110,9 @@ impl Intersect for Sphere {
     }
 
     fn bounds(&self) -> AABB {
-        let radius = [self.radius2.sqrt() + crate::constants::AABB_EPSILON; 3].into();
-        let min = self.pos - radius;
-        let max = self.pos + radius;
+        let radius = self.radius2.sqrt() + crate::constants::AABB_EPSILON;
+        let min: [f32; 3] = [self.pos[0] - radius, self.pos[1] - radius, self.pos[2] - radius];
+        let max: [f32; 3] = [self.pos[0] + radius, self.pos[1] + radius, self.pos[2] + radius];
         AABB {
             min,
             left_first: -1,

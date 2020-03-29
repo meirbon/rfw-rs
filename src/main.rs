@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #![feature(clamp)]
 
 use rayon::prelude::*;
@@ -16,6 +17,7 @@ use camera::*;
 use utils::*;
 use scene::*;
 use material::*;
+use objects::*;
 
 struct App {
     pub width: u32,
@@ -33,14 +35,19 @@ impl App {
         let mut materials = MaterialList::new();
         let mut scene = Scene::new();
 
-        let sphere = Box::new(objects::Obj::new("models/sphere.obj", &mut materials).unwrap().into_mesh());
-        let sphere = scene.add_object(sphere);
+        let dragon = Box::new(Obj::new("models/dragon.obj", &mut materials).unwrap().into_mesh().scale(50.0));
+        let dragon = scene.add_object(dragon);
+        scene.add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0))).unwrap();
 
+        let sphere = scene.add_object(Box::new(Obj::new("models/sphere.obj", &mut materials).unwrap().into_mesh()));
         (-2..3).for_each(|x| (3..8).for_each(|z| {
-            scene.add_instance(sphere, Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0))).unwrap();
+            let matrix = Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
+            scene.add_instance(sphere, matrix).unwrap();
         }));
 
+        let timer = utils::Timer::new();
         scene.build_bvh();
+        println!("Building BVH: took {} ms", timer.elapsed_in_millis());
 
         App {
             width,
@@ -78,6 +85,7 @@ impl cpu_fb_template::App for App {
         let view = self.camera.get_view();
         let pixels = &mut self.pixels;
         let scene = &self.scene;
+        let materials = &self.materials;
 
         pixels.par_iter_mut().enumerate().for_each(|(y, pixels)| {
             let y = y as u32;
@@ -90,8 +98,11 @@ impl cpu_fb_template::App for App {
                 // let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
 
                 *pixel = if let Some(hit) = scene.intersect(ray.origin, ray.direction) {
-                    let normal = hit.normal.abs();
-                    (normal.x(), normal.y(), normal.z(), 1.0).into()
+                    // let material = materials.get(hit.mat_id as usize).unwrap();
+                    // let color = material.color;
+                    let color = hit.normal;
+
+                    (color.x(), color.y(), color.z(), 1.0).into()
                 } else {
                     [0.0; 4].into()
                 }

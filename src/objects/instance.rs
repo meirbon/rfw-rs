@@ -11,6 +11,7 @@ pub struct Instance {
     object: Arc<Box<dyn Intersect>>,
 }
 
+#[allow(dead_code)]
 impl Instance {
     pub fn new(object: Arc<Box<dyn Intersect>>, transform: Mat4) -> Instance {
         let inverse = transform.inverse();

@@ -1,5 +1,4 @@
 use crate::bvh::*;
-use crate::utils::Timer;
 use crate::objects::*;
 use crate::utils::*;
 
@@ -7,7 +6,6 @@ use glam::*;
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::collections::HashSet;
-
 
 enum SceneFlags {
     Dirty = 0,
@@ -20,27 +18,27 @@ impl Into<u8> for SceneFlags {
 }
 
 struct NullObject {
-    dummy: f32
+    _dummy: f32
 }
 
 impl Intersect for NullObject {
-    fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool {
+    fn occludes(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> bool {
         false
     }
 
-    fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
+    fn intersect(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<HitRecord> {
         None
     }
 
-    fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
+    fn intersect_t(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<f32> {
         None
     }
 
     fn bounds(&self) -> AABB {
         AABB {
-            min: Vec3::zero(),
+            min: [0.0; 3],
             left_first: 0,
-            max: Vec3::zero(),
+            max: [0.0; 3],
             count: 0,
         }
     }
@@ -51,7 +49,6 @@ pub struct Scene {
     object_references: Vec<HashSet<usize>>,
     instances: Vec<Instance>,
     instance_references: Vec<usize>,
-    aabbs: Vec<AABB>,
     bvh: Option<BVH>,
     flags: Flags,
     null_object: Arc<Box<dyn Intersect>>,
@@ -68,12 +65,18 @@ impl Scene {
             instances: Vec::new(),
             instance_references: Vec::new(),
             bvh: None,
-            aabbs: Vec::new(),
             flags: Flags::new(),
-            null_object: Arc::new(Box::new(NullObject { dummy: 0.0 })),
+            null_object: Arc::new(Box::new(NullObject { _dummy: 0.0 })),
             empty_object_slots: Vec::new(),
             empty_instance_slots: Vec::new(),
         }
+    }
+
+    pub fn get_object(&self, index: usize) -> Option<Arc<Box<dyn Intersect>>> {
+        if let Some(object) = self.objects.get(index) {
+            return Some(object.clone());
+        }
+        None
     }
 
     pub fn add_object(&mut self, object: Box<dyn Intersect>) -> usize {
@@ -172,7 +175,6 @@ impl Scene {
     }
 
     pub fn intersect(&self, origin: Vec3, direction: Vec3) -> Option<HitRecord> {
-        let mut hit_record = None;
         if let Some(bvh) = &self.bvh {
             let intersection = |i, t_min, t_max| -> Option<(f32, HitRecord)> {
                 if let Some(hit) = self.instances[i as usize].intersect(origin, direction, t_min, t_max) {
@@ -182,15 +184,12 @@ impl Scene {
                 }
             };
 
-            hit_record = BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
-                                                 origin, direction, 1e-5,
-                                                 crate::constants::DEFAULT_T_MAX,
-                                                 intersection);
-        } else {
-            panic!("Invalid bvh, bvh was None.");
+            return BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
+                                           origin, direction, 1e-5,
+                                           crate::constants::DEFAULT_T_MAX,
+                                           intersection);
         }
-
-        hit_record
+        panic!("Invalid bvh, bvh was None.");
     }
 
     pub fn depth_test(&self, origin: Vec3, direction: Vec3) -> u32 {

@@ -11,6 +11,7 @@ pub use triangle::Triangle;
 pub use obj::Obj;
 pub use mesh::Mesh;
 pub use instance::Instance;
+pub use mesh::ToMesh;
 
 use crate::bvh::AABB;
 
@@ -42,10 +43,10 @@ pub struct Quad {
     vertices: [Vec3; 6],
     normals: [Vec3; 6],
     uvs: [Vec2; 6],
-    material_ids: [i32; 6],
-    light_ids: [i32; 6],
+    material_ids: [u32; 2],
 }
 
+#[allow(dead_code)]
 impl Quad {
     pub fn new(normal: Vec3,
                position: Vec3,
@@ -55,8 +56,7 @@ impl Quad {
         let material_id = material_id.max(0);
         // TODO: uvs
         let uvs = [vec2(0.0, 0.0); 6];
-        let material_ids = [material_id; 6];
-        let light_ids = [-1; 6];
+        let material_ids = [material_id as u32; 2];
 
         let (vertices, normals) = Quad::generate_render_data(position, normal, width, height);
 
@@ -71,7 +71,6 @@ impl Quad {
             normals,
             uvs,
             material_ids,
-            light_ids,
         }
     }
 
@@ -99,5 +98,11 @@ impl Quad {
         let normals = [normal.clone(); 6];
 
         (vertices, normals)
+    }
+}
+
+impl ToMesh for Quad {
+    fn into_mesh(self) -> Mesh {
+        Mesh::new(&self.vertices, &self.normals, &self.uvs, &self.material_ids)
     }
 }
