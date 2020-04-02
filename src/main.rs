@@ -1,23 +1,22 @@
 #![allow(dead_code)]
 #![feature(clamp)]
 
-use rayon::prelude::*;
+use fb_template::{run_app, KeyCode, KeyHandler, Request};
 use glam::*;
-use cpu_fb_template::{run_app, KeyCode};
+use rayon::prelude::*;
 
 mod camera;
 mod constants;
-mod utils;
-mod scene;
-mod bvh;
-mod objects;
 mod material;
+mod objects;
+mod scene;
+mod utils;
 
 use camera::*;
-use utils::*;
-use scene::*;
 use material::*;
 use objects::*;
+use scene::*;
+use utils::*;
 
 struct App {
     pub width: u32,
@@ -35,15 +34,28 @@ impl App {
         let mut materials = MaterialList::new();
         let mut scene = Scene::new();
 
-        let dragon = Box::new(Obj::new("models/dragon.obj", &mut materials).unwrap().into_mesh().scale(50.0));
+        let dragon = Box::new(
+            Obj::new("models/dragon.obj", &mut materials)
+                .unwrap()
+                .into_mesh()
+                .scale(50.0),
+        );
         let dragon = scene.add_object(dragon);
-        scene.add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0))).unwrap();
+        scene.add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
+            .unwrap();
 
-        let sphere = scene.add_object(Box::new(Obj::new("models/sphere.obj", &mut materials).unwrap().into_mesh()));
-        (-2..3).for_each(|x| (3..8).for_each(|z| {
-            let matrix = Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
-            scene.add_instance(sphere, matrix).unwrap();
-        }));
+        let sphere = scene.add_object(Box::new(
+            Obj::new("models/sphere.obj", &mut materials)
+                .unwrap()
+                .into_mesh(),
+        ));
+        (-2..3).for_each(|x| {
+            (3..8).for_each(|z| {
+                let matrix =
+                    Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
+                scene.add_instance(sphere, matrix).unwrap();
+            })
+        });
 
         let timer = utils::Timer::new();
         scene.build_bvh();
@@ -80,8 +92,8 @@ impl App {
     }
 }
 
-impl cpu_fb_template::App for App {
-    fn render(&mut self, fb: &mut [u8]) {
+impl fb_template::App for App {
+    fn render(&mut self, fb: &mut [u8]) -> Option<Request> {
         let view = self.camera.get_view();
         let pixels = &mut self.pixels;
         let scene = &self.scene;
@@ -110,50 +122,84 @@ impl cpu_fb_template::App for App {
         });
 
         self.blit_pixels(fb);
+        None
     }
 
-    fn key_handling(
-        &mut self,
-        states: &cpu_fb_template::KeyHandler,
-    ) -> Option<cpu_fb_template::Request> {
+    fn key_handling(&mut self, states: &KeyHandler) -> Option<Request> {
         let elapsed = self.timer.elapsed_in_millis();
         self.timer.reset();
 
         if states.pressed(KeyCode::Escape) {
-            return Some(cpu_fb_template::Request::Exit);
+            return Some(Request::Exit);
         }
 
         let mut view_change = Vec3::new(0.0, 0.0, 0.0);
         let mut pos_change = Vec3::new(0.0, 0.0, 0.0);
 
-        if states.pressed(KeyCode::Up) { view_change += (0.0, 1.0, 0.0).into(); }
-        if states.pressed(KeyCode::Down) { view_change -= (0.0, 1.0, 0.0).into(); }
-        if states.pressed(KeyCode::Left) { view_change -= (1.0, 0.0, 0.0).into(); }
-        if states.pressed(KeyCode::Right) { view_change += (1.0, 0.0, 0.0).into(); }
+        if states.pressed(KeyCode::Up) {
+            view_change += (0.0, 1.0, 0.0).into();
+        }
+        if states.pressed(KeyCode::Down) {
+            view_change -= (0.0, 1.0, 0.0).into();
+        }
+        if states.pressed(KeyCode::Left) {
+            view_change -= (1.0, 0.0, 0.0).into();
+        }
+        if states.pressed(KeyCode::Right) {
+            view_change += (1.0, 0.0, 0.0).into();
+        }
 
-        if states.pressed(KeyCode::W) { pos_change += (0.0, 0.0, 1.0).into(); }
-        if states.pressed(KeyCode::S) { pos_change -= (0.0, 0.0, 1.0).into(); }
-        if states.pressed(KeyCode::A) { pos_change -= (1.0, 0.0, 0.0).into(); }
-        if states.pressed(KeyCode::D) { pos_change += (1.0, 0.0, 0.0).into(); }
-        if states.pressed(KeyCode::E) { pos_change += (0.0, 1.0, 0.0).into(); }
-        if states.pressed(KeyCode::Q) { pos_change -= (0.0, 1.0, 0.0).into(); }
+        if states.pressed(KeyCode::W) {
+            pos_change += (0.0, 0.0, 1.0).into();
+        }
+        if states.pressed(KeyCode::S) {
+            pos_change -= (0.0, 0.0, 1.0).into();
+        }
+        if states.pressed(KeyCode::A) {
+            pos_change -= (1.0, 0.0, 0.0).into();
+        }
+        if states.pressed(KeyCode::D) {
+            pos_change += (1.0, 0.0, 0.0).into();
+        }
+        if states.pressed(KeyCode::E) {
+            pos_change += (0.0, 1.0, 0.0).into();
+        }
+        if states.pressed(KeyCode::Q) {
+            pos_change -= (0.0, 1.0, 0.0).into();
+        }
+
+        if states.pressed(KeyCode::Key1) {
+            unsafe { crate::scene::USE_MBVH = true; }
+        }
+
+        if states.pressed(KeyCode::Key2) {
+            unsafe { crate::scene::USE_MBVH = false; }
+        }
 
         let view_change = view_change * elapsed * 0.002;
         let pos_change = pos_change * elapsed * 0.05;
 
-        if view_change != [0.0; 3].into() { self.camera.translate_target(view_change); }
-        if pos_change != [0.0; 3].into() { self.camera.translate_relative(pos_change); }
+        if view_change != [0.0; 3].into() {
+            self.camera.translate_target(view_change);
+        }
+        if pos_change != [0.0; 3].into() {
+            self.camera.translate_relative(pos_change);
+        }
 
+        Some(Request::TitleChange(String::from(format!("FPS: {:.2}", 1000.0 / elapsed))))
+    }
+
+    fn mouse_handling(&mut self, _x: f64, _y: f64, _dx: f64, _dy: f64) -> Option<Request> {
         None
     }
 
-    fn mouse_handling(&mut self, _x: f64, _y: f64, _dx: f64, _dy: f64) {}
-
-    fn resize(&mut self, width: u32, height: u32) {
+    fn resize(&mut self, width: u32, height: u32) -> Option<Request> {
         self.width = width;
         self.height = height;
         self.pixels = vec![vec![[0.0; 4].into(); width as usize]; height as usize];
         self.camera.resize(width, height);
+
+        None
     }
 }
 

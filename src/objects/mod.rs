@@ -13,7 +13,7 @@ pub use mesh::Mesh;
 pub use instance::Instance;
 pub use mesh::ToMesh;
 
-use crate::bvh::AABB;
+use bvh::{AABB, Bounds};
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {
@@ -26,11 +26,10 @@ pub struct HitRecord {
     pub uv: Vec2,
 }
 
-pub trait Intersect: Sync + Send {
+pub trait Intersect: Sync + Send + Bounds {
     fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool;
     fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord>;
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32>;
-    fn bounds(&self) -> AABB;
 }
 
 pub struct Quad {

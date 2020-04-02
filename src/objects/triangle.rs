@@ -1,6 +1,7 @@
 use glam::*;
 use crate::objects::*;
-use crate::bvh::AABB;
+use bvh::aabb::Bounds;
+use bvh::AABB;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -185,7 +186,9 @@ impl Intersect for Triangle {
 
         Some(t)
     }
+}
 
+impl Bounds for Triangle {
     fn bounds(&self) -> AABB {
         let mut aabb = AABB::new();
         aabb.grow(self.vertex0);

@@ -2,7 +2,8 @@ use glam::*;
 use rayon::prelude::*;
 
 use crate::objects::*;
-use crate::bvh::*;
+use crate::scene::USE_MBVH;
+use bvh::{Bounds, AABB, BVH, MBVH};
 
 pub trait ToMesh {
     fn into_mesh(self) -> Mesh;
@@ -12,6 +13,7 @@ pub struct Mesh {
     triangles: Vec<Triangle>,
     materials: Vec<u32>,
     bvh: BVH,
+    mbvh: MBVH,
 }
 
 impl Mesh {
@@ -57,9 +59,10 @@ impl Mesh {
 
         let timer = crate::utils::Timer::new();
         let bvh = BVH::construct(triangles.as_slice());
+        let mbvh = MBVH::new(&bvh);
         println!("Building bvh took: {} ms", timer.elapsed_in_millis());
 
-        Mesh { triangles, bvh, materials: Vec::from(material_ids) }
+        Mesh { triangles, bvh, mbvh, materials: Vec::from(material_ids) }
     }
 
     pub fn scale(mut self, scaling: f32) -> Self {
@@ -80,6 +83,7 @@ impl Mesh {
         });
 
         self.bvh = BVH::construct(self.triangles.as_slice());
+        self.mbvh = MBVH::new(&self.bvh);
 
         self
     }
@@ -87,33 +91,56 @@ impl Mesh {
 
 impl Intersect for Mesh {
     fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool {
-        self.bvh.occludes(origin, direction, t_min, t_max, |i, t_min, t_max| {
-            let triangle = unsafe { self.triangles.get_unchecked(i) };
+        let intersection_test = |i, t_min, t_max| {
+            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
             triangle.occludes(origin, direction, t_min, t_max)
-        })
+        };
+
+        unsafe {
+            match USE_MBVH {
+                true => self.mbvh.occludes(origin, direction, t_min, t_max, intersection_test),
+                _ => self.bvh.occludes(origin, direction, t_min, t_max, intersection_test)
+            }
+        }
     }
 
     fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        self.bvh.traverse(origin, direction, t_min, t_max, |i, t_min, t_max| {
-            let triangle = unsafe { self.triangles.get_unchecked(i) };
+        let intersection_test = |i, t_min, t_max| {
+            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
             if let Some(mut hit) = triangle.intersect(origin, direction, t_min, t_max) {
                 hit.mat_id = self.materials[i];
                 return Some((hit.t, hit));
             }
             None
-        })
+        };
+
+        unsafe {
+            match USE_MBVH {
+                true => self.mbvh.traverse(origin, direction, t_min, t_max, intersection_test),
+                _ => self.bvh.traverse(origin, direction, t_min, t_max, intersection_test)
+            }
+        }
     }
 
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
-        self.bvh.traverse_t(origin, direction, t_min, t_max, |i, t_min, t_max| {
-            let triangle = unsafe { self.triangles.get_unchecked(i) };
+        let intersection_test = |i, t_min, t_max| {
+            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
             if let Some(t) = triangle.intersect_t(origin, direction, t_min, t_max) {
                 return Some(t);
             }
             None
-        })
-    }
+        };
 
+        unsafe {
+            match USE_MBVH {
+                true => self.mbvh.traverse_t(origin, direction, t_min, t_max, intersection_test),
+                _ => self.bvh.traverse_t(origin, direction, t_min, t_max, intersection_test)
+            }
+        }
+    }
+}
+
+impl Bounds for Mesh {
     fn bounds(&self) -> AABB {
         self.bvh.nodes[0].bounds.clone()
     }

@@ -1,6 +1,7 @@
 use glam::*;
 use crate::objects::*;
-use crate::bvh::AABB;
+use bvh::AABB;
+use bvh::Bounds;
 
 pub struct Sphere {
     pos: Vec3,
@@ -108,7 +109,9 @@ impl Intersect for Sphere {
 
         if t <= t_min || t >= t_max { None } else { Some(t) }
     }
+}
 
+impl Bounds for Sphere {
     fn bounds(&self) -> AABB {
         let radius = self.radius2.sqrt() + crate::constants::AABB_EPSILON;
         let min: [f32; 3] = [self.pos[0] - radius, self.pos[1] - radius, self.pos[2] - radius];

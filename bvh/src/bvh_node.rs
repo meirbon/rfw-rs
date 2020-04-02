@@ -1,125 +1,11 @@
-pub mod aabb;
-
-pub use aabb::AABB;
-
 use glam::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Sender;
 use rayon::prelude::*;
 
-use crate::objects::{Intersect, HitRecord};
-
-pub struct BVH {
-    pub nodes: Vec<BVHNode>,
-    pub prim_indices: Vec<u32>,
-}
-
-impl BVH {
-    pub fn new(prim_count: usize) -> BVH {
-        let nodes = vec![BVHNode { bounds: AABB::new() }; prim_count * 2];
-        let mut prim_indices = vec![0; prim_count];
-        for i in 0..prim_count { prim_indices[i] = i as u32; }
-
-        BVH {
-            nodes,
-            prim_indices,
-        }
-    }
-
-    pub fn construct<T: Intersect>(objects: &[T]) -> BVH {
-        let aabbs: Vec<AABB> = objects.into_par_iter().map(|o| { o.bounds() }).collect::<Vec<AABB>>();
-        let mut bvh = BVH::new(objects.len());
-        bvh.build(aabbs.as_slice());
-        bvh
-    }
-
-    pub fn build(&mut self, aabbs: &[AABB]) {
-        assert_eq!(aabbs.len(), (self.nodes.len() / 2));
-        assert_eq!(aabbs.len(), self.prim_indices.len());
-
-        let centers = aabbs.into_iter().map(|bb| {
-            let mut center = [0.0; 3];
-            for i in 0..3 {
-                center[i] = (bb.min[i] + bb.max[i]) * 0.5;
-            }
-            center
-        }).collect::<Vec<[f32; 3]>>();
-        let pool_ptr = Arc::new(AtomicUsize::new(2));
-        let depth = 1;
-
-        let mut root_bounds = AABB::new();
-
-        root_bounds.left_first = 0;
-        root_bounds.count = aabbs.len() as i32;
-        for aabb in aabbs { root_bounds.grow_bb(aabb); }
-        self.nodes[0].bounds = root_bounds.clone();
-
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let prim_indices = self.prim_indices.as_mut_slice();
-        let thread_count = Arc::new(AtomicUsize::new(1));
-        let handle = crossbeam::scope(|s| {
-            BVHNode::subdivide_mt(0, root_bounds, aabbs, &centers, sender, prim_indices, depth, pool_ptr.clone(), thread_count, num_cpus::get(), s);
-        });
-
-        for payload in receiver.iter() {
-            if payload.index >= self.nodes.len() {
-                panic!("Index was {} but only {} nodes available, bounds: {}", payload.index, self.nodes.len(), payload.bounds);
-            }
-            self.nodes[payload.index].bounds = payload.bounds;
-        }
-
-        handle.unwrap();
-
-        let node_count = pool_ptr.load(Ordering::SeqCst);
-        self.nodes.resize(node_count, BVHNode::new());
-
-        println!("Building done");
-    }
-
-    pub fn traverse<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> Option<HitRecord>
-        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>
-    {
-        BVHNode::traverse_stack(
-            self.nodes.as_slice(),
-            self.prim_indices.as_slice(),
-            origin,
-            direction,
-            t_min,
-            t_max,
-            intersection_test,
-        )
-    }
-
-    pub fn traverse_t<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> Option<f32>
-        where I: Fn(usize, f32, f32) -> Option<f32>
-    {
-        BVHNode::traverse_t(
-            self.nodes.as_slice(),
-            self.prim_indices.as_slice(),
-            origin,
-            direction,
-            t_min,
-            t_max,
-            intersection_test,
-        )
-    }
-
-    pub fn occludes<I>(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32, intersection_test: I) -> bool
-        where I: Fn(usize, f32, f32) -> bool
-    {
-        BVHNode::occludes(
-            self.nodes.as_slice(),
-            self.prim_indices.as_slice(),
-            origin,
-            direction,
-            t_min,
-            t_max,
-            intersection_test,
-        )
-    }
-}
+use crate::{AABB, Bounds};
 
 #[derive(Debug, Clone)]
 pub struct BVHNode {
@@ -155,10 +41,22 @@ impl BVHNode {
         }
     }
 
+    pub fn get_left_first(&self) -> i32 {
+        self.bounds.left_first
+    }
+
+    pub fn get_count(&self) -> i32 {
+        self.bounds.count
+    }
+
+    pub fn has_children(&self) -> bool { self.bounds.count < 0 && self.bounds.left_first >= 0 }
+
+    pub fn is_leaf(&self) -> bool { self.bounds.count >= 0 }
+
     pub fn subdivide_mt<'a>(
         index: usize,
         mut bounds: AABB,
-        aabbs: &'a [aabb::AABB],
+        aabbs: &'a [AABB],
         centers: &'a [[f32; 3]],
         update_node: Sender<NodeUpdatePayLoad>,
         prim_indices: &'a mut [u32],
@@ -222,7 +120,7 @@ impl BVHNode {
     }
 
     // Reference single threaded subdivide method
-    pub fn subdivide(index: usize, aabbs: &[aabb::AABB], centers: &[[f32; 3]], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
+    pub fn subdivide(index: usize, aabbs: &[AABB], centers: &[[f32; 3]], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
         let depth = depth + 1;
         if depth >= Self::MAX_DEPTH {
             return;
@@ -247,7 +145,13 @@ impl BVHNode {
         }
     }
 
-    pub fn partition(bounds: &AABB, aabbs: &[aabb::AABB], centers: &[[f32; 3]], prim_indices: &mut [u32], pool_ptr: Arc<AtomicUsize>) -> Option<NewNodeInfo> {
+    pub fn partition(
+        bounds: &AABB,
+        aabbs: &[AABB],
+        centers: &[[f32; 3]],
+        prim_indices: &mut [u32],
+        pool_ptr: Arc<AtomicUsize>,
+    ) -> Option<NewNodeInfo> {
         let mut best_split = 0.0 as f32;
         let mut best_axis = 0;
 
@@ -322,11 +226,11 @@ impl BVHNode {
 
         best_left_box.left_first = left_first;
         best_left_box.count = left_count;
-        best_left_box.offset_by(crate::constants::EPSILON);
+        best_left_box.offset_by(1e-6);
 
         best_right_box.left_first = right_first;
         best_right_box.count = right_count;
-        best_right_box.offset_by(crate::constants::EPSILON);
+        best_right_box.offset_by(1e-6);
 
         Some(NewNodeInfo {
             left,
@@ -429,7 +333,7 @@ impl BVHNode {
         depth
     }
 
-    pub fn traverse<I, N, U>(
+    pub fn traverse<I, N, U, R>(
         &self,
         tree: &[BVHNode],
         prim_indices: &[u32],
@@ -438,8 +342,8 @@ impl BVHNode {
         t_min: f32,
         t_max: f32,
         intersection_test: I,
-    ) -> Option<HitRecord>
-        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>,
+    ) -> Option<R>
+        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
     {
         let mut hit_index: i32 = -1;
         let mut t = t_max;
@@ -450,16 +354,16 @@ impl BVHNode {
         hit_record
     }
 
-    fn traverse_recursive<I>(&self, tree: &[BVHNode],
-                             prim_indices: &[u32],
-                             origin: Vec3,
-                             dir_inverse: Vec3,
-                             t_min: f32,
-                             t: &mut f32,
-                             hit_id: &mut i32,
-                             hit_record: &mut Option<HitRecord>,
-                             intersection_test: &I)
-        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>
+    fn traverse_recursive<I, R>(&self, tree: &[BVHNode],
+                                prim_indices: &[u32],
+                                origin: Vec3,
+                                dir_inverse: Vec3,
+                                t_min: f32,
+                                t: &mut f32,
+                                hit_id: &mut i32,
+                                hit_record: &mut Option<R>,
+                                intersection_test: &I)
+        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
     {
         if self.bounds.count > -1 {
             for i in 0..self.bounds.count {
@@ -491,7 +395,7 @@ impl BVHNode {
         }
     }
 
-    pub fn traverse_stack<I>(
+    pub fn traverse_stack<I, R>(
         tree: &[BVHNode],
         prim_indices: &[u32],
         origin: Vec3,
@@ -499,8 +403,8 @@ impl BVHNode {
         t_min: f32,
         t_max: f32,
         intersection_test: I,
-    ) -> Option<HitRecord>
-        where I: Fn(usize, f32, f32) -> Option<(f32, HitRecord)>
+    ) -> Option<R>
+        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;

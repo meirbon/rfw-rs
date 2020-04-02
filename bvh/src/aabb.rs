@@ -9,6 +9,10 @@ pub struct AABB {
     pub count: i32,
 }
 
+pub trait Bounds {
+    fn bounds(&self) -> AABB;
+}
+
 impl Display for AABB {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let min = Vec3::from(self.min);
@@ -158,43 +162,6 @@ impl AABB {
         self.max[axis] - self.min[axis]
     }
 
-    pub fn transform(&mut self, transform: Mat4) {
-        let p1 = transform * Vec4::new(self.min[0], self.min[1], self.min[2], 1.0);
-        let p5 = transform * Vec4::new(self.max[0], self.max[1], self.max[2], 1.0);
-        let p2 = transform * Vec4::new(self.max[0], self.min[1], self.min[2], 1.0);
-        let p3 = transform * Vec4::new(self.min[0], self.max[1], self.max[2], 1.0);
-        let p4 = transform * Vec4::new(self.min[0], self.min[1], self.max[2], 1.0);
-        let p6 = transform * Vec4::new(self.max[0], self.max[1], self.min[2], 1.0);
-        let p7 = transform * Vec4::new(self.min[0], self.max[1], self.min[2], 1.0);
-        let p8 = transform * Vec4::new(self.max[0], self.min[1], self.max[2], 1.0);
-
-        let p1 = Vec3::new(p1.x(), p1.y(), p1.z());
-        let p5 = Vec3::new(p5.x(), p5.y(), p5.z());
-        let p2 = Vec3::new(p2.x(), p2.y(), p2.z());
-        let p3 = Vec3::new(p3.x(), p3.y(), p3.z());
-        let p4 = Vec3::new(p4.x(), p4.y(), p4.z());
-        let p6 = Vec3::new(p6.x(), p6.y(), p6.z());
-        let p7 = Vec3::new(p7.x(), p7.y(), p7.z());
-        let p8 = Vec3::new(p8.x(), p8.y(), p8.z());
-
-        let mut transformed = AABB::new();
-        transformed.grow(p1);
-        transformed.grow(p2);
-        transformed.grow(p3);
-        transformed.grow(p4);
-        transformed.grow(p5);
-        transformed.grow(p6);
-        transformed.grow(p7);
-        transformed.grow(p8);
-
-        transformed.offset_by(crate::constants::EPSILON);
-        *self = AABB {
-            min: transformed.min,
-            max: transformed.max,
-            ..(*self).clone()
-        }
-    }
-
     pub fn transformed(&self, transform: Mat4) -> AABB {
         let p1 = transform * Vec3::new(self.min[0], self.min[1], self.min[2]).extend(1.0);
         let p5 = transform * Vec3::new(self.max[0], self.max[1], self.max[2]).extend(1.0);
@@ -215,8 +182,17 @@ impl AABB {
         transformed.grow(p7.truncate());
         transformed.grow(p8.truncate());
 
-        transformed.offset_by(crate::constants::EPSILON);
+        transformed.offset_by(1e-6);
 
         transformed
+    }
+
+    pub fn transform(&mut self, transform: Mat4) {
+        let transformed = self.transformed(transform);
+        *self = AABB {
+            min: transformed.min,
+            max: transformed.max,
+            ..(*self).clone()
+        }
     }
 }

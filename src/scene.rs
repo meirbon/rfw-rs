@@ -1,4 +1,3 @@
-use crate::bvh::*;
 use crate::objects::*;
 use crate::utils::*;
 
@@ -6,6 +5,9 @@ use glam::*;
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::collections::HashSet;
+use bvh::{AABB, Bounds, BVH, MBVH, BVHNode, MBVHNode};
+
+pub static mut USE_MBVH: bool = true;
 
 enum SceneFlags {
     Dirty = 0,
@@ -33,14 +35,11 @@ impl Intersect for NullObject {
     fn intersect_t(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<f32> {
         None
     }
+}
 
+impl Bounds for NullObject {
     fn bounds(&self) -> AABB {
-        AABB {
-            min: [0.0; 3],
-            left_first: 0,
-            max: [0.0; 3],
-            count: 0,
-        }
+        AABB::new()
     }
 }
 
@@ -50,6 +49,7 @@ pub struct Scene {
     instances: Vec<Instance>,
     instance_references: Vec<usize>,
     bvh: Option<BVH>,
+    mbvh: Option<MBVH>,
     flags: Flags,
     null_object: Arc<Box<dyn Intersect>>,
     empty_object_slots: Vec<usize>,
@@ -65,6 +65,7 @@ impl Scene {
             instances: Vec::new(),
             instance_references: Vec::new(),
             bvh: None,
+            mbvh: None,
             flags: Flags::new(),
             null_object: Arc::new(Box::new(NullObject { _dummy: 0.0 })),
             empty_object_slots: Vec::new(),
@@ -184,10 +185,16 @@ impl Scene {
                 }
             };
 
-            return BVHNode::traverse_stack(bvh.nodes.as_slice(), bvh.prim_indices.as_slice(),
-                                           origin, direction, 1e-5,
-                                           crate::constants::DEFAULT_T_MAX,
-                                           intersection);
+            unsafe {
+                return match USE_MBVH {
+                    true => self.mbvh.as_ref().unwrap().traverse(origin, direction, 1e-5,
+                                                        crate::constants::DEFAULT_T_MAX,
+                                                        intersection),
+                    _ => self.bvh.as_ref().unwrap().traverse(origin, direction, 1e-5,
+                                                             crate::constants::DEFAULT_T_MAX,
+                                                             intersection)
+                };
+            }
         }
         panic!("Invalid bvh, bvh was None.");
     }
@@ -204,7 +211,10 @@ impl Scene {
 
     pub fn build_bvh(&mut self) {
         if self.flags.has_flag(SceneFlags::Dirty) || self.bvh.is_none() { // Need to rebuild bvh
-            self.bvh = Some(BVH::construct(self.instances.as_slice()));
+            let bvh = BVH::construct(self.instances.as_slice());
+            let mbvh = MBVH::new(&bvh);
+            self.bvh = Some(bvh);
+            self.mbvh = Some(mbvh);
         }
     }
 }

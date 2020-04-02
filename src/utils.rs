@@ -22,8 +22,8 @@ impl Timer {
     pub fn elapsed_in_millis(&self) -> f32 {
         let elapsed = self.elapsed();
         let secs = elapsed.as_secs() as u32;
-        let millis = elapsed.subsec_millis();
-        (secs * 1_000 + millis) as f32
+        let millis = elapsed.subsec_micros();
+        (secs * 1_000) as f32 + (millis as f32 / 1000.0)
     }
 }
 

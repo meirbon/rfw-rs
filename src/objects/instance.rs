@@ -1,7 +1,8 @@
 use glam::*;
 use crate::objects::*;
-use crate::bvh::AABB;
 use std::sync::Arc;
+use bvh::aabb::Bounds;
+use bvh::AABB;
 
 pub struct Instance {
     bounds: AABB,
@@ -69,7 +70,9 @@ impl Intersect for Instance {
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
         self.object.intersect_t(origin, direction, t_min, t_max)
     }
+}
 
+impl Bounds for Instance {
     fn bounds(&self) -> AABB {
         self.bounds.clone()
     }
