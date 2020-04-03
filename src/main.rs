@@ -34,6 +34,7 @@ struct App {
     scene: Scene,
     materials: MaterialList,
     render_mode: RenderMode,
+    fps: Averager<f32>
 }
 
 impl App {
@@ -80,6 +81,7 @@ impl App {
             scene,
             materials,
             render_mode: RenderMode::Scene,
+            fps: Averager::with_capacity(25)
         }
     }
 
@@ -174,9 +176,6 @@ impl fb_template::App for App {
 
 
     fn key_handling(&mut self, states: &KeyHandler) -> Option<Request> {
-        let elapsed = self.timer.elapsed_in_millis();
-        self.timer.reset();
-
         if states.pressed(KeyCode::Escape) {
             return Some(Request::Exit);
         }
@@ -232,6 +231,7 @@ impl fb_template::App for App {
             self.render_mode = RenderMode::Scene;
         }
 
+        let elapsed = self.timer.elapsed_in_millis();
         let elapsed = if states.pressed(KeyCode::LShift) { elapsed * 2.0 } else { elapsed };
 
         let view_change = view_change * elapsed * 0.001;
@@ -244,7 +244,11 @@ impl fb_template::App for App {
             self.camera.translate_relative(pos_change);
         }
 
-        Some(Request::TitleChange(String::from(format!("FPS: {:.2}", 1000.0 / elapsed))))
+        let elapsed = self.timer.elapsed_in_millis();
+        self.fps.add_sample(1000.0 / elapsed);
+        let avg = self.fps.get_average();
+        self.timer.reset();
+        Some(Request::TitleChange(String::from(format!("FPS: {:.2}", avg))))
     }
 
     fn mouse_handling(&mut self, _x: f64, _y: f64, _dx: f64, _dy: f64) -> Option<Request> {
