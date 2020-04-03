@@ -2,6 +2,7 @@ use glam::*;
 use crate::objects::*;
 use bvh::aabb::Bounds;
 use bvh::AABB;
+use crate::constants::EPSILON;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -95,7 +96,7 @@ impl Intersect for Triangle {
 
         let h = direction.cross(edge2);
         let a = edge1.dot(h);
-        if a > -crate::constants::EPSILON && a < crate::constants::EPSILON {
+        if a > -EPSILON && a < EPSILON {
             return false;
         }
 
@@ -122,7 +123,7 @@ impl Intersect for Triangle {
 
         let h = direction.cross(edge2);
         let a = edge1.dot(h);
-        if a > -crate::constants::EPSILON && a < crate::constants::EPSILON {
+        if a > -EPSILON && a < EPSILON {
             return None;
         }
 
@@ -148,11 +149,11 @@ impl Intersect for Triangle {
         let uv = self.uv0 * u + self.uv1 * v + self.uv2 * w;
 
         Some(HitRecord {
-            normal,
+            normal: normal.into(),
             t,
-            p,
+            p: p.into(),
             mat_id: 0,
-            uv,
+            uv: uv.into(),
         })
     }
 
@@ -162,7 +163,7 @@ impl Intersect for Triangle {
 
         let h = direction.cross(edge2);
         let a = edge1.dot(h);
-        if a > -crate::constants::EPSILON && a < crate::constants::EPSILON {
+        if a > -EPSILON && a < EPSILON {
             return None;
         }
 
@@ -185,6 +186,10 @@ impl Intersect for Triangle {
         }
 
         Some(t)
+    }
+
+    fn depth_test(&self, _: Vec3, _: Vec3, _: f32, _: f32) -> Option<(f32, u32)> {
+        None
     }
 }
 

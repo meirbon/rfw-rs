@@ -3,9 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
 use std::sync::mpsc::Sender;
-use rayon::prelude::*;
 
-use crate::{AABB, Bounds};
+use crate::AABB;
 
 #[derive(Debug, Clone)]
 pub struct BVHNode {
@@ -31,9 +30,9 @@ pub struct NodeUpdatePayLoad {
 
 #[allow(dead_code)]
 impl BVHNode {
-    const BINS: usize = 9;
+    const BINS: usize = 7;
     const MAX_PRIMITIVES: i32 = 5;
-    const MAX_DEPTH: u32 = 64;
+    const MAX_DEPTH: u32 = 32;
 
     pub fn new() -> BVHNode {
         BVHNode {
@@ -239,73 +238,27 @@ impl BVHNode {
         })
     }
 
-    pub fn depth_test_recursive<I>(&self, tree: &[BVHNode],
-                                   prim_indices: &[u32],
-                                   origin: Vec3,
-                                   dir: Vec3,
-                                   t_min: f32,
-                                   t: &mut f32,
-                                   intersection_test: I) -> u32
-        where I: Fn(usize) -> Option<f32> + Copy
-    {
-        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
-
-        let mut depth = 0;
-        if self.bounds.count > -1 {
-            for i in 0..self.bounds.count {
-                let prim_id = prim_indices[(self.bounds.left_first + i) as usize];
-                if let Some(new_t) = intersection_test(prim_id as usize) {
-                    if new_t < *t {
-                        *t = new_t;
-                    }
-                }
-            }
-        } else {
-            let left = tree[self.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, *t);
-            let right = tree[(self.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, *t);
-            if left.is_some() & &right.is_some() {
-                let (t_near_left, _) = left.unwrap();
-                let (t_near_right, _) = right.unwrap();
-
-                depth += 2;
-                if t_near_left < t_near_right {
-                    depth += tree[self.bounds.left_first as usize].depth_test_recursive(tree, prim_indices, origin, dir, t_min, t, intersection_test);
-                    depth += tree[(self.bounds.left_first + 1) as usize].depth_test_recursive(tree, prim_indices, origin, dir, t_min, t, intersection_test);
-                } else {
-                    depth += tree[(self.bounds.left_first + 1) as usize].depth_test_recursive(tree, prim_indices, origin, dir, t_min, t, intersection_test);
-                    depth += tree[self.bounds.left_first as usize].depth_test_recursive(tree, prim_indices, origin, dir, t_min, t, intersection_test);
-                }
-            } else if left.is_some() {
-                depth += 1;
-                depth += tree[self.bounds.left_first as usize].depth_test_recursive(tree, prim_indices, origin, dir, t_min, t, intersection_test);
-            } else if right.is_some() {
-                depth += 1;
-                depth += tree[(self.bounds.left_first + 1) as usize].depth_test_recursive(tree, prim_indices, origin, dir, t_min, t, intersection_test);
-            }
-        }
-
-        depth
-    }
-
     pub fn depth_test<I>(
         tree: &[BVHNode],
         prim_indices: &[u32],
         origin: Vec3,
         dir: Vec3,
         t_min: f32,
-        intersection_test: I,
-    ) -> u32
-        where I: Fn(usize, f32, f32) -> Option<f32>
+        t_max: f32,
+        depth_test: I,
+    ) -> (f32, u32)
+        where I: Fn(usize, f32, f32) -> Option<(f32, u32)>
     {
-        let mut depth = 0;
-        let mut hit_stack = [0; 32];
-        let mut stack_ptr: i32 = 0;
-        let mut t = 1e34;
+        let mut t = t_max;
         let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
 
         if tree[0].bounds.intersect(origin, dir_inverse, t).is_none() {
-            return depth;
+            return (t_max, 0);
         }
+
+        let mut depth: i32 = 0;
+        let mut hit_stack = [0; 32];
+        let mut stack_ptr: i32 = 0;
 
         while stack_ptr >= 0 {
             depth = depth + 1;
@@ -315,22 +268,20 @@ impl BVHNode {
             if node.bounds.count > -1 { // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
-                    if let Some(new_t) = intersection_test(prim_id as usize, t_min, t) {
-                        if new_t < t && t > t_min {
-                            t = new_t;
-                        }
+                    if let Some((new_t, d)) = depth_test(prim_id as usize, t_min, t) {
+                        t = new_t;
+                        depth += d as i32;
                     }
                 }
             } else {
                 let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
                 let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
                 let new_stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
-                depth += (new_stack_ptr - stack_ptr) as u32;
                 stack_ptr = new_stack_ptr;
             }
         }
 
-        depth
+        (t, depth as u32)
     }
 
     pub fn traverse<I, N, U, R>(
@@ -402,9 +353,9 @@ impl BVHNode {
         dir: Vec3,
         t_min: f32,
         t_max: f32,
-        intersection_test: I,
+        mut intersection_test: I,
     ) -> Option<R>
-        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
+        where I: FnMut(usize, f32, f32) -> Option<(f32, R)>, R: Copy
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
@@ -442,9 +393,9 @@ impl BVHNode {
         dir: Vec3,
         t_min: f32,
         t_max: f32,
-        intersection_test: I,
+        mut intersection_test: I,
     ) -> Option<f32>
-        where I: Fn(usize, f32, f32) -> Option<f32>
+        where I: FnMut(usize, f32, f32) -> Option<f32>
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
@@ -480,9 +431,9 @@ impl BVHNode {
         dir: Vec3,
         t_min: f32,
         t_max: f32,
-        intersection_test: I,
+        mut intersection_test: I,
     ) -> bool
-        where I: Fn(usize, f32, f32) -> bool
+        where I: FnMut(usize, f32, f32) -> bool
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;

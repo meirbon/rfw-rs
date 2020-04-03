@@ -2,7 +2,6 @@ use crate::bvh_node::*;
 use crate::AABB;
 
 use glam::*;
-use std::ops::{Add, BitAnd};
 
 pub struct MBVHHit {
     ids: [u8; 4],
@@ -90,6 +89,7 @@ impl MBVHNode {
 
         let result = t_max.cmpge(t_min) & (t_min.cmplt([t; 4].into()));
         let result = result.bitmask();
+        if result == 0 { return None; }
         let result = [(result & 1) != 0, (result & 2) != 0, (result & 4) != 0, (result & 8) != 0];
 
         let mut ids = [0, 1, 2, 3];
@@ -127,9 +127,9 @@ impl MBVHNode {
         dir: Vec3,
         t_min: f32,
         t_max: f32,
-        intersection_test: I,
+        mut intersection_test: I,
     ) -> Option<R>
-        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
+        where I: FnMut(usize, f32, f32) -> Option<(f32, R)>, R: Copy
     {
         let mut todo = [0; 32];
         let mut stack_ptr = 0;
@@ -142,26 +142,12 @@ impl MBVHNode {
             stack_ptr = stack_ptr - 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                for i in (0..=3).rev() {
-                    let id = hit.ids[i] as usize;
-                    if hit.result[id] {
-                        let count = tree[left_first].counts[id];
-                        let left_first = tree[left_first].children[id];
-                        if count >= 0 {
-                            for i in 0..count {
-                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
-                                if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, t) {
-                                    t = new_t;
-                                    hit_record = Some(new_hit);
-                                }
-                            }
-                        } else if left_first >= 0 {
-                            stack_ptr += 1;
-                            let stack_ptr = stack_ptr as usize;
-                            todo[stack_ptr] = left_first;
-                        }
+                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
+                    if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, t) {
+                        t = new_t;
+                        hit_record = Some(new_hit);
                     }
-                }
+                });
             }
         }
 
@@ -175,9 +161,9 @@ impl MBVHNode {
         dir: Vec3,
         t_min: f32,
         t_max: f32,
-        intersection_test: I,
+        mut intersection_test: I,
     ) -> Option<f32>
-        where I: Fn(usize, f32, f32) -> Option<f32>
+        where I: FnMut(usize, f32, f32) -> Option<f32>
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -189,25 +175,11 @@ impl MBVHNode {
             stack_ptr -= 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                for i in (0..=3).rev() {
-                    let id = hit.ids[i] as usize;
-                    if hit.result[id] {
-                        let count = tree[left_first].counts[id];
-                        let left_first = tree[left_first].children[id];
-                        if count >= 0 {
-                            for i in 0..count {
-                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
-                                if let Some(new_t) = intersection_test(prim_id, t_min, t) {
-                                    t = new_t;
-                                }
-                            }
-                        } else if left_first >= 0 {
-                            stack_ptr += 1;
-                            let stack_ptr = stack_ptr as usize;
-                            todo[stack_ptr] = left_first;
-                        }
+                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
+                    if let Some(new_t) = intersection_test(prim_id, t_min, t) {
+                        t = new_t;
                     }
-                }
+                });
             }
         }
 
@@ -221,9 +193,9 @@ impl MBVHNode {
         dir: Vec3,
         t_min: f32,
         t_max: f32,
-        intersection_test: I,
+        mut intersection_test: I,
     ) -> bool
-        where I: Fn(usize, f32, f32) -> bool
+        where I: FnMut(usize, f32, f32) -> bool
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -235,29 +207,100 @@ impl MBVHNode {
             stack_ptr -= 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                for i in (0..=3).rev() {
-                    let id = hit.ids[i] as usize;
-                    if hit.result[id] {
-                        let count = tree[left_first].counts[id];
-                        let left_first = tree[left_first].children[id];
-                        if count >= 0 {
-                            for i in 0..count {
-                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
-                                if intersection_test(prim_id, t_min, t) {
-                                    return true;
-                                }
-                            }
-                        } else if left_first >= 0 {
-                            stack_ptr += 1;
-                            let stack_ptr = stack_ptr as usize;
-                            todo[stack_ptr] = left_first;
-                        }
+                let mut hit_prim = false;
+                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
+                    if intersection_test(prim_id, t_min, t) {
+                        hit_prim = true;
                     }
+                });
+
+                if hit_prim {
+                    return true;
                 }
             }
         }
 
         false
+    }
+
+    pub fn depth_test<I>(
+        tree: &[MBVHNode],
+        prim_indices: &[u32],
+        origin: Vec3,
+        dir: Vec3,
+        t_min: f32,
+        t_max: f32,
+        depth_test: I,
+    ) -> (f32, u32)
+        where I: Fn(usize, f32, f32) -> Option<(f32, u32)>
+    {
+        let mut todo = [0; 32];
+        let mut stack_ptr = -1;
+        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        let mut t = t_max;
+        let mut depth: u32 = 0;
+
+        if let Some(hit) = tree[0].intersect(origin, dir_inverse, t) {
+            stack_ptr = Self::process_hit(stack_ptr, hit, tree, 0, prim_indices, &mut todo, |prim_id| {
+                if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
+                    t = new_t;
+                    depth += d;
+                }
+            });
+            depth = 1
+        } else {
+            return (t, depth);
+        }
+
+        while stack_ptr >= 0 {
+            let node = todo[stack_ptr as usize] as usize;
+            stack_ptr = stack_ptr - 1;
+            depth += 1;
+
+            if let Some(hit) = tree[node].intersect(origin, dir_inverse, t) {
+                stack_ptr = Self::process_hit(stack_ptr, hit, tree, node, prim_indices, &mut todo, |prim_id| {
+                    if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
+                        t = new_t;
+                        depth += d;
+                    }
+                });
+            }
+        }
+
+        (t, depth)
+    }
+
+    #[inline]
+    fn process_hit<T>(
+        mut stack_ptr: i32,
+        hit: MBVHHit,
+        tree: &[Self],
+        node: usize,
+        prim_indices: &[u32],
+        todo: &mut [u32],
+        mut cb: T,
+    ) -> i32
+        where T: FnMut(usize)
+    {
+        for i in (0..4).rev() {
+            let id = hit.ids[i] as usize;
+            if hit.result[id] {
+                let count = tree[node].counts[id];
+                let left_first = tree[node].children[id];
+                if count >= 0 {
+                    for i in 0..count {
+                        let prim_id = prim_indices[(left_first + i) as usize] as usize;
+                        cb(prim_id);
+                    }
+                } else if left_first >= 0 {
+                    stack_ptr += 1;
+                    let stack_ptr = stack_ptr as usize;
+                    todo[stack_ptr] = left_first as u32;
+                }
+            }
+        }
+
+        stack_ptr
     }
 
     pub fn merge_nodes(

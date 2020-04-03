@@ -3,6 +3,7 @@ use crate::objects::*;
 use bvh::AABB;
 use bvh::Bounds;
 
+#[derive(Debug, Copy, Clone)]
 pub struct Sphere {
     pos: Vec3,
     radius2: f32,
@@ -81,7 +82,7 @@ impl Intersect for Sphere {
         let normal = self.normal(p);
         let uv = self.get_uv(normal);
 
-        Some(HitRecord { normal, t, p, mat_id: self.mat_id, uv })
+        Some(HitRecord { normal: normal.into(), t, p: p.into(), mat_id: self.mat_id, uv: uv.into() })
     }
 
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
@@ -108,6 +109,10 @@ impl Intersect for Sphere {
         let t = if t1 > t_min && t1 < t2 { t1 } else { t2 };
 
         if t <= t_min || t >= t_max { None } else { Some(t) }
+    }
+
+    fn depth_test(&self, _: Vec3, _: Vec3, _: f32, _: f32) -> Option<(f32, u32)> {
+        None
     }
 }
 

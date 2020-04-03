@@ -1,4 +1,3 @@
-use pixels::Pixels;
 use std::collections::HashMap;
 use winit::{
     dpi::LogicalSize,
@@ -67,12 +66,12 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
         .build(&event_loop)
         .unwrap();
 
-    let window_scale = window.scale_factor();
+    let _window_scale = window.scale_factor();
 
     let mut pixels = {
         let surface = pixels::wgpu::Surface::create(&window);
         let surface_texture = pixels::SurfaceTexture::new(width, height, surface);
-        Pixels::new(start_width, start_height, surface_texture).unwrap()
+        pixels::PixelsBuilder::new(start_width, start_height, surface_texture).build().unwrap()
     };
 
     event_loop.run(move |event, _, control_flow| {
@@ -113,7 +112,7 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
                 pixels = {
                     let surface = pixels::wgpu::Surface::create(&window);
                     let surface_texture = pixels::SurfaceTexture::new(width, height, surface);
-                    Pixels::new(width, height, surface_texture).unwrap()
+                    pixels::PixelsBuilder::new(width, height, surface_texture).build().unwrap()
                 };
 
                 app.resize(width, height);

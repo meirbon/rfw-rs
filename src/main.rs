@@ -18,6 +18,12 @@ use objects::*;
 use scene::*;
 use utils::*;
 
+#[derive(Debug, Copy, Clone)]
+enum RenderMode {
+    Scene,
+    BVH,
+}
+
 struct App {
     pub width: u32,
     pub height: u32,
@@ -27,6 +33,7 @@ struct App {
     timer: Timer,
     scene: Scene,
     materials: MaterialList,
+    render_mode: RenderMode,
 }
 
 impl App {
@@ -41,14 +48,17 @@ impl App {
                 .scale(50.0),
         );
         let dragon = scene.add_object(dragon);
-        scene.add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
-            .unwrap();
+        scene.add_instance(
+            dragon,
+            Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)),
+        ).unwrap();
 
         let sphere = scene.add_object(Box::new(
             Obj::new("models/sphere.obj", &mut materials)
                 .unwrap()
                 .into_mesh(),
         ));
+
         (-2..3).for_each(|x| {
             (3..8).for_each(|z| {
                 let matrix =
@@ -69,6 +79,7 @@ impl App {
             timer: Timer::new(),
             scene,
             materials,
+            render_mode: RenderMode::Scene,
         }
     }
 
@@ -90,40 +101,77 @@ impl App {
             }
         });
     }
-}
 
-impl fb_template::App for App {
-    fn render(&mut self, fb: &mut [u8]) -> Option<Request> {
+    fn render_bvh(&mut self) {
         let view = self.camera.get_view();
         let pixels = &mut self.pixels;
-        let scene = &self.scene;
-        let materials = &self.materials;
+        let intersector = self.scene.create_intersector();
+        let _materials = &self.materials;
 
         pixels.par_iter_mut().enumerate().for_each(|(y, pixels)| {
             let y = y as u32;
             for (x, pixel) in pixels.iter_mut().enumerate() {
                 let x = x as u32;
-
                 let ray = view.generate_ray(x, y);
 
-                // use rand::random;
-                // let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
+                *pixel = {
+                    let (_, depth) = intersector.depth_test(ray.origin, ray.direction, constants::DEFAULT_T_MIN, constants::DEFAULT_T_MAX);
+                    if depth == 0 { Vec4::from([0.0; 4]) } else {
+                        let r = if depth > 8 { depth.min(48) as f32 * (1.0 / 64.0) } else { 0.0 };
+                        let g = (32 - depth.clamp(0, 32)) as f32 * (1.0 / 32.0);
+                        let b = if depth > 4 { depth as f32 * (1.0 / 128.0) } else { 0.0 };
+                        (r, g, b, 1.0).into()
+                    }
+                };
+            }
+        });
+    }
 
-                *pixel = if let Some(hit) = scene.intersect(ray.origin, ray.direction) {
-                    // let material = materials.get(hit.mat_id as usize).unwrap();
-                    // let color = material.color;
-                    let color = hit.normal;
+    fn render_scene(&mut self) {
+        let view = self.camera.get_view();
+        let pixels = &mut self.pixels;
+        let intersector = self.scene.create_intersector();
+        let materials = &self.materials;
 
-                    (color.x(), color.y(), color.z(), 1.0).into()
+        pixels.par_iter_mut().enumerate().for_each(|(y, pixels)| {
+            let y = y as u32;
+            for (x, pixel) in pixels.iter_mut().enumerate() {
+                use rand::random;
+                let x = x as u32;
+                let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
+
+                *pixel = if let Some(hit) = intersector.intersect(
+                    ray.origin,
+                    ray.direction,
+                    constants::DEFAULT_T_MIN,
+                    constants::DEFAULT_T_MAX,
+                ) {
+                    let color = if let Some(mat) = materials.get(hit.mat_id as usize) {
+                        mat.color * -Vec3::from(hit.normal).dot(ray.direction)
+                    } else {
+                        hit.normal.into()
+                    };
+
+                    Vec3::from(color).extend(1.0)
                 } else {
                     [0.0; 4].into()
                 }
             }
         });
+    }
+}
+
+impl fb_template::App for App {
+    fn render(&mut self, fb: &mut [u8]) -> Option<Request> {
+        match self.render_mode {
+            RenderMode::Scene => self.render_scene(),
+            RenderMode::BVH => self.render_bvh()
+        };
 
         self.blit_pixels(fb);
         None
     }
+
 
     fn key_handling(&mut self, states: &KeyHandler) -> Option<Request> {
         let elapsed = self.timer.elapsed_in_millis();
@@ -176,7 +224,17 @@ impl fb_template::App for App {
             unsafe { crate::scene::USE_MBVH = false; }
         }
 
-        let view_change = view_change * elapsed * 0.002;
+        if states.pressed(KeyCode::B) {
+            self.render_mode = RenderMode::BVH;
+        }
+
+        if states.pressed(KeyCode::N) {
+            self.render_mode = RenderMode::Scene;
+        }
+
+        let elapsed = if states.pressed(KeyCode::LShift) { elapsed * 2.0 } else { elapsed };
+
+        let view_change = view_change * elapsed * 0.001;
         let pos_change = pos_change * elapsed * 0.05;
 
         if view_change != [0.0; 3].into() {

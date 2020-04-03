@@ -28,6 +28,7 @@ impl Timer {
 }
 
 
+#[derive(Debug, Copy, Clone)]
 pub struct Flags {
     bits: u32,
 }

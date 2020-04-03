@@ -1,7 +1,7 @@
 use glam::*;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct AABB {
     pub min: [f32; 3],
     pub left_first: i32,

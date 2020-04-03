@@ -47,6 +47,7 @@ pub struct Camera {
     focal_distance: f32,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct CameraView {
     pub pos: Vec3,
     pub lens_size: f32,

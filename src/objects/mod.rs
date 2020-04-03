@@ -12,24 +12,22 @@ pub use obj::Obj;
 pub use mesh::Mesh;
 pub use instance::Instance;
 pub use mesh::ToMesh;
-
-use bvh::{AABB, Bounds};
+use bvh::Bounds;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {
-    pub normal: Vec3,
+    pub normal: [f32; 3],
     pub t: f32,
-
-    pub p: Vec3,
+    pub p: [f32; 3],
     pub mat_id: u32,
-
-    pub uv: Vec2,
+    pub uv: [f32; 2],
 }
 
-pub trait Intersect: Sync + Send + Bounds {
+pub trait Intersect: Bounds + Send + Sync {
     fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool;
     fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord>;
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32>;
+    fn depth_test(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<(f32, u32)>;
 }
 
 pub struct Quad {

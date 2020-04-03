@@ -1,6 +1,5 @@
 use glam::*;
 use crate::objects::*;
-use std::sync::Arc;
 use bvh::aabb::Bounds;
 use bvh::AABB;
 
@@ -9,22 +8,22 @@ pub struct Instance {
     transform: Mat4,
     inverse: Mat4,
     normal_transform: Mat4,
-    object: Arc<Box<dyn Intersect>>,
 }
 
 #[allow(dead_code)]
 impl Instance {
-    pub fn new(object: Arc<Box<dyn Intersect>>, transform: Mat4) -> Instance {
+    pub fn new(hit_id: isize, bounds: &AABB, transform: Mat4) -> Instance {
         let inverse = transform.inverse();
         let normal_transform = inverse.transpose();
-        let bounds = object.bounds().transformed(transform);
+        let mut bounds = bounds.transformed(transform);
+
+        bounds.left_first = hit_id as i32;
 
         Instance {
             bounds,
             transform,
             inverse,
             normal_transform,
-            object,
         }
     }
 
@@ -32,43 +31,36 @@ impl Instance {
 
     pub fn set_transform(&mut self, transform: Mat4) {
         self.inverse = transform.inverse();
-        self.normal_transform = self.inverse.transpose();
-        self.bounds = self.object.bounds().transformed(transform);
-    }
-}
-
-impl Intersect for Instance {
-    fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool {
-        self.object.occludes(origin, direction, t_min, t_max)
+        let new_transform = transform * self.inverse;
+        self.bounds = self.bounds.transformed(new_transform);
     }
 
-    fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
+    #[inline(always)]
+    pub fn intersects(&self, origin: Vec3, direction: Vec3, t_max: f32) -> Option<(Vec3, Vec3)> {
         if self.bounds.intersect(origin, Vec3::one() / direction, t_max).is_none() {
             return None;
         }
 
-        let new_origin = self.inverse * Vec4::new(origin.x(), origin.y(), origin.z(), 1.0);
-        let new_direction = self.inverse * Vec4::new(direction.x(), direction.y(), direction.z(), 0.0);
-        let new_origin = Vec3::new(new_origin.x(), new_origin.y(), new_origin.z());
-        let new_direction = Vec3::new(new_direction.x(), new_direction.y(), new_direction.z());
-
-        if let Some(mut hit) = self.object.intersect(new_origin, new_direction, t_min, t_max) {
-            let p = self.inverse * Vec4::new(hit.p.x(), hit.p.y(), hit.p.z(), 1.0);
-            let p = Vec3::new(p.x(), p.y(), p.z());
-
-            let normal = self.normal_transform * Vec4::new(hit.normal.x(), hit.normal.y(), hit.normal.z(), 1.0);
-            let normal = Vec3::new(normal.x(), normal.y(), normal.z());
-
-            hit.p = p;
-            hit.normal = normal;
-            return Some(hit);
-        }
-
-        None
+        let new_origin = self.inverse * origin.extend(1.0);
+        let new_direction = self.inverse * direction.extend(0.0);
+        Some((new_origin.truncate(), new_direction.truncate()))
     }
 
-    fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
-        self.object.intersect_t(origin, direction, t_min, t_max)
+    #[inline(always)]
+    pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
+        let p = self.inverse * Vec3::from(hit.p).extend(1.0);
+        let normal = self.normal_transform * Vec3::from(hit.normal).extend(0.0);
+
+        HitRecord {
+            p: p.truncate().into(),
+            normal: normal.truncate().into(),
+            ..hit
+        }
+    }
+
+    #[inline(always)]
+    pub fn get_hit_id(&self) -> usize {
+        self.bounds.left_first as usize
     }
 }
 

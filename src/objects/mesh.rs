@@ -9,6 +9,7 @@ pub trait ToMesh {
     fn into_mesh(self) -> Mesh;
 }
 
+#[derive(Debug, Clone)]
 pub struct Mesh {
     triangles: Vec<Triangle>,
     materials: Vec<u32>,
@@ -58,8 +59,9 @@ impl Mesh {
         });
 
         let timer = crate::utils::Timer::new();
-        let bvh = BVH::construct(triangles.as_slice());
-        let mbvh = MBVH::new(&bvh);
+        let aabbs = triangles.par_iter().map(|t| { t.bounds() }).collect::<Vec<AABB>>();
+        let bvh = BVH::construct(aabbs.as_slice());
+        let mbvh = MBVH::construct(&bvh);
         println!("Building bvh took: {} ms", timer.elapsed_in_millis());
 
         Mesh { triangles, bvh, mbvh, materials: Vec::from(material_ids) }
@@ -82,8 +84,9 @@ impl Mesh {
             t.vertex2 = vertex2;
         });
 
-        self.bvh = BVH::construct(self.triangles.as_slice());
-        self.mbvh = MBVH::new(&self.bvh);
+        let aabbs = self.triangles.par_iter().map(|t| { t.bounds() }).collect::<Vec<AABB>>();
+        self.bvh = BVH::construct(aabbs.as_slice());
+        self.mbvh = MBVH::construct(&self.bvh);
 
         self
     }
@@ -98,8 +101,8 @@ impl Intersect for Mesh {
 
         unsafe {
             match USE_MBVH {
-                true => self.mbvh.occludes(origin, direction, t_min, t_max, intersection_test),
-                _ => self.bvh.occludes(origin, direction, t_min, t_max, intersection_test)
+                true => self.mbvh.occludes(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test),
+                _ => self.bvh.occludes(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test)
             }
         }
     }
@@ -116,8 +119,8 @@ impl Intersect for Mesh {
 
         unsafe {
             match USE_MBVH {
-                true => self.mbvh.traverse(origin, direction, t_min, t_max, intersection_test),
-                _ => self.bvh.traverse(origin, direction, t_min, t_max, intersection_test)
+                true => self.mbvh.traverse(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test),
+                _ => self.bvh.traverse(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test)
             }
         }
     }
@@ -133,10 +136,26 @@ impl Intersect for Mesh {
 
         unsafe {
             match USE_MBVH {
-                true => self.mbvh.traverse_t(origin, direction, t_min, t_max, intersection_test),
-                _ => self.bvh.traverse_t(origin, direction, t_min, t_max, intersection_test)
+                true => self.mbvh.traverse_t(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test),
+                _ => self.bvh.traverse_t(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test)
             }
         }
+    }
+
+    fn depth_test(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
+        let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)>{
+            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+            triangle.depth_test(origin, direction, t_min, t_max)
+        };
+
+        let hit = unsafe {
+            match USE_MBVH {
+                true => self.mbvh.depth_test(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test),
+                _ => self.bvh.depth_test(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test)
+            }
+        };
+
+        Some(hit)
     }
 }
 
