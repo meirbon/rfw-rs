@@ -4,6 +4,7 @@ use crate::utils::*;
 use glam::*;
 use std::collections::HashSet;
 use bvh::{AABB, Bounds, BVH, MBVH};
+use crate::camera::{RayPacket4, ShadowPacket4};
 
 pub static mut USE_MBVH: bool = true;
 
@@ -16,6 +17,9 @@ impl Into<u8> for SceneFlags {
         self as u8
     }
 }
+
+pub type PrimID = i32;
+pub type InstanceID = i32;
 
 #[derive(Debug, Copy, Clone)]
 struct NullObject {
@@ -37,6 +41,10 @@ impl Intersect for NullObject {
 
     fn depth_test(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<(f32, u32)> {
         None
+    }
+
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
+        [-1; 4]
     }
 }
 
@@ -341,6 +349,46 @@ impl<'a> Intersector<'a> {
                 }
             };
         }
+    }
+
+    pub fn occludes4(&self, packet: ShadowPacket4) -> [bool; 4] {
+        [true; 4]
+    }
+
+    pub fn intersect4(&self, packet: RayPacket4) -> [(InstanceID, PrimID); 4] {
+        [(-1, -1); 4]
+        // let mut instance_id = -1;
+        // let intersection = |i, t_min, t_max| {
+        //     let instance = &self.instances[i as usize];
+        //     if let Some((origin, direction)) = instance.intersects(origin, direction, t_max) {
+        //         if let Some(hit) = self.objects[instance.get_hit_id() as usize].intersect(origin, direction, t_min, t_max) {
+        //             instance_id = i as i32;
+        //             return Some((hit.t, hit));
+        //         }
+        //     }
+        //     None
+        // };
+        //
+        // let hit = unsafe {
+        //     match USE_MBVH {
+        //         true => self.mbvh.traverse(
+        //             origin.as_ref(),
+        //             direction.as_ref(),
+        //             t_min,
+        //             t_max,
+        //             intersection,
+        //         ),
+        //         _ => self.bvh.traverse(
+        //             origin.as_ref(),
+        //             direction.as_ref(),
+        //             t_min,
+        //             t_max,
+        //             intersection,
+        //         )
+        //     }
+        // };
+        //
+        // hit.and_then(|hit| Some(self.instances[instance_id as usize].transform_hit(hit)))
     }
 }
 

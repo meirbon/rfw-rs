@@ -115,7 +115,12 @@ impl App {
                 let ray = view.generate_ray(x, y);
 
                 *pixel = {
-                    let (_, depth) = intersector.depth_test(ray.origin, ray.direction, constants::DEFAULT_T_MIN, constants::DEFAULT_T_MAX);
+                    let (_, depth) = intersector.depth_test(
+                        ray.origin.into(),
+                        ray.direction.into(),
+                        constants::DEFAULT_T_MIN,
+                        constants::DEFAULT_T_MAX,
+                    );
                     if depth == 0 { Vec4::from([0.0; 4]) } else {
                         let r = if depth > 8 { depth.min(48) as f32 * (1.0 / 64.0) } else { 0.0 };
                         let g = (32 - depth.clamp(0, 32)) as f32 * (1.0 / 32.0);
@@ -141,13 +146,13 @@ impl App {
                 let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
 
                 *pixel = if let Some(hit) = intersector.intersect(
-                    ray.origin,
-                    ray.direction,
+                    ray.origin.into(),
+                    ray.direction.into(),
                     constants::DEFAULT_T_MIN,
                     constants::DEFAULT_T_MAX,
                 ) {
                     let color = if let Some(mat) = materials.get(hit.mat_id as usize) {
-                        mat.color * -Vec3::from(hit.normal).dot(ray.direction)
+                        mat.color * -Vec3::from(hit.normal).dot(ray.direction.into())
                     } else {
                         hit.normal.into()
                     };

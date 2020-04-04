@@ -2,8 +2,9 @@ use glam::*;
 use rayon::prelude::*;
 
 use crate::objects::*;
-use crate::scene::USE_MBVH;
+use crate::scene::{USE_MBVH, PrimID};
 use bvh::{Bounds, AABB, BVH, MBVH};
+use crate::camera::RayPacket4;
 
 pub trait ToMesh {
     fn into_mesh(self) -> Mesh;
@@ -45,16 +46,21 @@ impl Mesh {
             let normal = Triangle::normal(vertex0, vertex1, vertex2);
 
             *triangle = Triangle {
-                vertex0,
-                vertex1,
-                vertex2,
-                normal,
-                n0,
-                n1,
-                n2,
-                uv0,
-                uv1,
-                uv2,
+                vertex0: vertex0.into(),
+                u0: uv0.x(),
+                vertex1: vertex1.into(),
+                u1: uv1.x(),
+                vertex2: vertex2.into(),
+                u2: uv2.x(),
+                normal: normal.into(),
+                v0: uv0.y(),
+                n0: n0.into(),
+                v1: uv1.y(),
+                n1: n1.into(),
+                v2: uv2.y(),
+                n2: n2.into(),
+                id: i as i32,
+                light_id: -1,
             };
         });
 
@@ -71,17 +77,13 @@ impl Mesh {
         let scaling = Mat4::from_scale(Vec3::new(scaling, scaling, scaling));
 
         self.triangles.par_iter_mut().for_each(|t| {
-            let vertex0 = scaling * Vec4::new(t.vertex0.x(), t.vertex0.y(), t.vertex0.z(), 1.0);
-            let vertex1 = scaling * Vec4::new(t.vertex1.x(), t.vertex1.y(), t.vertex1.z(), 1.0);
-            let vertex2 = scaling * Vec4::new(t.vertex2.x(), t.vertex2.y(), t.vertex2.z(), 1.0);
+            let vertex0 = scaling * Vec4::new(t.vertex0[0], t.vertex0[1], t.vertex0[2], 1.0);
+            let vertex1 = scaling * Vec4::new(t.vertex1[0], t.vertex1[1], t.vertex1[2], 1.0);
+            let vertex2 = scaling * Vec4::new(t.vertex2[0], t.vertex2[1], t.vertex2[2], 1.0);
 
-            let vertex0 = Vec3::new(vertex0.x(), vertex0.y(), vertex0.z());
-            let vertex1 = Vec3::new(vertex1.x(), vertex1.y(), vertex1.z());
-            let vertex2 = Vec3::new(vertex2.x(), vertex2.y(), vertex2.z());
-
-            t.vertex0 = vertex0;
-            t.vertex1 = vertex1;
-            t.vertex2 = vertex2;
+            t.vertex0 = vertex0.truncate().into();
+            t.vertex1 = vertex1.truncate().into();
+            t.vertex2 = vertex2.truncate().into();
         });
 
         let aabbs = self.triangles.par_iter().map(|t| { t.bounds() }).collect::<Vec<AABB>>();
@@ -156,6 +158,25 @@ impl Intersect for Mesh {
         };
 
         Some(hit)
+    }
+
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
+        // let intersection_test = |i, t_min, t_max| {
+        //     let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+        //     if let Some(mut hit) = triangle.intersect(origin, direction, t_min, t_max) {
+        //         hit.mat_id = self.materials[i];
+        //         return Some((hit.t, hit));
+        //     }
+        //     None
+        // };
+        //
+        // unsafe {
+        //     match USE_MBVH {
+        //         true => self.mbvh.traverse(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test),
+        //         _ => self.bvh.traverse(origin.as_ref(), direction.as_ref(), t_min, t_max, intersection_test)
+        //     }
+        // }
+        [-1; 4]
     }
 }
 

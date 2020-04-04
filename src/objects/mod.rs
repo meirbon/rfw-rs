@@ -13,6 +13,8 @@ pub use mesh::Mesh;
 pub use instance::Instance;
 pub use mesh::ToMesh;
 use bvh::Bounds;
+use crate::camera::RayPacket4;
+use crate::scene::PrimID;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {
@@ -28,6 +30,7 @@ pub trait Intersect: Bounds + Send + Sync {
     fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord>;
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32>;
     fn depth_test(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<(f32, u32)>;
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4];
 }
 
 pub struct Quad {

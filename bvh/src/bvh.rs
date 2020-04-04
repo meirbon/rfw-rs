@@ -109,6 +109,7 @@ impl BVH {
         self
     }
 
+    #[inline(always)]
     pub fn traverse<I, R>(
         &self,
         origin: &[f32; 3],
@@ -119,7 +120,7 @@ impl BVH {
     ) -> Option<R>
         where I: FnMut(usize, f32, f32) -> Option<(f32, R)>, R: Copy
     {
-        BVHNode::traverse_stack(
+        BVHNode::traverse(
             self.nodes.as_slice(),
             self.prim_indices.as_slice(),
             Vec3::from(*origin),
@@ -130,6 +131,7 @@ impl BVH {
         )
     }
 
+    #[inline(always)]
     pub fn traverse_t<I>(
         &self,
         origin: &[f32; 3],
@@ -151,6 +153,7 @@ impl BVH {
         )
     }
 
+    #[inline(always)]
     pub fn occludes<I>(
         &self,
         origin: &[f32; 3],
@@ -172,6 +175,7 @@ impl BVH {
         )
     }
 
+    #[inline(always)]
     pub fn depth_test<I>(
         &self,
         origin: &[f32; 3],

@@ -284,69 +284,7 @@ impl BVHNode {
         (t, depth as u32)
     }
 
-    pub fn traverse<I, N, U, R>(
-        &self,
-        tree: &[BVHNode],
-        prim_indices: &[u32],
-        origin: Vec3,
-        dir: Vec3,
-        t_min: f32,
-        t_max: f32,
-        intersection_test: I,
-    ) -> Option<R>
-        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
-    {
-        let mut hit_index: i32 = -1;
-        let mut t = t_max;
-        let mut hit_record = None;
-
-        self.traverse_recursive(tree, prim_indices, origin, Vec3::new(1.0, 1.0, 1.0) / dir, t_min, &mut t, &mut hit_index, &mut hit_record, &intersection_test);
-
-        hit_record
-    }
-
-    fn traverse_recursive<I, R>(&self, tree: &[BVHNode],
-                                prim_indices: &[u32],
-                                origin: Vec3,
-                                dir_inverse: Vec3,
-                                t_min: f32,
-                                t: &mut f32,
-                                hit_id: &mut i32,
-                                hit_record: &mut Option<R>,
-                                intersection_test: &I)
-        where I: Fn(usize, f32, f32) -> Option<(f32, R)>, R: Copy
-    {
-        if self.bounds.count > -1 {
-            for i in 0..self.bounds.count {
-                let prim_id = prim_indices[(self.bounds.left_first + i) as usize];
-                if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, *t) {
-                    *t = new_t;
-                    *hit_record = Some(new_hit);
-                }
-            }
-        } else {
-            let left = tree[self.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, *t);
-            let right = tree[(self.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, *t);
-            if left.is_some() & &right.is_some() {
-                let (t_near_left, _) = left.unwrap();
-                let (t_near_right, _) = right.unwrap();
-
-                if t_near_left < t_near_right {
-                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
-                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
-                } else {
-                    tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
-                    tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
-                }
-            } else if left.is_some() {
-                tree[self.bounds.left_first as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
-            } else if right.is_some() {
-                tree[(self.bounds.left_first + 1) as usize].traverse_recursive(tree, prim_indices, origin, dir_inverse, t_min, t, hit_id, hit_record, intersection_test);
-            }
-        }
-    }
-
-    pub fn traverse_stack<I, R>(
+    pub fn traverse<I, R>(
         tree: &[BVHNode],
         prim_indices: &[u32],
         origin: Vec3,

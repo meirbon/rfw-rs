@@ -3,28 +3,43 @@ use crate::objects::*;
 use bvh::aabb::Bounds;
 use bvh::AABB;
 use crate::constants::EPSILON;
+use crate::camera::RayPacket4;
+use std::ops::BitAnd;
+use crate::scene::PrimID;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
-    pub vertex0: Vec3,
-    pub vertex1: Vec3,
-    pub vertex2: Vec3,
-    pub normal: Vec3,
-    pub n0: Vec3,
-    pub n1: Vec3,
-    pub n2: Vec3,
-    pub uv0: Vec2,
-    pub uv1: Vec2,
-    pub uv2: Vec2,
+    pub vertex0: [f32; 3],
+    pub u0: f32,
+
+    pub vertex1: [f32; 3],
+    pub u1: f32,
+
+    pub vertex2: [f32; 3],
+    pub u2: f32,
+
+    pub normal: [f32; 3],
+    pub v0: f32,
+
+    pub n0: [f32; 3],
+    pub v1: f32,
+
+    pub n1: [f32; 3],
+    pub v2: f32,
+
+    pub n2: [f32; 3],
+    pub id: i32,
+
+    pub light_id: i32,
 }
 
 #[allow(dead_code)]
 impl Triangle {
     #[inline]
     pub fn area(&self) -> f32 {
-        let a = (self.vertex1 - self.vertex0).length();
-        let b = (self.vertex2 - self.vertex1).length();
-        let c = (self.vertex0 - self.vertex2).length();
+        let a = (Vec3::from(self.vertex1) - Vec3::from(self.vertex0)).length();
+        let b = (Vec3::from(self.vertex2) - Vec3::from(self.vertex1)).length();
+        let c = (Vec3::from(self.vertex0) - Vec3::from(self.vertex2)).length();
         let s = (a + b + c) * 0.5;
         (s * (s - a) * (s - b) * (s - c)).sqrt()
     }
@@ -38,16 +53,21 @@ impl Triangle {
 
     pub fn zero() -> Triangle {
         Triangle {
-            vertex0: Vec3::zero(),
-            vertex1: Vec3::zero(),
-            vertex2: Vec3::zero(),
-            normal: Vec3::zero(),
-            n0: Vec3::zero(),
-            n1: Vec3::zero(),
-            n2: Vec3::zero(),
-            uv0: Vec2::zero(),
-            uv1: Vec2::zero(),
-            uv2: Vec2::zero(),
+            vertex0: [0.0; 3],
+            u0: 0.0,
+            vertex1: [0.0; 3],
+            u1: 0.0,
+            vertex2: [0.0; 3],
+            u2: 0.0,
+            normal: [0.0; 3],
+            v0: 0.0,
+            n0: [0.0; 3],
+            v1: 0.0,
+            n1: [0.0; 3],
+            v2: 0.0,
+            n2: [0.0; 3],
+            id: -1,
+            light_id: -1,
         }
     }
 
@@ -61,29 +81,25 @@ impl Triangle {
 
     // Transforms triangle using given matrix and normal_matrix (transposed of inverse of matrix)
     pub fn transform(&self, matrix: Mat4, normal_matrix: Mat3) -> Triangle {
-        let vertex0 = Vec4::new(self.vertex0.x(), self.vertex0.y(), self.vertex0.z(), 1.0);
-        let vertex1 = Vec4::new(self.vertex1.x(), self.vertex1.y(), self.vertex1.z(), 1.0);
-        let vertex2 = Vec4::new(self.vertex2.x(), self.vertex2.y(), self.vertex2.z(), 1.0);
+        let vertex0 = Vec3::from(self.vertex0).extend(1.0);
+        let vertex1 = Vec3::from(self.vertex1).extend(1.0);
+        let vertex2 = Vec3::from(self.vertex2).extend(1.0);
 
         let vertex0 = matrix * vertex0;
         let vertex1 = matrix * vertex1;
         let vertex2 = matrix * vertex2;
 
-        let vertex0 = Vec3::new(vertex0.x(), vertex0.y(), vertex0.z());
-        let vertex1 = Vec3::new(vertex1.x(), vertex1.y(), vertex1.z());
-        let vertex2 = Vec3::new(vertex2.x(), vertex2.y(), vertex2.z());
-
-        let n0 = normal_matrix * self.n0;
-        let n1 = normal_matrix * self.n1;
-        let n2 = normal_matrix * self.n2;
+        let n0 = normal_matrix * Vec3::from(self.n0);
+        let n1 = normal_matrix * Vec3::from(self.n1);
+        let n2 = normal_matrix * Vec3::from(self.n2);
 
         Triangle {
-            vertex0,
-            vertex1,
-            vertex2,
-            n0,
-            n1,
-            n2,
+            vertex0: vertex0.truncate().into(),
+            vertex1: vertex1.truncate().into(),
+            vertex2: vertex2.truncate().into(),
+            n0: n0.into(),
+            n1: n1.into(),
+            n2: n2.into(),
             ..(*self)
         }
     }
@@ -91,8 +107,12 @@ impl Triangle {
 
 impl Intersect for Triangle {
     fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool {
-        let edge1 = self.vertex1 - self.vertex0;
-        let edge2 = self.vertex2 - self.vertex0;
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
+
+        let edge1 = vertex1 - vertex0;
+        let edge2 = vertex2 - vertex0;
 
         let h = direction.cross(edge2);
         let a = edge1.dot(h);
@@ -101,7 +121,7 @@ impl Intersect for Triangle {
         }
 
         let f = 1.0 / a;
-        let s = origin - self.vertex0;
+        let s = origin - vertex0;
         let u = f * s.dot(h);
         if u < 0.0 || u > 1.0 {
             return false;
@@ -118,8 +138,12 @@ impl Intersect for Triangle {
     }
 
     fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let edge1 = self.vertex1 - self.vertex0;
-        let edge2 = self.vertex2 - self.vertex0;
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
+
+        let edge1 = vertex1 - vertex0;
+        let edge2 = vertex2 - vertex0;
 
         let h = direction.cross(edge2);
         let a = edge1.dot(h);
@@ -128,7 +152,7 @@ impl Intersect for Triangle {
         }
 
         let f = 1.0 / a;
-        let s = origin - self.vertex0;
+        let s = origin - vertex0;
         let u = f * s.dot(h);
         let q = s.cross(edge1);
         let v = f * direction.dot(q);
@@ -143,10 +167,13 @@ impl Intersect for Triangle {
         }
 
         let p = origin + direction * t;
-        let (u, v) = Self::bary_centrics(self.vertex0, self.vertex1, self.vertex2, p, self.normal);
+        let (u, v) = Self::bary_centrics(vertex0, vertex1, vertex2, p, Vec3::from(self.normal));
         let w = 1.0 - u - v;
-        let normal = self.n0 * u + self.n1 * v + self.n2 * w;
-        let uv = self.uv0 * u + self.uv1 * v + self.uv2 * w;
+        let normal = Vec3::from(self.n0) * u + Vec3::from(self.n1) * v + Vec3::from(self.n2) * w;
+        let uv = Vec2::new(
+            self.u0 * u + self.u1 * v + self.u2 * w,
+            self.v0 * u + self.v1 * v + self.v2 * w,
+        );
 
         Some(HitRecord {
             normal: normal.into(),
@@ -158,8 +185,12 @@ impl Intersect for Triangle {
     }
 
     fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
-        let edge1 = self.vertex1 - self.vertex0;
-        let edge2 = self.vertex2 - self.vertex0;
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
+
+        let edge1 = vertex1 - vertex0;
+        let edge2 = vertex2 - vertex0;
 
         let h = direction.cross(edge2);
         let a = edge1.dot(h);
@@ -168,7 +199,7 @@ impl Intersect for Triangle {
         }
 
         let f = 1.0 / a;
-        let s = origin - self.vertex0;
+        let s = origin - vertex0;
         let u = f * s.dot(h);
         if u < 0.0 || u > 1.0 {
             return None;
@@ -191,14 +222,76 @@ impl Intersect for Triangle {
     fn depth_test(&self, _: Vec3, _: Vec3, _: f32, _: f32) -> Option<(f32, u32)> {
         None
     }
+
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
+        let p0_x = Vec4::from([self.vertex0[0]; 4]);
+        let p0_y = Vec4::from([self.vertex0[1]; 4]);
+        let p0_z = Vec4::from([self.vertex0[2]; 4]);
+
+        let p1_x = Vec4::from([self.vertex1[0]; 4]);
+        let p1_y = Vec4::from([self.vertex1[1]; 4]);
+        let p1_z = Vec4::from([self.vertex1[2]; 4]);
+
+        let p2_x = Vec4::from([self.vertex2[0]; 4]);
+        let p2_y = Vec4::from([self.vertex2[1]; 4]);
+        let p2_z = Vec4::from([self.vertex2[2]; 4]);
+
+        let edge1_x = p1_x - p0_x;
+        let edge1_y = p1_y - p0_y;
+        let edge1_z = p1_z - p0_z;
+
+        let edge2_x = p2_x - p0_x;
+        let edge2_y = p2_y - p0_y;
+        let edge2_z = p2_z - p0_z;
+
+        let h_x = Vec4::from(packet.direction_y) * edge2_z - Vec4::from(packet.direction_z) * edge2_y;
+        let h_y = Vec4::from(packet.direction_z) * edge2_z - Vec4::from(packet.direction_x) * edge2_z;
+        let h_z = Vec4::from(packet.direction_x) * edge2_z - Vec4::from(packet.direction_y) * edge2_x;
+
+        let a = edge1_x * h_x + edge1_y * h_y + edge1_z * h_z;
+        let epsilon = Vec4::from([EPSILON; 4]);
+        let mask = a.cmple(-epsilon) | a.cmpge(epsilon);
+        if mask.bitmask() == 0 { return [-1; 4]; }
+
+        let f = Vec4::one() / a;
+        let s_x = Vec4::from(packet.origin_x) - p0_x;
+        let s_y = Vec4::from(packet.origin_y) - p0_y;
+        let s_z = Vec4::from(packet.origin_z) - p0_z;
+
+        let u = f * (s_x * h_x + s_y * h_y + s_z * h_z);
+        let mask = mask.bitand(u.cmpge(Vec4::zero()) & u.cmple(Vec4::zero()));
+        if mask.bitmask() == 0 { return [-1; 4]; }
+
+        let q_x = s_y * edge1_z - s_z * edge1_y;
+        let q_y = s_z * edge1_x - s_x * edge1_z;
+        let q_z = s_x * edge1_y - s_y * edge1_x;
+
+        let v = f * (Vec4::from(packet.direction_x) * q_x + Vec4::from(packet.direction_y) * q_y + Vec4::from(packet.direction_z) * q_z);
+        let mask = mask.bitand(v.cmpge(Vec4::zero()) & (u + v).cmple(Vec4::zero()));
+        if mask.bitmask() == 0 { return [-1; 4]; }
+
+        let t_min = Vec4::from(*t_min);
+
+        let t = f * (edge2_x * q_x + edge2_y * q_y + edge2_z * q_z);
+        let mask = mask.bitand(t.cmpge(t_min) & t.cmplt(packet.t.into()));
+        let bitmask = mask.bitmask();
+        if bitmask == 0 { return [-1; 4]; }
+        packet.t = mask.select(t, packet.t.into()).into();
+
+        let x = if bitmask & 1 != 0 { self.id } else { -1 };
+        let y = if bitmask & 2 != 0 { self.id } else { -1 };
+        let z = if bitmask & 4 != 0 { self.id } else { -1 };
+        let w = if bitmask & 8 != 0 { self.id } else { -1 };
+        [x, y, z, w]
+    }
 }
 
 impl Bounds for Triangle {
     fn bounds(&self) -> AABB {
         let mut aabb = AABB::new();
-        aabb.grow(self.vertex0);
-        aabb.grow(self.vertex1);
-        aabb.grow(self.vertex2);
+        aabb.grow(Vec3::from(self.vertex0));
+        aabb.grow(Vec3::from(self.vertex1));
+        aabb.grow(Vec3::from(self.vertex2));
         aabb.offset_by(crate::constants::AABB_EPSILON);
         aabb
     }

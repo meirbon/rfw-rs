@@ -1,5 +1,6 @@
 use glam::*;
 use std::fmt::{Display, Formatter};
+use std::ops::BitAnd;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AABB {
@@ -52,6 +53,44 @@ impl AABB {
         }
 
         None
+    }
+
+    pub fn intersect4(&self,
+                      origin_x: &[f32; 4],
+                      origin_y: &[f32; 4],
+                      origin_z: &[f32; 4],
+                      inv_direction_x: &[f32; 4],
+                      inv_direction_y: &[f32; 4],
+                      inv_direction_z: &[f32; 4],
+                      t: &[f32; 4],
+    ) -> Option<u32> {
+        let t1_x = (Vec4::from([self.min[0]; 4]) - Vec4::from(*origin_x)) * Vec4::from(*inv_direction_x);
+        let t1_y = (Vec4::from([self.min[1]; 4]) - Vec4::from(*origin_y)) * Vec4::from(*inv_direction_y);
+        let t1_z = (Vec4::from([self.min[2]; 4]) - Vec4::from(*origin_z)) * Vec4::from(*inv_direction_z);
+
+        let t2_x = (Vec4::from([self.max[0]; 4]) - Vec4::from(*origin_x)) * Vec4::from(*inv_direction_x);
+        let t2_y = (Vec4::from([self.max[1]; 4]) - Vec4::from(*origin_y)) * Vec4::from(*inv_direction_y);
+        let t2_z = (Vec4::from([self.max[2]; 4]) - Vec4::from(*origin_z)) * Vec4::from(*inv_direction_z);
+
+        let t_min_x = t1_x.min(t2_x);
+        let t_min_y = t1_y.min(t2_y);
+        let t_min_z = t1_z.min(t2_z);
+
+        let t_max_x = t1_x.max(t2_x);
+        let t_max_y = t1_y.max(t2_y);
+        let t_max_z = t1_z.max(t2_z);
+
+        let t_min = t_min_x.max(t_min_y.max(t_min_z));
+        let t_max = t_max_x.min(t_max_y.min(t_max_z));
+
+        let mask = t_max.cmpgt(t_min).bitand(t_min.cmplt(Vec4::from(*t)));
+        let mask = mask.bitmask();
+
+        if mask > 0 {
+            Some(mask)
+        } else {
+            None
+        }
     }
 
     pub fn grow(&mut self, pos: Vec3) {

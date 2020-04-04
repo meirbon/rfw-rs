@@ -2,6 +2,11 @@ use glam::*;
 use crate::objects::*;
 use bvh::AABB;
 use bvh::Bounds;
+use crate::camera::RayPacket4;
+use std::ops::BitAnd;
+use crate::scene::PrimID;
+
+use std::arch::x86_64::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sphere {
@@ -113,6 +118,63 @@ impl Intersect for Sphere {
 
     fn depth_test(&self, _: Vec3, _: Vec3, _: f32, _: f32) -> Option<(f32, u32)> {
         None
+    }
+
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
+        let origin_x = Vec4::from(packet.origin_x);
+        let origin_y = Vec4::from(packet.origin_y);
+        let origin_z = Vec4::from(packet.origin_z);
+
+        let direction_x = Vec4::from(packet.direction_x);
+        let direction_y = Vec4::from(packet.direction_y);
+        let direction_z = Vec4::from(packet.direction_z);
+
+        let a_x = direction_x * direction_x;
+        let a_y = direction_y * direction_y;
+        let a_z = direction_z * direction_z;
+        let a = a_x + a_y + a_z;
+
+        let r_pos_x = origin_x - Vec4::from([self.pos.x(); 4]);
+        let r_pos_y = origin_y - Vec4::from([self.pos.y(); 4]);
+        let r_pos_z = origin_z - Vec4::from([self.pos.z(); 4]);
+
+        let b_x = direction_x * 2.0 * r_pos_x;
+        let b_y = direction_y * 2.0 * r_pos_y;
+        let b_z = direction_z * 2.0 * r_pos_z;
+        let b = b_x + b_y + b_z;
+
+        let r_pos2_x = r_pos_x * r_pos_x;
+        let r_pos2_y = r_pos_y * r_pos_y;
+        let r_pos2_z = r_pos_z * r_pos_z;
+        let r_pos2 = r_pos2_x + r_pos2_y + r_pos2_z;
+
+        let radius = Vec4::from([self.radius2; 4]);
+        let c = r_pos2 - radius;
+        let d = b * b - 4.0 * a * c;
+        let t_min = Vec4::from(*t_min);
+
+        let mask = d.cmplt(t_min);
+        if mask.bitmask() == 0 { return [-1; 4]; }
+
+        let div_2a = Vec4::one() / (2.0 * a);
+        let sqrt_d = unsafe {
+            Vec4::from(_mm_sqrt_ps(d.into())).max(Vec4::zero())
+        };
+
+        let t1 = ((-b) + sqrt_d) * div_2a;
+        let t2 = ((-b) - sqrt_d) * div_2a;
+        let pick_t1 = t1.cmpgt(t_min).bitand(t1.cmplt(t2));
+        let t = pick_t1.select(t1, t2);
+        let mask = mask.bitand(t.cmpgt(t_min).bitand(t.cmplt(packet.t.into())));
+        let bitmask = mask.bitmask();
+        if bitmask == 0 { return [-1; 4]; }
+        packet.t = mask.select(t, packet.t.into()).into();
+
+        let x = if bitmask & 1 != 0 { 0 } else { -1 };
+        let y = if bitmask & 2 != 0 { 0 } else { -1 };
+        let z = if bitmask & 4 != 0 { 0 } else { -1 };
+        let w = if bitmask & 8 != 0 { 0 } else { -1 };
+        [x, y, z, w]
     }
 }
 

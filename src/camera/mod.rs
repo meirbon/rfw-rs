@@ -2,35 +2,65 @@
 // use crate::math::*;
 use std::f32::consts::PI;
 use glam::*;
+use crate::constants::{EPSILON, DEFAULT_T_MAX};
+use std::arch::x86_64::*;
 
 #[derive(Copy, Clone)]
 pub struct Ray {
-    pub origin: Vec3,
-    pub direction: Vec3,
+    pub origin: [f32; 3],
+    pub direction: [f32; 3],
+}
+
+pub struct RayPacket4 {
+    pub origin_x: [f32; 4],
+    pub origin_y: [f32; 4],
+    pub origin_z: [f32; 4],
+
+    pub direction_x: [f32; 4],
+    pub direction_y: [f32; 4],
+    pub direction_z: [f32; 4],
+
+    pub t: [f32; 4],
+    pub hit_id: [i32; 4],
+    pub instance_id: [i32; 4],
+}
+
+pub struct ShadowPacket4 {
+    pub origin_x: [f32; 4],
+    pub origin_y: [f32; 4],
+    pub origin_z: [f32; 4],
+
+    pub direction_x: [f32; 4],
+    pub direction_y: [f32; 4],
+    pub direction_z: [f32; 4],
+    pub t_max: [f32; 4],
 }
 
 #[allow(dead_code)]
 impl Ray {
-    pub fn new(origin: Vec3, direction: Vec3) -> Ray {
+    pub fn new(origin: [f32; 3], direction: [f32; 3]) -> Ray {
         Ray {
             origin,
             direction,
         }
     }
 
-    pub fn reflect_self(&mut self, p: Vec3, n: Vec3) {
-        self.direction = self.direction - n * n.dot(self.direction);
-        self.origin = p + self.direction * crate::constants::EPSILON;
-    }
+    pub fn reflect(&self, p: &[f32; 3], n: &[f32; 3]) -> Ray {
+        let p = Vec3::from(*p);
+        let n = Vec3::from(*n);
 
-    pub fn reflect(&self, p: Vec3, n: Vec3) -> Ray {
-        let tmp: Vec3 = n * n.dot(self.direction) * 2.0;
-        let dir = self.direction - tmp;
-        Ray::new(p + dir * crate::constants::EPSILON, dir)
+        let direction = Vec3::from(self.direction);
+
+        let tmp: Vec3 = n * n.dot(direction) * 2.0;
+        let direction = direction - tmp;
+        Ray {
+            origin: (p + direction * EPSILON).into(),
+            direction: direction.into(),
+        }
     }
 
     pub fn get_point_at(&self, t: f32) -> Vec3 {
-        self.origin + self.direction * t
+        Vec3::from(self.origin) + Vec3::from(self.direction) * t
     }
 }
 
@@ -92,7 +122,7 @@ impl CameraView {
         let point_on_pixel = self.p1 + u * self.right + v * self.up;
         let direction = (point_on_pixel - origin).normalize();
 
-        Ray::new(origin, direction)
+        Ray::new(origin.into(), direction.into())
     }
 
     pub fn generate_ray(&self, x: u32, y: u32) -> Ray {
@@ -101,7 +131,56 @@ impl CameraView {
         let point_on_pixel = self.p1 + u * self.right + v * self.up;
         let direction = (point_on_pixel - self.pos).normalize();
 
-        Ray::new(self.pos, direction)
+        Ray::new(self.pos.into(), direction.into())
+    }
+
+    pub fn generate_ray4(&self, x: &[u32; 4], y: &[u32; 4]) -> RayPacket4 {
+        let x = [x[0] as f32, x[1] as f32, x[2] as f32, x[3] as f32];
+        let y = [y[0] as f32, y[1] as f32, y[2] as f32, y[3] as f32];
+
+        let x = Vec4::from(x);
+        let y = Vec4::from(y);
+
+        let u = x * self.inv_width;
+        let v = y * self.inv_height;
+
+        let p_x = Vec4::from([self.p1.x(); 4]) + u * self.right.x() + v * self.up.x();
+        let p_y = Vec4::from([self.p1.y(); 4]) + u * self.right.y() + v * self.up.y();
+        let p_z = Vec4::from([self.p1.z(); 4]) + u * self.right.z() + v * self.up.z();
+
+        let direction_x = p_x - Vec4::from([self.pos.x(); 4]);
+        let direction_y = p_y - Vec4::from([self.pos.y(); 4]);
+        let direction_z = p_z - Vec4::from([self.pos.z(); 4]);
+
+        let length_squared = direction_x * direction_x;
+        let length_squared = length_squared + direction_y * direction_y;
+        let length_squared = length_squared + direction_z * direction_z;
+
+        let length = unsafe {
+            Vec4::from(_mm_sqrt_ps(length_squared.into()))
+        };
+
+        let inv_length = Vec4::one() / length;
+
+        let direction_x = (direction_x * inv_length).into();
+        let direction_y = (direction_y * inv_length).into();
+        let direction_z = (direction_z * inv_length).into();
+
+        let origin_x = [self.pos.x(); 4];
+        let origin_y = [self.pos.y(); 4];
+        let origin_z = [self.pos.z(); 4];
+
+        RayPacket4 {
+            origin_x,
+            origin_y,
+            origin_z,
+            direction_x,
+            direction_y,
+            direction_z,
+            t: [DEFAULT_T_MAX; 4],
+            hit_id: [-1; 4],
+            instance_id: [-1; 4],
+        }
     }
 }
 
