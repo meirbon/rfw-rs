@@ -18,8 +18,18 @@ impl Display for AABB {
         let min = Vec3::from(self.min);
         let max = Vec3::from(self.max);
 
-        write!(f, "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})",
-               min.x(), min.y(), min.z(), self.left_first, max.x(), max.y(), max.z(), self.count)
+        write!(
+            f,
+            "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})",
+            min.x(),
+            min.y(),
+            min.z(),
+            self.left_first,
+            max.x(),
+            max.y(),
+            max.z(),
+            self.count
+        )
     }
 }
 
