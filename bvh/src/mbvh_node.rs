@@ -89,8 +89,15 @@ impl MBVHNode {
 
         let result = t_max.cmpge(t_min) & (t_min.cmplt([t; 4].into()));
         let result = result.bitmask();
-        if result == 0 { return None; }
-        let result = [(result & 1) != 0, (result & 2) != 0, (result & 4) != 0, (result & 8) != 0];
+        if result == 0 {
+            return None;
+        }
+        let result = [
+            (result & 1) != 0,
+            (result & 2) != 0,
+            (result & 4) != 0,
+            (result & 8) != 0,
+        ];
 
         let mut ids = [0, 1, 2, 3];
 
@@ -129,7 +136,9 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<R>
-        where I: FnMut(usize, f32, f32) -> Option<(f32, R)>, R: Copy
+    where
+        I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+        R: Copy,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = 0;
@@ -142,12 +151,22 @@ impl MBVHNode {
             stack_ptr = stack_ptr - 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
-                    if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, t) {
-                        t = new_t;
-                        hit_record = Some(new_hit);
-                    }
-                });
+                stack_ptr = Self::process_hit(
+                    stack_ptr,
+                    hit,
+                    tree,
+                    left_first,
+                    prim_indices,
+                    &mut todo,
+                    |prim_id| {
+                        if let Some((new_t, new_hit)) =
+                            intersection_test(prim_id as usize, t_min, t)
+                        {
+                            t = new_t;
+                            hit_record = Some(new_hit);
+                        }
+                    },
+                );
             }
         }
 
@@ -163,7 +182,8 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<f32>
-        where I: FnMut(usize, f32, f32) -> Option<f32>
+    where
+        I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -175,15 +195,27 @@ impl MBVHNode {
             stack_ptr -= 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
-                    if let Some(new_t) = intersection_test(prim_id, t_min, t) {
-                        t = new_t;
-                    }
-                });
+                stack_ptr = Self::process_hit(
+                    stack_ptr,
+                    hit,
+                    tree,
+                    left_first,
+                    prim_indices,
+                    &mut todo,
+                    |prim_id| {
+                        if let Some(new_t) = intersection_test(prim_id, t_min, t) {
+                            t = new_t;
+                        }
+                    },
+                );
             }
         }
 
-        if t < t_max { Some(t) } else { None }
+        if t < t_max {
+            Some(t)
+        } else {
+            None
+        }
     }
 
     pub fn occludes<I>(
@@ -195,7 +227,8 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> bool
-        where I: FnMut(usize, f32, f32) -> bool
+    where
+        I: FnMut(usize, f32, f32) -> bool,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -208,11 +241,19 @@ impl MBVHNode {
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
                 let mut hit_prim = false;
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
-                    if intersection_test(prim_id, t_min, t) {
-                        hit_prim = true;
-                    }
-                });
+                stack_ptr = Self::process_hit(
+                    stack_ptr,
+                    hit,
+                    tree,
+                    left_first,
+                    prim_indices,
+                    &mut todo,
+                    |prim_id| {
+                        if intersection_test(prim_id, t_min, t) {
+                            hit_prim = true;
+                        }
+                    },
+                );
 
                 if hit_prim {
                     return true;
@@ -232,24 +273,32 @@ impl MBVHNode {
         t_max: f32,
         depth_test: I,
     ) -> (f32, u32)
-        where I: Fn(usize, f32, f32) -> Option<(f32, u32)>
+    where
+        I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
         let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
         let mut t = t_max;
-        let mut depth: u32 = 0;
+        let mut depth: u32 = 1;
 
         if let Some(hit) = tree[0].intersect(origin, dir_inverse, t) {
-            stack_ptr = Self::process_hit(stack_ptr, hit, tree, 0, prim_indices, &mut todo, |prim_id| {
-                if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
-                    t = new_t;
-                    depth += d;
-                }
-            });
-            depth = 1
+            stack_ptr = Self::process_hit(
+                stack_ptr,
+                hit,
+                tree,
+                0,
+                prim_indices,
+                &mut todo,
+                |prim_id| {
+                    if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
+                        t = new_t;
+                        depth += d;
+                    }
+                },
+            );
         } else {
-            return (t, depth);
+            return (t, 0);
         }
 
         while stack_ptr >= 0 {
@@ -258,12 +307,20 @@ impl MBVHNode {
             depth += 1;
 
             if let Some(hit) = tree[node].intersect(origin, dir_inverse, t) {
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, node, prim_indices, &mut todo, |prim_id| {
-                    if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
-                        t = new_t;
-                        depth += d;
-                    }
-                });
+                stack_ptr = Self::process_hit(
+                    stack_ptr,
+                    hit,
+                    tree,
+                    node,
+                    prim_indices,
+                    &mut todo,
+                    |prim_id| {
+                        if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
+                            t = new_t;
+                            depth += d;
+                        }
+                    },
+                );
             }
         }
 
@@ -280,7 +337,8 @@ impl MBVHNode {
         todo: &mut [u32],
         mut cb: T,
     ) -> i32
-        where T: FnMut(usize)
+    where
+        T: FnMut(usize),
     {
         for i in (0..4).rev() {
             let id = hit.ids[i] as usize;
@@ -309,8 +367,7 @@ impl MBVHNode {
         bvh_pool: &[BVHNode],
         mbvh_pool: &mut [MBVHNode],
         pool_ptr: &mut usize,
-    )
-    {
+    ) {
         let cur_node = &bvh_pool[cur_node];
         if cur_node.is_leaf() {
             panic!("Leaf nodes should not be attempted to be split!");
@@ -328,7 +385,8 @@ impl MBVHNode {
                 continue;
             }
 
-            if mbvh_pool[m_index].counts[idx] < 0 { // Not a leaf node
+            if mbvh_pool[m_index].counts[idx] < 0 {
+                // Not a leaf node
                 let cur_node = mbvh_pool[m_index].children[idx] as usize;
                 let new_idx = *pool_ptr;
                 *pool_ptr = *pool_ptr + 1;
@@ -352,7 +410,8 @@ impl MBVHNode {
             self.children[idx] = left_node.get_left_first();
             self.counts[idx] = left_node.get_count();
             self.set_bounds_bb(idx, &left_node.bounds);
-        } else { // Node has children
+        } else {
+            // Node has children
             let idx1 = num_children;
             num_children += 1;
             let idx2 = num_children;
@@ -425,7 +484,9 @@ impl MBVHNode {
         // In case this quad node isn't filled & not all nodes are leaf nodes, merge 1 more node
         if num_children == 3 {
             for i in 0..3 {
-                if self.counts[i] >= 0 { continue; }
+                if self.counts[i] >= 0 {
+                    continue;
+                }
 
                 let left = self.children[i];
                 let right = left + 1;
