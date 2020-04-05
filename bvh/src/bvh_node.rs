@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::{AABB, RayPacket4};
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct BVHNode {
     pub bounds: AABB,
 }

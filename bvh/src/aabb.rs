@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 use crate::RayPacket4;
 
 #[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub struct AABB {
     pub min: [f32; 3],
     pub left_first: i32,
@@ -232,7 +233,7 @@ impl AABB {
         transformed.grow(p7.truncate());
         transformed.grow(p8.truncate());
 
-        transformed.offset_by(1e-6);
+        transformed.offset_by(1e-4);
 
         transformed
     }

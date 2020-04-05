@@ -2,7 +2,7 @@ use bvh::{Ray, RayPacket4};
 use glam::*;
 use std::f32::consts::PI;
 
-use crate::constants::DEFAULT_T_MAX;
+use scene::constants::DEFAULT_T_MAX;
 
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
     use std::arch::x86_64::_mm_sqrt_ps;
@@ -174,7 +174,7 @@ impl Camera {
             right,
             spread_angle,
             up,
-            epsilon: crate::constants::EPSILON,
+            epsilon: scene::constants::EPSILON,
             p1,
             inv_width: 1.0 / self.width as f32,
             inv_height: 1.0 / self.height as f32,
@@ -212,12 +212,13 @@ impl Camera {
     }
 
     pub fn get_matrix(&self, near_plane: f32, far_plane: f32) -> Mat4 {
-        let up = vec3(0.0, 1.0, 0.0);
-        let fov_dist = (self.fov * 0.5).to_radians().tan();
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let fov = self.fov.to_radians();
+        let fov_dist = (fov * 0.5).tan();
 
         let flip = Mat4::from_scale([-1.0; 3].into());
         let projection = Mat4::perspective_rh_gl(
-            self.fov.to_radians(),
+            fov,
             self.aspect_ratio,
             near_plane,
             far_plane,

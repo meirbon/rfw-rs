@@ -1,7 +1,5 @@
 use crate::objects::*;
-use crate::scene::PrimID;
 use bvh::{Bounds, RayPacket4, AABB, Ray};
-use glam::*;
 use crate::constants::EPSILON;
 
 pub struct Plane {

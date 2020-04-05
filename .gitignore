@@ -1,5 +1,6 @@
 target
 .idea
+imgui.ini
 
 # Created by https://www.gitignore.io/api/c,vim,c++,rust,linux,macos,clion,windows,intellij,visualstudio,visualstudiocode
 # Edit at https://www.gitignore.io/?templates=c,vim,c++,rust,linux,macos,clion,windows,intellij,visualstudio,visualstudiocode

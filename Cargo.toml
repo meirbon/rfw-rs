@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 bvh = { path = "bvh" }
+scene = { path = "scene" }
 fb-template = { path = "fb-template" }
 rayon = "1.3.0"
 num_cpus = "1.12.0"

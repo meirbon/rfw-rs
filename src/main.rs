@@ -2,24 +2,17 @@
 #![feature(clamp)]
 
 use bvh::Ray;
-use fb_template::{run_app, KeyCode, KeyHandler, Request};
+use fb_template::{run_host_app, HostFramebuffer, KeyCode, KeyHandler, Request, Ui};
 use glam::*;
 use rayon::prelude::*;
+use scene::{Scene, Sphere, Plane, Obj, ToMesh, material::MaterialList, constants::{DEFAULT_T_MAX, DEFAULT_T_MIN}, BVHMode};
 
 mod camera;
-mod constants;
-mod material;
-mod objects;
-mod scene;
-mod triangle_scene;
 mod utils;
 
-use crate::constants::{DEFAULT_T_MAX, DEFAULT_T_MIN};
 use camera::*;
-use material::*;
-use objects::*;
-use scene::*;
 use utils::*;
+use std::error::Error;
 
 #[derive(Debug, Copy, Clone)]
 enum RenderMode {
@@ -45,42 +38,32 @@ struct App {
 }
 
 impl App {
-    pub fn new(width: u32, height: u32) -> App {
+    pub fn new(width: u32, height: u32) -> Result<App, Box<dyn Error>> {
         let mut materials = MaterialList::new();
         let mut scene = AppScene::new();
 
-        let dragon = Box::new(
-            Obj::new("models/dragon.obj", &mut materials)
-                .unwrap()
-                .into_mesh()
-                .scale(50.0),
-        );
+        let dragon = Box::new(Obj::new("models/dragon.obj", &mut materials)?.into_mesh().scale(50.0));
         let dragon = scene.add_object(dragon);
-        scene
-            .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
-            .unwrap();
+        let _dragon = scene.add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(Vec3::splat(0.1)))?;
 
         let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
-        let sphere = scene.add_object(Box::new(Sphere::new([0.0; 3], 10.0, sphere_mat_id)));
+        let sphere = scene.add_object(Box::new(Sphere::new(Vec3::zero(), 0.5, sphere_mat_id)));
 
         (-2..3).for_each(|x| {
             (3..8).for_each(|z| {
                 let matrix =
-                    Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
+                    Mat4::from_translation(Vec3::new(x as f32 * 2.0, 0.0, z as f32 * 2.0));
                 scene.add_instance(sphere, matrix).unwrap();
             })
         });
 
         let plane_mat_id = materials.add(Vec3::new(0.2, 0.2, 1.0), 1.0, Vec3::one(), 1.0) as u32;
-        let plane = scene.add_object(Box::new(Plane::new([0.0; 3], [0.0, 1.0, 0.0], [100.0; 2], plane_mat_id)));
-        scene.add_instance(plane, Mat4::identity()).unwrap();
-
-        let timer = utils::Timer::new();
+        let plane = scene.add_object(Box::new(Plane::new([0.0, -2.0, 10.0], [0.0, 1.0, 0.0], [10.0; 2], plane_mat_id)));
+        let _plane = scene.add_instance(plane, Mat4::identity())?;
         scene.build_bvh();
-        println!("Building BVH: took {} ms", timer.elapsed_in_millis());
 
         let num_threads = num_cpus::get();
-        App {
+        Ok(App {
             width,
             height,
             packet_width: 4,
@@ -93,7 +76,7 @@ impl App {
             render_mode: RenderMode::Scene,
             fps: Averager::with_capacity(25),
             num_threads,
-        }
+        })
     }
 
     pub fn blit_pixels(&self, fb: &mut [u8]) {
@@ -237,7 +220,7 @@ impl App {
     }
 }
 
-impl fb_template::App for App {
+impl HostFramebuffer for App {
     fn render(&mut self, fb: &mut [u8]) -> Option<Request> {
         match self.render_mode {
             RenderMode::Scene => self.render_scene(),
@@ -290,13 +273,13 @@ impl fb_template::App for App {
 
         if states.pressed(KeyCode::Key1) {
             unsafe {
-                crate::scene::USE_MBVH = true;
+                Scene::set_bvh_mode(BVHMode::MBVH);
             }
         }
 
         if states.pressed(KeyCode::Key2) {
             unsafe {
-                crate::scene::USE_MBVH = false;
+                Scene::set_bvh_mode(BVHMode::BVH);
             }
         }
 
@@ -316,7 +299,7 @@ impl fb_template::App for App {
         };
 
         let view_change = view_change * elapsed * 0.001;
-        let pos_change = pos_change * elapsed * 0.05;
+        let pos_change = pos_change * elapsed * 0.01;
 
         if view_change != [0.0; 3].into() {
             self.camera.translate_target(view_change);
@@ -352,12 +335,19 @@ impl fb_template::App for App {
 
         None
     }
+
+    fn imgui(&mut self, ui: &Ui) {
+        let mut opened = true;
+        ui.show_demo_window(&mut opened);
+    }
 }
 
 fn main() {
     let width = 1024;
     let height = 512;
-    let app = App::new(width, height);
 
-    run_app::<App>(app, "rust raytracer", width, height);
+    match App::new(width, height) {
+        Ok(app) => run_host_app(app, "rust rt", width, height, false),
+        Err(e) => eprintln!("Could not start app: {}", e)
+    }
 }

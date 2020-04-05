@@ -1,7 +1,6 @@
 use crate::objects::*;
 use crate::scene::PrimID;
 use bvh::{Bounds, RayPacket4, AABB, Ray};
-use glam::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sphere {
@@ -12,9 +11,9 @@ pub struct Sphere {
 
 #[allow(dead_code)]
 impl Sphere {
-    pub fn new(pos: [f32; 3], radius: f32, mat_id: usize) -> Sphere {
+    pub fn new(pos: Vec3, radius: f32, mat_id: usize) -> Sphere {
         Sphere {
-            pos,
+            pos: pos.into(),
             radius2: radius * radius,
             mat_id: mat_id as u32,
         }

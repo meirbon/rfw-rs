@@ -72,14 +72,9 @@ impl Mesh {
             };
         });
 
-        let timer = crate::utils::Timer::new();
-        let aabbs = triangles
-            .par_iter()
-            .map(|t| t.bounds())
-            .collect::<Vec<AABB>>();
+        let aabbs: Vec<AABB> = triangles.iter().map(|t| t.bounds()).collect();
         let bvh = BVH::construct(aabbs.as_slice());
         let mbvh = MBVH::construct(&bvh);
-        println!("Building bvh took: {} ms", timer.elapsed_in_millis());
 
         Mesh {
             triangles,
@@ -102,11 +97,8 @@ impl Mesh {
             t.vertex2 = vertex2.truncate().into();
         });
 
-        let aabbs = self
-            .triangles
-            .par_iter()
-            .map(|t| t.bounds())
-            .collect::<Vec<AABB>>();
+        let aabbs: Vec<AABB> = self.triangles.iter().map(|t| t.bounds()).collect();
+
         self.bvh = BVH::construct(aabbs.as_slice());
         self.mbvh = MBVH::construct(&self.bvh);
 

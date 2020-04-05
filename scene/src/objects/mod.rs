@@ -9,13 +9,12 @@ pub mod plane;
 
 use crate::scene::PrimID;
 use bvh::{Bounds, Ray, RayPacket4};
-pub use instance::Instance;
-pub use mesh::Mesh;
-pub use mesh::ToMesh;
-pub use obj::Obj;
-pub use sphere::Sphere;
-pub use triangle::Triangle;
-pub use plane::Plane;
+pub use instance::*;
+pub use mesh::*;
+pub use obj::*;
+pub use sphere::*;
+pub use triangle::*;
+pub use plane::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {

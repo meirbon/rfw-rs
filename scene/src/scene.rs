@@ -4,11 +4,34 @@ use crate::utils::*;
 use bvh::{Bounds, Ray, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
 use glam::*;
 use std::collections::HashSet;
+use std::fmt::Formatter;
+use std::error::Error;
 
 pub static mut USE_MBVH: bool = true;
 
 pub enum SceneFlags {
     Dirty = 1,
+}
+
+#[derive(Debug)]
+pub enum SceneError {
+    IndexOutOfBounds(usize, usize),
+}
+
+impl SceneError {
+    fn details(&self) -> String {
+        match self {
+            SceneError::IndexOutOfBounds(index, len) => String::from(format!("Index {} was out of bounds, length: {}", index, len)),
+        }
+    }
+}
+
+impl Error for SceneError {}
+
+impl std::fmt::Display for SceneError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.details().as_str())
+    }
 }
 
 impl Into<u8> for SceneFlags {
@@ -21,9 +44,7 @@ pub type PrimID = i32;
 pub type InstanceID = i32;
 
 #[derive(Debug, Copy, Clone)]
-struct NullObject {
-    _dummy: f32,
-}
+struct NullObject {}
 
 impl Intersect for NullObject {
     fn occludes(&self, _ray: Ray, _t_min: f32, _t_max: f32) -> bool {
@@ -69,6 +90,11 @@ pub struct Scene {
     empty_instance_slots: Vec<usize>,
 }
 
+pub enum BVHMode {
+    BVH,
+    MBVH,
+}
+
 #[allow(dead_code)]
 impl Scene {
     pub fn new() -> Scene {
@@ -86,15 +112,15 @@ impl Scene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-    where
-        T: FnMut(Option<&Box<dyn Intersect>>),
+        where
+            T: FnMut(Option<&Box<dyn Intersect>>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-    where
-        T: FnMut(Option<&mut Box<dyn Intersect>>),
+        where
+            T: FnMut(Option<&mut Box<dyn Intersect>>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
@@ -114,9 +140,9 @@ impl Scene {
         self.objects.len() - 1
     }
 
-    pub fn set_object(&mut self, index: usize, object: Box<dyn Intersect>) -> Result<(), ()> {
+    pub fn set_object(&mut self, index: usize, object: Box<dyn Intersect>) -> Result<(), SceneError> {
         if self.objects.get(index).is_none() {
-            return Err(());
+            return Err(SceneError::IndexOutOfBounds(index, self.objects.len()));
         }
 
         self.objects[index] = object;
@@ -130,12 +156,12 @@ impl Scene {
         Ok(())
     }
 
-    pub fn remove_object(&mut self, object: usize) -> Result<(), ()> {
+    pub fn remove_object(&mut self, object: usize) -> Result<(), SceneError> {
         if self.objects.get(object).is_none() {
-            return Err(());
+            return Err(SceneError::IndexOutOfBounds(object, self.objects.len()));
         }
 
-        self.objects[object] = Box::new(NullObject { _dummy: 0.0 });
+        self.objects[object] = Box::new(NullObject {});
         let object_refs = self.object_references[object].clone();
         for i in object_refs {
             self.remove_instance(i).unwrap();
@@ -147,10 +173,10 @@ impl Scene {
         Ok(())
     }
 
-    pub fn add_instance(&mut self, index: usize, transform: Mat4) -> Result<usize, ()> {
+    pub fn add_instance(&mut self, index: usize, transform: Mat4) -> Result<usize, SceneError> {
         let instance_index = {
             if self.objects.get(index).is_none() || self.object_references.get(index).is_none() {
-                return Err(());
+                return Err(SceneError::IndexOutOfBounds(index, self.objects.len()));
             }
 
             if !self.empty_instance_slots.is_empty() {
@@ -168,6 +194,7 @@ impl Scene {
             ));
             self.instances.len() - 1
         };
+
         self.instance_references.push(index);
 
         self.object_references[index].insert(instance_index);
@@ -176,9 +203,11 @@ impl Scene {
         Ok(instance_index)
     }
 
-    pub fn set_instance_object(&mut self, instance: usize, obj_index: usize) -> Result<(), ()> {
-        if self.objects.get(obj_index).is_none() || self.instances.get(instance).is_none() {
-            return Err(());
+    pub fn set_instance_object(&mut self, instance: usize, obj_index: usize) -> Result<(), SceneError> {
+        if self.objects.get(obj_index).is_none() {
+            return Err(SceneError::IndexOutOfBounds(obj_index, self.objects.len()));
+        } else if self.instances.get(instance).is_none() {
+            return Err(SceneError::IndexOutOfBounds(instance, self.instances.len()));
         }
 
         let old_obj_index = self.instance_references[instance];
@@ -188,15 +217,16 @@ impl Scene {
             &self.objects[obj_index].bounds(),
             self.instances[instance].get_transform(),
         );
+
         self.object_references[obj_index].insert(instance);
         self.instance_references[instance] = obj_index;
         self.flags.set_flag(SceneFlags::Dirty);
         Ok(())
     }
 
-    pub fn remove_instance(&mut self, index: usize) -> Result<(), ()> {
+    pub fn remove_instance(&mut self, index: usize) -> Result<(), SceneError> {
         if self.instances.get(index).is_none() {
-            return Err(());
+            return Err(SceneError::IndexOutOfBounds(index, self.instances.len()));
         }
 
         let old_obj_index = self.instance_references[index];
@@ -223,7 +253,13 @@ impl Scene {
                 .iter()
                 .map(|o| o.bounds())
                 .collect::<Vec<AABB>>();
-            self.bvh = BVH::construct(aabbs.as_slice());
+
+            if self.bvh.prim_count() == aabbs.len() {
+                self.bvh.refit(aabbs.as_slice());
+            } else {
+                self.bvh = BVH::construct(aabbs.as_slice())
+            };
+
             self.mbvh = MBVH::construct(&self.bvh);
         }
     }
@@ -234,6 +270,13 @@ impl Scene {
             instances: self.instances.as_slice(),
             bvh: &self.bvh,
             mbvh: &self.mbvh,
+        }
+    }
+
+    pub unsafe fn set_bvh_mode(mode: BVHMode) {
+        USE_MBVH = match mode {
+            BVHMode::MBVH => true,
+            _ => false
         }
     }
 }

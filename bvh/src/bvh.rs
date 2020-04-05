@@ -6,6 +6,7 @@ use crate::aabb::Bounds;
 use crate::bvh_node::*;
 use crate::mbvh_node::*;
 use crate::{RayPacket4, AABB};
+use rayon::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct BVH {
@@ -21,6 +22,10 @@ impl BVH {
         }
     }
 
+    pub fn prim_count(&self) -> usize {
+        self.prim_indices.len()
+    }
+
     pub fn construct(aabbs: &[AABB]) -> Self {
         let mut nodes = vec![
             BVHNode {
@@ -34,12 +39,13 @@ impl BVH {
         }
 
         let centers = aabbs
-            .into_iter()
+            .into_par_iter()
             .map(|bb| {
-                let mut center = [0.0; 3];
-                for i in 0..3 {
-                    center[i] = (bb.min[i] + bb.max[i]) * 0.5;
-                }
+                let center = [
+                    (bb.min[0] + bb.max[0]) * 0.5,
+                    (bb.min[1] + bb.max[1]) * 0.5,
+                    (bb.min[2] + bb.max[2]) * 0.5,
+                ];
                 center
             })
             .collect::<Vec<[f32; 3]>>();
@@ -90,40 +96,37 @@ impl BVH {
         let node_count = pool_ptr.load(Ordering::SeqCst);
         nodes.resize(node_count, BVHNode::new());
 
-        println!("Building done");
-
         BVH {
             nodes,
             prim_indices,
         }
     }
 
-    pub fn refit(mut self, aabbs: &[AABB]) -> Self {
+    pub fn refit(&mut self, aabbs: &[AABB]) {
         for i in (0..self.nodes.len()).rev() {
-            let left_first = self.nodes[i].get_left_first();
-
             let mut aabb = AABB::new();
+            let left_first = self.nodes[i].get_left_first();
+            let count = self.nodes[i].get_count();
+            if left_first < 0 && count < 0 {
+                return;
+            }
+
+            aabb.left_first = left_first;
+            aabb.count = count;
             if self.nodes[i].is_leaf() {
-                for i in 0..self.nodes[i].get_count() {
+                for i in 0..count {
                     let prim_id = self.prim_indices[(left_first + i) as usize] as usize;
                     aabb.grow_bb(&aabbs[prim_id]);
                 }
-            } else {
+            } else if left_first >= 0 {
                 // Left node
                 aabb.grow_bb(&self.nodes[left_first as usize].bounds);
                 // Right node
                 aabb.grow_bb(&self.nodes[(left_first + 1) as usize].bounds);
             }
 
-            self.nodes[i].bounds = AABB {
-                min: aabb.min,
-                left_first: self.nodes[i].bounds.left_first,
-                max: aabb.max,
-                count: self.nodes[i].bounds.count,
-            };
+            self.nodes[i].bounds = aabb;
         }
-
-        self
     }
 
     #[inline(always)]
@@ -246,6 +249,10 @@ impl MBVH {
             m_nodes: Vec::new(),
             prim_indices: Vec::new(),
         }
+    }
+
+    pub fn prim_count(&self) -> usize {
+        self.prim_indices.len()
     }
 
     pub fn construct(bvh: &BVH) -> Self {
