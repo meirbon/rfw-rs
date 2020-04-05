@@ -1,14 +1,14 @@
 use glam::*;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fmt::{Display, Formatter};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
-use crate::AABB;
+use crate::{AABB, RayPacket4};
 
 #[derive(Debug, Clone)]
 pub struct BVHNode {
-    pub bounds: AABB
+    pub bounds: AABB,
 }
 
 impl Display for BVHNode {
@@ -36,7 +36,7 @@ impl BVHNode {
 
     pub fn new() -> BVHNode {
         BVHNode {
-            bounds: AABB::new()
+            bounds: AABB::new(),
         }
     }
 
@@ -48,9 +48,13 @@ impl BVHNode {
         self.bounds.count
     }
 
-    pub fn has_children(&self) -> bool { self.bounds.count < 0 && self.bounds.left_first >= 0 }
+    pub fn has_children(&self) -> bool {
+        self.bounds.count < 0 && self.bounds.left_first >= 0
+    }
 
-    pub fn is_leaf(&self) -> bool { self.bounds.count >= 0 }
+    pub fn is_leaf(&self) -> bool {
+        self.bounds.count >= 0
+    }
 
     pub fn subdivide_mt<'a>(
         index: usize,
@@ -68,19 +72,26 @@ impl BVHNode {
         let depth = depth + 1;
         if depth >= Self::MAX_DEPTH {
             bounds.count = 0;
-            update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
+            update_node
+                .send(NodeUpdatePayLoad { index, bounds })
+                .unwrap();
             return;
         }
 
         let new_nodes = Self::partition(&bounds, aabbs, centers, prim_indices, pool_ptr.clone());
-        if new_nodes.is_none() { return; }
+        if new_nodes.is_none() {
+            return;
+        }
 
         let new_nodes = new_nodes.unwrap();
         bounds.left_first = new_nodes.left as i32;
         bounds.count = -1;
-        update_node.send(NodeUpdatePayLoad { index, bounds }).unwrap();
+        update_node
+            .send(NodeUpdatePayLoad { index, bounds })
+            .unwrap();
 
-        let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
+        let (left_indices, right_indices) =
+            prim_indices.split_at_mut(new_nodes.left_box.count as usize);
         let threads = thread_count.load(Ordering::SeqCst);
 
         let mut handle = None;
@@ -95,21 +106,67 @@ impl BVHNode {
             if threads < num_cpus::get() {
                 thread_count.fetch_add(1, Ordering::SeqCst);
                 handle = Some(scope.spawn(move |s| {
-                    Self::subdivide_mt(left, left_box, aabbs, centers, sender, left_indices, depth, pp, tc, max_threads, s);
+                    Self::subdivide_mt(
+                        left,
+                        left_box,
+                        aabbs,
+                        centers,
+                        sender,
+                        left_indices,
+                        depth,
+                        pp,
+                        tc,
+                        max_threads,
+                        s,
+                    );
                 }));
             } else {
-                Self::subdivide_mt(left, left_box, aabbs, centers, sender, left_indices, depth, pp, tc, max_threads, scope);
+                Self::subdivide_mt(
+                    left,
+                    left_box,
+                    aabbs,
+                    centers,
+                    sender,
+                    left_indices,
+                    depth,
+                    pp,
+                    tc,
+                    max_threads,
+                    scope,
+                );
             }
         } else {
-            update_node.send(NodeUpdatePayLoad { index: new_nodes.left, bounds: new_nodes.left_box }).unwrap();
+            update_node
+                .send(NodeUpdatePayLoad {
+                    index: new_nodes.left,
+                    bounds: new_nodes.left_box,
+                })
+                .unwrap();
         }
 
         if new_nodes.right_box.count > Self::MAX_PRIMITIVES {
             let right = new_nodes.left + 1;
             let right_box = new_nodes.right_box;
-            Self::subdivide_mt(right, right_box, aabbs, centers, update_node, right_indices, depth, pool_ptr, thread_count.clone(), max_threads, scope);
+            Self::subdivide_mt(
+                right,
+                right_box,
+                aabbs,
+                centers,
+                update_node,
+                right_indices,
+                depth,
+                pool_ptr,
+                thread_count.clone(),
+                max_threads,
+                scope,
+            );
         } else {
-            update_node.send(NodeUpdatePayLoad { index: new_nodes.left + 1, bounds: new_nodes.right_box }).unwrap();
+            update_node
+                .send(NodeUpdatePayLoad {
+                    index: new_nodes.left + 1,
+                    bounds: new_nodes.right_box,
+                })
+                .unwrap();
         }
 
         if let Some(handle) = handle {
@@ -119,28 +176,61 @@ impl BVHNode {
     }
 
     // Reference single threaded subdivide method
-    pub fn subdivide(index: usize, aabbs: &[AABB], centers: &[[f32; 3]], tree: &mut [BVHNode], prim_indices: &mut [u32], depth: u32, pool_ptr: Arc<AtomicUsize>) {
+    pub fn subdivide(
+        index: usize,
+        aabbs: &[AABB],
+        centers: &[[f32; 3]],
+        tree: &mut [BVHNode],
+        prim_indices: &mut [u32],
+        depth: u32,
+        pool_ptr: Arc<AtomicUsize>,
+    ) {
         let depth = depth + 1;
         if depth >= Self::MAX_DEPTH {
             return;
         }
 
-        let new_nodes = Self::partition(&tree[index].bounds, aabbs, centers, prim_indices, pool_ptr.clone());
-        if new_nodes.is_none() { return; }
+        let new_nodes = Self::partition(
+            &tree[index].bounds,
+            aabbs,
+            centers,
+            prim_indices,
+            pool_ptr.clone(),
+        );
+        if new_nodes.is_none() {
+            return;
+        }
         let new_nodes = new_nodes.unwrap();
 
         tree[index].bounds.left_first = new_nodes.left as i32;
         tree[index].bounds.count = -1;
 
-        let (left_indices, right_indices) = prim_indices.split_at_mut(new_nodes.left_box.count as usize);
+        let (left_indices, right_indices) =
+            prim_indices.split_at_mut(new_nodes.left_box.count as usize);
         tree[new_nodes.left].bounds = new_nodes.left_box;
         if tree[new_nodes.left].bounds.count > Self::MAX_PRIMITIVES {
-            Self::subdivide(new_nodes.left, aabbs, centers, tree, left_indices, depth, pool_ptr.clone());
+            Self::subdivide(
+                new_nodes.left,
+                aabbs,
+                centers,
+                tree,
+                left_indices,
+                depth,
+                pool_ptr.clone(),
+            );
         }
 
         tree[new_nodes.left + 1].bounds = new_nodes.right_box;
         if tree[new_nodes.left + 1].bounds.count > Self::MAX_PRIMITIVES {
-            Self::subdivide(new_nodes.left + 1, aabbs, centers, tree, right_indices, depth, pool_ptr.clone());
+            Self::subdivide(
+                new_nodes.left + 1,
+                aabbs,
+                centers,
+                tree,
+                right_indices,
+                depth,
+                pool_ptr.clone(),
+            );
         }
     }
 
@@ -192,7 +282,8 @@ impl BVHNode {
                     (left_box.area(), right_box.area())
                 };
 
-                let split_node_cost = left_area * left_count as f32 + right_area * right_count as f32;
+                let split_node_cost =
+                    left_area * left_count as f32 + right_area * right_count as f32;
                 if lowest_cost > split_node_cost {
                     lowest_cost = split_node_cost;
                     best_split = split_offset;
@@ -203,7 +294,9 @@ impl BVHNode {
             }
         }
 
-        if parent_cost < lowest_cost { return None; }
+        if parent_cost < lowest_cost {
+            return None;
+        }
 
         let left_first = bounds.left_first;
         let mut left_count = 0;
@@ -247,7 +340,8 @@ impl BVHNode {
         t_max: f32,
         depth_test: I,
     ) -> (f32, u32)
-        where I: Fn(usize, f32, f32) -> Option<(f32, u32)>
+        where
+            I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         let mut t = t_max;
         let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
@@ -265,7 +359,8 @@ impl BVHNode {
             let node = &tree[hit_stack[stack_ptr as usize] as usize];
             stack_ptr = stack_ptr - 1;
 
-            if node.bounds.count > -1 { // Leaf node
+            if node.bounds.count > -1 {
+                // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
                     if let Some((new_t, d)) = depth_test(prim_id as usize, t_min, t) {
@@ -274,9 +369,20 @@ impl BVHNode {
                     }
                 }
             } else {
-                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
-                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
-                let new_stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
+                let hit_left =
+                    tree[node.bounds.left_first as usize]
+                        .bounds
+                        .intersect(origin, dir_inverse, t);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize]
+                    .bounds
+                    .intersect(origin, dir_inverse, t);
+                let new_stack_ptr = Self::sort_nodes(
+                    hit_left,
+                    hit_right,
+                    hit_stack.as_mut(),
+                    stack_ptr,
+                    node.bounds.left_first,
+                );
                 stack_ptr = new_stack_ptr;
             }
         }
@@ -293,7 +399,9 @@ impl BVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<R>
-        where I: FnMut(usize, f32, f32) -> Option<(f32, R)>, R: Copy
+        where
+            I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+            R: Copy,
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
@@ -306,7 +414,8 @@ impl BVHNode {
             let node = &tree[hit_stack[stack_ptr as usize] as usize];
             stack_ptr = stack_ptr - 1;
 
-            if node.bounds.count > -1 { // Leaf node
+            if node.bounds.count > -1 {
+                // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
                     if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, t) {
@@ -315,9 +424,20 @@ impl BVHNode {
                     }
                 }
             } else {
-                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
-                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
-                stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
+                let hit_left =
+                    tree[node.bounds.left_first as usize]
+                        .bounds
+                        .intersect(origin, dir_inverse, t);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize]
+                    .bounds
+                    .intersect(origin, dir_inverse, t);
+                stack_ptr = Self::sort_nodes(
+                    hit_left,
+                    hit_right,
+                    hit_stack.as_mut(),
+                    stack_ptr,
+                    node.bounds.left_first,
+                );
             }
         }
 
@@ -333,7 +453,8 @@ impl BVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<f32>
-        where I: FnMut(usize, f32, f32) -> Option<f32>
+        where
+            I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
@@ -345,7 +466,8 @@ impl BVHNode {
             let node = &tree[hit_stack[stack_ptr as usize] as usize];
             stack_ptr = stack_ptr - 1;
 
-            if node.bounds.count > -1 { // Leaf node
+            if node.bounds.count > -1 {
+                // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
                     if let Some(new_t) = intersection_test(prim_id as usize, t_min, t) {
@@ -353,13 +475,28 @@ impl BVHNode {
                     }
                 }
             } else {
-                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t);
-                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t);
-                stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
+                let hit_left =
+                    tree[node.bounds.left_first as usize]
+                        .bounds
+                        .intersect(origin, dir_inverse, t);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize]
+                    .bounds
+                    .intersect(origin, dir_inverse, t);
+                stack_ptr = Self::sort_nodes(
+                    hit_left,
+                    hit_right,
+                    hit_stack.as_mut(),
+                    stack_ptr,
+                    node.bounds.left_first,
+                );
             }
         }
 
-        if t < t_max { Some(t) } else { None }
+        if t < t_max {
+            Some(t)
+        } else {
+            None
+        }
     }
 
     pub fn occludes<I>(
@@ -371,7 +508,8 @@ impl BVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> bool
-        where I: FnMut(usize, f32, f32) -> bool
+        where
+            I: FnMut(usize, f32, f32) -> bool,
     {
         let mut hit_stack = [0; 32];
         let mut stack_ptr: i32 = 0;
@@ -382,15 +520,30 @@ impl BVHNode {
             let node = &tree[hit_stack[stack_ptr as usize] as usize];
             stack_ptr = stack_ptr - 1;
 
-            if node.bounds.count > -1 { // Leaf node
+            if node.bounds.count > -1 {
+                // Leaf node
                 for i in 0..node.bounds.count {
                     let prim_id = prim_indices[(node.bounds.left_first + i) as usize];
-                    if intersection_test(prim_id as usize, t_min, t_max) { return true; }
+                    if intersection_test(prim_id as usize, t_min, t_max) {
+                        return true;
+                    }
                 }
             } else {
-                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(origin, dir_inverse, t_max);
-                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect(origin, dir_inverse, t_max);
-                stack_ptr = Self::sort_nodes(hit_left, hit_right, hit_stack.as_mut(), stack_ptr, node.bounds.left_first);
+                let hit_left = tree[node.bounds.left_first as usize].bounds.intersect(
+                    origin,
+                    dir_inverse,
+                    t_max,
+                );
+                let hit_right = tree[(node.bounds.left_first + 1) as usize]
+                    .bounds
+                    .intersect(origin, dir_inverse, t_max);
+                stack_ptr = Self::sort_nodes(
+                    hit_left,
+                    hit_right,
+                    hit_stack.as_mut(),
+                    stack_ptr,
+                    node.bounds.left_first,
+                );
             }
         }
 
@@ -428,5 +581,79 @@ impl BVHNode {
         }
 
         stack_ptr
+    }
+
+    fn sort_nodes4(
+        left: Option<[f32; 4]>,
+        right: Option<[f32; 4]>,
+        hit_stack: &mut [i32],
+        mut stack_ptr: i32,
+        left_first: i32,
+    ) -> i32 {
+        if left.is_some() & &right.is_some() {
+            let t_near_left = Vec4::from(left.unwrap());
+            let t_near_right = Vec4::from(right.unwrap());
+
+            if t_near_left.cmplt(t_near_right).bitmask() > 0 {
+                stack_ptr = stack_ptr + 1;
+                hit_stack[stack_ptr as usize] = left_first;
+                stack_ptr = stack_ptr + 1;
+                hit_stack[stack_ptr as usize] = left_first + 1;
+            } else {
+                stack_ptr = stack_ptr + 1;
+                hit_stack[stack_ptr as usize] = left_first + 1;
+                stack_ptr = stack_ptr + 1;
+                hit_stack[stack_ptr as usize] = left_first;
+            }
+        } else if left.is_some() {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr as usize] = left_first;
+        } else if right.is_some() {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr as usize] = left_first + 1;
+        }
+
+        stack_ptr
+    }
+
+    pub fn traverse4<I: FnMut(usize, &mut RayPacket4)>(
+        tree: &[BVHNode],
+        prim_indices: &[u32],
+        packet: &mut RayPacket4,
+        mut intersection_test: I,
+    )
+    {
+        let mut hit_stack = [0; 32];
+        let mut stack_ptr: i32 = 0;
+
+        let one = Vec4::one();
+        let inv_dir_x = one / Vec4::from(packet.direction_x);
+        let inv_dir_y = one / Vec4::from(packet.direction_y);
+        let inv_dir_z = one / Vec4::from(packet.direction_z);
+
+        while stack_ptr >= 0 {
+            let node = &tree[hit_stack[stack_ptr as usize] as usize];
+            stack_ptr = stack_ptr - 1;
+
+            if node.bounds.count > -1 {
+                // Leaf node
+                for i in 0..node.bounds.count {
+                    let prim_id = prim_indices[(node.bounds.left_first + i) as usize] as usize;
+                    intersection_test(prim_id, packet);
+                }
+            } else {
+                let hit_left =
+                    tree[node.bounds.left_first as usize].bounds.intersect4(packet, inv_dir_x, inv_dir_y, inv_dir_z);
+                let hit_right = tree[(node.bounds.left_first + 1) as usize].bounds.intersect4(packet, inv_dir_x, inv_dir_y, inv_dir_z);
+
+                stack_ptr = Self::sort_nodes4(
+                    hit_left,
+                    hit_right,
+                    hit_stack.as_mut(),
+                    stack_ptr,
+                    node.bounds.left_first,
+                );
+            }
+        }
     }
 }

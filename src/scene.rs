@@ -1,10 +1,9 @@
 use crate::objects::*;
 use crate::utils::*;
 
+use bvh::{Bounds, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
 use glam::*;
 use std::collections::HashSet;
-use bvh::{AABB, Bounds, BVH, MBVH};
-use crate::camera::{RayPacket4, ShadowPacket4};
 
 pub static mut USE_MBVH: bool = true;
 
@@ -23,7 +22,7 @@ pub type InstanceID = i32;
 
 #[derive(Debug, Copy, Clone)]
 struct NullObject {
-    _dummy: f32
+    _dummy: f32,
 }
 
 impl Intersect for NullObject {
@@ -31,20 +30,38 @@ impl Intersect for NullObject {
         false
     }
 
-    fn intersect(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<HitRecord> {
+    fn intersect(
+        &self,
+        _origin: Vec3,
+        _direction: Vec3,
+        _t_min: f32,
+        _t_max: f32,
+    ) -> Option<HitRecord> {
         None
     }
 
-    fn intersect_t(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<f32> {
+    fn intersect_t(
+        &self,
+        _origin: Vec3,
+        _direction: Vec3,
+        _t_min: f32,
+        _t_max: f32,
+    ) -> Option<f32> {
         None
     }
 
-    fn depth_test(&self, _origin: Vec3, _direction: Vec3, _t_min: f32, _t_max: f32) -> Option<(f32, u32)> {
+    fn depth_test(
+        &self,
+        _origin: Vec3,
+        _direction: Vec3,
+        _t_min: f32,
+        _t_max: f32,
+    ) -> Option<(f32, u32)> {
         None
     }
 
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
-        [-1; 4]
+    fn intersect4(&self, _packet: &mut RayPacket4, _t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
+        None
     }
 }
 
@@ -82,11 +99,17 @@ impl Scene {
         }
     }
 
-    pub fn get_object<T>(&self, index: usize, mut cb: T) where T: FnMut(Option<&Box<dyn Intersect>>) {
+    pub fn get_object<T>(&self, index: usize, mut cb: T)
+    where
+        T: FnMut(Option<&Box<dyn Intersect>>),
+    {
         cb(self.objects.get(index));
     }
 
-    pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T) where T: FnMut(Option<&mut Box<dyn Intersect>>) {
+    pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
+    where
+        T: FnMut(Option<&mut Box<dyn Intersect>>),
+    {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
     }
@@ -112,7 +135,9 @@ impl Scene {
 
         self.objects[index] = object;
         let object_refs = self.object_references[index].clone();
-        for i in object_refs { self.remove_instance(i).unwrap(); }
+        for i in object_refs {
+            self.remove_instance(i).unwrap();
+        }
 
         self.object_references[index].clear();
         self.flags.set_flag(SceneFlags::Dirty);
@@ -144,12 +169,17 @@ impl Scene {
 
             if !self.empty_instance_slots.is_empty() {
                 let new_index = self.empty_instance_slots.pop().unwrap();
-                self.instances[new_index] = Instance::new(index as isize, &self.objects[index].bounds(), transform);
+                self.instances[new_index] =
+                    Instance::new(index as isize, &self.objects[index].bounds(), transform);
                 self.instance_references[new_index] = index;
                 return Ok(new_index);
             }
 
-            self.instances.push(Instance::new(index as isize, &self.objects[index].bounds(), transform));
+            self.instances.push(Instance::new(
+                index as isize,
+                &self.objects[index].bounds(),
+                transform,
+            ));
             self.instances.len() - 1
         };
         self.instance_references.push(index);
@@ -167,7 +197,11 @@ impl Scene {
 
         let old_obj_index = self.instance_references[instance];
         self.object_references[old_obj_index].remove(&instance);
-        self.instances[instance] = Instance::new(obj_index as isize, &self.objects[obj_index].bounds(), self.instances[instance].get_transform());
+        self.instances[instance] = Instance::new(
+            obj_index as isize,
+            &self.objects[obj_index].bounds(),
+            self.instances[instance].get_transform(),
+        );
         self.object_references[obj_index].insert(instance);
         self.instance_references[instance] = obj_index;
         self.flags.set_flag(SceneFlags::Dirty);
@@ -184,7 +218,11 @@ impl Scene {
             self.object_references[old_obj_index].remove(&index);
         }
 
-        self.instances[index] = Instance::new(-1, &self.objects[index].bounds(), self.instances[index].get_transform());
+        self.instances[index] = Instance::new(
+            -1,
+            &self.objects[index].bounds(),
+            self.instances[index].get_transform(),
+        );
         self.instance_references[index] = std::usize::MAX;
         self.empty_instance_slots.push(index);
         self.flags.set_flag(SceneFlags::Dirty);
@@ -192,8 +230,13 @@ impl Scene {
     }
 
     pub fn build_bvh(&mut self) {
-        if self.flags.has_flag(SceneFlags::Dirty) { // Need to rebuild bvh
-            let aabbs: Vec<AABB> = self.instances.iter().map(|o| { o.bounds() }).collect::<Vec<AABB>>();
+        if self.flags.has_flag(SceneFlags::Dirty) {
+            // Need to rebuild bvh
+            let aabbs: Vec<AABB> = self
+                .instances
+                .iter()
+                .map(|o| o.bounds())
+                .collect::<Vec<AABB>>();
             self.bvh = BVH::construct(aabbs.as_slice());
             self.mbvh = MBVH::construct(&self.bvh);
         }
@@ -222,7 +265,8 @@ impl<'a> Intersector<'a> {
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
             if let Some((origin, direction)) = instance.intersects(origin, direction, t_max) {
-                return self.objects[instance.get_hit_id() as usize].occludes(origin, direction, t_min, t_max);
+                return self.objects[instance.get_hit_id() as usize]
+                    .occludes(origin, direction, t_min, t_max);
             }
             false
         };
@@ -245,17 +289,25 @@ impl<'a> Intersector<'a> {
                     t_min,
                     t_max,
                     intersection,
-                )
+                ),
             };
         }
     }
 
-    pub fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
+    pub fn intersect(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        t_min: f32,
+        t_max: f32,
+    ) -> Option<HitRecord> {
         let mut instance_id = -1;
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
             if let Some((origin, direction)) = instance.intersects(origin, direction, t_max) {
-                if let Some(hit) = self.objects[instance.get_hit_id() as usize].intersect(origin, direction, t_min, t_max) {
+                if let Some(hit) = self.objects[instance.get_hit_id() as usize]
+                    .intersect(origin, direction, t_min, t_max)
+                {
                     instance_id = i as i32;
                     return Some((hit.t, hit));
                 }
@@ -278,42 +330,45 @@ impl<'a> Intersector<'a> {
                     t_min,
                     t_max,
                     intersection,
-                )
+                ),
             }
         };
 
         hit.and_then(|hit| Some(self.instances[instance_id as usize].transform_hit(hit)))
     }
 
-    pub fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
+    pub fn intersect_t(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        t_min: f32,
+        t_max: f32,
+    ) -> Option<f32> {
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
             if let Some((origin, direction)) = instance.intersects(origin, direction, t_max) {
-                return self.objects[instance.get_hit_id() as usize].intersect_t(origin, direction, t_min, t_max);
+                return self.objects[instance.get_hit_id() as usize]
+                    .intersect_t(origin, direction, t_min, t_max);
             }
             None
         };
 
         unsafe {
             return match USE_MBVH {
-                true => {
-                    self.mbvh.traverse_t(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection,
-                    )
-                }
-                _ => {
-                    self.bvh.traverse_t(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection,
-                    )
-                }
+                true => self.mbvh.traverse_t(
+                    origin.as_ref(),
+                    direction.as_ref(),
+                    t_min,
+                    t_max,
+                    intersection,
+                ),
+                _ => self.bvh.traverse_t(
+                    origin.as_ref(),
+                    direction.as_ref(),
+                    t_min,
+                    t_max,
+                    intersection,
+                ),
             };
         }
     }
@@ -322,73 +377,69 @@ impl<'a> Intersector<'a> {
         let intersection = |i, t_min, t_max| -> Option<(f32, u32)> {
             let instance = &self.instances[i as usize];
             if let Some((origin, direction)) = instance.intersects(origin, direction, t_max) {
-                return self.objects[instance.get_hit_id() as usize].depth_test(origin, direction, t_min, t_max);
+                return self.objects[instance.get_hit_id() as usize]
+                    .depth_test(origin, direction, t_min, t_max);
             }
             None
         };
 
         unsafe {
             return match USE_MBVH {
-                true => {
-                    self.mbvh.depth_test(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection,
-                    )
-                }
-                _ => {
-                    self.bvh.depth_test(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection,
-                    )
-                }
+                true => self.mbvh.depth_test(
+                    origin.as_ref(),
+                    direction.as_ref(),
+                    t_min,
+                    t_max,
+                    intersection,
+                ),
+                _ => self.bvh.depth_test(
+                    origin.as_ref(),
+                    direction.as_ref(),
+                    t_min,
+                    t_max,
+                    intersection,
+                ),
             };
         }
     }
 
-    pub fn occludes4(&self, packet: ShadowPacket4) -> [bool; 4] {
+    pub fn occludes4(&self, _packet: ShadowPacket4) -> [bool; 4] {
         [true; 4]
     }
 
-    pub fn intersect4(&self, packet: RayPacket4) -> [(InstanceID, PrimID); 4] {
-        [(-1, -1); 4]
-        // let mut instance_id = -1;
-        // let intersection = |i, t_min, t_max| {
-        //     let instance = &self.instances[i as usize];
-        //     if let Some((origin, direction)) = instance.intersects(origin, direction, t_max) {
-        //         if let Some(hit) = self.objects[instance.get_hit_id() as usize].intersect(origin, direction, t_min, t_max) {
-        //             instance_id = i as i32;
-        //             return Some((hit.t, hit));
-        //         }
-        //     }
-        //     None
-        // };
-        //
-        // let hit = unsafe {
-        //     match USE_MBVH {
-        //         true => self.mbvh.traverse(
-        //             origin.as_ref(),
-        //             direction.as_ref(),
-        //             t_min,
-        //             t_max,
-        //             intersection,
-        //         ),
-        //         _ => self.bvh.traverse(
-        //             origin.as_ref(),
-        //             direction.as_ref(),
-        //             t_min,
-        //             t_max,
-        //             intersection,
-        //         )
-        //     }
-        // };
-        //
-        // hit.and_then(|hit| Some(self.instances[instance_id as usize].transform_hit(hit)))
+    pub fn intersect4(
+        &self,
+        packet: &mut RayPacket4,
+        t_min: [f32; 4],
+    ) -> ([InstanceID; 4], [PrimID; 4]) {
+        let mut instance_ids = [-1 as InstanceID; 4];
+        let mut prim_ids = [-1 as PrimID; 4];
+
+        let intersection = |instance_id, packet: &mut RayPacket4| {
+            let instance_id = instance_id as usize;
+            let instance = &self.instances[instance_id];
+            if let Some(mut new_packet) = instance.intersects4(packet) {
+                let object = &self.objects[instance.get_hit_id()];
+                if let Some(hit) = object.intersect4(&mut new_packet, &t_min) {
+                    for i in 0..4 {
+                        if hit[i] >= 0 {
+                            instance_ids[i] = instance_id as i32;
+                            prim_ids[i] = hit[i];
+                            packet.t[i] = new_packet.t[i];
+                        }
+                    }
+                }
+            }
+        };
+
+        unsafe {
+            match USE_MBVH {
+                true => self.mbvh.traverse4(packet, intersection),
+                _ => self.bvh.traverse4(packet, intersection),
+            }
+        };
+
+        (instance_ids, prim_ids)
     }
 }
 

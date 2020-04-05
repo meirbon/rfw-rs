@@ -1,11 +1,10 @@
 use glam::*;
 use crate::objects::*;
-use bvh::aabb::Bounds;
-use bvh::AABB;
 use crate::constants::EPSILON;
-use crate::camera::RayPacket4;
-use std::ops::BitAnd;
 use crate::scene::PrimID;
+
+use bvh::{AABB, Bounds, RayPacket4};
+use std::ops::BitAnd;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Triangle {
@@ -223,7 +222,18 @@ impl Intersect for Triangle {
         None
     }
 
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
+        let zero = Vec4::zero();
+        let one = Vec4::one();
+
+        let org_x = Vec4::from(packet.origin_x);
+        let org_y = Vec4::from(packet.origin_y);
+        let org_z = Vec4::from(packet.origin_z);
+
+        let dir_x = Vec4::from(packet.direction_x);
+        let dir_y = Vec4::from(packet.direction_y);
+        let dir_z = Vec4::from(packet.direction_z);
+
         let p0_x = Vec4::from([self.vertex0[0]; 4]);
         let p0_y = Vec4::from([self.vertex0[1]; 4]);
         let p0_z = Vec4::from([self.vertex0[2]; 4]);
@@ -244,45 +254,45 @@ impl Intersect for Triangle {
         let edge2_y = p2_y - p0_y;
         let edge2_z = p2_z - p0_z;
 
-        let h_x = Vec4::from(packet.direction_y) * edge2_z - Vec4::from(packet.direction_z) * edge2_y;
-        let h_y = Vec4::from(packet.direction_z) * edge2_z - Vec4::from(packet.direction_x) * edge2_z;
-        let h_z = Vec4::from(packet.direction_x) * edge2_z - Vec4::from(packet.direction_y) * edge2_x;
+        let h_x = (dir_y * edge2_z) - (dir_z * edge2_y);
+        let h_y = (dir_z * edge2_x) - (dir_x * edge2_z);
+        let h_z = (dir_x * edge2_y) - (dir_y * edge2_x);
 
-        let a = edge1_x * h_x + edge1_y * h_y + edge1_z * h_z;
+        let a = (edge1_x * h_x) + (edge1_y * h_y) + (edge1_z * h_z);
         let epsilon = Vec4::from([EPSILON; 4]);
         let mask = a.cmple(-epsilon) | a.cmpge(epsilon);
-        if mask.bitmask() == 0 { return [-1; 4]; }
+        if mask.bitmask() == 0 { return None; }
 
-        let f = Vec4::one() / a;
-        let s_x = Vec4::from(packet.origin_x) - p0_x;
-        let s_y = Vec4::from(packet.origin_y) - p0_y;
-        let s_z = Vec4::from(packet.origin_z) - p0_z;
+        let f = one / a;
+        let s_x = org_x - p0_x;
+        let s_y = org_y - p0_y;
+        let s_z = org_z - p0_z;
 
-        let u = f * (s_x * h_x + s_y * h_y + s_z * h_z);
-        let mask = mask.bitand(u.cmpge(Vec4::zero()) & u.cmple(Vec4::zero()));
-        if mask.bitmask() == 0 { return [-1; 4]; }
+        let u = f * ((s_x * h_x) + (s_y * h_y) + (s_z * h_z));
+        let mask = mask.bitand(u.cmpge(zero) & u.cmple(one));
+        if mask.bitmask() == 0 { return None; }
 
         let q_x = s_y * edge1_z - s_z * edge1_y;
         let q_y = s_z * edge1_x - s_x * edge1_z;
         let q_z = s_x * edge1_y - s_y * edge1_x;
 
-        let v = f * (Vec4::from(packet.direction_x) * q_x + Vec4::from(packet.direction_y) * q_y + Vec4::from(packet.direction_z) * q_z);
-        let mask = mask.bitand(v.cmpge(Vec4::zero()) & (u + v).cmple(Vec4::zero()));
-        if mask.bitmask() == 0 { return [-1; 4]; }
+        let v = f * ((dir_x * q_x) + (dir_y * q_y) + (dir_z * q_z));
+        let mask = mask.bitand(v.cmpge(zero) & (u + v).cmple(one));
+        if mask.bitmask() == 0 { return None; }
 
         let t_min = Vec4::from(*t_min);
 
-        let t = f * (edge2_x * q_x + edge2_y * q_y + edge2_z * q_z);
+        let t = f * ((edge2_x * q_x) + (edge2_y * q_y) + (edge2_z * q_z));
         let mask = mask.bitand(t.cmpge(t_min) & t.cmplt(packet.t.into()));
         let bitmask = mask.bitmask();
-        if bitmask == 0 { return [-1; 4]; }
+        if bitmask == 0 { return None; }
         packet.t = mask.select(t, packet.t.into()).into();
 
         let x = if bitmask & 1 != 0 { self.id } else { -1 };
         let y = if bitmask & 2 != 0 { self.id } else { -1 };
         let z = if bitmask & 4 != 0 { self.id } else { -1 };
         let w = if bitmask & 8 != 0 { self.id } else { -1 };
-        [x, y, z, w]
+        Some([x, y, z, w])
     }
 }
 

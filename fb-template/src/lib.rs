@@ -66,8 +66,6 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
         .build(&event_loop)
         .unwrap();
 
-    let _window_scale = window.scale_factor();
-
     let mut pixels = {
         let surface = pixels::wgpu::Surface::create(&window);
         let surface_texture = pixels::SurfaceTexture::new(width, height, surface);
@@ -109,6 +107,12 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
             } if window_id == window.id() => {
                 width = size.width;
                 height = size.height;
+
+                let inner_size = window.inner_size();
+                let outer_size = window.outer_size();
+
+                let window_scale = window.scale_factor();
+
                 pixels = {
                     let surface = pixels::wgpu::Surface::create(&window);
                     let surface_texture = pixels::SurfaceTexture::new(width, height, surface);

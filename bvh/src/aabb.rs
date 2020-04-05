@@ -1,6 +1,7 @@
 use glam::*;
 use std::fmt::{Display, Formatter};
-use std::ops::BitAnd;
+
+use crate::RayPacket4;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AABB {
@@ -19,8 +20,18 @@ impl Display for AABB {
         let min = Vec3::from(self.min);
         let max = Vec3::from(self.max);
 
-        write!(f, "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})",
-               min.x(), min.y(), min.z(), self.left_first, max.x(), max.y(), max.z(), self.count)
+        write!(
+            f,
+            "(min: ({}, {}, {}), left_first: {}, max: ({}, {}, {}), count: {})",
+            min.x(),
+            min.y(),
+            min.z(),
+            self.left_first,
+            max.x(),
+            max.y(),
+            max.z(),
+            self.count
+        )
     }
 }
 
@@ -55,22 +66,24 @@ impl AABB {
         None
     }
 
-    pub fn intersect4(&self,
-                      origin_x: &[f32; 4],
-                      origin_y: &[f32; 4],
-                      origin_z: &[f32; 4],
-                      inv_direction_x: &[f32; 4],
-                      inv_direction_y: &[f32; 4],
-                      inv_direction_z: &[f32; 4],
-                      t: &[f32; 4],
-    ) -> Option<u32> {
-        let t1_x = (Vec4::from([self.min[0]; 4]) - Vec4::from(*origin_x)) * Vec4::from(*inv_direction_x);
-        let t1_y = (Vec4::from([self.min[1]; 4]) - Vec4::from(*origin_y)) * Vec4::from(*inv_direction_y);
-        let t1_z = (Vec4::from([self.min[2]; 4]) - Vec4::from(*origin_z)) * Vec4::from(*inv_direction_z);
+    pub fn intersect4(
+        &self,
+        packet: &RayPacket4,
+        inv_dir_x: Vec4,
+        inv_dir_y: Vec4,
+        inv_dir_z: Vec4,
+    ) -> Option<[f32; 4]> {
+        let org_x: Vec4 = packet.origin_x.into();
+        let org_y: Vec4 = packet.origin_y.into();
+        let org_z: Vec4 = packet.origin_z.into();
 
-        let t2_x = (Vec4::from([self.max[0]; 4]) - Vec4::from(*origin_x)) * Vec4::from(*inv_direction_x);
-        let t2_y = (Vec4::from([self.max[1]; 4]) - Vec4::from(*origin_y)) * Vec4::from(*inv_direction_y);
-        let t2_z = (Vec4::from([self.max[2]; 4]) - Vec4::from(*origin_z)) * Vec4::from(*inv_direction_z);
+        let t1_x = (Vec4::from([self.min[0]; 4]) - org_x) * inv_dir_x;
+        let t1_y = (Vec4::from([self.min[1]; 4]) - org_y) * inv_dir_y;
+        let t1_z = (Vec4::from([self.min[2]; 4]) - org_z) * inv_dir_z;
+
+        let t2_x = (Vec4::from([self.max[0]; 4]) - org_x) * inv_dir_x;
+        let t2_y = (Vec4::from([self.max[1]; 4]) - org_y) * inv_dir_y;
+        let t2_z = (Vec4::from([self.max[2]; 4]) - org_z) * inv_dir_z;
 
         let t_min_x = t1_x.min(t2_x);
         let t_min_y = t1_y.min(t2_y);
@@ -83,11 +96,9 @@ impl AABB {
         let t_min = t_min_x.max(t_min_y.max(t_min_z));
         let t_max = t_max_x.min(t_max_y.min(t_max_z));
 
-        let mask = t_max.cmpgt(t_min).bitand(t_min.cmplt(Vec4::from(*t)));
-        let mask = mask.bitmask();
-
-        if mask > 0 {
-            Some(mask)
+        let mask = t_max.cmpgt(t_min) & t_min.cmplt(Vec4::from(packet.t));
+        if mask.any() {
+            Some(t_min.into())
         } else {
             None
         }

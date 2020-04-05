@@ -1,9 +1,9 @@
 use crate::bvh_node::*;
-use crate::AABB;
+use crate::{RayPacket4, AABB};
 
 use glam::*;
 
-pub struct MBVHHit {
+struct MBVHHit {
     ids: [u8; 4],
     result: [bool; 4],
 }
@@ -60,7 +60,8 @@ impl MBVHNode {
         self.set_bounds(node_id, &bounds.min, &bounds.max);
     }
 
-    pub fn intersect(&self, origin: Vec3, inv_direction: Vec3, t: f32) -> Option<MBVHHit> {
+    #[inline(always)]
+    fn intersect(&self, origin: Vec3, inv_direction: Vec3, t: f32) -> Option<MBVHHit> {
         let origin_x: Vec4 = [origin.x(); 4].into();
         let origin_y: Vec4 = [origin.y(); 4].into();
         let origin_z: Vec4 = [origin.z(); 4].into();
@@ -89,8 +90,16 @@ impl MBVHNode {
 
         let result = t_max.cmpge(t_min) & (t_min.cmplt([t; 4].into()));
         let result = result.bitmask();
-        if result == 0 { return None; }
-        let result = [(result & 1) != 0, (result & 2) != 0, (result & 4) != 0, (result & 8) != 0];
+        if result == 0 {
+            return None;
+        }
+
+        let result = [
+            (result & 1) != 0,
+            (result & 2) != 0,
+            (result & 4) != 0,
+            (result & 8) != 0,
+        ];
 
         let mut ids = [0, 1, 2, 3];
 
@@ -113,13 +122,107 @@ impl MBVHNode {
             ids.swap(1, 3);
         }
         if t_minf[2] > t_minf[3] {
-            t_minf.swap(2, 3);
             ids.swap(2, 3);
         }
 
         Some(MBVHHit { ids, result })
     }
 
+    #[inline(always)]
+    fn intersect4(
+        &self,
+        packet: &RayPacket4,
+        inv_dir_x: Vec4,
+        inv_dir_y: Vec4,
+        inv_dir_z: Vec4,
+    ) -> Option<MBVHHit> {
+        let min_x = self.min_x;
+        let max_x = self.max_x;
+
+        let min_y = self.min_y;
+        let max_y = self.max_y;
+
+        let min_z = self.min_z;
+        let max_z = self.max_z;
+
+        let mut result = Vec4Mask::new(false, false, false, false);
+        let mut final_t_min = Vec4::from([1e26; 4]);
+
+        for i in 0..4 {
+            let org_comp = Vec4::from([packet.origin_x[i]; 4]);
+            let dir_comp = Vec4::from([inv_dir_x[i]; 4]);
+
+            let t1 = (min_x - org_comp) * dir_comp;
+            let t2 = (max_x - org_comp) * dir_comp;
+
+            let t_min = t1.min(t2);
+            let t_max = t1.max(t2);
+
+            let org_comp = Vec4::from([packet.origin_y[i]; 4]);
+            let dir_comp = Vec4::from([inv_dir_y[i]; 4]);
+
+            let t1 = (min_y - org_comp) * dir_comp;
+            let t2 = (max_y - org_comp) * dir_comp;
+
+            let t_min = t_min.max(t1.min(t2));
+            let t_max = t_max.min(t1.max(t2));
+
+            let org_comp = Vec4::from([packet.origin_z[i]; 4]);
+            let dir_comp = Vec4::from([inv_dir_z[i]; 4]);
+
+            let t1 = (min_z - org_comp) * dir_comp;
+            let t2 = (max_z - org_comp) * dir_comp;
+
+            let t_min = t_min.max(t1.min(t2));
+            let t_max = t_max.min(t2.max(t2));
+
+            let greater_than_min = t_max.cmpgt(t_min);
+            let less_than_t = t_min.cmplt(Vec4::from([packet.t[i]; 4]));
+            result = result | (greater_than_min & less_than_t);
+
+            final_t_min = final_t_min.min(t_min);
+        }
+
+        let result = result.bitmask();
+        if result == 0 {
+            return None;
+        }
+
+        let result = [
+            (result & 1) != 0,
+            (result & 2) != 0,
+            (result & 4) != 0,
+            (result & 8) != 0,
+        ];
+
+        let mut ids = [0, 1, 2, 3];
+
+        let t_minf = final_t_min.as_mut();
+
+        if t_minf[0] > t_minf[1] {
+            t_minf.swap(0, 1);
+            ids.swap(0, 1);
+        }
+        if t_minf[2] > t_minf[3] {
+            t_minf.swap(2, 3);
+            ids.swap(2, 3);
+        }
+        if t_minf[0] > t_minf[2] {
+            t_minf.swap(0, 2);
+            ids.swap(0, 2);
+        }
+        if t_minf[1] > t_minf[3] {
+            t_minf.swap(1, 3);
+            ids.swap(1, 3);
+        }
+        if t_minf[2] > t_minf[3] {
+            ids.swap(2, 3);
+        }
+
+        Some(MBVHHit { ids, result })
+    }
+
+    #[inline(always)]
     pub fn traverse<I, R>(
         tree: &[MBVHNode],
         prim_indices: &[u32],
@@ -129,11 +232,13 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<R>
-        where I: FnMut(usize, f32, f32) -> Option<(f32, R)>, R: Copy
+    where
+        I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+        R: Copy,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = 0;
-        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        let dir_inverse = Vec3::one() / dir;
         let mut t = t_max;
         let mut hit_record = None;
 
@@ -142,18 +247,36 @@ impl MBVHNode {
             stack_ptr = stack_ptr - 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
-                    if let Some((new_t, new_hit)) = intersection_test(prim_id as usize, t_min, t) {
-                        t = new_t;
-                        hit_record = Some(new_hit);
+                for i in (0..4).rev() {
+                    let id = hit.ids[i as usize] as usize;
+
+                    if hit.result[id] {
+                        let count = tree[left_first].counts[id];
+                        let left_first = tree[left_first].children[id];
+                        if count >= 0 {
+                            for i in 0..count {
+                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
+                                if let Some((new_t, new_hit)) =
+                                    intersection_test(prim_id as usize, t_min, t)
+                                {
+                                    t = new_t;
+                                    hit_record = Some(new_hit);
+                                }
+                            }
+                        } else if left_first >= 0 {
+                            stack_ptr += 1;
+                            let stack_ptr = stack_ptr as usize;
+                            todo[stack_ptr] = left_first as u32;
+                        }
                     }
-                });
+                }
             }
         }
 
         hit_record
     }
 
+    #[inline(always)]
     pub fn traverse_t<I>(
         tree: &[MBVHNode],
         prim_indices: &[u32],
@@ -163,11 +286,12 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<f32>
-        where I: FnMut(usize, f32, f32) -> Option<f32>
+    where
+        I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
-        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        let dir_inverse = Vec3::one() / dir;
         let mut t = t_max;
 
         while stack_ptr >= 0 {
@@ -175,17 +299,36 @@ impl MBVHNode {
             stack_ptr -= 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
-                    if let Some(new_t) = intersection_test(prim_id, t_min, t) {
-                        t = new_t;
+                for i in (0..4).rev() {
+                    let id = hit.ids[i as usize] as usize;
+
+                    if hit.result[id] {
+                        let count = tree[left_first].counts[id];
+                        let left_first = tree[left_first].children[id];
+                        if count >= 0 {
+                            for i in 0..count {
+                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
+                                if let Some(new_t) = intersection_test(prim_id, t_min, t) {
+                                    t = new_t;
+                                }
+                            }
+                        } else if left_first >= 0 {
+                            stack_ptr += 1;
+                            todo[stack_ptr as usize] = left_first as u32;
+                        }
                     }
-                });
+                }
             }
         }
 
-        if t < t_max { Some(t) } else { None }
+        if t < t_max {
+            Some(t)
+        } else {
+            None
+        }
     }
 
+    #[inline(always)]
     pub fn occludes<I>(
         tree: &[MBVHNode],
         prim_indices: &[u32],
@@ -195,11 +338,12 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> bool
-        where I: FnMut(usize, f32, f32) -> bool
+    where
+        I: FnMut(usize, f32, f32) -> bool,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
-        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        let dir_inverse = Vec3::one() / dir;
         let t = t_max;
 
         while stack_ptr >= 0 {
@@ -207,15 +351,24 @@ impl MBVHNode {
             stack_ptr -= 1;
 
             if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
-                let mut hit_prim = false;
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, left_first, prim_indices, &mut todo, |prim_id| {
-                    if intersection_test(prim_id, t_min, t) {
-                        hit_prim = true;
-                    }
-                });
+                for i in (0..4).rev() {
+                    let id = hit.ids[i as usize] as usize;
 
-                if hit_prim {
-                    return true;
+                    if hit.result[id] {
+                        let count = tree[left_first].counts[id];
+                        let left_first = tree[left_first].children[id];
+                        if count >= 0 {
+                            for i in 0..count {
+                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
+                                if intersection_test(prim_id, t_min, t) {
+                                    return true;
+                                }
+                            }
+                        } else if left_first >= 0 {
+                            stack_ptr += 1;
+                            todo[stack_ptr as usize] = left_first as u32;
+                        }
+                    }
                 }
             }
         }
@@ -223,6 +376,7 @@ impl MBVHNode {
         false
     }
 
+    #[inline(always)]
     pub fn depth_test<I>(
         tree: &[MBVHNode],
         prim_indices: &[u32],
@@ -232,85 +386,100 @@ impl MBVHNode {
         t_max: f32,
         depth_test: I,
     ) -> (f32, u32)
-        where I: Fn(usize, f32, f32) -> Option<(f32, u32)>
+    where
+        I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         let mut todo = [0; 32];
-        let mut stack_ptr = -1;
-        let dir_inverse = Vec3::new(1.0, 1.0, 1.0) / dir;
+        let mut stack_ptr: i32 = 0;
+        let dir_inverse = Vec3::one() / dir;
         let mut t = t_max;
         let mut depth: u32 = 0;
 
-        if let Some(hit) = tree[0].intersect(origin, dir_inverse, t) {
-            stack_ptr = Self::process_hit(stack_ptr, hit, tree, 0, prim_indices, &mut todo, |prim_id| {
-                if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
-                    t = new_t;
-                    depth += d;
-                }
-            });
-            depth = 1
-        } else {
-            return (t, depth);
-        }
-
         while stack_ptr >= 0 {
-            let node = todo[stack_ptr as usize] as usize;
+            let left_first = todo[stack_ptr as usize] as usize;
             stack_ptr = stack_ptr - 1;
-            depth += 1;
 
-            if let Some(hit) = tree[node].intersect(origin, dir_inverse, t) {
-                stack_ptr = Self::process_hit(stack_ptr, hit, tree, node, prim_indices, &mut todo, |prim_id| {
-                    if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
-                        t = new_t;
-                        depth += d;
+            // if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
+            if let Some(hit) = tree[left_first].intersect(origin, dir_inverse, t) {
+                for i in (0..4).rev() {
+                    // let id = unsafe { hit.t_min.t_min_int[i as usize] & 0b11 } as usize;
+                    let id = hit.ids[i as usize] as usize;
+
+                    if hit.result[id] {
+                        let count = tree[left_first].counts[id];
+                        let left_first = tree[left_first].children[id];
+                        if count >= 0 {
+                            for i in 0..count {
+                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
+                                if let Some((new_t, d)) = depth_test(prim_id, t_min, t) {
+                                    t = new_t;
+                                    depth += d;
+                                }
+                            }
+                        } else if left_first >= 0 {
+                            stack_ptr += 1;
+                            todo[stack_ptr as usize] = left_first as u32;
+                        }
                     }
-                });
+                }
+
+                depth += 1;
             }
         }
 
         (t, depth)
     }
 
-    #[inline]
-    fn process_hit<T>(
-        mut stack_ptr: i32,
-        hit: MBVHHit,
-        tree: &[Self],
-        node: usize,
+    #[inline(always)]
+    pub fn traverse4<I: FnMut(usize, &mut RayPacket4)>(
+        tree: &[MBVHNode],
         prim_indices: &[u32],
-        todo: &mut [u32],
-        mut cb: T,
-    ) -> i32
-        where T: FnMut(usize)
-    {
-        for i in (0..4).rev() {
-            let id = hit.ids[i] as usize;
-            if hit.result[id] {
-                let count = tree[node].counts[id];
-                let left_first = tree[node].children[id];
-                if count >= 0 {
-                    for i in 0..count {
-                        let prim_id = prim_indices[(left_first + i) as usize] as usize;
-                        cb(prim_id);
+        packet: &mut RayPacket4,
+        mut intersection_test: I,
+    ) {
+        let mut todo = [0; 32];
+        let mut stack_ptr = 0;
+
+        let one = Vec4::one();
+        let inv_dir_x = one / Vec4::from(packet.direction_x);
+        let inv_dir_y = one / Vec4::from(packet.direction_y);
+        let inv_dir_z = one / Vec4::from(packet.direction_z);
+
+        while stack_ptr >= 0 {
+            let left_first = todo[stack_ptr as usize] as usize;
+            stack_ptr -= 1;
+
+            if let Some(hit) = tree[left_first].intersect4(packet, inv_dir_x, inv_dir_y, inv_dir_z)
+            {
+                for i in (0..4).rev() {
+                    let id = hit.ids[i as usize] as usize;
+
+                    if hit.result[id] {
+                        let count = tree[left_first].counts[id];
+                        let left_first = tree[left_first].children[id];
+                        if count >= 0 {
+                            for i in 0..count {
+                                let prim_id = prim_indices[(left_first + i) as usize] as usize;
+                                intersection_test(prim_id, packet);
+                            }
+                        } else if left_first >= 0 {
+                            stack_ptr += 1;
+                            todo[stack_ptr as usize] = left_first as u32;
+                        }
                     }
-                } else if left_first >= 0 {
-                    stack_ptr += 1;
-                    let stack_ptr = stack_ptr as usize;
-                    todo[stack_ptr] = left_first as u32;
                 }
             }
         }
-
-        stack_ptr
     }
 
+    #[inline(always)]
     pub fn merge_nodes(
         m_index: usize,
         cur_node: usize,
         bvh_pool: &[BVHNode],
         mbvh_pool: &mut [MBVHNode],
         pool_ptr: &mut usize,
-    )
-    {
+    ) {
         let cur_node = &bvh_pool[cur_node];
         if cur_node.is_leaf() {
             panic!("Leaf nodes should not be attempted to be split!");
@@ -328,7 +497,8 @@ impl MBVHNode {
                 continue;
             }
 
-            if mbvh_pool[m_index].counts[idx] < 0 { // Not a leaf node
+            if mbvh_pool[m_index].counts[idx] < 0 {
+                // Not a leaf node
                 let cur_node = mbvh_pool[m_index].children[idx] as usize;
                 let new_idx = *pool_ptr;
                 *pool_ptr = *pool_ptr + 1;
@@ -352,7 +522,8 @@ impl MBVHNode {
             self.children[idx] = left_node.get_left_first();
             self.counts[idx] = left_node.get_count();
             self.set_bounds_bb(idx, &left_node.bounds);
-        } else { // Node has children
+        } else {
+            // Node has children
             let idx1 = num_children;
             num_children += 1;
             let idx2 = num_children;
@@ -425,7 +596,9 @@ impl MBVHNode {
         // In case this quad node isn't filled & not all nodes are leaf nodes, merge 1 more node
         if num_children == 3 {
             for i in 0..3 {
-                if self.counts[i] >= 0 { continue; }
+                if self.counts[i] >= 0 {
+                    continue;
+                }
 
                 let left = self.children[i];
                 let right = left + 1;

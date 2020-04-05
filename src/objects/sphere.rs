@@ -1,12 +1,10 @@
 use glam::*;
 use crate::objects::*;
-use bvh::AABB;
-use bvh::Bounds;
-use crate::camera::RayPacket4;
-use std::ops::BitAnd;
+use bvh::{AABB, Bounds, RayPacket4};
 use crate::scene::PrimID;
 
 use std::arch::x86_64::*;
+use std::ops::BitAnd;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sphere {
@@ -120,7 +118,7 @@ impl Intersect for Sphere {
         None
     }
 
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> [PrimID; 4] {
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
         let origin_x = Vec4::from(packet.origin_x);
         let origin_y = Vec4::from(packet.origin_y);
         let origin_z = Vec4::from(packet.origin_z);
@@ -154,7 +152,7 @@ impl Intersect for Sphere {
         let t_min = Vec4::from(*t_min);
 
         let mask = d.cmplt(t_min);
-        if mask.bitmask() == 0 { return [-1; 4]; }
+        if mask.bitmask() == 0 { return None; }
 
         let div_2a = Vec4::one() / (2.0 * a);
         let sqrt_d = unsafe {
@@ -167,14 +165,14 @@ impl Intersect for Sphere {
         let t = pick_t1.select(t1, t2);
         let mask = mask.bitand(t.cmpgt(t_min).bitand(t.cmplt(packet.t.into())));
         let bitmask = mask.bitmask();
-        if bitmask == 0 { return [-1; 4]; }
+        if bitmask == 0 { return None; }
         packet.t = mask.select(t, packet.t.into()).into();
 
         let x = if bitmask & 1 != 0 { 0 } else { -1 };
         let y = if bitmask & 2 != 0 { 0 } else { -1 };
         let z = if bitmask & 4 != 0 { 0 } else { -1 };
         let w = if bitmask & 8 != 0 { 0 } else { -1 };
-        [x, y, z, w]
+        Some([x, y, z, w])
     }
 }
 

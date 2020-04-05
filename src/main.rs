@@ -12,6 +12,8 @@ mod objects;
 mod scene;
 mod utils;
 
+use crate::constants::{DEFAULT_T_MAX, DEFAULT_T_MIN};
+use bvh::RayPacket4;
 use camera::*;
 use material::*;
 use objects::*;
@@ -28,31 +30,39 @@ struct App {
     pub width: u32,
     pub height: u32,
 
-    pixels: Vec<Vec<Vec4>>,
+    p_width: usize,
+    p_height: usize,
+    pixels: Vec<Vec4>,
     camera: Camera,
     timer: Timer,
     scene: Scene,
     materials: MaterialList,
     render_mode: RenderMode,
+    fps: Averager<f32>,
+    num_threads: usize,
 }
 
 impl App {
+    const PACKET_WIDTH: u32 = 4;
+    const PACKET_HEIGHT: u32 = 1;
+
     pub fn new(width: u32, height: u32) -> App {
         let mut materials = MaterialList::new();
         let mut scene = Scene::new();
 
-        let dragon = Box::new(
-            Obj::new("models/dragon.obj", &mut materials)
-                .unwrap()
-                .into_mesh()
-                .scale(50.0),
-        );
-        let dragon = scene.add_object(dragon);
-        scene.add_instance(
-            dragon,
-            Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)),
-        ).unwrap();
-
+        #[cfg(not(debug_assertions))]
+            {
+                let dragon = Box::new(
+                    Obj::new("models/dragon.obj", &mut materials)
+                        .unwrap()
+                        .into_mesh()
+                        .scale(50.0),
+                );
+                let dragon = scene.add_object(dragon);
+                scene
+                    .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
+                    .unwrap();
+            }
         let sphere = scene.add_object(Box::new(
             Obj::new("models/sphere.obj", &mut materials)
                 .unwrap()
@@ -71,28 +81,33 @@ impl App {
         scene.build_bvh();
         println!("Building BVH: took {} ms", timer.elapsed_in_millis());
 
+        let num_threads = num_cpus::get();
         App {
             width,
             height,
-            pixels: vec![vec![[0.0; 4].into(); width as usize]; height as usize],
+            p_width: width as usize,
+            p_height: height as usize,
+            pixels: vec![Vec4::zero(); (width * height) as usize],
             camera: Camera::new(width, height),
             timer: Timer::new(),
             scene,
             materials,
-            render_mode: RenderMode::Scene,
+            render_mode: RenderMode::BVH,
+            fps: Averager::with_capacity(25),
+            num_threads,
         }
     }
 
     pub fn blit_pixels(&self, fb: &mut [u8]) {
         let line_chunk = 4 * self.width as usize;
         let pixels = &self.pixels;
-
+        let pixels_width = self.p_width;
         let fb_iterator = fb.par_chunks_mut(line_chunk).enumerate();
 
         fb_iterator.for_each(|(y, fb_pixels)| {
             let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
             for (x, pixel) in line_iterator {
-                let color = unsafe { pixels.get_unchecked(y).get_unchecked(x) };
+                let color = unsafe { pixels.get_unchecked(x + y * pixels_width) };
                 let color = color.max([0.0; 4].into()).min([1.0; 4].into());
                 let red = (color.x() * 255.0) as u8;
                 let green = (color.y() * 255.0) as u8;
@@ -107,62 +122,93 @@ impl App {
         let pixels = &mut self.pixels;
         let intersector = self.scene.create_intersector();
         let _materials = &self.materials;
+        let width = self.p_width as usize;
 
-        pixels.par_iter_mut().enumerate().for_each(|(y, pixels)| {
-            let y = y as u32;
-            for (x, pixel) in pixels.iter_mut().enumerate() {
-                let x = x as u32;
-                let ray = view.generate_ray(x, y);
-
-                *pixel = {
-                    let (_, depth) = intersector.depth_test(
-                        ray.origin.into(),
-                        ray.direction.into(),
-                        constants::DEFAULT_T_MIN,
-                        constants::DEFAULT_T_MAX,
-                    );
-                    if depth == 0 { Vec4::from([0.0; 4]) } else {
-                        let r = if depth > 8 { depth.min(48) as f32 * (1.0 / 64.0) } else { 0.0 };
-                        let g = (32 - depth.clamp(0, 32)) as f32 * (1.0 / 32.0);
-                        let b = if depth > 4 { depth as f32 * (1.0 / 128.0) } else { 0.0 };
-                        (r, g, b, 1.0).into()
-                    }
-                };
-            }
-        });
+        pixels
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, pixels)| {
+                for x in 0..width {
+                    let ray = view.generate_ray(x as u32, y as u32);
+                    pixels[x] = {
+                        let (_, depth) = intersector.depth_test(
+                            ray.origin.into(),
+                            ray.direction.into(),
+                            DEFAULT_T_MIN,
+                            DEFAULT_T_MAX,
+                        );
+                        if depth == 0 {
+                            Vec4::from([0.0; 4])
+                        } else {
+                            let r = if depth > 8 {
+                                depth.min(48) as f32 * (1.0 / 64.0)
+                            } else {
+                                0.0
+                            };
+                            let g = (32 - depth.clamp(0, 32)) as f32 * (1.0 / 32.0);
+                            let b = if depth > 4 {
+                                depth as f32 * (1.0 / 128.0)
+                            } else {
+                                0.0
+                            };
+                            (r, g, b, 1.0).into()
+                        }
+                    };
+                }
+            });
     }
 
     fn render_scene(&mut self) {
         let view = self.camera.get_view();
         let pixels = &mut self.pixels;
         let intersector = self.scene.create_intersector();
-        let materials = &self.materials;
+        let _materials = &self.materials;
 
-        pixels.par_iter_mut().enumerate().for_each(|(y, pixels)| {
-            let y = y as u32;
-            for (x, pixel) in pixels.iter_mut().enumerate() {
-                use rand::random;
-                let x = x as u32;
-                let ray = view.generate_lens_ray(x, y, random(), random(), random(), random());
+        assert_eq!(Self::PACKET_WIDTH * Self::PACKET_HEIGHT, 4);
 
-                *pixel = if let Some(hit) = intersector.intersect(
-                    ray.origin.into(),
-                    ray.direction.into(),
-                    constants::DEFAULT_T_MIN,
-                    constants::DEFAULT_T_MAX,
-                ) {
-                    let color = if let Some(mat) = materials.get(hit.mat_id as usize) {
-                        mat.color * -Vec3::from(hit.normal).dot(ray.direction.into())
-                    } else {
-                        hit.normal.into()
-                    };
+        let width = self.p_width;
+        let height = self.p_height;
 
-                    Vec3::from(color).extend(1.0)
-                } else {
-                    [0.0; 4].into()
+        let mut packets = (0..(width * height))
+            .step_by(4)
+            .map(|i| {
+                let x = (i % width) as u32;
+                let y = (i / width) as u32;
+                view.generate_ray4(&[x, x + 1, x + 2, x + 3], &[y, y, y, y], width as u32)
+            })
+            .collect::<Vec<RayPacket4>>();
+
+        let max_id = (self.p_width * self.p_height) as u32;
+
+        packets
+            .chunks_mut((width / 4) as usize)
+            .zip(pixels.chunks_mut(width as usize))
+            .par_bridge()
+            .for_each(|(packet, output)| {
+                let mut offset = 0;
+                for p in 0..(width / 4) {
+                    let packet: &mut RayPacket4 = &mut packet[p as usize];
+                    let (instance_ids, prim_ids) =
+                        intersector.intersect4(packet, [DEFAULT_T_MIN; 4]);
+
+                    for i in 0..4 {
+                        let pixel_id = packet.pixel_ids[i];
+                        if pixel_id >= max_id {
+                            continue;
+                        }
+
+                        let prim_id = prim_ids[i];
+                        let instance_id = instance_ids[i];
+
+                        output[i + offset] = if prim_id >= 0 || instance_id >= 0 {
+                            Vec4::one()
+                        } else {
+                            Vec4::zero()
+                        }
+                    }
+                    offset += 4;
                 }
-            }
-        });
+            });
     }
 }
 
@@ -170,18 +216,14 @@ impl fb_template::App for App {
     fn render(&mut self, fb: &mut [u8]) -> Option<Request> {
         match self.render_mode {
             RenderMode::Scene => self.render_scene(),
-            RenderMode::BVH => self.render_bvh()
+            RenderMode::BVH => self.render_bvh(),
         };
 
         self.blit_pixels(fb);
         None
     }
 
-
     fn key_handling(&mut self, states: &KeyHandler) -> Option<Request> {
-        let elapsed = self.timer.elapsed_in_millis();
-        self.timer.reset();
-
         if states.pressed(KeyCode::Escape) {
             return Some(Request::Exit);
         }
@@ -222,11 +264,15 @@ impl fb_template::App for App {
         }
 
         if states.pressed(KeyCode::Key1) {
-            unsafe { crate::scene::USE_MBVH = true; }
+            unsafe {
+                crate::scene::USE_MBVH = true;
+            }
         }
 
         if states.pressed(KeyCode::Key2) {
-            unsafe { crate::scene::USE_MBVH = false; }
+            unsafe {
+                crate::scene::USE_MBVH = false;
+            }
         }
 
         if states.pressed(KeyCode::B) {
@@ -237,7 +283,12 @@ impl fb_template::App for App {
             self.render_mode = RenderMode::Scene;
         }
 
-        let elapsed = if states.pressed(KeyCode::LShift) { elapsed * 2.0 } else { elapsed };
+        let elapsed = self.timer.elapsed_in_millis();
+        let elapsed = if states.pressed(KeyCode::LShift) {
+            elapsed * 2.0
+        } else {
+            elapsed
+        };
 
         let view_change = view_change * elapsed * 0.001;
         let pos_change = pos_change * elapsed * 0.05;
@@ -249,7 +300,14 @@ impl fb_template::App for App {
             self.camera.translate_relative(pos_change);
         }
 
-        Some(Request::TitleChange(String::from(format!("FPS: {:.2}", 1000.0 / elapsed))))
+        let elapsed = self.timer.elapsed_in_millis();
+        self.fps.add_sample(1000.0 / elapsed);
+        let avg = self.fps.get_average();
+        self.timer.reset();
+        Some(Request::TitleChange(String::from(format!(
+            "FPS: {:.2}",
+            avg
+        ))))
     }
 
     fn mouse_handling(&mut self, _x: f64, _y: f64, _dx: f64, _dy: f64) -> Option<Request> {
@@ -259,7 +317,26 @@ impl fb_template::App for App {
     fn resize(&mut self, width: u32, height: u32) -> Option<Request> {
         self.width = width;
         self.height = height;
-        self.pixels = vec![vec![[0.0; 4].into(); width as usize]; height as usize];
+
+        let width = {
+            if width % Self::PACKET_WIDTH > 0 {
+                width + Self::PACKET_WIDTH - (width % Self::PACKET_WIDTH)
+            } else {
+                width
+            }
+        };
+        let height = {
+            if width % Self::PACKET_HEIGHT > 0 {
+                height + Self::PACKET_HEIGHT - (height % Self::PACKET_HEIGHT)
+            } else {
+                height
+            }
+        };
+
+        self.p_width = width as usize;
+        self.p_height = height as usize;
+
+        self.pixels = vec![Vec4::zero(); (self.p_width * self.p_height) as usize];
         self.camera.resize(width, height);
 
         None

@@ -1,74 +1,19 @@
-// use nalgebra_glm;
-// use crate::math::*;
-use std::f32::consts::PI;
+use bvh::{Ray, RayPacket4};
 use glam::*;
-use crate::constants::{EPSILON, DEFAULT_T_MAX};
-use std::arch::x86_64::*;
+use std::f32::consts::PI;
 
-#[derive(Copy, Clone)]
-pub struct Ray {
-    pub origin: [f32; 3],
-    pub direction: [f32; 3],
-}
+use crate::constants::DEFAULT_T_MAX;
 
-pub struct RayPacket4 {
-    pub origin_x: [f32; 4],
-    pub origin_y: [f32; 4],
-    pub origin_z: [f32; 4],
-
-    pub direction_x: [f32; 4],
-    pub direction_y: [f32; 4],
-    pub direction_z: [f32; 4],
-
-    pub t: [f32; 4],
-    pub hit_id: [i32; 4],
-    pub instance_id: [i32; 4],
-}
-
-pub struct ShadowPacket4 {
-    pub origin_x: [f32; 4],
-    pub origin_y: [f32; 4],
-    pub origin_z: [f32; 4],
-
-    pub direction_x: [f32; 4],
-    pub direction_y: [f32; 4],
-    pub direction_z: [f32; 4],
-    pub t_max: [f32; 4],
-}
-
-#[allow(dead_code)]
-impl Ray {
-    pub fn new(origin: [f32; 3], direction: [f32; 3]) -> Ray {
-        Ray {
-            origin,
-            direction,
-        }
-    }
-
-    pub fn reflect(&self, p: &[f32; 3], n: &[f32; 3]) -> Ray {
-        let p = Vec3::from(*p);
-        let n = Vec3::from(*n);
-
-        let direction = Vec3::from(self.direction);
-
-        let tmp: Vec3 = n * n.dot(direction) * 2.0;
-        let direction = direction - tmp;
-        Ray {
-            origin: (p + direction * EPSILON).into(),
-            direction: direction.into(),
-        }
-    }
-
-    pub fn get_point_at(&self, t: f32) -> Vec3 {
-        Vec3::from(self.origin) + Vec3::from(self.direction) * t
-    }
+pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
+    use std::arch::x86_64::_mm_sqrt_ps;
+    unsafe { _mm_sqrt_ps(vec.into()).into() }
 }
 
 #[derive(Debug, Clone)]
 pub struct Camera {
-    pub pos: Vec3,
-    up: Vec3,
-    direction: Vec3,
+    pub pos: [f32; 3],
+    up: [f32; 3],
+    direction: [f32; 3],
     fov: f32,
     width: u32,
     height: u32,
@@ -80,16 +25,14 @@ pub struct Camera {
 #[derive(Debug, Copy, Clone)]
 pub struct CameraView {
     pub pos: Vec3,
-    pub lens_size: f32,
-
     pub right: Vec3,
-    pub spread_angle: f32,
-
     pub up: Vec3,
-    pub epsilon: f32,
-
     pub p1: Vec3,
+    pub lens_size: f32,
+    pub spread_angle: f32,
+    pub epsilon: f32,
     pub inv_width: f32,
+
     pub inv_height: f32,
 }
 
@@ -134,7 +77,14 @@ impl CameraView {
         Ray::new(self.pos.into(), direction.into())
     }
 
-    pub fn generate_ray4(&self, x: &[u32; 4], y: &[u32; 4]) -> RayPacket4 {
+    pub fn generate_ray4(&self, x: &[u32; 4], y: &[u32; 4], width: u32) -> RayPacket4 {
+        let ids = [
+            x[0] + y[0] * width,
+            x[1] + y[1] * width,
+            x[2] + y[2] * width,
+            x[3] + y[3] * width,
+        ];
+
         let x = [x[0] as f32, x[1] as f32, x[2] as f32, x[3] as f32];
         let y = [y[0] as f32, y[1] as f32, y[2] as f32, y[3] as f32];
 
@@ -156,9 +106,7 @@ impl CameraView {
         let length_squared = length_squared + direction_y * direction_y;
         let length_squared = length_squared + direction_z * direction_z;
 
-        let length = unsafe {
-            Vec4::from(_mm_sqrt_ps(length_squared.into()))
-        };
+        let length = vec4_sqrt(length_squared);
 
         let inv_length = Vec4::one() / length;
 
@@ -180,6 +128,7 @@ impl CameraView {
             t: [DEFAULT_T_MAX; 4],
             hit_id: [-1; 4],
             instance_id: [-1; 4],
+            pixel_ids: ids,
         }
     }
 }
@@ -188,9 +137,9 @@ impl CameraView {
 impl Camera {
     pub fn new(width: u32, height: u32) -> Camera {
         Camera {
-            pos: Vec3::new(0.0, 0.0, 0.0),
-            up: Vec3::new(0.0, 1.0, 0.0),
-            direction: Vec3::new(0.0, 0.0, 1.0),
+            pos: [0.0; 3],
+            up: [0.0; 3],
+            direction: [0.0, 0.0, 1.0],
             fov: 40.0,
             width,
             height,
@@ -202,22 +151,27 @@ impl Camera {
 
     pub fn get_view(&self) -> CameraView {
         let (right, up, forward) = self.calculate_matrix();
-        let pos = self.pos;
+        let pos = Vec3::from(self.pos);
         let fov = self.fov;
         let spread_angle = (fov * std::f32::consts::PI / 180.0) * (1.0 / self.height as f32);
         let screen_size = (fov * 0.5 / (180.0 / std::f32::consts::PI)).tan();
         let center = pos + self.focal_distance * forward;
 
-        let p1 = center - screen_size * right * self.focal_distance * self.aspect_ratio + screen_size * self.focal_distance * up;
-        let p2 = center + screen_size * right * self.focal_distance * self.aspect_ratio + screen_size * self.focal_distance * up;
-        let p3 = center - screen_size * right * self.focal_distance * self.aspect_ratio - screen_size * self.focal_distance * up;
+        let p1 = center - screen_size * right * self.focal_distance * self.aspect_ratio
+            + screen_size * self.focal_distance * up;
+        let p2 = center
+            + screen_size * right * self.focal_distance * self.aspect_ratio
+            + screen_size * self.focal_distance * up;
+        let p3 = center
+            - screen_size * right * self.focal_distance * self.aspect_ratio
+            - screen_size * self.focal_distance * up;
 
         let aperture = self.aperture;
         let right = p2 - p1;
         let up = p3 - p1;
 
         CameraView {
-            pos: pos as Vec3,
+            pos,
             lens_size: aperture,
             right,
             spread_angle,
@@ -245,17 +199,18 @@ impl Camera {
 
     pub fn translate_relative(&mut self, delta: Vec3) {
         let (right, up, forward) = self.calculate_matrix();
-        self.pos += delta.x() * right + delta.y() * up + delta.z() * forward;
+        self.pos = (Vec3::from(self.pos) + (delta.x() * right + delta.y() * up + delta.z() * forward)).into();
     }
 
     pub fn translate_target(&mut self, delta: Vec3) {
         let (right, up, forward) = self.calculate_matrix();
-        self.direction = (self.direction + delta.x() * right + delta.y() * up + delta.z() * forward).normalize();
+        self.direction =
+            (Vec3::from(self.direction) + delta.x() * right + delta.y() * up + delta.z() * forward).normalize().into();
     }
 
     pub fn look_at(&mut self, origin: Vec3, target: Vec3) {
-        self.pos = origin;
-        self.direction = (target - origin).normalize();
+        self.pos = origin.into();
+        self.direction = (target - origin).normalize().into();
     }
 
     pub fn get_matrix(&self, near_plane: f32, far_plane: f32) -> Mat4 {
@@ -263,15 +218,24 @@ impl Camera {
         let fov_dist = (self.fov * 0.5).to_radians().tan();
 
         let flip = Mat4::from_scale([-1.0; 3].into());
-        let projection = Mat4::perspective_rh_gl(self.fov.to_radians(), self.aspect_ratio, near_plane, far_plane);
-        let view = Mat4::look_at_rh(self.pos, self.pos + self.direction * fov_dist, up);
+        let projection = Mat4::perspective_rh_gl(
+            self.fov.to_radians(),
+            self.aspect_ratio,
+            near_plane,
+            far_plane,
+        );
+
+        let pos = Vec3::from(self.pos);
+        let dir = Vec3::from(self.direction);
+
+        let view = Mat4::look_at_rh(pos, pos + dir * fov_dist, up);
 
         projection * flip * view
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
         let y: Vec3 = vec3(0.0, 1.0, 0.0);
-        let z: Vec3 = self.direction.normalize();
+        let z: Vec3 = Vec3::from(self.direction).normalize();
         let x: Vec3 = z.cross(y).normalize();
         let y: Vec3 = x.cross(z);
         (x, y, z)
