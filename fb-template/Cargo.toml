@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 winit = "0.22.0"
 pixels = "0.0.2"
+wgpu = "0.4.0"

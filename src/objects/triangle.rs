@@ -1,7 +1,6 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
 use crate::scene::PrimID;
-use glam::*;
 
 use bvh::{Bounds, RayPacket4, AABB};
 use std::ops::BitAnd;

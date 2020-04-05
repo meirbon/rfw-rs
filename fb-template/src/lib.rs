@@ -63,15 +63,23 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
     let window = WindowBuilder::new()
         .with_title(title)
         .with_inner_size(LogicalSize::new(start_width as f64, start_height as f64))
+        .with_min_inner_size(LogicalSize::new(start_width as f64, start_height as f64))
         .build(&event_loop)
         .unwrap();
 
     let mut pixels = {
         let surface = pixels::wgpu::Surface::create(&window);
         let surface_texture = pixels::SurfaceTexture::new(width, height, surface);
-        pixels::PixelsBuilder::new(start_width, start_height, surface_texture).build().unwrap()
+        pixels::PixelsBuilder::new(width, height, surface_texture)
+            .request_adapter_options(wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::Default,
+                backends: wgpu::BackendBit::PRIMARY
+            })
+            .build()
+            .unwrap()
     };
 
+    let mut resized = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -90,6 +98,19 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
             Event::RedrawRequested(_) => {
+                if resized {
+                    pixels = {
+                        let surface = pixels::wgpu::Surface::create(&window);
+                        let surface_texture = pixels::SurfaceTexture::new(width, height, surface);
+                        pixels::PixelsBuilder::new(width, height, surface_texture)
+                            .build()
+                            .unwrap()
+                    };
+
+                    app.resize(width, height);
+                    resized = false;
+                }
+
                 if let Some(request) = app.key_handling(&key_handler) {
                     match request {
                         Request::Exit => *control_flow = ControlFlow::Exit,
@@ -108,13 +129,7 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
                 width = size.width;
                 height = size.height;
 
-                pixels = {
-                    let surface = pixels::wgpu::Surface::create(&window);
-                    let surface_texture = pixels::SurfaceTexture::new(width, height, surface);
-                    pixels::PixelsBuilder::new(width, height, surface_texture).build().unwrap()
-                };
-
-                app.resize(width, height);
+                resized = true;
             }
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },

@@ -1,7 +1,6 @@
 use crate::objects::*;
 use crate::scene::PrimID;
 use bvh::{Bounds, RayPacket4, AABB};
-use glam::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sphere {

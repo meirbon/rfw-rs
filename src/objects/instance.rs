@@ -1,7 +1,6 @@
 use crate::objects::*;
 use bvh::aabb::Bounds;
 use bvh::{RayPacket4, AABB};
-use glam::*;
 
 /// Instance
 /// Takes in a bounding box and transform and tranforms to and from object local space.

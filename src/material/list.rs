@@ -1,5 +1,7 @@
 use glam::*;
+
 use std::ops::{Index, IndexMut};
+use crate::material::Material;
 
 pub struct MaterialList {
     materials: Vec<Material>,
@@ -31,7 +33,7 @@ impl MaterialList {
         self.materials.get_mut(index)
     }
 
-    pub unsafe fn get_unchecked(&mut self, index: usize) -> &Material {
+    pub unsafe fn get_unchecked(&self, index: usize) -> &Material {
         self.materials.get_unchecked(index)
     }
 
@@ -55,30 +57,5 @@ impl Index<usize> for MaterialList {
 impl IndexMut<usize> for MaterialList {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.materials[index]
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct Material {
-    pub color: Vec3,
-    pub specular: Vec3,
-
-    pub opacity: f32,
-    pub roughness: f32,
-    pub diffuse_tex: i32,
-    pub normal_tex: i32,
-}
-
-impl Material {
-    pub fn new(color: Vec3, roughness: f32, specular: Vec3, opacity: f32) -> Material {
-        Material {
-            color,
-            roughness,
-            specular,
-            opacity,
-            diffuse_tex: -1,
-            normal_tex: -1,
-        }
     }
 }

@@ -15,7 +15,6 @@ mod triangle_scene;
 mod utils;
 
 use crate::constants::{DEFAULT_T_MAX, DEFAULT_T_MIN};
-use bvh::RayPacket4;
 use camera::*;
 use material::*;
 use objects::*;
@@ -31,9 +30,8 @@ enum RenderMode {
 struct App {
     pub width: u32,
     pub height: u32,
-
-    p_width: usize,
-    p_height: usize,
+    packet_width: u32,
+    packet_height: u32,
     pixels: Vec<Vec4>,
     camera: Camera,
     timer: Timer,
@@ -45,9 +43,6 @@ struct App {
 }
 
 impl App {
-    const PACKET_WIDTH: u32 = 4;
-    const PACKET_HEIGHT: u32 = 1;
-
     pub fn new(width: u32, height: u32) -> App {
         let mut materials = MaterialList::new();
         let mut scene = Scene::new();
@@ -85,8 +80,8 @@ impl App {
         App {
             width,
             height,
-            p_width: width as usize,
-            p_height: height as usize,
+            packet_width: 4,
+            packet_height: 1,
             pixels: vec![Vec4::zero(); (width * height) as usize],
             camera: Camera::new(width, height),
             timer: Timer::new(),
@@ -99,15 +94,15 @@ impl App {
     }
 
     pub fn blit_pixels(&self, fb: &mut [u8]) {
-        let line_chunk = 4 * self.width as usize;
+        let width = self.width as usize;
         let pixels = &self.pixels;
-        let pixels_width = self.p_width;
-        let fb_iterator = fb.par_chunks_mut(line_chunk).enumerate();
+
+        let fb_iterator = fb.par_chunks_mut(width * 4).enumerate();
 
         fb_iterator.for_each(|(y, fb_pixels)| {
             let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
             for (x, pixel) in line_iterator {
-                let color = unsafe { pixels.get_unchecked(x + y * pixels_width) };
+                let color = unsafe { pixels.get_unchecked(x + y * width) };
                 let color = color.max([0.0; 4].into()).min([1.0; 4].into());
                 let red = (color.x() * 255.0) as u8;
                 let green = (color.y() * 255.0) as u8;
@@ -122,7 +117,7 @@ impl App {
         let pixels = &mut self.pixels;
         let intersector = self.scene.create_intersector();
         let _materials = &self.materials;
-        let width = self.p_width as usize;
+        let width = self.width as usize;
 
         pixels
             .par_chunks_mut(width)
@@ -159,32 +154,48 @@ impl App {
         let intersector = self.scene.create_intersector();
         let materials = &self.materials;
 
-        assert_eq!(Self::PACKET_WIDTH * Self::PACKET_HEIGHT, 4);
+        let width = self.width;
 
-        let width = self.p_width;
-        let height = self.p_height;
+        let x_range = match self.packet_width {
+            2 => [0, 0, 1, 1],
+            4 => [0, 1, 2, 3],
+            _ => [0, 0, 0, 0],
+        };
 
-        let mut packets = (0..(width * height))
-            .step_by(4)
-            .map(|i| {
-                let x = (i % width) as u32;
-                let y = (i / width) as u32;
-                view.generate_ray4(&[x, x + 1, x + 2, x + 3], &[y, y, y, y], width as u32)
-            })
-            .collect::<Vec<RayPacket4>>();
+        let y_range = match self.packet_height {
+            2 => [0, 0, 1, 1],
+            4 => [0, 1, 2, 3],
+            _ => [0, 0, 0, 0],
+        };
 
-        let max_id = (self.p_width * self.p_height) as u32;
+        let max_id = pixels.len() as u32;
 
-        packets
-            .chunks_mut((width / 4) as usize)
-            .zip(pixels.chunks_mut(width as usize))
+        pixels
+            .chunks_mut(width as usize)
+            .enumerate()
             .par_bridge()
-            .for_each(|(packet, output)| {
-                let mut offset = 0;
-                for p in 0..(width / 4) {
-                    let packet: &mut RayPacket4 = &mut packet[p as usize];
+            .for_each(|(i, output)| {
+                for x in (0..width).step_by(4) {
+                    let y = i as u32;
+                    let xs = [
+                        x_range[0] + x,
+                        x_range[1] + x,
+                        x_range[2] + x,
+                        x_range[3] + x,
+                    ];
+
+                    let ys = [
+                        y_range[0] + y,
+                        y_range[1] + y,
+                        y_range[2] + y,
+                        y_range[3] + y,
+                    ];
+
+                    let mut packet = view.generate_ray4(&xs, &ys, width as u32);
+
+                    // let packet: &mut RayPacket4 = &mut packet[p as usize];
                     let (instance_ids, prim_ids) =
-                        intersector.intersect4(packet, [DEFAULT_T_MIN; 4]);
+                        intersector.intersect4(&mut packet, [DEFAULT_T_MIN; 4]);
 
                     for i in 0..4 {
                         let pixel_id = packet.pixel_ids[i];
@@ -192,19 +203,32 @@ impl App {
                             continue;
                         }
 
-                        let origin: [f32; 3] = [packet.origin_x[i], packet.origin_y[i], packet.origin_z[i]];
-                        let direction: [f32; 3] = [packet.direction_x[i], packet.direction_y[i], packet.direction_z[i]];
+                        let origin: [f32; 3] =
+                            [packet.origin_x[i], packet.origin_y[i], packet.origin_z[i]];
+                        let direction: [f32; 3] = [
+                            packet.direction_x[i],
+                            packet.direction_y[i],
+                            packet.direction_z[i],
+                        ];
                         let prim_id = prim_ids[i];
                         let instance_id = instance_ids[i];
 
-                        output[i + offset] = if prim_id >= 0 || instance_id >= 0 {
-                            let hit = intersector.get_hit_record(Ray { origin, direction }, packet.t[i], instance_id, prim_id);
-                            Vec3::from(hit.normal).extend(1.0).max(Vec4::from([0.2; 4]))
+                        output[i + x as usize] = if prim_id >= 0 || instance_id >= 0 {
+                            let hit = intersector.get_hit_record(
+                                Ray { origin, direction },
+                                packet.t[i],
+                                instance_id,
+                                prim_id,
+                            );
+                            let material = unsafe { materials.get_unchecked(hit.mat_id as usize) };
+
+                            let color: Vec3 =
+                                material.color * -Vec3::from(direction).dot(hit.normal.into());
+                            color.extend(1.0)
                         } else {
                             Vec4::zero()
                         }
                     }
-                    offset += 4;
                 }
             });
     }
@@ -316,25 +340,7 @@ impl fb_template::App for App {
         self.width = width;
         self.height = height;
 
-        let width = {
-            if width % Self::PACKET_WIDTH > 0 {
-                width + Self::PACKET_WIDTH - (width % Self::PACKET_WIDTH)
-            } else {
-                width
-            }
-        };
-        let height = {
-            if width % Self::PACKET_HEIGHT > 0 {
-                height + Self::PACKET_HEIGHT - (height % Self::PACKET_HEIGHT)
-            } else {
-                height
-            }
-        };
-
-        self.p_width = width as usize;
-        self.p_height = height as usize;
-
-        self.pixels = vec![Vec4::zero(); (self.p_width * self.p_height) as usize];
+        self.pixels = vec![Vec4::zero(); (self.width * self.height) as usize];
         self.camera.resize(width, height);
 
         None
@@ -342,7 +348,7 @@ impl fb_template::App for App {
 }
 
 fn main() {
-    let width = 512;
+    let width = 1024;
     let height = 512;
     let app = App::new(width, height);
 
