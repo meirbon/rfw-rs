@@ -1,64 +1,17 @@
 use crate::objects::*;
+use crate::scene::*;
 use crate::utils::*;
+use bvh::Ray;
 
-use bvh::{Bounds, Ray, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
+use bvh::{Bounds, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
 use glam::*;
+
 use std::collections::HashSet;
 
-pub static mut USE_MBVH: bool = true;
-
-pub enum SceneFlags {
-    Dirty = 1,
-}
-
-impl Into<u8> for SceneFlags {
-    fn into(self) -> u8 {
-        self as u8
-    }
-}
-
-pub type PrimID = i32;
-pub type InstanceID = i32;
-
-#[derive(Debug, Copy, Clone)]
-struct NullObject {
-    _dummy: f32,
-}
-
-impl Intersect for NullObject {
-    fn occludes(&self, _ray: Ray, _t_min: f32, _t_max: f32) -> bool {
-        false
-    }
-
-    fn intersect(&self, _ray: Ray, _t_min: f32, _t_max: f32) -> Option<HitRecord> {
-        None
-    }
-
-    fn intersect_t(&self, _ray: Ray, _t_min: f32, _t_max: f32) -> Option<f32> {
-        None
-    }
-
-    fn depth_test(&self, _ray: Ray, _t_min: f32, _t_max: f32) -> Option<(f32, u32)> {
-        None
-    }
-
-    fn intersect4(&self, _packet: &mut RayPacket4, _t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
-        None
-    }
-
-    fn get_hit_record(&self, _: Ray, _: f32, _: u32) -> HitRecord {
-        panic!("This object should never be hit!");
-    }
-}
-
-impl Bounds for NullObject {
-    fn bounds(&self) -> AABB {
-        AABB::new()
-    }
-}
-
-pub struct Scene {
-    objects: Vec<Box<dyn Intersect>>,
+/// Scene optimized for triangles
+/// Does not support objects other than Meshes, but does not require virtual calls because of this.
+pub struct TriangleScene {
+    objects: Vec<Box<Mesh>>,
     object_references: Vec<HashSet<usize>>,
     instances: Vec<Instance>,
     instance_references: Vec<usize>,
@@ -70,9 +23,9 @@ pub struct Scene {
 }
 
 #[allow(dead_code)]
-impl Scene {
-    pub fn new() -> Scene {
-        Scene {
+impl TriangleScene {
+    pub fn new() -> TriangleScene {
+        TriangleScene {
             objects: Vec::new(),
             object_references: Vec::new(),
             instances: Vec::new(),
@@ -87,20 +40,20 @@ impl Scene {
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
     where
-        T: FnMut(Option<&Box<dyn Intersect>>),
+        T: FnMut(Option<&Box<Mesh>>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
     where
-        T: FnMut(Option<&mut Box<dyn Intersect>>),
+        T: FnMut(Option<&mut Box<Mesh>>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
     }
 
-    pub fn add_object(&mut self, object: Box<dyn Intersect>) -> usize {
+    pub fn add_object(&mut self, object: Box<Mesh>) -> usize {
         if !self.empty_object_slots.is_empty() {
             let new_index = self.empty_object_slots.pop().unwrap();
             self.objects[new_index] = object;
@@ -114,7 +67,7 @@ impl Scene {
         self.objects.len() - 1
     }
 
-    pub fn set_object(&mut self, index: usize, object: Box<dyn Intersect>) -> Result<(), ()> {
+    pub fn set_object(&mut self, index: usize, object: Box<Mesh>) -> Result<(), ()> {
         if self.objects.get(index).is_none() {
             return Err(());
         }
@@ -135,7 +88,7 @@ impl Scene {
             return Err(());
         }
 
-        self.objects[object] = Box::new(NullObject { _dummy: 0.0 });
+        self.objects[object] = Box::new(Mesh::empty());
         let object_refs = self.object_references[object].clone();
         for i in object_refs {
             self.remove_instance(i).unwrap();
@@ -228,8 +181,8 @@ impl Scene {
         }
     }
 
-    pub fn create_intersector(&self) -> Intersector {
-        Intersector {
+    pub fn create_intersector(&self) -> TriangleIntersector {
+        TriangleIntersector {
             objects: self.objects.as_slice(),
             instances: self.instances.as_slice(),
             bvh: &self.bvh,
@@ -239,14 +192,14 @@ impl Scene {
 }
 
 #[derive(Copy, Clone)]
-pub struct Intersector<'a> {
-    objects: &'a [Box<dyn Intersect>],
+pub struct TriangleIntersector<'a> {
+    objects: &'a [Box<Mesh>],
     instances: &'a [Instance],
     bvh: &'a BVH,
     mbvh: &'a MBVH,
 }
 
-impl<'a> Intersector<'a> {
+impl<'a> TriangleIntersector<'a> {
     pub fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
         let (origin, direction) = ray.into();
 
@@ -449,7 +402,7 @@ impl<'a> Intersector<'a> {
     }
 }
 
-impl Bounds for Scene {
+impl Bounds for TriangleScene {
     fn bounds(&self) -> AABB {
         self.bvh.bounds()
     }

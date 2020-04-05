@@ -174,7 +174,7 @@ impl MBVHNode {
             let t2 = (max_z - org_comp) * dir_comp;
 
             let t_min = t_min.max(t1.min(t2));
-            let t_max = t_max.min(t2.max(t2));
+            let t_max = t_max.min(t1.max(t2));
 
             let greater_than_min = t_max.cmpgt(t_min);
             let less_than_t = t_min.cmplt(Vec4::from([packet.t[i]; 4]));

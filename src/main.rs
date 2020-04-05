@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 #![feature(clamp)]
 
+use bvh::Ray;
 use fb_template::{run_app, KeyCode, KeyHandler, Request};
 use glam::*;
 use rayon::prelude::*;
@@ -10,6 +11,7 @@ mod constants;
 mod material;
 mod objects;
 mod scene;
+mod triangle_scene;
 mod utils;
 
 use crate::constants::{DEFAULT_T_MAX, DEFAULT_T_MIN};
@@ -51,23 +53,21 @@ impl App {
         let mut scene = Scene::new();
 
         #[cfg(not(debug_assertions))]
-            {
-                let dragon = Box::new(
-                    Obj::new("models/dragon.obj", &mut materials)
-                        .unwrap()
-                        .into_mesh()
-                        .scale(50.0),
-                );
-                let dragon = scene.add_object(dragon);
-                scene
-                    .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
-                    .unwrap();
-            }
-        let sphere = scene.add_object(Box::new(
-            Obj::new("models/sphere.obj", &mut materials)
-                .unwrap()
-                .into_mesh(),
-        ));
+        {
+            let dragon = Box::new(
+                Obj::new("models/dragon.obj", &mut materials)
+                    .unwrap()
+                    .into_mesh()
+                    .scale(50.0),
+            );
+            let dragon = scene.add_object(dragon);
+            scene
+                .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
+                .unwrap();
+        }
+
+        let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
+        let sphere = scene.add_object(Box::new(Sphere::new(Vec3::zero(), 10.0, sphere_mat_id)));
 
         (-2..3).for_each(|x| {
             (3..8).for_each(|z| {
@@ -131,12 +131,7 @@ impl App {
                 for x in 0..width {
                     let ray = view.generate_ray(x as u32, y as u32);
                     pixels[x] = {
-                        let (_, depth) = intersector.depth_test(
-                            ray.origin.into(),
-                            ray.direction.into(),
-                            DEFAULT_T_MIN,
-                            DEFAULT_T_MAX,
-                        );
+                        let (_, depth) = intersector.depth_test(ray, DEFAULT_T_MIN, DEFAULT_T_MAX);
                         if depth == 0 {
                             Vec4::from([0.0; 4])
                         } else {
@@ -162,7 +157,7 @@ impl App {
         let view = self.camera.get_view();
         let pixels = &mut self.pixels;
         let intersector = self.scene.create_intersector();
-        let _materials = &self.materials;
+        let materials = &self.materials;
 
         assert_eq!(Self::PACKET_WIDTH * Self::PACKET_HEIGHT, 4);
 
@@ -197,11 +192,14 @@ impl App {
                             continue;
                         }
 
+                        let origin: [f32; 3] = [packet.origin_x[i], packet.origin_y[i], packet.origin_z[i]];
+                        let direction: [f32; 3] = [packet.direction_x[i], packet.direction_y[i], packet.direction_z[i]];
                         let prim_id = prim_ids[i];
                         let instance_id = instance_ids[i];
 
                         output[i + offset] = if prim_id >= 0 || instance_id >= 0 {
-                            Vec4::one()
+                            let hit = intersector.get_hit_record(Ray { origin, direction }, packet.t[i], instance_id, prim_id);
+                            Vec3::from(hit.normal).extend(1.0).max(Vec4::from([0.2; 4]))
                         } else {
                             Vec4::zero()
                         }

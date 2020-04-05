@@ -6,6 +6,27 @@ pub struct Ray {
     pub direction: [f32; 3],
 }
 
+impl Ray {
+    pub fn get_vectors(&self) -> (Vec3, Vec3) {
+        (self.origin.into(), self.direction.into())
+    }
+}
+
+impl From<(Vec3, Vec3)> for Ray {
+    fn from(vectors: (Vec3, Vec3)) -> Self {
+        Ray {
+            origin: vectors.0.into(),
+            direction: vectors.1.into(),
+        }
+    }
+}
+
+impl Into<(Vec3, Vec3)> for Ray {
+    fn into(self) -> (Vec3, Vec3) {
+        (self.origin.into(), self.direction.into())
+    }
+}
+
 #[derive(Clone)]
 pub struct RayPacket4 {
     pub origin_x: [f32; 4],

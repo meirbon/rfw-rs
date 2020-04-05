@@ -1,9 +1,9 @@
-use glam::*;
-use crate::objects::*;
 use crate::constants::EPSILON;
+use crate::objects::*;
 use crate::scene::PrimID;
+use glam::*;
 
-use bvh::{AABB, Bounds, RayPacket4};
+use bvh::{Bounds, RayPacket4, AABB};
 use std::ops::BitAnd;
 
 #[derive(Copy, Clone, Debug)]
@@ -70,9 +70,17 @@ impl Triangle {
         }
     }
 
-    #[inline]
-    pub fn bary_centrics(v0: Vec3, v1: Vec3, v2: Vec3, p: Vec3, n: Vec3) -> (f32, f32) {
-        let abc = n.dot((v1 - v0).cross(v2 - v0));
+    #[inline(always)]
+    pub fn bary_centrics(
+        v0: Vec3,
+        v1: Vec3,
+        v2: Vec3,
+        edge1: Vec3,
+        edge2: Vec3,
+        p: Vec3,
+        n: Vec3,
+    ) -> (f32, f32) {
+        let abc = n.dot((edge1).cross(edge2));
         let pbc = n.dot((v1 - p).cross(v2 - p));
         let pca = n.dot((v2 - p).cross(v0 - p));
         (pbc / abc, pca / abc)
@@ -105,7 +113,10 @@ impl Triangle {
 }
 
 impl Intersect for Triangle {
-    fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool {
+    fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
+        let origin = Vec3::from(ray.origin);
+        let direction = Vec3::from(ray.direction);
+
         let vertex0 = Vec3::from(self.vertex0);
         let vertex1 = Vec3::from(self.vertex1);
         let vertex2 = Vec3::from(self.vertex2);
@@ -136,7 +147,10 @@ impl Intersect for Triangle {
         t > t_min && t < t_max
     }
 
-    fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord> {
+    fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
+        let origin = Vec3::from(ray.origin);
+        let direction = Vec3::from(ray.direction);
+
         let vertex0 = Vec3::from(self.vertex0);
         let vertex1 = Vec3::from(self.vertex1);
         let vertex2 = Vec3::from(self.vertex2);
@@ -166,7 +180,15 @@ impl Intersect for Triangle {
         }
 
         let p = origin + direction * t;
-        let (u, v) = Self::bary_centrics(vertex0, vertex1, vertex2, p, Vec3::from(self.normal));
+        let (u, v) = Self::bary_centrics(
+            vertex0,
+            vertex1,
+            vertex2,
+            edge1,
+            edge2,
+            p,
+            Vec3::from(self.normal),
+        );
         let w = 1.0 - u - v;
         let normal = Vec3::from(self.n0) * u + Vec3::from(self.n1) * v + Vec3::from(self.n2) * w;
         let uv = Vec2::new(
@@ -175,6 +197,7 @@ impl Intersect for Triangle {
         );
 
         Some(HitRecord {
+            g_normal: self.normal,
             normal: normal.into(),
             t,
             p: p.into(),
@@ -183,7 +206,9 @@ impl Intersect for Triangle {
         })
     }
 
-    fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32> {
+    fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
+        let (origin, direction) = ray.into();
+
         let vertex0 = Vec3::from(self.vertex0);
         let vertex1 = Vec3::from(self.vertex1);
         let vertex2 = Vec3::from(self.vertex2);
@@ -218,7 +243,7 @@ impl Intersect for Triangle {
         Some(t)
     }
 
-    fn depth_test(&self, _: Vec3, _: Vec3, _: f32, _: f32) -> Option<(f32, u32)> {
+    fn depth_test(&self, _: Ray, _: f32, _: f32) -> Option<(f32, u32)> {
         None
     }
 
@@ -261,7 +286,9 @@ impl Intersect for Triangle {
         let a = (edge1_x * h_x) + (edge1_y * h_y) + (edge1_z * h_z);
         let epsilon = Vec4::from([EPSILON; 4]);
         let mask = a.cmple(-epsilon) | a.cmpge(epsilon);
-        if mask.bitmask() == 0 { return None; }
+        if mask.bitmask() == 0 {
+            return None;
+        }
 
         let f = one / a;
         let s_x = org_x - p0_x;
@@ -270,7 +297,9 @@ impl Intersect for Triangle {
 
         let u = f * ((s_x * h_x) + (s_y * h_y) + (s_z * h_z));
         let mask = mask.bitand(u.cmpge(zero) & u.cmple(one));
-        if mask.bitmask() == 0 { return None; }
+        if mask.bitmask() == 0 {
+            return None;
+        }
 
         let q_x = s_y * edge1_z - s_z * edge1_y;
         let q_y = s_z * edge1_x - s_x * edge1_z;
@@ -278,14 +307,18 @@ impl Intersect for Triangle {
 
         let v = f * ((dir_x * q_x) + (dir_y * q_y) + (dir_z * q_z));
         let mask = mask.bitand(v.cmpge(zero) & (u + v).cmple(one));
-        if mask.bitmask() == 0 { return None; }
+        if mask.bitmask() == 0 {
+            return None;
+        }
 
         let t_min = Vec4::from(*t_min);
 
         let t = f * ((edge2_x * q_x) + (edge2_y * q_y) + (edge2_z * q_z));
         let mask = mask.bitand(t.cmpge(t_min) & t.cmplt(packet.t.into()));
         let bitmask = mask.bitmask();
-        if bitmask == 0 { return None; }
+        if bitmask == 0 {
+            return None;
+        }
         packet.t = mask.select(t, packet.t.into()).into();
 
         let x = if bitmask & 1 != 0 { self.id } else { -1 };
@@ -293,6 +326,41 @@ impl Intersect for Triangle {
         let z = if bitmask & 4 != 0 { self.id } else { -1 };
         let w = if bitmask & 8 != 0 { self.id } else { -1 };
         Some([x, y, z, w])
+    }
+
+    fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
+        let (origin, direction) = ray.into();
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
+        let edge1 = vertex1 - vertex0;
+        let edge2 = vertex2 - vertex0;
+
+        let p = origin + direction * t;
+        let (u, v) = Self::bary_centrics(
+            vertex0,
+            vertex1,
+            vertex2,
+            edge1,
+            edge2,
+            p,
+            Vec3::from(self.normal),
+        );
+        let w = 1.0 - u - v;
+        let normal = Vec3::from(self.n0) * u + Vec3::from(self.n1) * v + Vec3::from(self.n2) * w;
+        let uv = Vec2::new(
+            self.u0 * u + self.u1 * v + self.u2 * w,
+            self.v0 * u + self.v1 * v + self.v2 * w,
+        );
+
+        HitRecord {
+            g_normal: self.normal,
+            normal: normal.into(),
+            t,
+            p: p.into(),
+            mat_id: 0,
+            uv: uv.into(),
+        }
     }
 }
 

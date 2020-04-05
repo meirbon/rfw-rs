@@ -1,20 +1,32 @@
-use glam::*;
 use crate::objects::*;
 use bvh::aabb::Bounds;
-use bvh::{AABB, RayPacket4};
+use bvh::{RayPacket4, AABB};
+use glam::*;
 
+/// Instance
+/// Takes in a bounding box and transform and tranforms to and from object local space.
 pub struct Instance {
     bounds: AABB,
     transform: Mat4,
     inverse: Mat4,
-    normal_transform: Mat4,
+    normal_transform: Mat3,
 }
 
 #[allow(dead_code)]
 impl Instance {
     pub fn new(hit_id: isize, bounds: &AABB, transform: Mat4) -> Instance {
         let inverse = transform.inverse();
-        let normal_transform = inverse.transpose();
+
+        let normal_transform_cols = inverse.transpose().to_cols_array_2d();
+        let mut normal_cols = [[0.0; 3]; 3];
+
+        for col in 0..3 {
+            for row in 0..3 {
+                normal_cols[col][row] = normal_transform_cols[col][row];
+            }
+        }
+
+        let normal_transform = Mat3::from_cols_array_2d(&normal_cols);
         let mut bounds = bounds.transformed(transform);
 
         bounds.left_first = hit_id as i32;
@@ -27,7 +39,9 @@ impl Instance {
         }
     }
 
-    pub fn get_transform(&self) -> Mat4 { self.transform }
+    pub fn get_transform(&self) -> Mat4 {
+        self.transform
+    }
 
     pub fn set_transform(&mut self, transform: Mat4) {
         self.inverse = transform.inverse();
@@ -36,8 +50,13 @@ impl Instance {
     }
 
     #[inline(always)]
-    pub fn intersects(&self, origin: Vec3, direction: Vec3, t_max: f32) -> Option<(Vec3, Vec3)> {
-        if self.bounds.intersect(origin, Vec3::one() / direction, t_max).is_none() {
+    pub fn intersects(&self, ray: Ray, t_max: f32) -> Option<(Vec3, Vec3)> {
+        let (origin, direction) = ray.into();
+        if self
+            .bounds
+            .intersect(origin, Vec3::one() / direction, t_max)
+            .is_none()
+        {
             return None;
         }
 
@@ -49,12 +68,16 @@ impl Instance {
     #[inline(always)]
     pub fn intersects4(&self, packet: &RayPacket4) -> Option<RayPacket4> {
         let one = Vec4::one();
-        if self.bounds.intersect4(
-            packet,
-            one / Vec4::from(packet.direction_x),
-            one / Vec4::from(packet.direction_y),
-            one / Vec4::from(packet.direction_z),
-        ).is_none() {
+        if self
+            .bounds
+            .intersect4(
+                packet,
+                one / Vec4::from(packet.direction_x),
+                one / Vec4::from(packet.direction_y),
+                one / Vec4::from(packet.direction_z),
+            )
+            .is_none()
+        {
             return None;
         }
 
@@ -133,13 +156,20 @@ impl Instance {
     #[inline(always)]
     pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
         let p = self.inverse * Vec3::from(hit.p).extend(1.0);
-        let normal = self.normal_transform * Vec3::from(hit.normal).extend(0.0);
+        let normal = self.normal_transform * Vec3::from(hit.normal);
 
         HitRecord {
             p: p.truncate().into(),
-            normal: normal.truncate().into(),
+            normal: normal.normalize().into(),
             ..hit
         }
+    }
+
+    pub fn transform_ray(&self, ray: Ray) -> Ray {
+        let (origin, direction) = ray.into();
+        let new_origin: Vec4 = self.inverse * origin.extend(1.0);
+        let new_direction: Vec4 = self.inverse * direction.extend(0.0);
+        (new_origin.truncate(), new_direction.truncate()).into()
     }
 
     #[inline(always)]

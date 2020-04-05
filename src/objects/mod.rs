@@ -1,19 +1,19 @@
 use glam::*;
 
+pub mod instance;
+pub mod mesh;
+pub mod obj;
 pub mod sphere;
 pub mod triangle;
-pub mod obj;
-pub mod mesh;
-pub mod instance;
 
+use crate::scene::PrimID;
+use bvh::{Bounds, Ray, RayPacket4};
+pub use instance::Instance;
+pub use mesh::Mesh;
+pub use mesh::ToMesh;
+pub use obj::Obj;
 pub use sphere::Sphere;
 pub use triangle::Triangle;
-pub use obj::Obj;
-pub use mesh::Mesh;
-pub use instance::Instance;
-pub use mesh::ToMesh;
-use bvh::{Bounds, RayPacket4};
-use crate::scene::PrimID;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {
@@ -21,15 +21,19 @@ pub struct HitRecord {
     pub t: f32,
     pub p: [f32; 3],
     pub mat_id: u32,
+    pub g_normal: [f32; 3],
     pub uv: [f32; 2],
 }
 
 pub trait Intersect: Bounds + Send + Sync {
-    fn occludes(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> bool;
-    fn intersect(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<HitRecord>;
-    fn intersect_t(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<f32>;
-    fn depth_test(&self, origin: Vec3, direction: Vec3, t_min: f32, t_max: f32) -> Option<(f32, u32)>;
+    fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool;
+    fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord>;
+    fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32>;
+    fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)>;
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]>;
+
+    
+    fn get_hit_record(&self, ray: Ray, t: f32, hit_data: u32) -> HitRecord;
 }
 
 pub struct Quad {
@@ -47,11 +51,7 @@ pub struct Quad {
 
 #[allow(dead_code)]
 impl Quad {
-    pub fn new(normal: Vec3,
-               position: Vec3,
-               width: f32,
-               height: f32,
-               material_id: i32) -> Quad {
+    pub fn new(normal: Vec3, position: Vec3, width: f32, height: f32, material_id: i32) -> Quad {
         let material_id = material_id.max(0);
         // TODO: uvs
         let uvs = [vec2(0.0, 0.0); 6];
@@ -73,8 +73,7 @@ impl Quad {
         }
     }
 
-    fn generate_render_data(pos: Vec3, n: Vec3, width: f32, height: f32)
-                            -> ([Vec3; 6], [Vec3; 6]) {
+    fn generate_render_data(pos: Vec3, n: Vec3, width: f32, height: f32) -> ([Vec3; 6], [Vec3; 6]) {
         let normal = n.normalize();
         let tmp = if normal.x() > 0.9 {
             Vec3::new(0.0, 1.0, 0.0)
@@ -91,7 +90,7 @@ impl Quad {
             pos - bi_tangent + tangent,
             pos + bi_tangent - tangent,
             pos + bi_tangent + tangent,
-            pos - bi_tangent + tangent
+            pos - bi_tangent + tangent,
         ];
 
         let normals = [normal.clone(); 6];
