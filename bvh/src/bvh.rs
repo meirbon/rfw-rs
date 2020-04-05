@@ -135,9 +135,9 @@ impl BVH {
         t_max: f32,
         intersection_test: I,
     ) -> Option<R>
-    where
-        I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
-        R: Copy,
+        where
+            I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+            R: Copy,
     {
         BVHNode::traverse(
             self.nodes.as_slice(),
@@ -159,8 +159,8 @@ impl BVH {
         t_max: f32,
         intersection_test: I,
     ) -> Option<f32>
-    where
-        I: FnMut(usize, f32, f32) -> Option<f32>,
+        where
+            I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         BVHNode::traverse_t(
             self.nodes.as_slice(),
@@ -182,8 +182,8 @@ impl BVH {
         t_max: f32,
         intersection_test: I,
     ) -> bool
-    where
-        I: FnMut(usize, f32, f32) -> bool,
+        where
+            I: FnMut(usize, f32, f32) -> bool,
     {
         BVHNode::occludes(
             self.nodes.as_slice(),
@@ -205,8 +205,8 @@ impl BVH {
         t_max: f32,
         intersection_test: I,
     ) -> (f32, u32)
-    where
-        I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
+        where
+            I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         BVHNode::depth_test(
             self.nodes.as_slice(),
@@ -220,8 +220,8 @@ impl BVH {
     }
 
     pub fn traverse4<I>(&self, packet: &mut RayPacket4, intersection_test: I)
-    where
-        I: FnMut(usize, &mut RayPacket4),
+        where
+            I: FnMut(usize, &mut RayPacket4),
     {
         BVHNode::traverse4(
             self.nodes.as_slice(),
@@ -251,6 +251,22 @@ impl MBVH {
     pub fn construct(bvh: &BVH) -> Self {
         let mut m_nodes = vec![MBVHNode::new(); bvh.nodes.len()];
         let mut pool_ptr = 1;
+
+        if bvh.nodes.len() <= 4 {
+            for i in 0..bvh.nodes.len() {
+                let cur_node = &bvh.nodes[i];
+                m_nodes[0].set_bounds_bb(i, &cur_node.bounds);
+                m_nodes[0].children[i] = cur_node.bounds.left_first;
+                m_nodes[0].counts[i] = cur_node.bounds.count;
+            }
+
+            return MBVH {
+                nodes: bvh.nodes.clone(),
+                m_nodes,
+                prim_indices: bvh.prim_indices.clone(),
+            };
+        }
+
         MBVHNode::merge_nodes(
             0,
             0,
@@ -295,9 +311,9 @@ impl MBVH {
         t_max: f32,
         intersection_test: I,
     ) -> Option<R>
-    where
-        I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
-        R: Copy,
+        where
+            I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+            R: Copy,
     {
         MBVHNode::traverse(
             self.m_nodes.as_slice(),
@@ -319,8 +335,8 @@ impl MBVH {
         t_max: f32,
         intersection_test: I,
     ) -> Option<f32>
-    where
-        I: FnMut(usize, f32, f32) -> Option<f32>,
+        where
+            I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         MBVHNode::traverse_t(
             self.m_nodes.as_slice(),
@@ -342,8 +358,8 @@ impl MBVH {
         t_max: f32,
         intersection_test: I,
     ) -> bool
-    where
-        I: FnMut(usize, f32, f32) -> bool,
+        where
+            I: FnMut(usize, f32, f32) -> bool,
     {
         MBVHNode::occludes(
             self.m_nodes.as_slice(),
@@ -365,8 +381,8 @@ impl MBVH {
         t_max: f32,
         depth_test: I,
     ) -> (f32, u32)
-    where
-        I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
+        where
+            I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         MBVHNode::depth_test(
             self.m_nodes.as_slice(),
@@ -381,8 +397,8 @@ impl MBVH {
 
     #[inline(always)]
     pub fn traverse4<I>(&self, packet: &mut RayPacket4, intersection_test: I)
-    where
-        I: FnMut(usize, &mut RayPacket4),
+        where
+            I: FnMut(usize, &mut RayPacket4),
     {
         MBVHNode::traverse4(
             self.m_nodes.as_slice(),

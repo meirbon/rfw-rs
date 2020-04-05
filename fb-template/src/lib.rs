@@ -46,6 +46,7 @@ pub trait App {
     fn render(&mut self, fb: &mut [u8]) -> Option<Request>;
     fn key_handling(&mut self, states: &KeyHandler) -> Option<Request>;
     fn mouse_handling(&mut self, x: f64, y: f64, delta_x: f64, delta_y: f64) -> Option<Request>;
+    fn scroll_handling(&mut self, dx: f64, dy: f64) -> Option<Request>;
     fn resize(&mut self, width: u32, height: u32) -> Option<Request>;
 }
 
@@ -107,7 +108,6 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
                             .unwrap()
                     };
 
-                    app.resize(width, height);
                     resized = false;
                 }
 
@@ -128,6 +128,7 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
             } if window_id == window.id() => {
                 width = size.width;
                 height = size.height;
+                app.resize(width, height);
 
                 resized = true;
             }
@@ -153,6 +154,24 @@ pub fn run_app<T: 'static + App>(mut app: T, title: &str, start_width: u32, star
                 let delta_y = mouse_y - old_mouse_y;
 
                 app.mouse_handling(mouse_x, mouse_y, delta_x, delta_y);
+            }
+            Event::WindowEvent {
+                event: WindowEvent::MouseWheel {
+                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                    ..
+                },
+                window_id
+            } if window_id == window.id() => {
+                app.scroll_handling(x as f64, y as f64);
+            }
+            Event::WindowEvent {
+                event: WindowEvent::MouseWheel {
+                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                    ..
+                },
+                window_id
+            } if window_id == window.id() => {
+                app.scroll_handling(delta.x, delta.y);
             }
             _ => (),
         }

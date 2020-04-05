@@ -16,8 +16,8 @@ pub struct MBVHNode {
     max_y: Vec4,
     min_z: Vec4,
     max_z: Vec4,
-    children: [i32; 4],
-    counts: [i32; 4],
+    pub children: [i32; 4],
+    pub counts: [i32; 4],
 }
 
 impl MBVHNode {
@@ -232,9 +232,9 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<R>
-    where
-        I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
-        R: Copy,
+        where
+            I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+            R: Copy,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = 0;
@@ -257,7 +257,7 @@ impl MBVHNode {
                             for i in 0..count {
                                 let prim_id = prim_indices[(left_first + i) as usize] as usize;
                                 if let Some((new_t, new_hit)) =
-                                    intersection_test(prim_id as usize, t_min, t)
+                                intersection_test(prim_id as usize, t_min, t)
                                 {
                                     t = new_t;
                                     hit_record = Some(new_hit);
@@ -286,8 +286,8 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<f32>
-    where
-        I: FnMut(usize, f32, f32) -> Option<f32>,
+        where
+            I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -338,8 +338,8 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> bool
-    where
-        I: FnMut(usize, f32, f32) -> bool,
+        where
+            I: FnMut(usize, f32, f32) -> bool,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -386,8 +386,8 @@ impl MBVHNode {
         t_max: f32,
         depth_test: I,
     ) -> (f32, u32)
-    where
-        I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
+        where
+            I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr: i32 = 0;

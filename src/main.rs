@@ -47,30 +47,27 @@ impl App {
         let mut materials = MaterialList::new();
         let mut scene = Scene::new();
 
-        #[cfg(not(debug_assertions))]
-        {
-            let dragon = Box::new(
-                Obj::new("models/dragon.obj", &mut materials)
-                    .unwrap()
-                    .into_mesh()
-                    .scale(50.0),
-            );
-            let dragon = scene.add_object(dragon);
-            scene
-                .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
-                .unwrap();
-        }
+        let dragon = Box::new(
+            Obj::new("models/dragon.obj", &mut materials)
+                .unwrap()
+                .into_mesh()
+                .scale(50.0),
+        );
+        let dragon = scene.add_object(dragon);
+        scene
+            .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
+            .unwrap();
 
-        let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
-        let sphere = scene.add_object(Box::new(Sphere::new(Vec3::zero(), 10.0, sphere_mat_id)));
+        // let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
+        // let sphere = scene.add_object(Box::new(Sphere::new(Vec3::zero(), 10.0, sphere_mat_id)));
 
-        (-2..3).for_each(|x| {
-            (3..8).for_each(|z| {
-                let matrix =
-                    Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
-                scene.add_instance(sphere, matrix).unwrap();
-            })
-        });
+        // (-2..3).for_each(|x| {
+        //     (3..8).for_each(|z| {
+        //         let matrix =
+        //             Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
+        //         scene.add_instance(sphere, matrix).unwrap();
+        //     })
+        // });
 
         let timer = utils::Timer::new();
         scene.build_bvh();
@@ -168,14 +165,14 @@ impl App {
             _ => [0, 0, 0, 0],
         };
 
-        let max_id = pixels.len() as u32;
-
         pixels
             .chunks_mut(width as usize)
             .enumerate()
             .par_bridge()
             .for_each(|(i, output)| {
-                for x in (0..width).step_by(4) {
+                let length = output.len();
+                for x in (0..length).step_by(4) {
+                    let x = x as u32;
                     let y = i as u32;
                     let xs = [
                         x_range[0] + x,
@@ -198,8 +195,8 @@ impl App {
                         intersector.intersect4(&mut packet, [DEFAULT_T_MIN; 4]);
 
                     for i in 0..4 {
-                        let pixel_id = packet.pixel_ids[i];
-                        if pixel_id >= max_id {
+                        let local_pixel_id = i + x as usize;
+                        if local_pixel_id >= length {
                             continue;
                         }
 
@@ -213,7 +210,7 @@ impl App {
                         let prim_id = prim_ids[i];
                         let instance_id = instance_ids[i];
 
-                        output[i + x as usize] = if prim_id >= 0 || instance_id >= 0 {
+                        output[local_pixel_id] = if prim_id >= 0 || instance_id >= 0 {
                             let hit = intersector.get_hit_record(
                                 Ray { origin, direction },
                                 packet.t[i],
@@ -336,11 +333,15 @@ impl fb_template::App for App {
         None
     }
 
+    fn scroll_handling(&mut self, _dx: f64, dy: f64) -> Option<Request> {
+        self.camera.change_fov(self.camera.get_fov() + dy as f32);
+        None
+    }
+
     fn resize(&mut self, width: u32, height: u32) -> Option<Request> {
         self.width = width;
         self.height = height;
-
-        self.pixels = vec![Vec4::zero(); (self.width * self.height) as usize];
+        self.pixels.resize((width * height) as usize, Vec4::zero());
         self.camera.resize(width, height);
 
         None
