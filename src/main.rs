@@ -27,6 +27,8 @@ enum RenderMode {
     BVH,
 }
 
+type AppScene = Scene;
+
 struct App {
     pub width: u32,
     pub height: u32,
@@ -35,7 +37,7 @@ struct App {
     pixels: Vec<Vec4>,
     camera: Camera,
     timer: Timer,
-    scene: Scene,
+    scene: AppScene,
     materials: MaterialList,
     render_mode: RenderMode,
     fps: Averager<f32>,
@@ -45,7 +47,7 @@ struct App {
 impl App {
     pub fn new(width: u32, height: u32) -> App {
         let mut materials = MaterialList::new();
-        let mut scene = Scene::new();
+        let mut scene = AppScene::new();
 
         let dragon = Box::new(
             Obj::new("models/dragon.obj", &mut materials)
@@ -58,16 +60,20 @@ impl App {
             .add_instance(dragon, Mat4::from_translation(Vec3::new(0.0, 0.0, 200.0)))
             .unwrap();
 
-        // let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
-        // let sphere = scene.add_object(Box::new(Sphere::new(Vec3::zero(), 10.0, sphere_mat_id)));
+        let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
+        let sphere = scene.add_object(Box::new(Sphere::new([0.0; 3], 10.0, sphere_mat_id)));
 
-        // (-2..3).for_each(|x| {
-        //     (3..8).for_each(|z| {
-        //         let matrix =
-        //             Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
-        //         scene.add_instance(sphere, matrix).unwrap();
-        //     })
-        // });
+        (-2..3).for_each(|x| {
+            (3..8).for_each(|z| {
+                let matrix =
+                    Mat4::from_translation(Vec3::new(x as f32 * 50.0, 0.0, z as f32 * 100.0));
+                scene.add_instance(sphere, matrix).unwrap();
+            })
+        });
+
+        let plane_mat_id = materials.add(Vec3::new(0.2, 0.2, 1.0), 1.0, Vec3::one(), 1.0) as u32;
+        let plane = scene.add_object(Box::new(Plane::new([0.0; 3], [0.0, 1.0, 0.0], [100.0; 2], plane_mat_id)));
+        scene.add_instance(plane, Mat4::identity()).unwrap();
 
         let timer = utils::Timer::new();
         scene.build_bvh();
@@ -84,7 +90,7 @@ impl App {
             timer: Timer::new(),
             scene,
             materials,
-            render_mode: RenderMode::BVH,
+            render_mode: RenderMode::Scene,
             fps: Averager::with_capacity(25),
             num_threads,
         }

@@ -5,6 +5,7 @@ pub mod mesh;
 pub mod obj;
 pub mod sphere;
 pub mod triangle;
+pub mod plane;
 
 use crate::scene::PrimID;
 use bvh::{Bounds, Ray, RayPacket4};
@@ -14,6 +15,7 @@ pub use mesh::ToMesh;
 pub use obj::Obj;
 pub use sphere::Sphere;
 pub use triangle::Triangle;
+pub use plane::Plane;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {

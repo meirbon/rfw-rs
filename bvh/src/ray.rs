@@ -38,8 +38,6 @@ pub struct RayPacket4 {
     pub direction_z: [f32; 4],
 
     pub t: [f32; 4],
-    pub hit_id: [i32; 4],
-    pub instance_id: [i32; 4],
     pub pixel_ids: [u32; 4],
 }
 
@@ -53,11 +51,19 @@ impl RayPacket4 {
             direction_y: [0.0; 4],
             direction_z: [0.0; 4],
             t: [0.0; 4],
-            hit_id: [-1; 4],
-            instance_id: [-1; 4],
             pixel_ids: [0; 4],
         }
     }
+
+    pub fn origin_xyz(&self) -> (Vec4, Vec4, Vec4) {
+        (Vec4::from(self.origin_x), Vec4::from(self.origin_y), Vec4::from(self.origin_z))
+    }
+
+    pub fn direction_xyz(&self) -> (Vec4, Vec4, Vec4) {
+        (Vec4::from(self.direction_x), Vec4::from(self.direction_y), Vec4::from(self.direction_z))
+    }
+
+    pub fn t(&self) -> Vec4 { Vec4::from(self.t) }
 }
 
 #[derive(Copy, Clone)]

@@ -126,8 +126,6 @@ impl CameraView {
             direction_y,
             direction_z,
             t: [DEFAULT_T_MAX; 4],
-            hit_id: [-1; 4],
-            instance_id: [-1; 4],
             pixel_ids: ids,
         }
     }

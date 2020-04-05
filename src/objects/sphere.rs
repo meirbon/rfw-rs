@@ -1,17 +1,18 @@
 use crate::objects::*;
 use crate::scene::PrimID;
-use bvh::{Bounds, RayPacket4, AABB};
+use bvh::{Bounds, RayPacket4, AABB, Ray};
+use glam::*;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Sphere {
-    pos: Vec3,
+    pos: [f32; 3],
     radius2: f32,
     pub mat_id: u32,
 }
 
 #[allow(dead_code)]
 impl Sphere {
-    pub fn new(pos: Vec3, radius: f32, mat_id: usize) -> Sphere {
+    pub fn new(pos: [f32; 3], radius: f32, mat_id: usize) -> Sphere {
         Sphere {
             pos,
             radius2: radius * radius,
@@ -20,7 +21,7 @@ impl Sphere {
     }
 
     pub fn normal(&self, p: Vec3) -> Vec3 {
-        (p - self.pos).normalize()
+        (p - self.pos.into()).normalize()
     }
 
     pub fn get_uv(&self, n: Vec3) -> Vec2 {
@@ -35,7 +36,7 @@ impl Intersect for Sphere {
         let (origin, direction) = ray.into();
 
         let a = direction.dot(direction);
-        let r_pos = origin - self.pos;
+        let r_pos = origin - self.pos.into();
 
         let b = (direction * 2.0).dot(r_pos);
         let r_pos2 = r_pos.dot(r_pos);
@@ -61,7 +62,7 @@ impl Intersect for Sphere {
         let (origin, direction) = ray.into();
 
         let a = direction.dot(direction);
-        let r_pos = origin - self.pos;
+        let r_pos = origin - self.pos.into();
 
         let b = (direction * 2.0).dot(r_pos);
         let r_pos2 = r_pos.dot(r_pos);
@@ -103,7 +104,7 @@ impl Intersect for Sphere {
         let (origin, direction) = ray.into();
 
         let a = direction.dot(direction);
-        let r_pos = origin - self.pos;
+        let r_pos = origin - self.pos.into();
 
         let b = (direction * 2.0).dot(r_pos);
         let r_pos2 = r_pos.dot(r_pos);
@@ -149,9 +150,9 @@ impl Intersect for Sphere {
         let a_z: Vec4 = direction_z * direction_z;
         let a: Vec4 = a_x + a_y + a_z;
 
-        let r_pos_x: Vec4 = origin_x - Vec4::from([self.pos.x(); 4]);
-        let r_pos_y: Vec4 = origin_y - Vec4::from([self.pos.y(); 4]);
-        let r_pos_z: Vec4 = origin_z - Vec4::from([self.pos.z(); 4]);
+        let r_pos_x: Vec4 = origin_x - Vec4::from([self.pos[0]; 4]);
+        let r_pos_y: Vec4 = origin_y - Vec4::from([self.pos[1]; 4]);
+        let r_pos_z: Vec4 = origin_z - Vec4::from([self.pos[2]; 4]);
 
         let b_x: Vec4 = direction_x * 2.0 * r_pos_x;
         let b_y: Vec4 = direction_y * 2.0 * r_pos_y;
