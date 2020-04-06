@@ -4,8 +4,8 @@ use crate::utils::*;
 use bvh::{Bounds, Ray, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
 use glam::*;
 use std::collections::HashSet;
-use std::fmt::Formatter;
 use std::error::Error;
+use std::fmt::Formatter;
 
 pub static mut USE_MBVH: bool = true;
 
@@ -21,7 +21,10 @@ pub enum SceneError {
 impl SceneError {
     fn details(&self) -> String {
         match self {
-            SceneError::IndexOutOfBounds(index, len) => String::from(format!("Index {} was out of bounds, length: {}", index, len)),
+            SceneError::IndexOutOfBounds(index, len) => String::from(format!(
+                "Index {} was out of bounds, length: {}",
+                index, len
+            )),
         }
     }
 }
@@ -112,15 +115,15 @@ impl Scene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&Box<dyn Intersect>>),
+    where
+        T: FnMut(Option<&Box<dyn Intersect>>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&mut Box<dyn Intersect>>),
+    where
+        T: FnMut(Option<&mut Box<dyn Intersect>>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
@@ -140,7 +143,11 @@ impl Scene {
         self.objects.len() - 1
     }
 
-    pub fn set_object(&mut self, index: usize, object: Box<dyn Intersect>) -> Result<(), SceneError> {
+    pub fn set_object(
+        &mut self,
+        index: usize,
+        object: Box<dyn Intersect>,
+    ) -> Result<(), SceneError> {
         if self.objects.get(index).is_none() {
             return Err(SceneError::IndexOutOfBounds(index, self.objects.len()));
         }
@@ -203,7 +210,11 @@ impl Scene {
         Ok(instance_index)
     }
 
-    pub fn set_instance_object(&mut self, instance: usize, obj_index: usize) -> Result<(), SceneError> {
+    pub fn set_instance_object(
+        &mut self,
+        instance: usize,
+        obj_index: usize,
+    ) -> Result<(), SceneError> {
         if self.objects.get(obj_index).is_none() {
             return Err(SceneError::IndexOutOfBounds(obj_index, self.objects.len()));
         } else if self.instances.get(instance).is_none() {
@@ -276,7 +287,7 @@ impl Scene {
     pub unsafe fn set_bvh_mode(mode: BVHMode) {
         USE_MBVH = match mode {
             BVHMode::MBVH => true,
-            _ => false
+            _ => false,
         }
     }
 }

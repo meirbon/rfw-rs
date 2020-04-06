@@ -242,7 +242,10 @@ impl Intersect for Triangle {
         Some(t)
     }
 
-    fn depth_test(&self, _: Ray, _: f32, _: f32) -> Option<(f32, u32)> {
+    fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
+        if let Some(t) = self.intersect_t(ray, t_min, t_max) {
+            return Some((t, 1));
+        }
         None
     }
 

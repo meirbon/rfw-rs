@@ -2,7 +2,7 @@ pub mod shader;
 
 use glam::*;
 use std::collections::HashMap;
-use std::time::Instant;
+use std::{error::Error, time::Instant};
 
 use winit::{
     dpi::LogicalSize,
@@ -12,6 +12,7 @@ use winit::{
 };
 
 pub use imgui::*;
+pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 
 pub struct KeyHandler {
@@ -20,7 +21,7 @@ pub struct KeyHandler {
 
 impl KeyHandler {
     pub fn new() -> KeyHandler {
-        KeyHandler {
+        Self {
             states: HashMap::new(),
         }
     }
@@ -43,14 +44,46 @@ impl KeyHandler {
     }
 }
 
+pub struct MouseButtonHandler {
+    states: HashMap<MouseButtonCode, bool>,
+}
+
+impl MouseButtonHandler {
+    pub fn new() -> MouseButtonHandler {
+        Self {
+            states: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, key: MouseButtonCode, state: ElementState) {
+        self.states.insert(
+            key,
+            match state {
+                ElementState::Pressed => true,
+                _ => false,
+            },
+        );
+    }
+
+    pub fn pressed(&self, key: MouseButtonCode) -> bool {
+        if let Some(state) = self.states.get(&key) {
+            return *state;
+        }
+        false
+    }
+}
+
 pub enum Request {
     Exit,
     TitleChange(String),
+    CommandBuffer(wgpu::CommandBuffer),
 }
 
 pub trait HostFramebuffer {
+    fn init(&mut self, width: u32, height: u32) -> Option<Request>;
     fn render(&mut self, fb: &mut [u8]) -> Option<Request>;
     fn key_handling(&mut self, states: &KeyHandler) -> Option<Request>;
+    fn mouse_button_handling(&mut self, states: &MouseButtonHandler) -> Option<Request>;
     fn mouse_handling(&mut self, x: f64, y: f64, delta_x: f64, delta_y: f64) -> Option<Request>;
     fn scroll_handling(&mut self, dx: f64, dy: f64) -> Option<Request>;
     fn resize(&mut self, width: u32, height: u32) -> Option<Request>;
@@ -58,15 +91,19 @@ pub trait HostFramebuffer {
 }
 
 pub trait DeviceFramebuffer {
-    fn render(&mut self, fb: &wgpu::SwapChainOutput) -> Option<wgpu::CommandBuffer>;
+    /// This function is ran once.
+    /// Take the device reference to do more in your code.
+    fn init(&mut self, width: u32, height: u32, device: &wgpu::Device) -> Option<Request>;
+    fn render(&mut self, fb: &wgpu::SwapChainOutput, device: &wgpu::Device) -> Option<Request>;
+    fn mouse_button_handling(&mut self, states: &MouseButtonHandler) -> Option<Request>;
     fn key_handling(&mut self, states: &KeyHandler) -> Option<Request>;
     fn mouse_handling(&mut self, x: f64, y: f64, delta_x: f64, delta_y: f64) -> Option<Request>;
     fn scroll_handling(&mut self, dx: f64, dy: f64) -> Option<Request>;
-    fn resize(&mut self, width: u32, height: u32) -> Option<Request>;
+    fn resize(&mut self, width: u32, height: u32, device: &wgpu::Device) -> Option<Request>;
     fn imgui(&mut self, ui: &imgui::Ui);
 }
 
-pub fn run_host_app<T: 'static + HostFramebuffer>(
+pub fn run_device_app<T: 'static + DeviceFramebuffer>(
     mut app: T,
     title: &str,
     start_width: u32,
@@ -74,6 +111,7 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
     v_sync: bool,
 ) {
     let mut key_handler = KeyHandler::new();
+    let mut mouse_button_handler = MouseButtonHandler::new();
     let mut first_mouse_pos = true;
 
     let mut mouse_x = 0.0;
@@ -97,6 +135,250 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
         backends: wgpu::BackendBit::PRIMARY,
     })
     .expect("Could not initialize wgpu adapter");
+
+    let (mut device, mut queue) = adapter.request_device(&wgpu::DeviceDescriptor {
+        extensions: wgpu::Extensions {
+            anisotropic_filtering: false,
+        },
+        limits: wgpu::Limits::default(),
+    });
+
+    app.init(width, height, &device);
+
+    let mut sc_descriptor = wgpu::SwapChainDescriptor {
+        usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+        width,
+        height,
+        present_mode: if v_sync {
+            wgpu::PresentMode::Vsync
+        } else {
+            wgpu::PresentMode::NoVsync
+        },
+    };
+
+    let mut swap_chain = device.create_swap_chain(&surface, &sc_descriptor);
+    let mut pixels: Vec<u8> = vec![0; (width * height * 4) as usize];
+
+    let hidpi_factor = window.scale_factor();
+    let mut imgui = imgui::Context::create();
+    let font_size = (13.0 * hidpi_factor) as f32;
+    imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
+
+    imgui.fonts().add_font(&[FontSource::DefaultFontData {
+        config: Some(imgui::FontConfig {
+            oversample_h: 1,
+            pixel_snap_h: true,
+            size_pixels: font_size,
+            ..Default::default()
+        }),
+    }]);
+
+    let mut platform = imgui_winit_support::WinitPlatform::init(&mut imgui);
+
+    platform.attach_window(
+        imgui.io_mut(),
+        &window,
+        imgui_winit_support::HiDpiMode::Default,
+    );
+
+    let mut renderer =
+        imgui_wgpu::Renderer::new(&mut imgui, &device, &mut queue, sc_descriptor.format, None);
+
+    let mut last_frame = Instant::now();
+    let mut last_cursor = None;
+
+    let mut resized = false;
+
+    let mut command_buffers: Vec<wgpu::CommandBuffer> = Vec::new();
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+
+        match event {
+            Event::MainEventsCleared => window.request_redraw(),
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { input, .. },
+                window_id,
+            } if window_id == window.id() => {
+                if let Some(key) = input.virtual_keycode {
+                    key_handler.insert(key, input.state);
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+            } if window_id == window.id() => *control_flow = ControlFlow::Exit,
+            Event::RedrawRequested(_) => {
+                let pixel_count = (width * height * 4) as usize;
+
+                if resized {
+                    swap_chain = device.create_swap_chain(&surface, &sc_descriptor);
+
+                    if pixels.len() < pixel_count {
+                        pixels.resize((pixel_count as f64 * 1.2) as usize, 0);
+                    }
+
+                    app.resize(width, height, &device);
+                    resized = false;
+                }
+
+                if let Some(request) = app.key_handling(&key_handler) {
+                    match request {
+                        Request::Exit => *control_flow = ControlFlow::Exit,
+                        Request::TitleChange(title) => window.set_title(title.as_str()),
+                        _ => (),
+                    };
+                }
+
+                if let Some(request) = app.mouse_button_handling(&mouse_button_handler) {
+                    match request {
+                        Request::Exit => *control_flow = ControlFlow::Exit,
+                        Request::TitleChange(title) => window.set_title(title.as_str()),
+                        _ => (),
+                    };
+                }
+
+                let output_texture = swap_chain.get_next_texture();
+
+                last_frame = imgui.io_mut().update_delta_time(last_frame);
+
+                platform
+                    .prepare_frame(imgui.io_mut(), &window)
+                    .expect("Failed to prepare ImGui frame.");
+                let ui = imgui.frame();
+
+                app.imgui(&ui);
+
+                if last_cursor != Some(ui.mouse_cursor()) {
+                    last_cursor = Some(ui.mouse_cursor());
+                    platform.prepare_render(&ui, &window);
+                }
+
+                let mut encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+                renderer
+                    .render(ui.render(), &mut device, &mut encoder, &output_texture.view)
+                    .expect("ImGui render failed.");
+
+                if let Some(request) = app.render(&output_texture, &device) {
+                    match request {
+                        Request::TitleChange(title) => window.set_title(title.as_str()),
+                        Request::CommandBuffer(cmd_buffer) => {
+                            command_buffers.push(cmd_buffer);
+                        }
+                        Request::Exit => *control_flow = ControlFlow::Exit,
+                    }
+                }
+
+                command_buffers.push(encoder.finish());
+                queue.submit(command_buffers.as_slice());
+                command_buffers.clear();
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(_),
+                window_id,
+            } if window_id == window.id() => {
+                let size = window.inner_size();
+                sc_descriptor.width = size.width;
+                sc_descriptor.height = size.height;
+
+                width = size.width;
+                height = size.height;
+
+                resized = true;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. },
+                window_id,
+            } if window_id == window.id() => {
+                if first_mouse_pos {
+                    mouse_x = position.x;
+                    mouse_y = position.y;
+                    old_mouse_x = position.x;
+                    old_mouse_y = position.y;
+                    first_mouse_pos = false;
+                } else {
+                    old_mouse_x = mouse_x;
+                    old_mouse_y = mouse_y;
+
+                    mouse_x = position.x;
+                    mouse_y = position.y;
+                }
+
+                let delta_x = mouse_x - old_mouse_x;
+                let delta_y = mouse_y - old_mouse_y;
+
+                app.mouse_handling(mouse_x, mouse_y, delta_x, delta_y);
+            }
+            Event::WindowEvent {
+                event:
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                        ..
+                    },
+                window_id,
+            } if window_id == window.id() => {
+                app.scroll_handling(x as f64, y as f64);
+            }
+            Event::WindowEvent {
+                event:
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                        ..
+                    },
+                window_id,
+            } if window_id == window.id() => {
+                app.scroll_handling(delta.x, delta.y);
+            }
+            Event::WindowEvent {
+                event: WindowEvent::MouseInput { state, button, .. },
+                window_id,
+            } if window_id == window.id() => {
+                mouse_button_handler.insert(button, state);
+            }
+            _ => (),
+        }
+
+        platform.handle_event(imgui.io_mut(), &window, &event);
+    });
+}
+
+pub fn run_host_app<T: 'static + HostFramebuffer>(
+    mut app: T,
+    title: &str,
+    start_width: u32,
+    start_height: u32,
+    v_sync: bool,
+) {
+    let mut key_handler = KeyHandler::new();
+    let mut mouse_button_handler = MouseButtonHandler::new();
+    let mut first_mouse_pos = true;
+
+    let mut mouse_x = 0.0;
+    let mut mouse_y = 0.0;
+
+    let mut old_mouse_x = 0.0;
+    let mut old_mouse_y = 0.0;
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title(title)
+        .with_inner_size(LogicalSize::new(start_width as f64, start_height as f64))
+        .build(&event_loop)
+        .unwrap();
+
+    let (mut width, mut height) = window.inner_size().into();
+
+    let surface = wgpu::Surface::create(&window);
+    let adapter = wgpu::Adapter::request(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::Default,
+        backends: wgpu::BackendBit::PRIMARY,
+    })
+    .expect("Could not initialize wgpu adapter");
+
+    app.init(width, height);
 
     let mut compiler = shader::CompilerBuilder::new().build();
     let vert_source = include_str!("../shaders/quad.vert");
@@ -200,7 +482,11 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
         format: wgpu::TextureFormat::Bgra8UnormSrgb,
         width,
         height,
-        present_mode: if v_sync { wgpu::PresentMode::Vsync } else { wgpu::PresentMode::NoVsync },
+        present_mode: if v_sync {
+            wgpu::PresentMode::Vsync
+        } else {
+            wgpu::PresentMode::NoVsync
+        },
     };
 
     let mut tex_descriptor = wgpu::TextureDescriptor {
@@ -287,7 +573,7 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
                         depth: 1,
                     };
                     let new_texture = device.create_texture(&tex_descriptor);
-                    let new_view =  new_texture.create_default_view();
+                    let new_view = new_texture.create_default_view();
 
                     render_texture = new_texture;
                     render_texture_view = new_view;
@@ -298,6 +584,15 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
                     match request {
                         Request::Exit => *control_flow = ControlFlow::Exit,
                         Request::TitleChange(title) => window.set_title(title.as_str()),
+                        _ => (),
+                    };
+                }
+
+                if let Some(request) = app.mouse_button_handling(&mouse_button_handler) {
+                    match request {
+                        Request::Exit => *control_flow = ControlFlow::Exit,
+                        Request::TitleChange(title) => window.set_title(title.as_str()),
+                        _ => (),
                     };
                 }
 
@@ -446,6 +741,12 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y);
+            }
+            Event::WindowEvent {
+                event: WindowEvent::MouseInput { state, button, .. },
+                window_id,
+            } if window_id == window.id() => {
+                mouse_button_handler.insert(button, state);
             }
             _ => (),
         }

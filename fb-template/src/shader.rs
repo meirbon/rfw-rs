@@ -7,8 +7,16 @@ use shaderc;
 
 static mut INCLUDE_DIRS: Vec<PathBuf> = Vec::new();
 
+pub use shaderc::GlslProfile;
+pub use shaderc::Limit;
+pub use shaderc::OptimizationLevel;
+pub use shaderc::ResourceKind;
+pub use shaderc::ShaderKind;
+pub use shaderc::SourceLanguage;
+pub use shaderc::TargetEnv;
+
 pub struct CompilerBuilder<'a> {
-    options: shaderc::CompileOptions<'a>
+    options: shaderc::CompileOptions<'a>,
 }
 
 impl<'a> CompilerBuilder<'a> {
@@ -59,7 +67,8 @@ impl<'a> CompilerBuilder<'a> {
         set: &str,
         binding: &str,
     ) -> Self {
-        self.options.set_hlsl_register_set_and_binding(register, set, binding);
+        self.options
+            .set_hlsl_register_set_and_binding(register, set, binding);
         self
     }
 
@@ -79,7 +88,8 @@ impl<'a> CompilerBuilder<'a> {
         resource_kind: shaderc::ResourceKind,
         base: u32,
     ) -> Self {
-        self.options.set_binding_base_for_stage(kind, resource_kind, base);
+        self.options
+            .set_binding_base_for_stage(kind, resource_kind, base);
         self
     }
 
@@ -141,31 +151,37 @@ impl<'a> Compiler<'a> {
 
     pub fn set_options(&mut self, options: shaderc::CompileOptions<'a>) {
         self.options = options;
-        self.options.set_include_callback(|requested_source,
-                                           include_type,
-                                           requesting_source,
-                                           include_depth| {
-            Self::include_callback(requested_source,
-                                   include_type,
-                                   requesting_source,
-                                   include_depth)
-        });
+        self.options.set_include_callback(
+            |requested_source, include_type, requesting_source, include_depth| {
+                Self::include_callback(
+                    requested_source,
+                    include_type,
+                    requesting_source,
+                    include_depth,
+                )
+            },
+        );
     }
 
-    fn include_callback(requested_source: &str,
-                        include_type: shaderc::IncludeType,
-                        requesting_source: &str,
-                        include_depth: usize,
+    fn include_callback(
+        requested_source: &str,
+        include_type: shaderc::IncludeType,
+        requesting_source: &str,
+        include_depth: usize,
     ) -> Result<shaderc::ResolvedInclude, String> {
         use shaderc::{IncludeType, ResolvedInclude};
         if include_depth >= 32 {
-            return Err(String::from(format!("Include depth {} too high!", include_depth)));
+            return Err(String::from(format!(
+                "Include depth {} too high!",
+                include_depth
+            )));
         }
 
         let requested_path = PathBuf::from(String::from(requested_source));
         let requesting_path = PathBuf::from(String::from(requesting_source));
 
-        if include_type == IncludeType::Standard { // #include <>
+        if include_type == IncludeType::Standard {
+            // #include <>
             unsafe {
                 for path in &INCLUDE_DIRS {
                     let final_path = path.join(requested_path.as_path());
@@ -182,8 +198,12 @@ impl<'a> Compiler<'a> {
                 }
             }
 
-            return Err(String::from(format!("Could not find file: {}", requested_source)));
-        } else if include_type == IncludeType::Relative { // #include ""
+            return Err(String::from(format!(
+                "Could not find file: {}",
+                requested_source
+            )));
+        } else if include_type == IncludeType::Relative {
+            // #include ""
             let base_folder = requesting_path.as_path().parent().unwrap();
             let final_path = base_folder.join(requested_path.clone());
             if final_path.exists() {
@@ -213,20 +233,26 @@ impl<'a> Compiler<'a> {
                 }
             }
 
-            return Err(String::from(format!("Could not find file: {}", requested_source)));
+            return Err(String::from(format!(
+                "Could not find file: {}",
+                requested_source
+            )));
         }
 
-        Err(String::from(format!("Unkown error resolving file: {}", requested_source)))
+        Err(String::from(format!(
+            "Unkown error resolving file: {}",
+            requested_source
+        )))
     }
 
-    pub fn compile_from_string(&mut self, source: &str, kind: shaderc::ShaderKind) -> Result<Vec<u32>, Box<dyn Error>> {
-        let binary_result = self.compiler.compile_into_spirv(
-            source,
-            kind,
-            "memory",
-            "main",
-            Some(&self.options),
-        );
+    pub fn compile_from_string(
+        &mut self,
+        source: &str,
+        kind: shaderc::ShaderKind,
+    ) -> Result<Vec<u32>, Box<dyn Error>> {
+        let binary_result =
+            self.compiler
+                .compile_into_spirv(source, kind, "memory", "main", Some(&self.options));
 
         if let Err(e) = binary_result {
             return Err(Box::new(e));
