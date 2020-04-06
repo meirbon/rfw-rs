@@ -47,74 +47,75 @@ impl TriangleScene {
     #[cfg(feature = "wgpu")]
     pub fn create_wgpu_instances_buffer(&self, device: &wgpu::Device) -> Vec<InstanceMatrices> {
         use wgpu::*;
-        (0..self.objects.len()).map(|i| {
-            let refs = &self.object_references[i];
-            if refs.is_empty() {
-                let matrix = Mat4::identity();
+        (0..self.objects.len())
+            .map(|i| {
+                let refs = &self.object_references[i];
+                if refs.is_empty() {
+                    let matrix = Mat4::identity();
 
-                let size = std::mem::size_of::<Mat4>();
-                let buffer = device.create_buffer_mapped(&BufferDescriptor {
-                    label: Some(format!("object-{}-instances", i).as_str()),
-                    size: size as BufferAddress,
-                    usage: BufferUsage::STORAGE_READ,
-                });
+                    let size = std::mem::size_of::<Mat4>();
+                    let buffer = device.create_buffer_mapped(&BufferDescriptor {
+                        label: Some(format!("object-{}-instances", i).as_str()),
+                        size: size as BufferAddress,
+                        usage: BufferUsage::STORAGE_READ,
+                    });
 
-                buffer.data.copy_from_slice(unsafe {
-                    std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
-                });
+                    buffer.data.copy_from_slice(unsafe {
+                        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                    });
 
-                let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
-                    label: Some(format!("object-{}-instances", i).as_str()),
-                    size: size as BufferAddress,
-                    usage: BufferUsage::STORAGE_READ,
-                });
+                    let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
+                        label: Some(format!("object-{}-instances", i).as_str()),
+                        size: size as BufferAddress,
+                        usage: BufferUsage::STORAGE_READ,
+                    });
 
-                inverse_buffer.data.copy_from_slice(unsafe {
-                    std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
-                });
+                    inverse_buffer.data.copy_from_slice(unsafe {
+                        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                    });
 
-                InstanceMatrices {
-                    count: self.instances.len(),
-                    matrices: buffer.finish(),
-                    inverse_matrices: inverse_buffer.finish(),
+                    InstanceMatrices {
+                        count: 0,
+                        matrices: buffer.finish(),
+                        inverse_matrices: inverse_buffer.finish(),
+                    }
+                } else {
+                    let mut instances: Vec<Mat4> = Vec::with_capacity(refs.len());
+                    let mut inverse_instances: Vec<Mat4> = Vec::with_capacity(refs.len());
+                    for r in refs {
+                        instances.push(self.instances[*r].get_transform());
+                        inverse_instances.push(self.instances[*r].get_normal_transform());
+                    }
+
+                    let size = instances.len() * std::mem::size_of::<Mat4>();
+                    let buffer = device.create_buffer_mapped(&BufferDescriptor {
+                        label: Some(format!("object-{}-instances", i).as_str()),
+                        size: size as BufferAddress,
+                        usage: BufferUsage::STORAGE_READ,
+                    });
+
+                    buffer.data.copy_from_slice(unsafe {
+                        std::slice::from_raw_parts(instances.as_ptr() as *const u8, size)
+                    });
+
+                    let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
+                        label: Some(format!("object-{}-instances", i).as_str()),
+                        size: size as BufferAddress,
+                        usage: BufferUsage::STORAGE_READ,
+                    });
+
+                    inverse_buffer.data.copy_from_slice(unsafe {
+                        std::slice::from_raw_parts(inverse_instances.as_ptr() as *const u8, size)
+                    });
+
+                    InstanceMatrices {
+                        count: instances.len(),
+                        matrices: buffer.finish(),
+                        inverse_matrices: inverse_buffer.finish(),
+                    }
                 }
-            } else {
-                let mut instances: Vec<Mat4> = Vec::with_capacity(refs.len());
-                let mut inverse_instances: Vec<Mat4> = Vec::with_capacity(refs.len());
-                for r in refs {
-                    instances.push(self.instances[*r].get_transform());
-                    inverse_instances.push(self.instances[*r].get_normal_transform());
-                }
-
-                let size = instances.len() * std::mem::size_of::<Mat4>();
-                let buffer = device.create_buffer_mapped(&BufferDescriptor {
-                    label: Some(format!("object-{}-instances", i).as_str()),
-                    size: size as BufferAddress,
-                    usage: BufferUsage::STORAGE_READ,
-                });
-
-                buffer.data.copy_from_slice(unsafe {
-                    std::slice::from_raw_parts(instances.as_ptr() as *const u8, size)
-                });
-
-                let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
-                    label: Some(format!("object-{}-instances", i).as_str()),
-                    size: size as BufferAddress,
-                    usage: BufferUsage::STORAGE_READ,
-                });
-
-                inverse_buffer.data.copy_from_slice(unsafe {
-                    std::slice::from_raw_parts(inverse_instances.as_ptr() as *const u8, size)
-                });
-
-
-                InstanceMatrices {
-                    count: instances.len(),
-                    matrices: buffer.finish(),
-                    inverse_matrices: inverse_buffer.finish(),
-                }
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     #[cfg(feature = "wgpu")]
@@ -122,7 +123,8 @@ impl TriangleScene {
         use wgpu::*;
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: &[
-                BindGroupLayoutEntry { // Instance matrices
+                BindGroupLayoutEntry {
+                    // Instance matrices
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::StorageBuffer {
@@ -130,55 +132,64 @@ impl TriangleScene {
                         readonly: true,
                     },
                 },
-                BindGroupLayoutEntry { // Instance inverse matrices
+                BindGroupLayoutEntry {
+                    // Instance inverse matrices
                     binding: 1,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::StorageBuffer {
                         dynamic: false,
                         readonly: true,
                     },
-                }
+                },
             ],
             label: Some("mesh-bind-group-descriptor-layout"),
         })
     }
 
     #[cfg(feature = "wgpu")]
-    pub fn create_bind_groups(&self,
-                              device: &wgpu::Device,
-                              bind_group_layout: &wgpu::BindGroupLayout,
-                              buffers: &Vec<InstanceMatrices>,
+    pub fn create_bind_groups(
+        &self,
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        buffers: &Vec<InstanceMatrices>,
     ) -> Vec<wgpu::BindGroup> {
         use wgpu::*;
-        buffers.into_iter().enumerate().map(|(i, buffers)| {
-            device.create_bind_group(&BindGroupDescriptor {
-                layout: bind_group_layout,
-                bindings: &[
-                    Binding {
-                        binding: 0,
-                        resource: BindingResource::Buffer {
-                            buffer: &buffers.matrices,
-                            range: 0..(buffers.count * std::mem::size_of::<Mat4>()) as BufferAddress,
+        buffers
+            .into_iter()
+            .enumerate()
+            .map(|(i, buffers)| {
+                device.create_bind_group(&BindGroupDescriptor {
+                    layout: bind_group_layout,
+                    bindings: &[
+                        Binding {
+                            binding: 0,
+                            resource: BindingResource::Buffer {
+                                buffer: &buffers.matrices,
+                                range: 0..(buffers.count * std::mem::size_of::<Mat4>())
+                                    as BufferAddress,
+                            },
                         },
-                    },
-                    Binding {
-                        binding: 1,
-                        resource: BindingResource::Buffer {
-                            buffer: &buffers.inverse_matrices,
-                            range: 0..(buffers.count * std::mem::size_of::<Mat4>()) as BufferAddress,
+                        Binding {
+                            binding: 1,
+                            resource: BindingResource::Buffer {
+                                buffer: &buffers.inverse_matrices,
+                                range: 0..(buffers.count * std::mem::size_of::<Mat4>())
+                                    as BufferAddress,
+                            },
                         },
-                    }
-                ],
-                label: Some(format!("mesh-bind-group-{}", i).as_str()),
+                    ],
+                    label: Some(format!("mesh-bind-group-{}", i).as_str()),
+                })
             })
-        }).collect()
+            .collect()
     }
 
     #[cfg(feature = "wgpu")]
     pub fn create_vertex_buffers(&self, device: &wgpu::Device) -> Vec<VertexBuffer> {
-        self.objects.iter().map(|o| {
-            o.create_wgpu_buffer(device)
-        }).collect()
+        self.objects
+            .iter()
+            .map(|o| o.create_wgpu_buffer(device))
+            .collect()
     }
 
     pub fn get_objects(&self) -> &[Box<RastMesh>] {
@@ -186,15 +197,15 @@ impl TriangleScene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&Box<RastMesh>>),
+    where
+        T: FnMut(Option<&Box<RastMesh>>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&mut Box<RastMesh>>),
+    where
+        T: FnMut(Option<&mut Box<RastMesh>>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);

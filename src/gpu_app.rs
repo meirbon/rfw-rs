@@ -5,9 +5,11 @@ use fb_template::{
 use glam::*;
 use rayon::prelude::*;
 
-use scene::{material::MaterialList, ToMesh, TriangleScene, VertexData, InstanceMatrices, VertexBuffer};
 use crate::camera::Camera;
 use crate::utils::*;
+use scene::{
+    material::MaterialList, InstanceMatrices, Obj, ToMesh, TriangleScene, VertexBuffer, VertexData,
+};
 
 pub struct GPUApp<'a> {
     width: u32,
@@ -82,34 +84,43 @@ impl<'a> GPUApp<'a> {
 
         self.staging_buffer = Some(staging_buffer.finish());
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("staging-encoder")
+            label: Some("staging-encoder"),
         });
 
         let staging_buffer = self.staging_buffer.as_ref().unwrap();
         let uniform_buffer = self.uniform_buffer.as_ref().unwrap();
 
-        encoder.copy_buffer_to_buffer(
-            staging_buffer,
-            0,
-            uniform_buffer,
-            0,
-            64,
-        );
+        encoder.copy_buffer_to_buffer(staging_buffer, 0, uniform_buffer, 0, 64);
 
         Request::CommandBuffer(encoder.finish())
     }
 }
 
 impl<'a> DeviceFramebuffer for GPUApp<'a> {
-    fn init(&mut self, width: u32, height: u32, device: &wgpu::Device, sc_format: wgpu::TextureFormat, requests: &mut Vec<Request>) {
+    fn init(
+        &mut self,
+        width: u32,
+        height: u32,
+        device: &wgpu::Device,
+        sc_format: wgpu::TextureFormat,
+        requests: &mut Vec<Request>,
+    ) {
         use wgpu::*;
 
-        // let dragon = Box::new(Obj::new("models/dragon.obj", &mut self.materials).unwrap().into_mesh());
-        // let dragon = self.scene.add_object(dragon);
-        // let _dragon = self.scene.add_instance(
-        //     dragon,
-        //     Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(Vec3::splat(5.0)),
-        // ).unwrap();
+        let dragon = Box::new(
+            Obj::new("models/sphere.obj", &mut self.materials)
+                .unwrap()
+                .into_mesh(),
+        );
+        let dragon = self.scene.add_object(dragon);
+        let _dragon = self
+            .scene
+            .add_instance(
+                dragon,
+                Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0))
+                    * Mat4::from_scale(Vec3::splat(5.0)),
+            )
+            .unwrap();
 
         self.resize(width, height, &device, requests);
 
@@ -129,21 +140,23 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         let frag_module = device.create_shader_module(frag_shader.as_slice());
 
         self.triangle_bind_group_layout = Some(self.scene.create_bind_group_layout(device));
-        self.bind_group_layout = Some(device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            bindings: &[
-                BindGroupLayoutEntry { // Matrix buffer
+        self.bind_group_layout =
+            Some(device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                bindings: &[BindGroupLayoutEntry {
+                    // Matrix buffer
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
-                    ty: BindingType::UniformBuffer {
-                        dynamic: false
-                    },
-                }
-            ],
-            label: Some("uniform-layout"),
-        }));
+                    ty: BindingType::UniformBuffer { dynamic: false },
+                }],
+                label: Some("uniform-layout"),
+            }));
         self.depth_texture = Some(device.create_texture(&TextureDescriptor {
             label: Some("depth-tes"),
-            size: Extent3d { width: self.width, height: self.height, depth: 1 },
+            size: Extent3d {
+                width: self.width,
+                height: self.height,
+                depth: 1,
+            },
             array_layer_count: 1,
             mip_level_count: 1,
             sample_count: 1,
@@ -154,7 +167,10 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         self.depth_texture_view = Some(self.depth_texture.as_ref().unwrap().create_default_view());
 
         self.pipeline_layout = Some(device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[self.bind_group_layout.as_ref().unwrap(), self.triangle_bind_group_layout.as_ref().unwrap()],
+            bind_group_layouts: &[
+                self.bind_group_layout.as_ref().unwrap(),
+                self.triangle_bind_group_layout.as_ref().unwrap(),
+            ],
         }));
 
         let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -169,7 +185,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
+                cull_mode: CullMode::None,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -227,7 +243,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                             format: VertexFormat::Float2,
                             shader_location: 3,
                         }],
-                    }
+                    },
                 ],
                 index_format: IndexFormat::Uint16,
             },
@@ -254,22 +270,25 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         );
         self.bind_group = Some(device.create_bind_group(&BindGroupDescriptor {
             layout: self.bind_group_layout.as_ref().unwrap(),
-            bindings: &[
-                Binding {
-                    binding: 0,
-                    resource: BindingResource::Buffer {
-                        buffer: self.uniform_buffer.as_ref().unwrap(),
-                        range: 0..64,
-                    },
+            bindings: &[Binding {
+                binding: 0,
+                resource: BindingResource::Buffer {
+                    buffer: self.uniform_buffer.as_ref().unwrap(),
+                    range: 0..64,
                 },
-            ],
+            }],
             label: Some("mesh-bind-group-descriptor"),
         }));
 
         self.pipeline = Some(render_pipeline);
     }
 
-    fn render(&mut self, fb: &wgpu::SwapChainOutput, device: &wgpu::Device, requests: &mut Vec<Request>) {
+    fn render(
+        &mut self,
+        fb: &wgpu::SwapChainOutput,
+        device: &wgpu::Device,
+        requests: &mut Vec<Request>,
+    ) {
         requests.push(self.update_camera(device));
 
         if self.instance_buffers.is_empty() {
@@ -277,10 +296,9 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         }
 
         if let Some(pipeline) = &self.pipeline {
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render")
-                });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("render"),
+            });
 
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -296,26 +314,55 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                             a: 0.0 as f64,
                         },
                     }],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                        attachment: self.depth_texture_view.as_ref().unwrap(),
-                        depth_load_op: wgpu::LoadOp::Clear,
-                        depth_store_op: wgpu::StoreOp::Store,
-                        clear_depth: 1.0,
-                        stencil_load_op: wgpu::LoadOp::Clear,
-                        stencil_store_op: wgpu::StoreOp::Clear,
-                        clear_stencil: 0,
-                    }),
+                    depth_stencil_attachment: Some(
+                        wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                            attachment: self.depth_texture_view.as_ref().unwrap(),
+                            depth_load_op: wgpu::LoadOp::Clear,
+                            depth_store_op: wgpu::StoreOp::Store,
+                            clear_depth: 1.0,
+                            stencil_load_op: wgpu::LoadOp::Clear,
+                            stencil_store_op: wgpu::StoreOp::Clear,
+                            clear_stencil: 0,
+                        },
+                    ),
                 });
                 render_pass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[]);
                 render_pass.set_pipeline(pipeline);
 
                 for i in 0..self.instance_buffers.len() {
                     let instance_buffers = &self.instance_buffers[i];
+                    if instance_buffers.count <= 0 {
+                        continue;
+                    }
+
                     let instance_bind_group = &self.instance_bind_groups[i];
                     let vb = &self.vertex_buffers[i];
 
                     render_pass.set_bind_group(1, instance_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, &vb.buffer, 0, vb.size_in_bytes as wgpu::BufferAddress);
+                    render_pass.set_vertex_buffer(
+                        0,
+                        &vb.buffer,
+                        0,
+                        vb.size_in_bytes as wgpu::BufferAddress,
+                    );
+                    render_pass.set_vertex_buffer(
+                        1,
+                        &vb.buffer,
+                        0,
+                        vb.size_in_bytes as wgpu::BufferAddress,
+                    );
+                    render_pass.set_vertex_buffer(
+                        2,
+                        &vb.buffer,
+                        0,
+                        vb.size_in_bytes as wgpu::BufferAddress,
+                    );
+                    render_pass.set_vertex_buffer(
+                        3,
+                        &vb.buffer,
+                        0,
+                        vb.size_in_bytes as wgpu::BufferAddress,
+                    );
                     render_pass.draw(0..(vb.count as u32), 0..(instance_buffers.count as u32));
                 }
             }
@@ -324,24 +371,29 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         }
     }
 
-    fn mouse_button_handling(&mut self, _states: &MouseButtonHandler, _requests: &mut Vec<Request>) {}
+    fn mouse_button_handling(
+        &mut self,
+        _states: &MouseButtonHandler,
+        _requests: &mut Vec<Request>,
+    ) {
+    }
 
     fn key_handling(&mut self, states: &KeyHandler, requests: &mut Vec<Request>) {
         #[cfg(target_os = "macos")]
-            {
-                if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
-                    requests.push(Request::Exit);
-                    return;
-                }
+        {
+            if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
+                requests.push(Request::Exit);
+                return;
             }
+        }
 
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-            {
-                if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
-                    requests.push(Request::Exit);
-                    return;
-                }
+        {
+            if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
+                requests.push(Request::Exit);
+                return;
             }
+        }
 
         if states.pressed(KeyCode::Escape) {
             requests.push(Request::Exit);
@@ -415,19 +467,31 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         _x: f64,
         _y: f64,
         _delta_x: f64,
-        _delta_y: f64, _requests: &mut Vec<Request>,
-    ) {}
+        _delta_y: f64,
+        _requests: &mut Vec<Request>,
+    ) {
+    }
 
     fn scroll_handling(&mut self, _dx: f64, _dy: f64, _requests: &mut Vec<Request>) {}
 
-    fn resize(&mut self, width: u32, height: u32, device: &wgpu::Device, _requests: &mut Vec<Request>) {
+    fn resize(
+        &mut self,
+        width: u32,
+        height: u32,
+        device: &wgpu::Device,
+        _requests: &mut Vec<Request>,
+    ) {
         self.width = width;
         self.height = height;
         self.camera.resize(width, height);
 
         let new_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("depth-tes"),
-            size: wgpu::Extent3d { width: self.width, height: self.height, depth: 1 },
+            size: wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth: 1,
+            },
             array_layer_count: 1,
             mip_level_count: 1,
             sample_count: 1,

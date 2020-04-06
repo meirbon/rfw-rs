@@ -19,6 +19,7 @@ pub struct RTMesh {
 }
 
 #[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub struct VertexData {
     pub vertex: [f32; 4],
     pub normal: [f32; 3],
