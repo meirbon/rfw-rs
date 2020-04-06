@@ -74,7 +74,7 @@ impl TriangleScene {
                 });
 
                 InstanceMatrices {
-                    count: self.instances.len(),
+                    count: 0,
                     matrices: buffer.finish(),
                     inverse_matrices: inverse_buffer.finish(),
                 }

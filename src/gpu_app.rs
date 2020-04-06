@@ -5,7 +5,7 @@ use fb_template::{
 use glam::*;
 use rayon::prelude::*;
 
-use scene::{material::MaterialList, ToMesh, TriangleScene, VertexData, InstanceMatrices, VertexBuffer};
+use scene::{material::MaterialList, ToMesh, TriangleScene, VertexData, InstanceMatrices, VertexBuffer, Obj};
 use crate::camera::Camera;
 use crate::utils::*;
 
@@ -104,12 +104,12 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
     fn init(&mut self, width: u32, height: u32, device: &wgpu::Device, sc_format: wgpu::TextureFormat, requests: &mut Vec<Request>) {
         use wgpu::*;
 
-        // let dragon = Box::new(Obj::new("models/dragon.obj", &mut self.materials).unwrap().into_mesh());
-        // let dragon = self.scene.add_object(dragon);
-        // let _dragon = self.scene.add_instance(
-        //     dragon,
-        //     Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(Vec3::splat(5.0)),
-        // ).unwrap();
+        let dragon = Box::new(Obj::new("models/dragon.obj", &mut self.materials).unwrap().into_mesh());
+        let dragon = self.scene.add_object(dragon);
+        let _dragon = self.scene.add_instance(
+            dragon,
+            Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(Vec3::splat(5.0)),
+        ).unwrap();
 
         self.resize(width, height, &device, requests);
 
@@ -169,7 +169,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
-                cull_mode: CullMode::Back,
+                cull_mode: CullMode::None,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -229,7 +229,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                         }],
                     }
                 ],
-                index_format: IndexFormat::Uint16,
+                index_format: IndexFormat::Uint32,
             },
             sample_count: 1,
             sample_mask: !0,
@@ -311,11 +311,19 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
 
                 for i in 0..self.instance_buffers.len() {
                     let instance_buffers = &self.instance_buffers[i];
+
+                    if instance_buffers.count <= 0 {
+                        continue;
+                    }
+
                     let instance_bind_group = &self.instance_bind_groups[i];
                     let vb = &self.vertex_buffers[i];
 
                     render_pass.set_bind_group(1, instance_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, &vb.buffer, 0, vb.size_in_bytes as wgpu::BufferAddress);
+                    render_pass.set_vertex_buffer(0, &vb.buffer, 0, 0);
+                    render_pass.set_vertex_buffer(1, &vb.buffer, 0, 0);
+                    render_pass.set_vertex_buffer(2, &vb.buffer, 0, 0);
+                    render_pass.set_vertex_buffer(3, &vb.buffer, 0, 0);
                     render_pass.draw(0..(vb.count as u32), 0..(instance_buffers.count as u32));
                 }
             }
