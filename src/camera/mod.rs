@@ -133,6 +133,20 @@ impl CameraView {
 
 #[allow(dead_code)]
 impl Camera {
+    pub fn zero() -> Camera {
+        Camera {
+            pos: [0.0; 3],
+            up: [0.0; 3],
+            direction: [0.0, 0.0, 1.0],
+            fov: 40.0,
+            width: 0,
+            height: 0,
+            aspect_ratio: 1.0,
+            aperture: 0.0001,
+            focal_distance: 1.0,
+        }
+    }
+
     pub fn new(width: u32, height: u32) -> Camera {
         Camera {
             pos: [0.0; 3],
@@ -216,7 +230,7 @@ impl Camera {
         let fov = self.fov.to_radians();
         let fov_dist = (fov * 0.5).tan();
 
-        let flip = Mat4::from_scale([-1.0; 3].into());
+        let flip = Mat4::from_scale(Vec3::from([-1.0; 3]));
         let projection = Mat4::perspective_rh_gl(
             fov,
             self.aspect_ratio,

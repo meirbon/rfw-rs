@@ -4,8 +4,9 @@ use std::error::Error;
 
 use crate::utils::*;
 use crate::material::*;
-use crate::objects::Mesh;
+use crate::objects::RTMesh;
 use crate::objects::mesh::ToMesh;
+use crate::RastMesh;
 
 enum ObjFlags {
     HasNormals = 1,
@@ -106,8 +107,17 @@ impl Obj {
 }
 
 impl ToMesh for Obj {
-    fn into_mesh(self) -> Mesh {
-        Mesh::new(
+    fn into_rt_mesh(self) -> RTMesh {
+        RTMesh::new(
+            self.vertices.as_slice(),
+            self.normals.as_slice(),
+            self.uvs.as_slice(),
+            self.material_ids.as_slice(),
+        )
+    }
+
+    fn into_mesh(self) -> RastMesh {
+        RastMesh::new(
             self.vertices.as_slice(),
             self.normals.as_slice(),
             self.uvs.as_slice(),

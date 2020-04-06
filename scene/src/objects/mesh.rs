@@ -3,23 +3,119 @@ use rayon::prelude::*;
 
 use crate::objects::*;
 use crate::scene::{PrimID, USE_MBVH};
-use bvh::{Bounds, RayPacket4, AABB, BVH, MBVH};
+use bvh::{Bounds, AABB, BVH, MBVH, Ray, RayPacket4};
 
 pub trait ToMesh {
-    fn into_mesh(self) -> Mesh;
+    fn into_rt_mesh(self) -> RTMesh;
+    fn into_mesh(self) -> RastMesh;
 }
 
 #[derive(Debug, Clone)]
-pub struct Mesh {
-    triangles: Vec<Triangle>,
+pub struct RTMesh {
+    triangles: Vec<RTTriangle>,
     materials: Vec<u32>,
     bvh: BVH,
     mbvh: MBVH,
 }
 
-impl Mesh {
-    pub fn empty() -> Mesh {
-        Mesh {
+#[derive(Debug, Copy, Clone)]
+pub struct VertexData {
+    pub vertex: [f32; 4],
+    pub normal: [f32; 3],
+    pub mat_id: u32,
+    pub uv: [f32; 2],
+}
+
+pub struct VertexBuffer {
+    pub count: usize,
+    pub size_in_bytes: usize,
+    pub buffer: wgpu::Buffer,
+}
+
+impl VertexData {
+    pub fn zero() -> VertexData {
+        VertexData {
+            vertex: [0.0, 0.0, 0.0, 1.0],
+            normal: [0.0; 3],
+            mat_id: 0,
+            uv: [0.0; 2],
+        }
+    }
+}
+
+pub struct RastMesh {
+    vertices: Vec<VertexData>,
+    materials: Vec<u32>,
+    bounds: AABB,
+}
+
+impl RastMesh {
+    pub fn new(vertices: &[Vec3], normals: &[Vec3], uvs: &[Vec2], material_ids: &[u32]) -> RastMesh {
+        assert_eq!(vertices.len(), normals.len());
+        assert_eq!(vertices.len(), uvs.len());
+        assert_eq!(uvs.len(), material_ids.len() * 3);
+        assert_eq!(vertices.len() % 3, 0);
+
+        let mut bounds = AABB::new();
+        let mut vertex_data = vec![VertexData::zero(); vertices.len()];
+
+        for vertex in vertices {
+            bounds.grow(*vertex);
+        }
+
+        vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
+            let vertex: [f32; 3] = vertices[i].into();
+            let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
+            let normal = normals[i].into();
+            *v = VertexData {
+                vertex,
+                normal,
+                mat_id: material_ids[i / 3],
+                uv: uvs[i].into(),
+            };
+        });
+
+        RastMesh {
+            vertices: vertex_data,
+            materials: Vec::from(material_ids),
+            bounds,
+        }
+    }
+
+    pub fn empty() -> RastMesh {
+        RastMesh {
+            vertices: Vec::new(),
+            materials: Vec::new(),
+            bounds: AABB::new(),
+        }
+    }
+
+    #[cfg(feature = "wgpu")]
+    pub fn create_wgpu_buffer(&self, device: &wgpu::Device) -> VertexBuffer {
+        use wgpu::*;
+
+        let size = self.vertices.len() * std::mem::size_of::<VertexData>();
+        let triangle_buffer = device.create_buffer_mapped(&BufferDescriptor {
+            label: Some("mesh"),
+            size: size as BufferAddress,
+            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
+        });
+
+        triangle_buffer.data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(self.vertices.as_ptr() as *const u8, size)
+        });
+
+        VertexBuffer {
+            count: self.vertices.len(),
+            size_in_bytes: size,
+            buffer: triangle_buffer.finish(),
+        }
+    }
+}
+
+impl RTMesh {
+    pub fn empty() -> RTMesh {
+        RTMesh {
             triangles: Vec::new(),
             materials: Vec::new(),
             bvh: BVH::empty(),
@@ -27,13 +123,13 @@ impl Mesh {
         }
     }
 
-    pub fn new(vertices: &[Vec3], normals: &[Vec3], uvs: &[Vec2], material_ids: &[u32]) -> Mesh {
+    pub fn new(vertices: &[Vec3], normals: &[Vec3], uvs: &[Vec2], material_ids: &[u32]) -> RTMesh {
         assert_eq!(vertices.len(), normals.len());
         assert_eq!(vertices.len(), uvs.len());
         assert_eq!(uvs.len(), material_ids.len() * 3);
         assert_eq!(vertices.len() % 3, 0);
 
-        let mut triangles = vec![Triangle::zero(); vertices.len() / 3];
+        let mut triangles = vec![RTTriangle::zero(); vertices.len() / 3];
         triangles.iter_mut().enumerate().for_each(|(i, triangle)| {
             let i0 = i * 3;
             let i1 = i0 + 1;
@@ -51,9 +147,9 @@ impl Mesh {
             let uv1 = unsafe { *uvs.get_unchecked(i1) };
             let uv2 = unsafe { *uvs.get_unchecked(i2) };
 
-            let normal = Triangle::normal(vertex0, vertex1, vertex2);
+            let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
 
-            *triangle = Triangle {
+            *triangle = RTTriangle {
                 vertex0: vertex0.into(),
                 u0: uv0.x(),
                 vertex1: vertex1.into(),
@@ -76,7 +172,7 @@ impl Mesh {
         let bvh = BVH::construct(aabbs.as_slice());
         let mbvh = MBVH::construct(&bvh);
 
-        Mesh {
+        RTMesh {
             triangles,
             bvh,
             mbvh,
@@ -106,12 +202,12 @@ impl Mesh {
     }
 }
 
-impl Intersect for Mesh {
+impl Intersect for RTMesh {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
         let (origin, direction) = ray.into();
 
         let intersection_test = |i, t_min, t_max| {
-            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+            let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
             triangle.occludes(ray, t_min, t_max)
         };
 
@@ -139,7 +235,7 @@ impl Intersect for Mesh {
         let (origin, direction) = ray.into();
 
         let intersection_test = |i, t_min, t_max| {
-            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+            let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
             if let Some(mut hit) = triangle.intersect(ray, t_min, t_max) {
                 hit.mat_id = self.materials[i];
                 return Some((hit.t, hit));
@@ -171,7 +267,7 @@ impl Intersect for Mesh {
         let (origin, direction) = ray.into();
 
         let intersection_test = |i, t_min, t_max| {
-            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+            let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
             if let Some(t) = triangle.intersect_t(ray, t_min, t_max) {
                 return Some(t);
             }
@@ -202,7 +298,7 @@ impl Intersect for Mesh {
         let (origin, direction) = ray.into();
 
         let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)> {
-            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+            let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
             triangle.depth_test(ray, t_min, t_max)
         };
 
@@ -232,7 +328,7 @@ impl Intersect for Mesh {
         let mut prim_id = [-1 as PrimID; 4];
         let mut valid = false;
         let intersection_test = |i: usize, packet: &mut RayPacket4| {
-            let triangle: &Triangle = unsafe { self.triangles.get_unchecked(i) };
+            let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
             if let Some(hit) = triangle.intersect4(packet, t_min) {
                 valid = true;
                 for i in 0..4 {
@@ -262,8 +358,12 @@ impl Intersect for Mesh {
     }
 }
 
-impl Bounds for Mesh {
+impl Bounds for RTMesh {
     fn bounds(&self) -> AABB {
         self.bvh.nodes[0].bounds.clone()
     }
+}
+
+impl Bounds for RastMesh {
+    fn bounds(&self) -> AABB { self.bounds.clone() }
 }

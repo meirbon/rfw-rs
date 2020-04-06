@@ -44,7 +44,7 @@ impl CPUApp {
 
         let dragon = Box::new(
             Obj::new("models/dragon.obj", &mut materials)?
-                .into_mesh()
+                .into_rt_mesh()
                 .scale(50.0),
         );
         let dragon = scene.add_object(dragon);

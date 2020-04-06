@@ -6,7 +6,8 @@ use bvh::{Bounds, RayPacket4, AABB};
 use std::ops::BitAnd;
 
 #[derive(Copy, Clone, Debug)]
-pub struct Triangle {
+#[repr(C)]
+pub struct RTTriangle {
     pub vertex0: [f32; 3],
     pub u0: f32,
 
@@ -32,7 +33,7 @@ pub struct Triangle {
 }
 
 #[allow(dead_code)]
-impl Triangle {
+impl RTTriangle {
     #[inline]
     pub fn area(&self) -> f32 {
         let a = (Vec3::from(self.vertex1) - Vec3::from(self.vertex0)).length();
@@ -49,8 +50,8 @@ impl Triangle {
         a.cross(b).normalize()
     }
 
-    pub fn zero() -> Triangle {
-        Triangle {
+    pub fn zero() -> RTTriangle {
+        RTTriangle {
             vertex0: [0.0; 3],
             u0: 0.0,
             vertex1: [0.0; 3],
@@ -86,7 +87,7 @@ impl Triangle {
     }
 
     // Transforms triangle using given matrix and normal_matrix (transposed of inverse of matrix)
-    pub fn transform(&self, matrix: Mat4, normal_matrix: Mat3) -> Triangle {
+    pub fn transform(&self, matrix: Mat4, normal_matrix: Mat3) -> RTTriangle {
         let vertex0 = Vec3::from(self.vertex0).extend(1.0);
         let vertex1 = Vec3::from(self.vertex1).extend(1.0);
         let vertex2 = Vec3::from(self.vertex2).extend(1.0);
@@ -99,7 +100,7 @@ impl Triangle {
         let n1 = normal_matrix * Vec3::from(self.n1);
         let n2 = normal_matrix * Vec3::from(self.n2);
 
-        Triangle {
+        RTTriangle {
             vertex0: vertex0.truncate().into(),
             vertex1: vertex1.truncate().into(),
             vertex2: vertex2.truncate().into(),
@@ -111,7 +112,7 @@ impl Triangle {
     }
 }
 
-impl Intersect for Triangle {
+impl Intersect for RTTriangle {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
         let origin = Vec3::from(ray.origin);
         let direction = Vec3::from(ray.direction);
@@ -366,7 +367,7 @@ impl Intersect for Triangle {
     }
 }
 
-impl Bounds for Triangle {
+impl Bounds for RTTriangle {
     fn bounds(&self) -> AABB {
         let mut aabb = AABB::new();
         aabb.grow(Vec3::from(self.vertex0));

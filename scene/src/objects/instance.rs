@@ -33,6 +33,10 @@ impl Instance {
         self.transform
     }
 
+    pub fn get_inverse_transform(&self) -> Mat4 { self.inverse }
+
+    pub fn get_normal_transform(&self) -> Mat4 { self.normal_transform }
+
     pub fn set_transform(&mut self, transform: Mat4) {
         self.inverse = transform.inverse();
         let new_transform = transform * self.inverse;
