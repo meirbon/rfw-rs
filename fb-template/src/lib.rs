@@ -74,7 +74,6 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
     v_sync: bool,
 ) {
     let mut key_handler = KeyHandler::new();
-    let (mut width, mut height) = (start_width, start_height);
     let mut first_mouse_pos = true;
 
     let mut mouse_x = 0.0;
@@ -86,9 +85,11 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title(title)
-        .with_inner_size(LogicalSize::new(width as f64, height as f64))
+        .with_inner_size(LogicalSize::new(start_width as f64, start_height as f64))
         .build(&event_loop)
         .unwrap();
+
+    let (mut width, mut height) = window.inner_size().into();
 
     let surface = wgpu::Surface::create(&window);
     let adapter = wgpu::Adapter::request(&wgpu::RequestAdapterOptions {
@@ -199,11 +200,7 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
         format: wgpu::TextureFormat::Bgra8UnormSrgb,
         width,
         height,
-        present_mode: if v_sync {
-            wgpu::PresentMode::Vsync
-        } else {
-            wgpu::PresentMode::NoVsync
-        },
+        present_mode: if v_sync { wgpu::PresentMode::Vsync } else { wgpu::PresentMode::NoVsync },
     };
 
     let mut tex_descriptor = wgpu::TextureDescriptor {
@@ -276,22 +273,24 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
                 let pixel_count = (width * height * 4) as usize;
 
                 if resized {
-                    sc_descriptor.width = width;
-                    sc_descriptor.height = height;
-                    app.resize(width, height);
+                    swap_chain = device.create_swap_chain(&surface, &sc_descriptor);
 
                     if pixels.len() < pixel_count {
                         pixels.resize((pixel_count as f64 * 1.2) as usize, 0);
                     }
-                    swap_chain = device.create_swap_chain(&surface, &sc_descriptor);
+
+                    app.resize(width, height);
 
                     tex_descriptor.size = wgpu::Extent3d {
                         width,
                         height,
                         depth: 1,
                     };
-                    render_texture = device.create_texture(&tex_descriptor);
-                    render_texture_view = render_texture.create_default_view();
+                    let new_texture = device.create_texture(&tex_descriptor);
+                    let new_view =  new_texture.create_default_view();
+
+                    render_texture = new_texture;
+                    render_texture_view = new_view;
                     resized = false;
                 }
 
@@ -394,6 +393,8 @@ pub fn run_host_app<T: 'static + HostFramebuffer>(
                 window_id,
             } if window_id == window.id() => {
                 let size = window.inner_size();
+                sc_descriptor.width = size.width;
+                sc_descriptor.height = size.height;
 
                 width = size.width;
                 height = size.height;
