@@ -388,7 +388,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         #[cfg(target_os = "macos")]
         {
             if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
-                requests.push(Request::Exit);
+                requests.push_back(Request::Exit);
                 return;
             }
         }
