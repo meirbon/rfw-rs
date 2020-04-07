@@ -487,7 +487,7 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
         format: wgpu::TextureFormat::Bgra8UnormSrgb,
         width,
         height,
-        present_mode: wgpu::PresentMode::Fifo,
+        present_mode: wgpu::PresentMode::Mailbox,
     };
 
     let mut tex_descriptor = wgpu::TextureDescriptor {

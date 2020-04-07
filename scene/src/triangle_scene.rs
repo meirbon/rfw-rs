@@ -47,45 +47,66 @@ impl TriangleScene {
     #[cfg(feature = "wgpu")]
     pub fn create_wgpu_instances_buffer(&self, device: &wgpu::Device) -> Vec<InstanceMatrices> {
         use wgpu::*;
-        (0..self.objects.len())
-            .map(|i| {
-                let refs = &self.object_references[i];
-                if refs.is_empty() {
-                    let matrix = Mat4::identity();
+        (0..self.objects.len()).map(|i| {
+            let refs = &self.object_references[i];
+            if refs.is_empty() {
+                let matrix = Mat4::identity();
 
-                    let size = std::mem::size_of::<Mat4>();
-                    let buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
-                        size: size as BufferAddress,
-                        usage: BufferUsage::STORAGE_READ,
-                    });
+                let size = std::mem::size_of::<Mat4>();
+                let buffer = device.create_buffer_mapped(&BufferDescriptor {
+                    label: Some(format!("object-{}-instances", i).as_str()),
+                    size: size as BufferAddress,
+                    usage: BufferUsage::STORAGE_READ,
+                });
 
-                    buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
-                    });
+                buffer.data.copy_from_slice(unsafe {
+                    std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                });
 
-                    let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
-                        size: size as BufferAddress,
-                        usage: BufferUsage::STORAGE_READ,
-                    });
+                let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
+                    label: Some(format!("object-{}-instances", i).as_str()),
+                    size: size as BufferAddress,
+                    usage: BufferUsage::STORAGE_READ,
+                });
 
-                    inverse_buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
-                    });
+                inverse_buffer.data.copy_from_slice(unsafe {
+                    std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                });
 
-                    InstanceMatrices {
-                        count: 0,
-                        matrices: buffer.finish(),
-                        inverse_matrices: inverse_buffer.finish(),
-                    }
-                } else {
-                    let mut instances: Vec<Mat4> = Vec::with_capacity(refs.len());
-                    let mut inverse_instances: Vec<Mat4> = Vec::with_capacity(refs.len());
-                    for r in refs {
-                        instances.push(self.instances[*r].get_transform());
-                        inverse_instances.push(self.instances[*r].get_normal_transform());
-                    }
+                InstanceMatrices {
+                    count: 0,
+                    matrices: buffer.finish(),
+                    inverse_matrices: inverse_buffer.finish(),
+                }
+            } else {
+                let mut instances: Vec<Mat4> = Vec::with_capacity(refs.len());
+                let mut inverse_instances: Vec<Mat4> = Vec::with_capacity(refs.len());
+                for r in refs {
+                    instances.push(self.instances[*r].get_transform());
+                    inverse_instances.push(self.instances[*r].get_normal_transform());
+                }
+
+                let size = instances.len() * std::mem::size_of::<Mat4>();
+                let buffer = device.create_buffer_mapped(&BufferDescriptor {
+                    label: Some(format!("object-{}-instances", i).as_str()),
+                    size: size as BufferAddress,
+                    usage: BufferUsage::STORAGE_READ,
+                });
+
+                buffer.data.copy_from_slice(unsafe {
+                    std::slice::from_raw_parts(instances.as_ptr() as *const u8, size)
+                });
+
+                let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
+                    label: Some(format!("object-{}-instances", i).as_str()),
+                    size: size as BufferAddress,
+                    usage: BufferUsage::STORAGE_READ,
+                });
+
+                inverse_buffer.data.copy_from_slice(unsafe {
+                    std::slice::from_raw_parts(inverse_instances.as_ptr() as *const u8, size)
+                });
+
 
                     let size = instances.len() * std::mem::size_of::<Mat4>();
                     let buffer = device.create_buffer_mapped(&BufferDescriptor {

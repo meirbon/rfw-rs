@@ -108,7 +108,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         use wgpu::*;
 
         let dragon = Box::new(
-            Obj::new("models/sphere.obj", &mut self.materials)
+            Obj::new("models/dragon.obj", &mut self.materials)
                 .unwrap()
                 .into_mesh(),
         );
@@ -245,7 +245,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                         }],
                     },
                 ],
-                index_format: IndexFormat::Uint16,
+                index_format: IndexFormat::Uint32,
             },
             sample_count: 1,
             sample_mask: !0,
@@ -339,30 +339,10 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                     let vb = &self.vertex_buffers[i];
 
                     render_pass.set_bind_group(1, instance_bind_group, &[]);
-                    render_pass.set_vertex_buffer(
-                        0,
-                        &vb.buffer,
-                        0,
-                        vb.size_in_bytes as wgpu::BufferAddress,
-                    );
-                    render_pass.set_vertex_buffer(
-                        1,
-                        &vb.buffer,
-                        0,
-                        vb.size_in_bytes as wgpu::BufferAddress,
-                    );
-                    render_pass.set_vertex_buffer(
-                        2,
-                        &vb.buffer,
-                        0,
-                        vb.size_in_bytes as wgpu::BufferAddress,
-                    );
-                    render_pass.set_vertex_buffer(
-                        3,
-                        &vb.buffer,
-                        0,
-                        vb.size_in_bytes as wgpu::BufferAddress,
-                    );
+                    render_pass.set_vertex_buffer(0, &vb.buffer, 0, 0);
+                    render_pass.set_vertex_buffer(1, &vb.buffer, 0, 0);
+                    render_pass.set_vertex_buffer(2, &vb.buffer, 0, 0);
+                    render_pass.set_vertex_buffer(3, &vb.buffer, 0, 0);
                     render_pass.draw(0..(vb.count as u32), 0..(instance_buffers.count as u32));
                 }
             }

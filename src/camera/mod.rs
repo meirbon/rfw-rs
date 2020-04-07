@@ -230,7 +230,6 @@ impl Camera {
         let fov = self.fov.to_radians();
         let fov_dist = (fov * 0.5).tan();
 
-        let flip = Mat4::from_scale(Vec3::from([-1.0; 3]));
         let projection = Mat4::perspective_rh_gl(
             fov,
             self.aspect_ratio,
@@ -243,7 +242,7 @@ impl Camera {
 
         let view = Mat4::look_at_rh(pos, pos + dir * fov_dist, up);
 
-        projection * flip * view
+        projection * view
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {

@@ -28,5 +28,5 @@ void main() {
     N = vec3(InverseTransforms[gl_InstanceIndex] * vec4(Normal, 0.0));
     MID = MatID;
     TUV = UV;
-
+    gl_Position = vertex;
 }
