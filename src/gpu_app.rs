@@ -10,6 +10,7 @@ use crate::utils::*;
 use scene::{
     material::MaterialList, InstanceMatrices, Obj, ToMesh, TriangleScene, VertexBuffer, VertexData,
 };
+use std::collections::VecDeque;
 
 pub struct GPUApp<'a> {
     width: u32,
@@ -36,9 +37,7 @@ pub struct GPUApp<'a> {
 
 impl<'a> GPUApp<'a> {
     pub fn new() -> Self {
-        let compiler = CompilerBuilder::new()
-            .with_opt_level(OptimizationLevel::Performance)
-            .build();
+        let compiler = CompilerBuilder::new().build();
 
         let scene = TriangleScene::new();
         let mat_list = MaterialList::new();
@@ -69,9 +68,8 @@ impl<'a> GPUApp<'a> {
 }
 
 impl<'a> GPUApp<'a> {
-    fn update_camera(&mut self, device: &wgpu::Device) -> Request {
+    fn update_uniform(&mut self, matrix: Mat4, device: &wgpu::Device) -> Request {
         use wgpu::*;
-        let matrix: Mat4 = self.camera.get_matrix(1e-3, 1e6);
         let staging_buffer = device.create_buffer_mapped(&BufferDescriptor {
             label: Some("staging-buffer"),
             size: 64 as BufferAddress,
@@ -103,7 +101,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         height: u32,
         device: &wgpu::Device,
         sc_format: wgpu::TextureFormat,
-        requests: &mut Vec<Request>,
+        requests: &mut VecDeque<Request>,
     ) {
         use wgpu::*;
 
@@ -118,6 +116,22 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             .add_instance(
                 dragon,
                 Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0))
+                    * Mat4::from_scale(Vec3::splat(5.0)),
+            )
+            .unwrap();
+        let _dragon = self
+            .scene
+            .add_instance(
+                dragon,
+                Mat4::from_translation(Vec3::new(5.0, 0.0, 5.0))
+                    * Mat4::from_scale(Vec3::splat(5.0)),
+            )
+            .unwrap();
+        let _dragon = self
+            .scene
+            .add_instance(
+                dragon,
+                Mat4::from_translation(Vec3::new(-5.0, 0.0, 5.0))
                     * Mat4::from_scale(Vec3::splat(5.0)),
             )
             .unwrap();
@@ -259,7 +273,6 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         });
 
         self.uniform_buffer = Some(uniform_buffer.finish());
-        requests.push(self.update_camera(device));
 
         self.vertex_buffers = self.scene.create_vertex_buffers(device);
         self.instance_buffers = self.scene.create_wgpu_instances_buffer(device);
@@ -287,15 +300,20 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         &mut self,
         fb: &wgpu::SwapChainOutput,
         device: &wgpu::Device,
-        requests: &mut Vec<Request>,
+        requests: &mut VecDeque<Request>,
     ) {
-        requests.push(self.update_camera(device));
+        let near = 1e-2;
+        let far = 1e2;
+
+        requests.push_back(self.update_uniform(self.camera.get_matrix(near, far), device));
 
         if self.instance_buffers.is_empty() {
             return;
         }
 
         if let Some(pipeline) = &self.pipeline {
+            let frustrum = self.camera.calculate_frustrum(near, far);
+
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render"),
             });
@@ -330,35 +348,43 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                 render_pass.set_pipeline(pipeline);
 
                 for i in 0..self.instance_buffers.len() {
-                    let instance_buffers = &self.instance_buffers[i];
+                    let instance_buffers: &InstanceMatrices = &self.instance_buffers[i];
                     if instance_buffers.count <= 0 {
                         continue;
                     }
 
                     let instance_bind_group = &self.instance_bind_groups[i];
-                    let vb = &self.vertex_buffers[i];
-
+                    let vb: &VertexBuffer = &self.vertex_buffers[i];
                     render_pass.set_bind_group(1, instance_bind_group, &[]);
                     render_pass.set_vertex_buffer(0, &vb.buffer, 0, 0);
                     render_pass.set_vertex_buffer(1, &vb.buffer, 0, 0);
                     render_pass.set_vertex_buffer(2, &vb.buffer, 0, 0);
                     render_pass.set_vertex_buffer(3, &vb.buffer, 0, 0);
-                    render_pass.draw(0..(vb.count as u32), 0..(instance_buffers.count as u32));
+
+                    for i in 0..instance_buffers.count {
+                        let bounds = vb
+                            .bounds
+                            .transformed(instance_buffers.actual_matrices[i]);
+                        if frustrum.aabb_in_frustrum(&bounds) {
+                            let i = i as u32;
+                            render_pass.draw(0..(vb.count as u32), i..(i + 1));
+                        }
+                    }
                 }
             }
 
-            requests.push(Request::CommandBuffer(encoder.finish()));
+            requests.push_back(Request::CommandBuffer(encoder.finish()));
         }
     }
 
     fn mouse_button_handling(
         &mut self,
         _states: &MouseButtonHandler,
-        _requests: &mut Vec<Request>,
+        _requests: &mut VecDeque<Request>,
     ) {
     }
 
-    fn key_handling(&mut self, states: &KeyHandler, requests: &mut Vec<Request>) {
+    fn key_handling(&mut self, states: &KeyHandler, requests: &mut VecDeque<Request>) {
         #[cfg(target_os = "macos")]
         {
             if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
@@ -370,13 +396,13 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         {
             if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
-                requests.push(Request::Exit);
+                requests.push_back(Request::Exit);
                 return;
             }
         }
 
         if states.pressed(KeyCode::Escape) {
-            requests.push(Request::Exit);
+            requests.push_back(Request::Exit);
             return;
         }
 
@@ -436,10 +462,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         self.fps.add_sample(1000.0 / elapsed);
         let avg = self.fps.get_average();
         self.timer.reset();
-        requests.push(Request::TitleChange(String::from(format!(
-            "FPS: {:.2}",
-            avg
-        ))))
+        requests.push_back(Request::TitleChange(format!("FPS: {:.2}", avg)))
     }
 
     fn mouse_handling(
@@ -448,18 +471,18 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         _y: f64,
         _delta_x: f64,
         _delta_y: f64,
-        _requests: &mut Vec<Request>,
+        _requests: &mut VecDeque<Request>,
     ) {
     }
 
-    fn scroll_handling(&mut self, _dx: f64, _dy: f64, _requests: &mut Vec<Request>) {}
+    fn scroll_handling(&mut self, _dx: f64, _dy: f64, _requests: &mut VecDeque<Request>) {}
 
     fn resize(
         &mut self,
         width: u32,
         height: u32,
         device: &wgpu::Device,
-        _requests: &mut Vec<Request>,
+        _requests: &mut VecDeque<Request>,
     ) {
         self.width = width;
         self.height = height;

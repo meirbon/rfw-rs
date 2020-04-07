@@ -1,7 +1,7 @@
 pub mod shader;
 
 use glam::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use winit::{
     dpi::LogicalSize,
@@ -11,9 +11,9 @@ use winit::{
 };
 
 pub use imgui::*;
+use wgpu::BufferAddress;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
-use wgpu::BufferAddress;
 
 pub struct KeyHandler {
     states: HashMap<VirtualKeyCode, bool>,
@@ -93,13 +93,42 @@ pub trait HostFramebuffer {
 pub trait DeviceFramebuffer {
     /// This function is ran once.
     /// Take the device reference to do more in your code.
-    fn init(&mut self, width: u32, height: u32, device: &wgpu::Device, sc_format: wgpu::TextureFormat, requests: &mut Vec<Request>);
-    fn render(&mut self, fb: &wgpu::SwapChainOutput, device: &wgpu::Device, requests: &mut Vec<Request>);
-    fn mouse_button_handling(&mut self, states: &MouseButtonHandler, requests: &mut Vec<Request>);
-    fn key_handling(&mut self, states: &KeyHandler, requests: &mut Vec<Request>);
-    fn mouse_handling(&mut self, x: f64, y: f64, delta_x: f64, delta_y: f64, requests: &mut Vec<Request>);
-    fn scroll_handling(&mut self, dx: f64, dy: f64, requests: &mut Vec<Request>);
-    fn resize(&mut self, width: u32, height: u32, device: &wgpu::Device, requests: &mut Vec<Request>);
+    fn init(
+        &mut self,
+        width: u32,
+        height: u32,
+        device: &wgpu::Device,
+        sc_format: wgpu::TextureFormat,
+        requests: &mut VecDeque<Request>,
+    );
+    fn render(
+        &mut self,
+        fb: &wgpu::SwapChainOutput,
+        device: &wgpu::Device,
+        requests: &mut VecDeque<Request>,
+    );
+    fn mouse_button_handling(
+        &mut self,
+        states: &MouseButtonHandler,
+        requests: &mut VecDeque<Request>,
+    );
+    fn key_handling(&mut self, states: &KeyHandler, requests: &mut VecDeque<Request>);
+    fn mouse_handling(
+        &mut self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        requests: &mut VecDeque<Request>,
+    );
+    fn scroll_handling(&mut self, dx: f64, dy: f64, requests: &mut VecDeque<Request>);
+    fn resize(
+        &mut self,
+        width: u32,
+        height: u32,
+        device: &wgpu::Device,
+        requests: &mut VecDeque<Request>,
+    );
     fn imgui(&mut self, ui: &imgui::Ui);
 }
 
@@ -136,23 +165,28 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
             compatible_surface: Some(&surface),
         },
         wgpu::BackendBit::PRIMARY,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
-    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-        extensions: wgpu::Extensions {
-            anisotropic_filtering: false,
-        },
-        limits: wgpu::Limits::default(),
-    }).await;
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor {
+            extensions: wgpu::Extensions {
+                anisotropic_filtering: false,
+            },
+            limits: wgpu::Limits::default(),
+        })
+        .await;
 
-    let mut requests: Vec<Request> = Vec::new();
+    let mut requests: VecDeque<Request> = VecDeque::new();
+    let mut command_buffers: Vec<wgpu::CommandBuffer> = Vec::new();
 
     let mut sc_descriptor = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         format: wgpu::TextureFormat::Bgra8UnormSrgb,
         width,
         height,
-        present_mode: wgpu::PresentMode::Fifo,
+        present_mode: wgpu::PresentMode::Mailbox,
     };
 
     app.init(width, height, &device, sc_descriptor.format, &mut requests);
@@ -188,8 +222,6 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
     // let mut last_cursor = None;
 
     let mut resized = false;
-
-    let mut command_buffers: Vec<wgpu::CommandBuffer> = Vec::new();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -243,12 +275,27 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
                 // renderer
                 //     .render(ui.render(), &mut device, &mut encoder, &output_texture.view)
                 //     .expect("ImGui render failed.");
+                // command_buffers.push(encoder.finish());
 
                 app.render(&output_texture, &device, &mut requests);
 
-                // command_buffers.push(encoder.finish());
-                queue.submit(command_buffers.as_slice());
-                command_buffers.clear();
+
+                loop {
+                    let request = requests.pop_front();
+                    match request {
+                        Some(request) => match request {
+                            Request::Exit => *control_flow = ControlFlow::Exit,
+                            Request::TitleChange(title) => window.set_title(title.as_str()),
+                            Request::CommandBuffer(command_buffer) => command_buffers.push(command_buffer)
+                        },
+                        _ => break
+                    }
+                }
+
+                if !command_buffers.is_empty() {
+                    queue.submit(command_buffers.as_slice());
+                    command_buffers.clear();
+                }
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(_),
@@ -288,20 +335,20 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(x as f64, y as f64, &mut requests);
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y, &mut requests);
@@ -314,19 +361,6 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
             }
             _ => (),
         }
-
-        while !requests.is_empty() {
-            match requests.pop().unwrap() {
-                Request::Exit => {
-                    *control_flow = ControlFlow::Exit;
-                    return;
-                }
-                Request::TitleChange(title) => window.set_title(title.as_str()),
-                Request::CommandBuffer(cmd_buffer) => command_buffers.push(cmd_buffer)
-            }
-        }
-
-        // platform.handle_event(imgui.io_mut(), &window, &event);
     });
 }
 
@@ -362,7 +396,9 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
             compatible_surface: Some(&surface),
         },
         wgpu::BackendBit::PRIMARY,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     app.init(width, height);
 
@@ -427,7 +463,10 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
     let matrix = Mat4::from_scale((1.0, -1.0, 1.0).into());
 
     uniform_buffer.data.copy_from_slice(unsafe {
-        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, std::mem::size_of::<Mat4>())
+        std::slice::from_raw_parts(
+            matrix.as_ref().as_ptr() as *const u8,
+            std::mem::size_of::<Mat4>(),
+        )
     });
     let uniform_buffer = uniform_buffer.finish();
 
@@ -733,20 +772,20 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(x as f64, y as f64);
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y);

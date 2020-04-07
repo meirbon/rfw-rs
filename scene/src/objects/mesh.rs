@@ -3,7 +3,7 @@ use rayon::prelude::*;
 
 use crate::objects::*;
 use crate::scene::{PrimID, USE_MBVH};
-use bvh::{Bounds, AABB, BVH, MBVH, Ray, RayPacket4};
+use bvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 
 pub trait ToMesh {
     fn into_rt_mesh(self) -> RTMesh;
@@ -31,6 +31,7 @@ pub struct VertexBuffer {
     pub count: usize,
     pub size_in_bytes: usize,
     pub buffer: wgpu::Buffer,
+    pub bounds: AABB,
 }
 
 impl VertexData {
@@ -51,7 +52,12 @@ pub struct RastMesh {
 }
 
 impl RastMesh {
-    pub fn new(vertices: &[Vec3], normals: &[Vec3], uvs: &[Vec2], material_ids: &[u32]) -> RastMesh {
+    pub fn new(
+        vertices: &[Vec3],
+        normals: &[Vec3],
+        uvs: &[Vec2],
+        material_ids: &[u32],
+    ) -> RastMesh {
         assert_eq!(vertices.len(), normals.len());
         assert_eq!(vertices.len(), uvs.len());
         assert_eq!(uvs.len(), material_ids.len() * 3);
@@ -110,6 +116,7 @@ impl RastMesh {
             count: self.vertices.len(),
             size_in_bytes: size,
             buffer: triangle_buffer.finish(),
+            bounds: self.bounds(),
         }
     }
 }
@@ -366,5 +373,7 @@ impl Bounds for RTMesh {
 }
 
 impl Bounds for RastMesh {
-    fn bounds(&self) -> AABB { self.bounds.clone() }
+    fn bounds(&self) -> AABB {
+        self.bounds.clone()
+    }
 }
