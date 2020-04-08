@@ -1,14 +1,15 @@
-use glam::*;
-
 pub mod list;
 
 pub use list::*;
 
+use glam::*;
+use serde::{Serialize, Deserialize};
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Material {
-    pub color: Vec3,
-    pub specular: Vec3,
+    pub color: [f32; 4],
+    pub specular: [f32; 4],
 
     pub opacity: f32,
     pub roughness: f32,
@@ -19,9 +20,9 @@ pub struct Material {
 impl Material {
     pub fn new(color: Vec3, roughness: f32, specular: Vec3, opacity: f32) -> Material {
         Material {
-            color,
+            color: color.extend(1.0).into(),
+            specular: specular.extend(1.0).into(),
             roughness,
-            specular,
             opacity,
             diffuse_tex: -1,
             normal_tex: -1,

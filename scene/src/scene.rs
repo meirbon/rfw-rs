@@ -6,7 +6,6 @@ use glam::*;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Formatter;
-use serde::{Serialize, Deserialize};
 
 pub static mut USE_MBVH: bool = true;
 

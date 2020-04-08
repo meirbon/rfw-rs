@@ -23,6 +23,7 @@ pub struct TriangleScene {
     empty_object_slots: Vec<usize>,
     empty_instance_slots: Vec<usize>,
     flags: Flags,
+    materials: MaterialList,
 }
 
 pub struct InstanceMatrices {
@@ -43,26 +44,32 @@ impl TriangleScene {
             empty_object_slots: Vec::new(),
             empty_instance_slots: Vec::new(),
             flags: Flags::new(),
+            materials: MaterialList::new(),
         }
+    }
+
+    pub fn get_material_list(&mut self) -> &mut MaterialList {
+        &mut self.materials
     }
 
     pub fn load_mesh<S: AsRef<Path>>(
         &mut self,
         path: S,
-        mat_manager: &mut MaterialList,
     ) -> Option<usize> {
         let path = path.as_ref();
         let extension = path.extension();
         if extension.is_none() {
             return None;
         }
+
         let extension = extension.unwrap();
+        let materials = &mut self.materials;
 
         if extension == "obj" {
             let cached_object = path.with_extension("rm");
             let cached_file = File::open(cached_object.as_path());
             if cached_file.is_err() {
-                let obj = Obj::new(path, mat_manager);
+                let obj = Obj::new(path, materials);
                 if obj.is_err() {
                     return None;
                 }
@@ -81,7 +88,7 @@ impl TriangleScene {
 
             let object: Result<RastMesh, _> = bincode::deserialize_from(reader);
             if object.is_err() {
-                let obj = Obj::new(path, mat_manager);
+                let obj = Obj::new(path, materials);
                 if obj.is_err() {
                     return None;
                 }

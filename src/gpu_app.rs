@@ -24,7 +24,7 @@ pub struct GPUApp<'a> {
     staging_buffer: Option<wgpu::Buffer>,
     depth_texture: Option<wgpu::Texture>,
     depth_texture_view: Option<wgpu::TextureView>,
-    materials: MaterialList,
+    material_buffer: Option<(wgpu::BufferAddress, wgpu::Buffer)>,
     scene: TriangleScene,
     camera: Camera,
     timer: Timer,
@@ -36,7 +36,6 @@ impl<'a> GPUApp<'a> {
         let compiler = CompilerBuilder::new().build();
 
         let scene = TriangleScene::new();
-        let mat_list = MaterialList::new();
 
         Self {
             width: 1,
@@ -54,7 +53,7 @@ impl<'a> GPUApp<'a> {
             staging_buffer: None,
             depth_texture: None,
             depth_texture_view: None,
-            materials: mat_list,
+            material_buffer: None,
             scene,
             camera: Camera::zero(),
             timer: Timer::new(),
@@ -107,24 +106,24 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         } else {
             let (object, scale) = {
                 #[cfg(not(debug_assertions))]
-                {
-                    (
-                        self.scene
-                            .load_mesh("models/dragon.obj", &mut self.materials)
-                            .expect("Could not load dragon.obj"),
-                        Vec3::splat(5.0),
-                    )
-                }
+                    {
+                        (
+                            self.scene
+                                .load_mesh("models/dragon.obj")
+                                .expect("Could not load dragon.obj"),
+                            Vec3::splat(5.0),
+                        )
+                    }
 
                 #[cfg(debug_assertions)]
-                {
-                    (
-                        self.scene
-                            .load_mesh("models/sphere.obj", &mut self.materials)
-                            .expect("Could not load sphere.obj"),
-                        Vec3::splat(0.05),
-                    )
-                }
+                    {
+                        (
+                            self.scene
+                                .load_mesh("models/sphere.obj")
+                                .expect("Could not load sphere.obj"),
+                            Vec3::splat(0.05),
+                        )
+                    }
             };
 
             let _object = self
@@ -177,6 +176,11 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                     binding: 0,
                     visibility: ShaderStage::VERTEX,
                     ty: BindingType::UniformBuffer { dynamic: false },
+                }, BindGroupLayoutEntry {
+                    // Material buffer
+                    binding: 1,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::StorageBuffer { readonly: true, dynamic: false },
                 }],
                 label: Some("uniform-layout"),
             }));
@@ -289,6 +293,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         });
 
         self.uniform_buffer = Some(uniform_buffer.finish());
+        self.material_buffer = Some(self.scene.get_material_list().create_wgpu_buffer(device));
 
         self.vertex_buffers = self.scene.create_vertex_buffers(device);
         self.instance_buffers = self.scene.create_wgpu_instances_buffer(device);
@@ -297,6 +302,9 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             self.triangle_bind_group_layout.as_ref().unwrap(),
             &self.instance_buffers,
         );
+
+        let (size, mat_buffer) = self.material_buffer.as_ref().unwrap();
+
         self.bind_group = Some(device.create_bind_group(&BindGroupDescriptor {
             layout: self.bind_group_layout.as_ref().unwrap(),
             bindings: &[Binding {
@@ -305,7 +313,14 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                     buffer: self.uniform_buffer.as_ref().unwrap(),
                     range: 0..64,
                 },
-            }],
+            },
+                Binding {
+                    binding: 1,
+                    resource: BindingResource::Buffer {
+                        buffer: mat_buffer,
+                        range: 0..(*size),
+                    },
+                }],
             label: Some("mesh-bind-group-descriptor"),
         }));
 
@@ -396,25 +411,24 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         &mut self,
         _states: &MouseButtonHandler,
         _requests: &mut VecDeque<Request>,
-    ) {
-    }
+    ) {}
 
     fn key_handling(&mut self, states: &KeyHandler, requests: &mut VecDeque<Request>) {
         #[cfg(target_os = "macos")]
-        {
-            if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
-                requests.push_back(Request::Exit);
-                return;
+            {
+                if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
+                    requests.push_back(Request::Exit);
+                    return;
+                }
             }
-        }
 
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-        {
-            if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
-                requests.push_back(Request::Exit);
-                return;
+            {
+                if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
+                    requests.push_back(Request::Exit);
+                    return;
+                }
             }
-        }
 
         if states.pressed(KeyCode::Escape) {
             requests.push_back(Request::Exit);
@@ -487,8 +501,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         _delta_x: f64,
         _delta_y: f64,
         _requests: &mut VecDeque<Request>,
-    ) {
-    }
+    ) {}
 
     fn scroll_handling(&mut self, _dx: f64, dy: f64, _requests: &mut VecDeque<Request>) {
         self.camera

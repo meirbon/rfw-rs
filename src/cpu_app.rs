@@ -206,7 +206,7 @@ impl CPUApp {
                             let material = unsafe { materials.get_unchecked(hit.mat_id as usize) };
 
                             let color: Vec3 =
-                                material.color * -Vec3::from(direction).dot(hit.normal.into());
+                                Vec4::from(material.color).truncate() * -Vec3::from(direction).dot(hit.normal.into());
                             color.extend(1.0)
                         } else {
                             Vec4::zero()

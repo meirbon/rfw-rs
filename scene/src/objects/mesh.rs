@@ -379,3 +379,37 @@ impl Bounds for RastMesh {
         self.bounds.clone()
     }
 }
+
+impl<'a> SerializableObject<'a, RTMesh> for RTMesh {
+    fn serialize<S: AsRef<std::path::Path>>(&self, path: S) -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+        let encoded: Vec<u8> = bincode::serialize(self)?;
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(encoded.as_ref())?;
+        Ok(())
+    }
+
+    fn deserialize<S: AsRef<std::path::Path>>(path: S) -> Result<RTMesh, Box<dyn std::error::Error>> {
+        let file = std::fs::File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        let object: Self = bincode::deserialize_from(reader)?;
+        Ok(object)
+    }
+}
+
+impl<'a> SerializableObject<'a, RastMesh> for RastMesh {
+    fn serialize<S: AsRef<std::path::Path>>(&self, path: S) -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+        let encoded: Vec<u8> = bincode::serialize(self)?;
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(encoded.as_ref())?;
+        Ok(())
+    }
+
+    fn deserialize<S: AsRef<std::path::Path>>(path: S) -> Result<RastMesh, Box<dyn std::error::Error>> {
+        let file = std::fs::File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        let object: Self = bincode::deserialize_from(reader)?;
+        Ok(object)
+    }
+}

@@ -1,8 +1,10 @@
-use glam::*;
-
-use std::ops::{Index, IndexMut};
 use crate::material::Material;
 
+use glam::*;
+use std::ops::{Index, IndexMut};
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialList {
     materials: Vec<Material>,
 }
@@ -43,6 +45,27 @@ impl MaterialList {
 
     pub fn get_default(&self) -> usize {
         0
+    }
+
+    #[cfg(feature = "wgpu")]
+    pub fn create_wgpu_buffer(&self, device: &wgpu::Device) -> (wgpu::BufferAddress, wgpu::Buffer) {
+        use wgpu::*;
+
+        let size = (self.materials.len() * std::mem::size_of::<Material>()) as BufferAddress;
+        let buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            label: Some("material-buffer"),
+            size,
+            usage: BufferUsage::STORAGE_READ
+        });
+
+        buffer.data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                self.materials.as_ptr() as *const u8,
+                size as usize
+            )
+        });
+
+        (size, buffer.finish())
     }
 }
 
