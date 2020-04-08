@@ -1,7 +1,10 @@
 use crate::objects::*;
+
 use bvh::aabb::Bounds;
-use bvh::{RayPacket4, AABB};
+use bvh::{Ray, RayPacket4, AABB};
+
 use serde::{Serialize, Deserialize};
+use glam::*;
 
 /// Instance
 /// Takes in a bounding box and transform and transforms to and from object local space.

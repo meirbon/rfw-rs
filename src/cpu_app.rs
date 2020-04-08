@@ -1,16 +1,12 @@
 use crate::camera::*;
 use crate::utils::*;
-use bvh::Ray;
 use fb_template::{
     HostFramebuffer, KeyCode, KeyHandler, MouseButtonCode, MouseButtonHandler, Request, Ui,
 };
 use glam::*;
 use rayon::prelude::*;
-use scene::{
-    constants::{DEFAULT_T_MAX, DEFAULT_T_MIN},
-    material::MaterialList,
-    BVHMode, Obj, Plane, Scene, Sphere, ToMesh,
-};
+use bvh::Ray;
+use scene::{RTTriangleScene, MaterialList, Quad, constants, Scene, BVHMode, ToMesh};
 use std::error::Error;
 
 #[derive(Debug, Copy, Clone)]
@@ -18,8 +14,6 @@ enum RenderMode {
     Scene,
     BVH,
 }
-
-type AppScene = Scene;
 
 pub struct CPUApp {
     pub width: u32,
@@ -29,7 +23,7 @@ pub struct CPUApp {
     pixels: Vec<Vec4>,
     camera: Camera,
     timer: Timer,
-    scene: AppScene,
+    scene: RTTriangleScene,
     materials: MaterialList,
     render_mode: RenderMode,
     fps: Averager<f32>,
@@ -40,38 +34,35 @@ pub struct CPUApp {
 impl CPUApp {
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let mut materials = MaterialList::new();
-        let mut scene = AppScene::new();
+        let scene_str = "models/dragon_sphere.rtscene";
 
-        let dragon = Box::new(
-            Obj::new("models/dragon.obj", &mut materials)?
-                .into_rt_mesh()
-                .scale(50.0),
-        );
-        let dragon = scene.add_object(dragon);
-        let _dragon = scene.add_instance(
-            dragon,
-            Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(Vec3::splat(0.1)),
-        )?;
+        let scene = if let Ok(scene) = RTTriangleScene::deserialize(scene_str) {
+            scene
+        } else {
+            let mut scene = RTTriangleScene::new();
+            let dragon = scene.load_mesh("models/dragon.obj", &mut materials, Some(50.0)).unwrap();
+            let _ = scene.add_instance(
+                dragon,
+                Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(Vec3::splat(0.1)),
+            ).unwrap();
 
-        let sphere_mat_id = materials.add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 1.0);
-        let sphere = scene.add_object(Box::new(Sphere::new(Vec3::zero(), 0.5, sphere_mat_id)));
+            let sphere = scene.load_mesh("models/sphere.obj", &mut materials, Some(0.01)).unwrap();
+            (-2..3).for_each(|x| {
+                (3..8).for_each(|z| {
+                    let matrix = Mat4::from_translation(Vec3::new(x as f32 * 2.0, 0.0, z as f32 * 2.0));
+                    scene.add_instance(sphere, matrix).unwrap();
+                })
+            });
 
-        (-2..3).for_each(|x| {
-            (3..8).for_each(|z| {
-                let matrix = Mat4::from_translation(Vec3::new(x as f32 * 2.0, 0.0, z as f32 * 2.0));
-                scene.add_instance(sphere, matrix).unwrap();
-            })
-        });
-
-        let plane_mat_id = materials.add(Vec3::new(0.2, 0.2, 1.0), 1.0, Vec3::one(), 1.0) as u32;
-        let plane = scene.add_object(Box::new(Plane::new(
-            [0.0, -2.0, 10.0],
-            [0.0, 1.0, 0.0],
-            [10.0; 2],
-            plane_mat_id,
-        )));
-        let _plane = scene.add_instance(plane, Mat4::identity())?;
-        scene.build_bvh();
+            let quad_mat_id = materials.add(Vec3::new(0.2, 0.2, 1.0), 1.0, Vec3::one(), 1.0) as u32;
+            let quad = Quad::new(Vec3::new(0.0, 1.0, 0.0), Vec3::new(0.0, -2.0, 10.0), 10., 10.0, quad_mat_id)
+                .into_rt_mesh();
+            let quad = scene.add_object(quad);
+            let _ = scene.add_instance(quad, Mat4::identity()).unwrap();
+            scene.build_bvh();
+            scene.serialize(scene_str).unwrap();
+            scene
+        };
 
         let num_threads = num_cpus::get();
         let (width, height) = (1, 1);
@@ -126,7 +117,7 @@ impl CPUApp {
                 for x in 0..width {
                     let ray = view.generate_ray(x as u32, y as u32);
                     pixels[x] = {
-                        let (_, depth) = intersector.depth_test(ray, DEFAULT_T_MIN, DEFAULT_T_MAX);
+                        let (_, depth) = intersector.depth_test(ray, constants::DEFAULT_T_MIN, constants::DEFAULT_T_MAX);
                         if depth == 0 {
                             Vec4::from([0.0; 4])
                         } else {
@@ -187,7 +178,7 @@ impl CPUApp {
 
                     // let packet: &mut RayPacket4 = &mut packet[p as usize];
                     let (instance_ids, prim_ids) =
-                        intersector.intersect4(&mut packet, [DEFAULT_T_MIN; 4]);
+                        intersector.intersect4(&mut packet, [constants::DEFAULT_T_MIN; 4]);
 
                     for i in 0..4 {
                         let local_pixel_id = i + x as usize;

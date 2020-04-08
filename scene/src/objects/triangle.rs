@@ -1,9 +1,11 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
 use crate::scene::PrimID;
-use serde::{Serialize, Deserialize};
 
-use bvh::{Bounds, RayPacket4, AABB};
+use serde::{Serialize, Deserialize};
+use glam::*;
+
+use bvh::{Bounds, Ray, RayPacket4, AABB};
 use std::ops::BitAnd;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]

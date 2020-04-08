@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet, error::Error, fs::File, io::prelude::*, io::BufReader, path::Path,
 };
+use std::ffi::{OsStr, OsString};
 
 /// Scene optimized for triangles
 /// Does not support objects other than Meshes, but does not require virtual calls because of this.
@@ -19,11 +20,9 @@ pub struct TriangleScene {
     object_references: Vec<HashSet<usize>>,
     instances: Vec<Instance>,
     instance_references: Vec<usize>,
-    bvh: BVH,
-    mbvh: MBVH,
-    flags: Flags,
     empty_object_slots: Vec<usize>,
     empty_instance_slots: Vec<usize>,
+    flags: Flags,
 }
 
 pub struct InstanceMatrices {
@@ -41,11 +40,9 @@ impl TriangleScene {
             object_references: Vec::new(),
             instances: Vec::new(),
             instance_references: Vec::new(),
-            bvh: BVH::empty(),
-            mbvh: MBVH::empty(),
-            flags: Flags::new(),
             empty_object_slots: Vec::new(),
             empty_instance_slots: Vec::new(),
+            flags: Flags::new(),
         }
     }
 
@@ -281,15 +278,15 @@ impl TriangleScene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-    where
-        T: FnMut(Option<&RastMesh>),
+        where
+            T: FnMut(Option<&RastMesh>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-    where
-        T: FnMut(Option<&mut RastMesh>),
+        where
+            T: FnMut(Option<&mut RastMesh>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
@@ -410,6 +407,277 @@ impl TriangleScene {
         Ok(())
     }
 
+    pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
+        let encoded: Vec<u8> = bincode::serialize(self)?;
+        let mut file = File::create(path)?;
+        file.write_all(encoded.as_ref())?;
+        Ok(())
+    }
+
+    pub fn deserialize<S: AsRef<Path>>(path: S) -> Result<Self, Box<dyn Error>> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let object: Self = bincode::deserialize_from(reader)?;
+        Ok(object)
+    }
+
+    // pub fn create_intersector(&self) -> TriangleIntersector {
+    //     TriangleIntersector {
+    //         objects: self.objects.as_slice(),
+    //         instances: self.instances.as_slice(),
+    //         bvh: &self.bvh,
+    //         mbvh: &self.mbvh,
+    //     }
+    // }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RTTriangleScene {
+    objects: Vec<RTMesh>,
+    object_references: Vec<HashSet<usize>>,
+    instances: Vec<Instance>,
+    instance_references: Vec<usize>,
+    bvh: BVH,
+    mbvh: MBVH,
+    flags: Flags,
+    empty_object_slots: Vec<usize>,
+    empty_instance_slots: Vec<usize>,
+}
+
+#[allow(dead_code)]
+impl RTTriangleScene {
+    pub fn new() -> Self {
+        Self {
+            objects: Vec::new(),
+            object_references: Vec::new(),
+            instances: Vec::new(),
+            instance_references: Vec::new(),
+            bvh: BVH::empty(),
+            mbvh: MBVH::empty(),
+            flags: Flags::new(),
+            empty_object_slots: Vec::new(),
+            empty_instance_slots: Vec::new(),
+        }
+    }
+
+    pub fn load_mesh<S: AsRef<Path>>(
+        &mut self,
+        path: S,
+        mat_manager: &mut MaterialList,
+        scale: Option<f32>,
+    ) -> Option<usize> {
+        let cache_extension = "rtm";
+
+        let path = path.as_ref();
+        let extension = path.extension();
+        if extension.is_none() {
+            return None;
+        }
+
+        let extension = extension.unwrap();
+        let file_name = path.file_name().unwrap();
+
+        let file_name = {
+            let mut base = OsString::from(file_name);
+            if let Some(scale) = scale {
+                base.push(OsString::from(format!("-scale-{:.10}", scale)));
+                base
+            } else {
+                base
+            }
+        };
+
+        let mut cached_object = path.parent().unwrap().to_path_buf();
+        cached_object.push(file_name);
+
+        let cached_object = cached_object.with_extension(cache_extension);
+        if extension == "obj" {
+            let cached_file = File::open(cached_object.as_path());
+            if cached_file.is_err() {
+                let obj = Obj::new(path, mat_manager);
+                if obj.is_err() {
+                    return None;
+                }
+
+                let obj = obj.unwrap();
+
+                let mesh = if scale.is_some() {
+                    obj.into_rt_mesh().scale(scale.unwrap())
+                } else {
+                    obj.into_rt_mesh()
+                };
+
+                let encoded: Vec<u8> = bincode::serialize(&mesh).unwrap();
+                let mut file = File::create(cached_object.as_path()).unwrap();
+                file.write_all(encoded.as_slice()).unwrap();
+                let result = self.add_object(mesh);
+                return Some(result);
+            }
+
+            let cached_file = cached_file.unwrap();
+            let reader = BufReader::new(cached_file);
+
+            let object: Result<RTMesh, _> = bincode::deserialize_from(reader);
+            if object.is_err() {
+                let obj = Obj::new(path, mat_manager);
+                if obj.is_err() {
+                    return None;
+                }
+
+                let obj = obj.unwrap();
+                let mesh = if scale.is_some() {
+                    obj.into_rt_mesh().scale(scale.unwrap())
+                } else {
+                    obj.into_rt_mesh()
+                };
+                let encoded: Vec<u8> = bincode::serialize(&mesh).unwrap();
+                let mut file = File::create(cached_object.as_path()).unwrap();
+                file.write_all(encoded.as_slice()).unwrap();
+                let result = self.add_object(mesh);
+                return Some(result);
+            }
+
+            let object = object.unwrap();
+            return Some(self.add_object(object));
+        }
+
+        None
+    }
+
+    pub fn get_objects(&self) -> &[RTMesh] {
+        self.objects.as_slice()
+    }
+
+    pub fn get_object<T>(&self, index: usize, mut cb: T)
+        where
+            T: FnMut(Option<&RTMesh>),
+    {
+        cb(self.objects.get(index));
+    }
+
+    pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
+        where
+            T: FnMut(Option<&mut RTMesh>),
+    {
+        cb(self.objects.get_mut(index));
+        self.flags.set_flag(SceneFlags::Dirty);
+    }
+
+    pub fn add_object(&mut self, object: RTMesh) -> usize {
+        if !self.empty_object_slots.is_empty() {
+            let new_index = self.empty_object_slots.pop().unwrap();
+            self.objects[new_index] = object;
+            self.object_references[new_index] = HashSet::new();
+            return new_index;
+        }
+
+        self.objects.push(object);
+        self.object_references.push(HashSet::new());
+        self.flags.set_flag(SceneFlags::Dirty);
+        self.objects.len() - 1
+    }
+
+    pub fn set_object(&mut self, index: usize, object: RTMesh) -> Result<(), ()> {
+        if self.objects.get(index).is_none() {
+            return Err(());
+        }
+
+        self.objects[index] = object;
+        let object_refs = self.object_references[index].clone();
+        for i in object_refs {
+            self.remove_instance(i).unwrap();
+        }
+
+        self.object_references[index].clear();
+        self.flags.set_flag(SceneFlags::Dirty);
+        Ok(())
+    }
+
+    pub fn remove_object(&mut self, object: usize) -> Result<(), ()> {
+        if self.objects.get(object).is_none() {
+            return Err(());
+        }
+
+        self.objects[object] = RTMesh::empty();
+        let object_refs = self.object_references[object].clone();
+        for i in object_refs {
+            self.remove_instance(i).unwrap();
+        }
+
+        self.object_references[object].clear();
+        self.empty_object_slots.push(object);
+        self.flags.set_flag(SceneFlags::Dirty);
+        Ok(())
+    }
+
+    pub fn add_instance(&mut self, index: usize, transform: Mat4) -> Result<usize, ()> {
+        let instance_index = {
+            if self.objects.get(index).is_none() || self.object_references.get(index).is_none() {
+                return Err(());
+            }
+
+            if !self.empty_instance_slots.is_empty() {
+                let new_index = self.empty_instance_slots.pop().unwrap();
+                self.instances[new_index] =
+                    Instance::new(index as isize, &self.objects[index].bounds(), transform);
+                self.instance_references[new_index] = index;
+                return Ok(new_index);
+            }
+
+            self.instances.push(Instance::new(
+                index as isize,
+                &self.objects[index].bounds(),
+                transform,
+            ));
+            self.instances.len() - 1
+        };
+        self.instance_references.push(index);
+
+        self.object_references[index].insert(instance_index);
+        self.flags.set_flag(SceneFlags::Dirty);
+        self.flags.set_flag(SceneFlags::Dirty);
+        Ok(instance_index)
+    }
+
+    pub fn set_instance_object(&mut self, instance: usize, obj_index: usize) -> Result<(), ()> {
+        if self.objects.get(obj_index).is_none() || self.instances.get(instance).is_none() {
+            return Err(());
+        }
+
+        let old_obj_index = self.instance_references[instance];
+        self.object_references[old_obj_index].remove(&instance);
+        self.instances[instance] = Instance::new(
+            obj_index as isize,
+            &self.objects[obj_index].bounds(),
+            self.instances[instance].get_transform(),
+        );
+        self.object_references[obj_index].insert(instance);
+        self.instance_references[instance] = obj_index;
+        self.flags.set_flag(SceneFlags::Dirty);
+        Ok(())
+    }
+
+    pub fn remove_instance(&mut self, index: usize) -> Result<(), ()> {
+        if self.instances.get(index).is_none() {
+            return Err(());
+        }
+
+        let old_obj_index = self.instance_references[index];
+        if self.object_references.get(old_obj_index).is_some() {
+            self.object_references[old_obj_index].remove(&index);
+        }
+
+        self.instances[index] = Instance::new(
+            -1,
+            &self.objects[index].bounds(),
+            self.instances[index].get_transform(),
+        );
+        self.instance_references[index] = std::usize::MAX;
+        self.empty_instance_slots.push(index);
+        self.flags.set_flag(SceneFlags::Dirty);
+        Ok(())
+    }
+
     pub fn build_bvh(&mut self) {
         if self.flags.has_flag(SceneFlags::Dirty) {
             // Need to rebuild bvh
@@ -437,19 +705,19 @@ impl TriangleScene {
         Ok(object)
     }
 
-    // pub fn create_intersector(&self) -> TriangleIntersector {
-    //     TriangleIntersector {
-    //         objects: self.objects.as_slice(),
-    //         instances: self.instances.as_slice(),
-    //         bvh: &self.bvh,
-    //         mbvh: &self.mbvh,
-    //     }
-    // }
+    pub fn create_intersector(&self) -> TriangleIntersector {
+        TriangleIntersector {
+            objects: self.objects.as_slice(),
+            instances: self.instances.as_slice(),
+            bvh: &self.bvh,
+            mbvh: &self.mbvh,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
 pub struct TriangleIntersector<'a> {
-    objects: &'a [Box<RTMesh>],
+    objects: &'a [RTMesh],
     instances: &'a [Instance],
     bvh: &'a BVH,
     mbvh: &'a MBVH,
@@ -658,7 +926,7 @@ impl<'a> TriangleIntersector<'a> {
     }
 }
 
-impl Bounds for TriangleScene {
+impl Bounds for RTTriangleScene {
     fn bounds(&self) -> AABB {
         self.bvh.bounds()
     }

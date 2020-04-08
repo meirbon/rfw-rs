@@ -6,6 +6,7 @@ use glam::*;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Formatter;
+use serde::{Serialize, Deserialize};
 
 pub static mut USE_MBVH: bool = true;
 
@@ -115,15 +116,15 @@ impl Scene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-    where
-        T: FnMut(Option<&Box<dyn Intersect>>),
+        where
+            T: FnMut(Option<&Box<dyn Intersect>>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-    where
-        T: FnMut(Option<&mut Box<dyn Intersect>>),
+        where
+            T: FnMut(Option<&mut Box<dyn Intersect>>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);

@@ -3,6 +3,7 @@ use crate::scene::PrimID;
 
 use bvh::{Bounds, Ray, RayPacket4, AABB};
 use serde::{Deserialize, Serialize};
+use glam::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sphere {
