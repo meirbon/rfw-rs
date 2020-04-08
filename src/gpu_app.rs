@@ -1,15 +1,11 @@
 use fb_template::{
-    shader::*, shader::*, DeviceFramebuffer, KeyCode, KeyHandler, MouseButtonCode,
-    MouseButtonHandler, Request, Ui,
+    shader::*, DeviceFramebuffer, KeyCode, KeyHandler, MouseButtonHandler, Request, Ui,
 };
 use glam::*;
-use rayon::prelude::*;
 
 use crate::camera::*;
 use crate::utils::*;
-use scene::{
-    material::MaterialList, InstanceMatrices, Obj, ToMesh, TriangleScene, VertexBuffer, VertexData,
-};
+use scene::{material::MaterialList, InstanceMatrices, TriangleScene, VertexBuffer, VertexData};
 use std::collections::VecDeque;
 
 pub struct GPUApp<'a> {

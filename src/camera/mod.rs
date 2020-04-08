@@ -1,4 +1,4 @@
-use bvh::{Bounds, Ray, RayPacket4, AABB};
+use bvh::{Ray, RayPacket4};
 use glam::*;
 use std::f32::consts::PI;
 
@@ -206,7 +206,7 @@ impl Camera {
     }
 
     pub fn change_fov(&mut self, fov: f32) {
-        self.fov = fov.clamp(20.0, 160.0);
+        self.fov = fov.min(160.0).max(20.0);
     }
 
     pub fn get_fov(&self) -> f32 {
