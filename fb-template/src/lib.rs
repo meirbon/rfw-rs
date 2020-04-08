@@ -166,8 +166,8 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
         },
         wgpu::BackendBit::PRIMARY,
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
@@ -286,7 +286,7 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
                         Some(request) => match request {
                             Request::Exit => *control_flow = ControlFlow::Exit,
                             Request::TitleChange(title) => window.set_title(title.as_str()),
-                            Request::CommandBuffer(command_buffer) => command_buffers.push(command_buffer)
+                            Request::CommandBuffer(command_buffer) => command_buffers.push(command_buffer),
                         },
                         _ => break
                     }
@@ -335,20 +335,20 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
             }
             Event::WindowEvent {
                 event:
-                    WindowEvent::MouseWheel {
-                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
-                        ..
-                    },
+                WindowEvent::MouseWheel {
+                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                    ..
+                },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(x as f64, y as f64, &mut requests);
             }
             Event::WindowEvent {
                 event:
-                    WindowEvent::MouseWheel {
-                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
-                        ..
-                    },
+                WindowEvent::MouseWheel {
+                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                    ..
+                },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y, &mut requests);
@@ -397,8 +397,8 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
         },
         wgpu::BackendBit::PRIMARY,
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     app.init(width, height);
 
@@ -651,23 +651,19 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
 
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &bind_group_layout,
-                    bindings: &[
-                        wgpu::Binding {
-                            binding: 0,
-                            resource: wgpu::BindingResource::Buffer {
-                                buffer: &uniform_buffer,
-                                range: 0..64,
-                            },
+                    bindings: &[wgpu::Binding {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer {
+                            buffer: &uniform_buffer,
+                            range: 0..64,
                         },
-                        wgpu::Binding {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&render_texture_view),
-                        },
-                        wgpu::Binding {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&sampler),
-                        },
-                    ],
+                    }, wgpu::Binding {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&render_texture_view),
+                    }, wgpu::Binding {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    }, ],
                     label: Some("blit-bind-group"),
                 });
 
@@ -772,20 +768,20 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
             }
             Event::WindowEvent {
                 event:
-                    WindowEvent::MouseWheel {
-                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
-                        ..
-                    },
+                WindowEvent::MouseWheel {
+                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                    ..
+                },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(x as f64, y as f64);
             }
             Event::WindowEvent {
                 event:
-                    WindowEvent::MouseWheel {
-                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
-                        ..
-                    },
+                WindowEvent::MouseWheel {
+                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                    ..
+                },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y);
