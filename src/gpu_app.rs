@@ -105,54 +105,56 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
     ) {
         use wgpu::*;
 
-        let (object, scale) = {
-            #[cfg(not(debug_assertions))]
-            {
-                (
-                    Box::new(
-                        Obj::new("models/dragon.obj", &mut self.materials)
-                            .unwrap()
-                            .into_mesh(),
-                    ),
-                    Vec3::splat(5.0),
-                )
-            }
+        if let Ok(scene) = TriangleScene::deserialize("models/dragon.scene") {
+            println!("Loaded scene from cached file: models/dragon.scene");
+            self.scene = scene;
+        } else {
+            let (object, scale) = {
+                #[cfg(not(debug_assertions))]
+                {
+                    (
+                        self.scene
+                            .load_mesh("models/dragon.obj", &mut self.materials)
+                            .expect("Could not load dragon.obj"),
+                        Vec3::splat(5.0),
+                    )
+                }
 
-            #[cfg(debug_assertions)]
-            {
-                (
-                    Box::new(
-                        Obj::new("models/sphere.obj", &mut self.materials)
-                            .unwrap()
-                            .into_mesh(),
-                    ),
-                    Vec3::splat(0.05),
-                )
-            }
-        };
+                #[cfg(debug_assertions)]
+                {
+                    (
+                        self.scene
+                            .load_mesh("models/sphere.obj", &mut self.materials)
+                            .expect("Could not load sphere.obj"),
+                        Vec3::splat(0.05),
+                    )
+                }
+            };
 
-        let object = self.scene.add_object(object);
-        let _object = self
-            .scene
-            .add_instance(
-                object,
-                Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(scale),
-            )
-            .unwrap();
-        let _object = self
-            .scene
-            .add_instance(
-                object,
-                Mat4::from_translation(Vec3::new(5.0, 0.0, 5.0)) * Mat4::from_scale(scale),
-            )
-            .unwrap();
-        let _object = self
-            .scene
-            .add_instance(
-                object,
-                Mat4::from_translation(Vec3::new(-5.0, 0.0, 5.0)) * Mat4::from_scale(scale),
-            )
-            .unwrap();
+            let _object = self
+                .scene
+                .add_instance(
+                    object,
+                    Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(scale),
+                )
+                .unwrap();
+            let _object = self
+                .scene
+                .add_instance(
+                    object,
+                    Mat4::from_translation(Vec3::new(5.0, 0.0, 5.0)) * Mat4::from_scale(scale),
+                )
+                .unwrap();
+            let _object = self
+                .scene
+                .add_instance(
+                    object,
+                    Mat4::from_translation(Vec3::new(-5.0, 0.0, 5.0)) * Mat4::from_scale(scale),
+                )
+                .unwrap();
+
+            self.scene.serialize("models/dragon.scene").unwrap();
+        }
 
         self.resize(width, height, &device, requests);
 
@@ -338,7 +340,6 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             });
 
             {
-                let mut rendered = 0;
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                         attachment: &fb.view,
@@ -384,14 +385,11 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                     for i in 0..instance_buffers.count {
                         let bounds = vb.bounds.transformed(instance_buffers.actual_matrices[i]);
                         if frustrum.aabb_in_frustrum(&bounds) != FrustrumResult::Outside {
-                            rendered += 1;
                             let i = i as u32;
                             render_pass.draw(0..(vb.count as u32), i..(i + 1));
                         }
                     }
                 }
-
-                println!("rendered: {}", rendered);
             }
 
             requests.push_back(Request::CommandBuffer(encoder.finish()));
@@ -497,7 +495,8 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
     }
 
     fn scroll_handling(&mut self, _dx: f64, dy: f64, _requests: &mut VecDeque<Request>) {
-        self.camera.change_fov(self.camera.get_fov() - (dy as f32) * 0.01);
+        self.camera
+            .change_fov(self.camera.get_fov() - (dy as f32) * 0.01);
     }
 
     fn resize(

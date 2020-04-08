@@ -1,17 +1,21 @@
 use crate::objects::*;
 use crate::scene::*;
-use crate::utils::*;
+use crate::{utils::*, MaterialList};
 use bvh::Ray;
 
 use bvh::{Bounds, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
 use glam::*;
 
-use std::collections::HashSet;
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashSet, error::Error, fs::File, io::prelude::*, io::BufReader, path::Path,
+};
 
 /// Scene optimized for triangles
 /// Does not support objects other than Meshes, but does not require virtual calls because of this.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriangleScene {
-    objects: Vec<Box<RastMesh>>,
+    objects: Vec<RastMesh>,
     object_references: Vec<HashSet<usize>>,
     instances: Vec<Instance>,
     instance_references: Vec<usize>,
@@ -43,6 +47,62 @@ impl TriangleScene {
             empty_object_slots: Vec::new(),
             empty_instance_slots: Vec::new(),
         }
+    }
+
+    pub fn load_mesh<S: AsRef<Path>>(
+        &mut self,
+        path: S,
+        mat_manager: &mut MaterialList,
+    ) -> Option<usize> {
+        let path = path.as_ref();
+        let extension = path.extension();
+        if extension.is_none() {
+            return None;
+        }
+        let extension = extension.unwrap();
+
+        if extension == "obj" {
+            let cached_object = path.with_extension("rm");
+            let cached_file = File::open(cached_object.as_path());
+            if cached_file.is_err() {
+                let obj = Obj::new(path, mat_manager);
+                if obj.is_err() {
+                    return None;
+                }
+
+                let obj = obj.unwrap();
+                let mesh = obj.into_mesh();
+                let encoded: Vec<u8> = bincode::serialize(&mesh).unwrap();
+                let mut file = File::create(cached_object.as_path()).unwrap();
+                file.write_all(encoded.as_slice()).unwrap();
+                let result = self.add_object(mesh);
+                return Some(result);
+            }
+
+            let cached_file = cached_file.unwrap();
+            let reader = BufReader::new(cached_file);
+
+            let object: Result<RastMesh, _> = bincode::deserialize_from(reader);
+            if object.is_err() {
+                let obj = Obj::new(path, mat_manager);
+                if obj.is_err() {
+                    return None;
+                }
+
+                let obj = obj.unwrap();
+                let mesh = obj.into_mesh();
+                let encoded: Vec<u8> = bincode::serialize(&mesh).unwrap();
+                let mut file = File::create(cached_object.as_path()).unwrap();
+                file.write_all(encoded.as_slice()).unwrap();
+                let result = self.add_object(mesh);
+                return Some(result);
+            }
+
+            let object = object.unwrap();
+            return Some(self.add_object(object));
+        }
+
+        None
     }
 
     #[cfg(feature = "wgpu")]
@@ -216,26 +276,26 @@ impl TriangleScene {
             .collect()
     }
 
-    pub fn get_objects(&self) -> &[Box<RastMesh>] {
+    pub fn get_objects(&self) -> &[RastMesh] {
         self.objects.as_slice()
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
     where
-        T: FnMut(Option<&Box<RastMesh>>),
+        T: FnMut(Option<&RastMesh>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
     where
-        T: FnMut(Option<&mut Box<RastMesh>>),
+        T: FnMut(Option<&mut RastMesh>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
     }
 
-    pub fn add_object(&mut self, object: Box<RastMesh>) -> usize {
+    pub fn add_object(&mut self, object: RastMesh) -> usize {
         if !self.empty_object_slots.is_empty() {
             let new_index = self.empty_object_slots.pop().unwrap();
             self.objects[new_index] = object;
@@ -249,7 +309,7 @@ impl TriangleScene {
         self.objects.len() - 1
     }
 
-    pub fn set_object(&mut self, index: usize, object: Box<RastMesh>) -> Result<(), ()> {
+    pub fn set_object(&mut self, index: usize, object: RastMesh) -> Result<(), ()> {
         if self.objects.get(index).is_none() {
             return Err(());
         }
@@ -270,7 +330,7 @@ impl TriangleScene {
             return Err(());
         }
 
-        self.objects[object] = Box::new(RastMesh::empty());
+        self.objects[object] = RastMesh::empty();
         let object_refs = self.object_references[object].clone();
         for i in object_refs {
             self.remove_instance(i).unwrap();
@@ -361,6 +421,20 @@ impl TriangleScene {
             self.bvh = BVH::construct(aabbs.as_slice());
             self.mbvh = MBVH::construct(&self.bvh);
         }
+    }
+
+    pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
+        let encoded: Vec<u8> = bincode::serialize(self)?;
+        let mut file = File::create(path)?;
+        file.write_all(encoded.as_ref())?;
+        Ok(())
+    }
+
+    pub fn deserialize<S: AsRef<Path>>(path: S) -> Result<Self, Box<dyn Error>> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let object: Self = bincode::deserialize_from(reader)?;
+        Ok(object)
     }
 
     // pub fn create_intersector(&self) -> TriangleIntersector {

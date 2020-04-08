@@ -4,13 +4,14 @@ use rayon::prelude::*;
 use crate::objects::*;
 use crate::scene::{PrimID, USE_MBVH};
 use bvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
+use serde::{Deserialize, Serialize};
 
 pub trait ToMesh {
     fn into_rt_mesh(self) -> RTMesh;
     fn into_mesh(self) -> RastMesh;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RTMesh {
     triangles: Vec<RTTriangle>,
     materials: Vec<u32>,
@@ -18,7 +19,7 @@ pub struct RTMesh {
     mbvh: MBVH,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct VertexData {
     pub vertex: [f32; 4],
@@ -45,6 +46,7 @@ impl VertexData {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RastMesh {
     vertices: Vec<VertexData>,
     materials: Vec<u32>,

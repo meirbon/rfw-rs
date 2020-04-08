@@ -1,5 +1,6 @@
 use crate::bvh_node::*;
 use crate::{RayPacket4, AABB};
+use serde::{Deserialize, Serialize};
 
 use glam::*;
 
@@ -8,14 +9,14 @@ struct MBVHHit {
     result: [bool; 4],
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MBVHNode {
-    min_x: Vec4,
-    max_x: Vec4,
-    min_y: Vec4,
-    max_y: Vec4,
-    min_z: Vec4,
-    max_z: Vec4,
+    min_x: [f32; 4],
+    max_x: [f32; 4],
+    min_y: [f32; 4],
+    max_y: [f32; 4],
+    min_z: [f32; 4],
+    max_z: [f32; 4],
     pub children: [i32; 4],
     pub counts: [i32; 4],
 }
@@ -34,12 +35,12 @@ impl MBVHNode {
         let counts = [-1; 4];
 
         MBVHNode {
-            min_x: min_x.into(),
-            max_x: max_x.into(),
-            min_y: min_y.into(),
-            max_y: max_y.into(),
-            min_z: min_z.into(),
-            max_z: max_z.into(),
+            min_x: min_x,
+            max_x: max_x,
+            min_y: min_y,
+            max_y: max_y,
+            min_z: min_z,
+            max_z: max_z,
             children,
             counts,
         }
@@ -70,20 +71,28 @@ impl MBVHNode {
         let inv_dir_y: Vec4 = [inv_direction.y(); 4].into();
         let inv_dir_z: Vec4 = [inv_direction.z(); 4].into();
 
-        let t1 = (self.min_x - origin_x) * inv_dir_x;
-        let t2 = (self.max_x - origin_x) * inv_dir_x;
+        let min_x = Vec4::from(self.min_x);
+        let min_y = Vec4::from(self.min_y);
+        let min_z = Vec4::from(self.min_z);
+
+        let max_x = Vec4::from(self.max_x);
+        let max_y = Vec4::from(self.max_y);
+        let max_z = Vec4::from(self.max_z);
+
+        let t1 = (min_x - origin_x) * inv_dir_x;
+        let t2 = (max_x - origin_x) * inv_dir_x;
 
         let t_min = t1.min(t2);
         let t_max = t1.max(t2);
 
-        let t1 = (self.min_y - origin_y) * inv_dir_y;
-        let t2 = (self.max_y - origin_y) * inv_dir_y;
+        let t1 = (min_y - origin_y) * inv_dir_y;
+        let t2 = (max_y - origin_y) * inv_dir_y;
 
         let t_min = t_min.max(t1.min(t2));
         let t_max = t_max.min(t1.max(t2));
 
-        let t1 = (self.min_z - origin_z) * inv_dir_z;
-        let t2 = (self.max_z - origin_z) * inv_dir_z;
+        let t1 = (min_z - origin_z) * inv_dir_z;
+        let t2 = (max_z - origin_z) * inv_dir_z;
 
         let mut t_min = t_min.max(t1.min(t2));
         let t_max = t_max.min(t1.max(t2));
@@ -136,14 +145,14 @@ impl MBVHNode {
         inv_dir_y: Vec4,
         inv_dir_z: Vec4,
     ) -> Option<MBVHHit> {
-        let min_x = self.min_x;
-        let max_x = self.max_x;
+        let min_x = Vec4::from(self.min_x);
+        let max_x = Vec4::from(self.max_x);
 
-        let min_y = self.min_y;
-        let max_y = self.max_y;
+        let min_y = Vec4::from(self.min_y);
+        let max_y = Vec4::from(self.max_y);
 
-        let min_z = self.min_z;
-        let max_z = self.max_z;
+        let min_z = Vec4::from(self.min_z);
+        let max_z = Vec4::from(self.max_z);
 
         let mut result = Vec4Mask::new(false, false, false, false);
         let mut final_t_min = Vec4::from([1e26; 4]);
@@ -232,9 +241,9 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<R>
-        where
-            I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
-            R: Copy,
+    where
+        I: FnMut(usize, f32, f32) -> Option<(f32, R)>,
+        R: Copy,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = 0;
@@ -257,7 +266,7 @@ impl MBVHNode {
                             for i in 0..count {
                                 let prim_id = prim_indices[(left_first + i) as usize] as usize;
                                 if let Some((new_t, new_hit)) =
-                                intersection_test(prim_id as usize, t_min, t)
+                                    intersection_test(prim_id as usize, t_min, t)
                                 {
                                     t = new_t;
                                     hit_record = Some(new_hit);
@@ -286,8 +295,8 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> Option<f32>
-        where
-            I: FnMut(usize, f32, f32) -> Option<f32>,
+    where
+        I: FnMut(usize, f32, f32) -> Option<f32>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -338,8 +347,8 @@ impl MBVHNode {
         t_max: f32,
         mut intersection_test: I,
     ) -> bool
-        where
-            I: FnMut(usize, f32, f32) -> bool,
+    where
+        I: FnMut(usize, f32, f32) -> bool,
     {
         let mut todo = [0; 32];
         let mut stack_ptr = -1;
@@ -386,8 +395,8 @@ impl MBVHNode {
         t_max: f32,
         depth_test: I,
     ) -> (f32, u32)
-        where
-            I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
+    where
+        I: Fn(usize, f32, f32) -> Option<(f32, u32)>,
     {
         let mut todo = [0; 32];
         let mut stack_ptr: i32 = 0;

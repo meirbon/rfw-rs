@@ -1,11 +1,12 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
 use crate::scene::PrimID;
+use serde::{Serialize, Deserialize};
 
 use bvh::{Bounds, RayPacket4, AABB};
 use std::ops::BitAnd;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[repr(C)]
 pub struct RTTriangle {
     pub vertex0: [f32; 3],

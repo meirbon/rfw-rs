@@ -1,7 +1,10 @@
 use crate::objects::*;
-use bvh::{Bounds, RayPacket4, AABB, Ray};
 use crate::constants::EPSILON;
 
+use bvh::{Bounds, RayPacket4, AABB, Ray};
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plane {
     pos: [f32; 3],
     right: [f32; 3],

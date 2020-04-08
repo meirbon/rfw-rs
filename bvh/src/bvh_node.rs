@@ -3,14 +3,16 @@ use std::fmt::{Display, Formatter};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use serde::{Serialize, Deserialize};
 
 use crate::{AABB, RayPacket4};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct BVHNode {
     pub bounds: AABB,
 }
+
 
 impl Display for BVHNode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

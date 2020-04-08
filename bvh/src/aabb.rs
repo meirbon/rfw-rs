@@ -1,9 +1,10 @@
 use glam::*;
+use serde::{Serialize, Deserialize};
 use std::fmt::{Display, Formatter};
 
 use crate::RayPacket4;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct AABB {
     pub min: [f32; 3],
@@ -11,6 +12,20 @@ pub struct AABB {
     pub max: [f32; 3],
     pub count: i32,
 }
+
+// impl Serialize for AABB {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         let mut s = serializer.serialize_struct("AABB", 4)?;
+//         s.serialize_field("min", &self.min)?;
+//         s.serialize_field("left_first", &self.left_first)?;
+//         s.serialize_field("max", &self.max)?;
+//         s.serialize_field("count", &self.count)?;
+//         s.end()
+//     }
+// }
 
 pub trait Bounds {
     fn bounds(&self) -> AABB;

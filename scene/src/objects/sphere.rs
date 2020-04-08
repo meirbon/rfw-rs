@@ -1,8 +1,10 @@
 use crate::objects::*;
 use crate::scene::PrimID;
-use bvh::{Bounds, Ray, RayPacket4, AABB};
 
-#[derive(Debug, Copy, Clone)]
+use bvh::{Bounds, Ray, RayPacket4, AABB};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sphere {
     pos: [f32; 3],
     radius2: f32,

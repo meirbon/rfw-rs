@@ -8,7 +8,9 @@ use crate::mbvh_node::*;
 use crate::{RayPacket4, AABB};
 use rayon::prelude::*;
 
-#[derive(Debug, Clone)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BVH {
     pub nodes: Vec<BVHNode>,
     pub prim_indices: Vec<u32>,
@@ -235,7 +237,7 @@ impl BVH {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MBVH {
     pub nodes: Vec<BVHNode>,
     pub m_nodes: Vec<MBVHNode>,

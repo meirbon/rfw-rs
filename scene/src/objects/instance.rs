@@ -1,14 +1,16 @@
 use crate::objects::*;
 use bvh::aabb::Bounds;
 use bvh::{RayPacket4, AABB};
+use serde::{Serialize, Deserialize};
 
 /// Instance
 /// Takes in a bounding box and transform and transforms to and from object local space.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Instance {
     bounds: AABB,
-    transform: Mat4,
-    inverse: Mat4,
-    normal_transform: Mat4,
+    transform: [f32; 16],
+    inverse: [f32; 16],
+    normal_transform: [f32; 16],
 }
 
 #[allow(dead_code)]
@@ -23,23 +25,28 @@ impl Instance {
 
         Instance {
             bounds,
-            transform,
-            inverse,
-            normal_transform,
+            transform: transform.to_cols_array(),
+            inverse: inverse.to_cols_array(),
+            normal_transform: normal_transform.to_cols_array(),
         }
     }
 
     pub fn get_transform(&self) -> Mat4 {
-        self.transform
+        Mat4::from_cols_array(&self.transform)
     }
 
-    pub fn get_inverse_transform(&self) -> Mat4 { self.inverse }
+    pub fn get_inverse_transform(&self) -> Mat4 {
+        Mat4::from_cols_array(&self.inverse)
+    }
 
-    pub fn get_normal_transform(&self) -> Mat4 { self.normal_transform }
+    pub fn get_normal_transform(&self) -> Mat4 {
+        Mat4::from_cols_array(&self.normal_transform)
+    }
 
     pub fn set_transform(&mut self, transform: Mat4) {
-        self.inverse = transform.inverse();
-        let new_transform = transform * self.inverse;
+        let inverse = transform.inverse();
+        let new_transform = transform * inverse;
+        self.inverse = inverse.to_cols_array();
         self.bounds = self.bounds.transformed(new_transform);
     }
 
@@ -54,8 +61,10 @@ impl Instance {
             return None;
         }
 
-        let new_origin = self.inverse * origin.extend(1.0);
-        let new_direction = self.inverse * direction.extend(0.0);
+        let inverse = self.get_inverse_transform();
+
+        let new_origin = inverse * origin.extend(1.0);
+        let new_direction = inverse * direction.extend(0.0);
         Some((new_origin.truncate(), new_direction.truncate()))
     }
 
@@ -83,7 +92,7 @@ impl Instance {
         let direction_y = Vec4::from(packet.direction_y);
         let direction_z = Vec4::from(packet.direction_z);
 
-        let matrix_cols = self.inverse.to_cols_array();
+        let matrix_cols = self.inverse;
 
         // Col 0
         let m0_0 = Vec4::from([matrix_cols[0]; 4]);
@@ -149,8 +158,11 @@ impl Instance {
 
     #[inline(always)]
     pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
-        let p = self.inverse * Vec3::from(hit.p).extend(1.0);
-        let normal = self.normal_transform * Vec3::from(hit.normal).extend(0.0);
+        let inverse = self.get_inverse_transform();
+        let normal_transform = self.get_normal_transform();
+
+        let p = inverse * Vec3::from(hit.p).extend(1.0);
+        let normal = normal_transform * Vec3::from(hit.normal).extend(0.0);
 
         HitRecord {
             p: p.truncate().into(),
@@ -160,9 +172,11 @@ impl Instance {
     }
 
     pub fn transform_ray(&self, ray: Ray) -> Ray {
+        let inverse = self.get_inverse_transform();
+
         let (origin, direction) = ray.into();
-        let new_origin: Vec4 = self.inverse * origin.extend(1.0);
-        let new_direction: Vec4 = self.inverse * direction.extend(0.0);
+        let new_origin: Vec4 = inverse * origin.extend(1.0);
+        let new_direction: Vec4 = inverse * direction.extend(0.0);
         (new_origin.truncate(), new_direction.truncate()).into()
     }
 
