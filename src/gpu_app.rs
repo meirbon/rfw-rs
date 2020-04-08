@@ -5,7 +5,7 @@ use fb_template::{
 use glam::*;
 use rayon::prelude::*;
 
-use crate::camera::Camera;
+use crate::camera::*;
 use crate::utils::*;
 use scene::{
     material::MaterialList, InstanceMatrices, Obj, ToMesh, TriangleScene, VertexBuffer, VertexData,
@@ -105,34 +105,52 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
     ) {
         use wgpu::*;
 
-        let dragon = Box::new(
-            Obj::new("models/dragon.obj", &mut self.materials)
-                .unwrap()
-                .into_mesh(),
-        );
-        let dragon = self.scene.add_object(dragon);
-        let _dragon = self
+        let (object, scale) = {
+            #[cfg(not(debug_assertions))]
+            {
+                (
+                    Box::new(
+                        Obj::new("models/dragon.obj", &mut self.materials)
+                            .unwrap()
+                            .into_mesh(),
+                    ),
+                    Vec3::splat(5.0),
+                )
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                (
+                    Box::new(
+                        Obj::new("models/sphere.obj", &mut self.materials)
+                            .unwrap()
+                            .into_mesh(),
+                    ),
+                    Vec3::splat(0.05),
+                )
+            }
+        };
+
+        let object = self.scene.add_object(object);
+        let _object = self
             .scene
             .add_instance(
-                dragon,
-                Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0))
-                    * Mat4::from_scale(Vec3::splat(5.0)),
+                object,
+                Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0)) * Mat4::from_scale(scale),
             )
             .unwrap();
-        let _dragon = self
+        let _object = self
             .scene
             .add_instance(
-                dragon,
-                Mat4::from_translation(Vec3::new(5.0, 0.0, 5.0))
-                    * Mat4::from_scale(Vec3::splat(5.0)),
+                object,
+                Mat4::from_translation(Vec3::new(5.0, 0.0, 5.0)) * Mat4::from_scale(scale),
             )
             .unwrap();
-        let _dragon = self
+        let _object = self
             .scene
             .add_instance(
-                dragon,
-                Mat4::from_translation(Vec3::new(-5.0, 0.0, 5.0))
-                    * Mat4::from_scale(Vec3::splat(5.0)),
+                object,
+                Mat4::from_translation(Vec3::new(-5.0, 0.0, 5.0)) * Mat4::from_scale(scale),
             )
             .unwrap();
 
@@ -199,7 +217,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             }),
             rasterization_state: Some(RasterizationStateDescriptor {
                 front_face: FrontFace::Ccw,
-                cull_mode: CullMode::None,
+                cull_mode: CullMode::Back,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -302,23 +320,25 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         device: &wgpu::Device,
         requests: &mut VecDeque<Request>,
     ) {
-        let near = 1e-2;
-        let far = 1e2;
+        self.camera.far_plane = 1e2;
 
-        requests.push_back(self.update_uniform(self.camera.get_matrix(near, far), device));
+        let matrix = self.camera.get_matrix();
+
+        requests.push_back(self.update_uniform(matrix, device));
 
         if self.instance_buffers.is_empty() {
             return;
         }
 
         if let Some(pipeline) = &self.pipeline {
-            let frustrum = self.camera.calculate_frustrum(near, far);
+            let frustrum: FrustrumG = FrustrumG::from_matrix(matrix);
 
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render"),
             });
 
             {
+                let mut rendered = 0;
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                         attachment: &fb.view,
@@ -362,15 +382,16 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
                     render_pass.set_vertex_buffer(3, &vb.buffer, 0, 0);
 
                     for i in 0..instance_buffers.count {
-                        let bounds = vb
-                            .bounds
-                            .transformed(instance_buffers.actual_matrices[i]);
-                        if frustrum.aabb_in_frustrum(&bounds) {
+                        let bounds = vb.bounds.transformed(instance_buffers.actual_matrices[i]);
+                        if frustrum.aabb_in_frustrum(&bounds) != FrustrumResult::Outside {
+                            rendered += 1;
                             let i = i as u32;
                             render_pass.draw(0..(vb.count as u32), i..(i + 1));
                         }
                     }
                 }
+
+                println!("rendered: {}", rendered);
             }
 
             requests.push_back(Request::CommandBuffer(encoder.finish()));

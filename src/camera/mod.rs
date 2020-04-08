@@ -4,6 +4,10 @@ use std::f32::consts::PI;
 
 use scene::constants::DEFAULT_T_MAX;
 
+mod frustrum;
+
+pub use frustrum::*;
+
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
     use std::arch::x86_64::_mm_sqrt_ps;
     unsafe { _mm_sqrt_ps(vec.into()).into() }
@@ -20,6 +24,8 @@ pub struct Camera {
     aspect_ratio: f32,
     aperture: f32,
     focal_distance: f32,
+    pub near_plane: f32,
+    pub far_plane: f32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -144,6 +150,8 @@ impl Camera {
             aspect_ratio: 1.0,
             aperture: 0.0001,
             focal_distance: 1.0,
+            near_plane: 1e-2,
+            far_plane: 1e4,
         }
     }
 
@@ -158,6 +166,8 @@ impl Camera {
             aspect_ratio: width as f32 / height as f32,
             aperture: 0.0001,
             focal_distance: 1.0,
+            near_plane: 1e-2,
+            far_plane: 1e4,
         }
     }
 
@@ -203,6 +213,10 @@ impl Camera {
         return self.fov;
     }
 
+    pub fn get_aspect_ratio(&self) -> f32 {
+        self.aspect_ratio
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width;
         self.height = height;
@@ -229,13 +243,14 @@ impl Camera {
         self.direction = (target - origin).normalize().into();
     }
 
-    pub fn get_matrix(&self, near_plane: f32, far_plane: f32) -> Mat4 {
+    pub fn get_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
         let fov = self.fov.to_radians();
         let fov_dist = (fov * 0.5).tan();
 
         let flip = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0));
-        let projection = Mat4::perspective_lh(fov, self.aspect_ratio, near_plane, far_plane);
+        let projection =
+            Mat4::perspective_lh(fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
         let pos = Vec3::from(self.pos);
         let dir = Vec3::from(self.direction);
@@ -243,6 +258,22 @@ impl Camera {
         let view = Mat4::look_at_lh(pos, pos + dir * fov_dist, up);
 
         projection * flip * view
+    }
+
+    pub fn get_gl_matrix(&self) -> Mat4 {
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let fov = self.fov.to_radians();
+        let fov_dist = (fov * 0.5).tan();
+
+        let projection =
+            Mat4::perspective_rh_gl(fov, self.aspect_ratio, self.near_plane, self.far_plane);
+
+        let pos = Vec3::from(self.pos);
+        let dir = Vec3::from(self.direction);
+
+        let view = Mat4::look_at_rh(pos, pos + dir * fov_dist, up);
+
+        projection * view
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
@@ -253,108 +284,7 @@ impl Camera {
         (x, y, z)
     }
 
-    pub fn calculate_frustrum(&self, near_plane: f32, far_plane: f32) -> Frustrum {
-        // let (right, up, forward) = self.calculate_matrix();
-
-        // let fov = self.fov.to_radians();
-
-        // let center_z1 = origin + forward;
-
-        // let half_height_z1 = (fov * 0.5).tan();
-        // let half_width_z1 = half_height_z1 * self.aspect_ratio;
-
-        // let up_offset: Vec3 = up * half_height_z1;
-        // let right_offset: Vec3 = right * half_width_z1;
-
-        // // Calculate normals for every frustrum plane
-        // let right_plane_dir = ((center_z1 + right_offset) - origin).normalize();
-        // let left_plane_dir = ((center_z1 - right_offset) - origin).normalize();
-        // let top_plane_dir = ((center_z1 + up_offset) - origin).normalize();
-        // let bottom_plane_dir = ((center_z1 - up_offset) - origin).normalize();
-
-        let origin = Vec3::from(self.pos);
-        let (right, up, forward) = self.calculate_matrix();
-        let pos = Vec3::from(self.pos);
-        let fov = self.fov;
-        let screen_size = (fov * 0.5 / (180.0 / PI)).tan();
-        let center = pos + forward;
-
-        let right_offset: Vec3 = screen_size * right * self.aspect_ratio;
-        let up_offset = screen_size * up;
-
-        let right: Vec3 = center + right_offset;
-        let left: Vec3 = center - right_offset;
-        let top: Vec3 = center + up_offset;
-        let bottom: Vec3 = center - up_offset;
-
-        let right_plane_dir: Vec3 = (right - origin).normalize();
-        let left_plane_dir: Vec3 = (left - origin).normalize();
-        let top_plane_dir: Vec3 = (top - origin).normalize();
-        let bottom_plane_dir: Vec3 = (bottom - origin).normalize();
-
-        let right_plane_normal = right_plane_dir.cross(up);
-        let left_plane_normal = left_plane_dir.cross(up);
-        let top_plane_normal = top_plane_dir.cross(right);
-        let bottom_plane_normal = bottom_plane_dir.cross(right);
-
-
-        Frustrum {
-            origin,
-            right_normal: right_plane_normal,
-            left_normal: left_plane_normal,
-            top_normal: top_plane_normal,
-            bottom_normal: bottom_plane_normal,
-            near2: near_plane * near_plane,
-            far2: far_plane * far_plane,
-        }
-    }
-}
-
-pub struct Frustrum {
-    origin: Vec3,
-    right_normal: Vec3,
-    left_normal: Vec3,
-    top_normal: Vec3,
-    bottom_normal: Vec3,
-    near2: f32,
-    far2: f32,
-}
-
-impl Frustrum {
-    pub fn object_in_frustrum<T: Bounds + Sized>(&self, bounds: &T) -> bool {
-        self.aabb_in_frustrum(&bounds.bounds())
-    }
-
-    pub fn point_in_frustrum(&self, point: Vec3) -> bool {
-        let dot_right = point.dot(self.right_normal) > 0.0;
-        let dot_left = point.dot(self.left_normal) > 0.0;
-        let dot_top = point.dot(self.top_normal) > 0.0;
-        let dot_bottom = point.dot(self.bottom_normal) > 0.0;
-
-        // If all dot products are negative, object is in front of all planes (thus in frustrum)
-        dot_right && dot_left && dot_top && dot_bottom
-    }
-
-    pub fn aabb_in_frustrum(&self, aabb: &AABB) -> bool {
-        let min = Vec3::from(aabb.min);
-        let max = Vec3::from(aabb.max);
-
-        // If either point of bounding box is in frustrum, object is at least partially in frustrum
-        if !self.point_in_frustrum(min) && !self.point_in_frustrum(max) {
-            return false;
-        }
-
-        true
-        // let min_z2: Vec3 = min - self.origin;
-        // let min_z2: f32 = min_z2.dot(min_z2);
-
-        // let max_z2: Vec3 = max - self.origin;
-        // let max_z2: f32 = max_z2.dot(max_z2);
-
-        // let min_inside = min_z2 > self.near2 && min_z2 < self.far2;
-        // let max_inside = max_z2 > self.near2 && max_z2 < self.far2;
-        // let both_outside = min_z2 < self.near2 && max_z2 > self.far2;
-
-        // min_inside || max_inside || both_outside
+    pub fn calculate_frustrum(&self) -> frustrum::FrustrumG {
+        frustrum::FrustrumG::from_matrix(self.get_gl_matrix())
     }
 }

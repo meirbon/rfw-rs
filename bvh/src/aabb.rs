@@ -209,6 +209,28 @@ impl AABB {
         a
     }
 
+    pub fn all_corners(&self) -> [Vec3; 8] {
+        let lengths: Vec3 = self.lengths();
+
+        let x_l = Vec3::splat(lengths.x());
+        let y_l = Vec3::splat(lengths.y());
+        let z_l = Vec3::splat(lengths.z());
+
+        let min = Vec3::from(self.min);
+        let max = Vec3::from(self.max);
+
+        [
+            min,
+            max,
+            min + x_l,
+            min + y_l,
+            min + z_l,
+            min + x_l + y_l,
+            min + x_l + z_l,
+            min + y_l + z_l,
+        ]
+    }
+
     pub fn extend(&self, axis: usize) -> f32 {
         self.max[axis] - self.min[axis]
     }
