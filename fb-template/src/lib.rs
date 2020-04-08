@@ -164,7 +164,7 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
         },
-        wgpu::BackendBit::PRIMARY,
+        wgpu::BackendBit::DX11,
     )
     .await
     .unwrap();

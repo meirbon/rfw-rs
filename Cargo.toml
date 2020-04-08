@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 
+[profile.release]
+debug = true
+
 [dependencies]
 bvh = { path = "bvh" }
 scene = { path = "scene" }
