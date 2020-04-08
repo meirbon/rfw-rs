@@ -496,7 +496,9 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
     ) {
     }
 
-    fn scroll_handling(&mut self, _dx: f64, _dy: f64, _requests: &mut VecDeque<Request>) {}
+    fn scroll_handling(&mut self, _dx: f64, dy: f64, _requests: &mut VecDeque<Request>) {
+        self.camera.change_fov(self.camera.get_fov() - (dy as f32) * 0.01);
+    }
 
     fn resize(
         &mut self,
