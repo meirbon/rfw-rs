@@ -23,10 +23,11 @@ layout(location = 2) out uint MID;
 layout(location = 3) out vec2 TUV;
 
 void main() {
-    const vec4 vertex = VP * Transform[gl_InstanceIndex] * Vertex;
-    V = vertex;
-    N = normalize(vec3(InverseTransforms[gl_InstanceIndex] * vec4(Normal, 0.0)));
-    MID = MatID;
-    TUV = UV;
-    gl_Position = vertex;
+    // const vec4 vertex = VP * Transform[gl_InstanceIndex] * Vertex;
+    // V = vertex;
+    // N = normalize(vec3(InverseTransforms[gl_InstanceIndex] * vec4(Normal, 0.0)));
+    // MID = MatID;
+    // TUV = UV;
+    // gl_Position = vertex;
+    gl_Position = Vertex;
 }

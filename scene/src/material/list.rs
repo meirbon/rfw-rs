@@ -1,8 +1,8 @@
 use crate::material::Material;
 
 use glam::*;
+use serde::{Deserialize, Serialize};
 use std::ops::{Index, IndexMut};
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialList {
@@ -12,7 +12,12 @@ pub struct MaterialList {
 #[allow(dead_code)]
 impl MaterialList {
     pub fn new() -> MaterialList {
-        let materials = vec![Material::new(vec3(1.0, 0.0, 0.0), 1.0, vec3(1.0, 0.0, 0.0), 1.0)];
+        let materials = vec![Material::new(
+            vec3(1.0, 0.0, 0.0),
+            1.0,
+            vec3(1.0, 0.0, 0.0),
+            1.0,
+        )];
         MaterialList { materials }
     }
 
@@ -55,14 +60,11 @@ impl MaterialList {
         let buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
             label: Some("material-buffer"),
             size,
-            usage: BufferUsage::READ_ALL
+            usage: BufferUsage::READ_ALL,
         });
 
         buffer.data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(
-                self.materials.as_ptr() as *const u8,
-                size as usize
-            )
+            std::slice::from_raw_parts(self.materials.as_ptr() as *const u8, size as usize)
         });
 
         (size, buffer.finish())

@@ -5,9 +5,9 @@ use glam::*;
 
 use crate::camera::*;
 use crate::utils::*;
+use futures::executor::block_on;
 use scene::{InstanceMatrices, TriangleScene, VertexBuffer, VertexData};
 use std::collections::VecDeque;
-use futures::executor::block_on;
 
 pub struct GPUApp<'a> {
     width: u32,
@@ -96,28 +96,26 @@ impl<'a> GPUApp<'a> {
                         a: 0.0 as f64,
                     },
                 }],
-                depth_stencil_attachment: Some(
-                    wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                        attachment: self.depth_texture_view.as_ref().unwrap(),
-                        depth_load_op: wgpu::LoadOp::Clear,
-                        depth_store_op: wgpu::StoreOp::Store,
-                        clear_depth: 1.0,
-                        stencil_load_op: wgpu::LoadOp::Clear,
-                        stencil_store_op: wgpu::StoreOp::Clear,
-                        clear_stencil: 0,
-                    },
-                ),
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: self.depth_texture_view.as_ref().unwrap(),
+                    depth_load_op: wgpu::LoadOp::Clear,
+                    depth_store_op: wgpu::StoreOp::Store,
+                    clear_depth: 1.0,
+                    stencil_load_op: wgpu::LoadOp::Clear,
+                    stencil_store_op: wgpu::StoreOp::Clear,
+                    clear_stencil: 0,
+                }),
             });
             render_pass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[]);
             render_pass.set_pipeline(pipeline);
 
             for i in 0..self.instance_buffers.len() {
-                let instance_buffers: &InstanceMatrices = &self.instance_buffers[i];
+                let instance_buffers: &InstanceMatrices = self.instance_buffers.get(i).unwrap();
                 if instance_buffers.count <= 0 {
                     continue;
                 }
 
-                let instance_bind_group = &self.instance_bind_groups[i];
+                let instance_bind_group = self.instance_bind_groups.get(i).unwrap();
                 let vb: &VertexBuffer = &self.vertex_buffers[i];
                 render_pass.set_bind_group(1, instance_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, &vb.buffer, 0, 0);
@@ -158,24 +156,24 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         } else {
             let (object, scale) = {
                 #[cfg(not(debug_assertions))]
-                    {
-                        (
-                            self.scene
-                                .load_mesh("models/dragon.obj")
-                                .expect("Could not load dragon.obj"),
-                            Vec3::splat(5.0),
-                        )
-                    }
+                {
+                    (
+                        self.scene
+                            .load_mesh("models/dragon.obj")
+                            .expect("Could not load dragon.obj"),
+                        Vec3::splat(5.0),
+                    )
+                }
 
                 #[cfg(debug_assertions)]
-                    {
-                        (
-                            self.scene
-                                .load_mesh("models/sphere.obj")
-                                .expect("Could not load sphere.obj"),
-                            Vec3::splat(0.05),
-                        )
-                    }
+                {
+                    (
+                        self.scene
+                            .load_mesh("models/sphere.obj")
+                            .expect("Could not load sphere.obj"),
+                        Vec3::splat(0.05),
+                    )
+                }
             };
 
             let _object = self
@@ -253,13 +251,13 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: sc_format,
-            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::STORAGE | TextureUsage::SAMPLED,
+            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
         }));
 
-        self.output_texture_view = Some(self.output_texture.as_ref().unwrap().create_default_view());
+        self.output_texture_view =
+            Some(self.output_texture.as_ref().unwrap().create_default_view());
 
         self.depth_texture = Some(device.create_texture(&TextureDescriptor {
-            label: Some("depth-texture"),
             size: Extent3d {
                 width: self.width,
                 height: self.height,
@@ -271,18 +269,9 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             dimension: TextureDimension::D2,
             format: TextureFormat::Depth32Float,
             usage: TextureUsage::OUTPUT_ATTACHMENT,
+            label: None,
         }));
-        self.depth_texture_view = Some(self.depth_texture.as_ref().unwrap().create_view(
-            &TextureViewDescriptor {
-                format: TextureFormat::Depth32Float,
-                dimension: TextureViewDimension::D2,
-                aspect: TextureAspect::DepthOnly,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                array_layer_count: 1,
-            },
-        ));
+        self.depth_texture_view = Some(self.depth_texture.as_ref().unwrap().create_default_view());
 
         self.pipeline_layout = Some(device.create_pipeline_layout(&PipelineLayoutDescriptor {
             bind_group_layouts: &[
@@ -432,19 +421,22 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
 
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("blit-layout"),
-            bindings: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::SampledTexture {
-                    multisampled: false,
-                    component_type: wgpu::TextureComponentType::Uint,
-                    dimension: wgpu::TextureViewDimension::D2,
+            bindings: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        multisampled: false,
+                        component_type: wgpu::TextureComponentType::Uint,
+                        dimension: wgpu::TextureViewDimension::D2,
+                    },
                 },
-            }, wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::Sampler { comparison: false },
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler { comparison: false },
+                },
+            ],
         });
 
         self.output_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
@@ -461,62 +453,75 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("blit-bind-group"),
-            bindings: &[Binding {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(self.output_texture_view.as_ref().unwrap()),
-            }, Binding {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(self.output_sampler.as_ref().unwrap()),
-            }, ],
+            bindings: &[
+                Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        self.output_texture_view.as_ref().unwrap(),
+                    ),
+                },
+                Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(self.output_sampler.as_ref().unwrap()),
+                },
+            ],
             layout: &bind_group_layout,
         });
 
         let blit_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            bind_group_layouts: &[&bind_group_layout]
+            bind_group_layouts: &[&bind_group_layout],
         });
 
         let vert_shader = include_str!("shaders/quad.vert");
         let frag_shader = include_str!("shaders/quad.frag");
 
-        let vert_module = self.compiler.compile_from_string(vert_shader, ShaderKind::Vertex).unwrap();
-        let frag_module = self.compiler.compile_from_string(frag_shader, ShaderKind::Fragment).unwrap();
+        let vert_module = self
+            .compiler
+            .compile_from_string(vert_shader, ShaderKind::Vertex)
+            .unwrap();
+        let frag_module = self
+            .compiler
+            .compile_from_string(frag_shader, ShaderKind::Fragment)
+            .unwrap();
 
         let vert_module = device.create_shader_module(vert_module.as_slice());
         let frag_module = device.create_shader_module(frag_module.as_slice());
 
-        self.blit_pipeline = Some(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &blit_pipeline_layout,
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
-                module: &vert_module,
-                entry_point: "main",
-            },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                module: &frag_module,
-                entry_point: "main",
+        self.blit_pipeline = Some(
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                layout: &blit_pipeline_layout,
+                vertex_stage: wgpu::ProgrammableStageDescriptor {
+                    module: &vert_module,
+                    entry_point: "main",
+                },
+                fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                    module: &frag_module,
+                    entry_point: "main",
+                }),
+                rasterization_state: Some(wgpu::RasterizationStateDescriptor {
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: wgpu::CullMode::None,
+                    depth_bias: 0,
+                    depth_bias_slope_scale: 0.0,
+                    depth_bias_clamp: 0.0,
+                }),
+                primitive_topology: wgpu::PrimitiveTopology::TriangleList,
+                color_states: &[wgpu::ColorStateDescriptor {
+                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                    color_blend: wgpu::BlendDescriptor::REPLACE,
+                    alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
+                depth_stencil_state: None,
+                vertex_state: wgpu::VertexStateDescriptor {
+                    index_format: wgpu::IndexFormat::Uint32,
+                    vertex_buffers: &[],
+                },
+                sample_count: 1,
+                sample_mask: !0,
+                alpha_to_coverage_enabled: false,
             }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[],
-            },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
-        }));
+        );
 
         self.blit_bind_group_layout = Some(bind_group_layout);
         self.blit_bind_group = Some(bind_group);
@@ -535,7 +540,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         let matrix = self.camera.get_rh_matrix();
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("render")
+            label: Some("render"),
         });
 
         let staging_buffer = self.staging_buffer.as_ref().unwrap();
@@ -583,24 +588,25 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         &mut self,
         _states: &MouseButtonHandler,
         _requests: &mut VecDeque<Request>,
-    ) {}
+    ) {
+    }
 
     fn key_handling(&mut self, states: &KeyHandler, requests: &mut VecDeque<Request>) {
         #[cfg(target_os = "macos")]
-            {
-                if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
-                    requests.push_back(Request::Exit);
-                    return;
-                }
+        {
+            if states.pressed(KeyCode::LWin) && states.pressed(KeyCode::Q) {
+                requests.push_back(Request::Exit);
+                return;
             }
+        }
 
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-            {
-                if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
-                    requests.push_back(Request::Exit);
-                    return;
-                }
+        {
+            if states.pressed(KeyCode::LAlt) && states.pressed(KeyCode::F4) {
+                requests.push_back(Request::Exit);
+                return;
             }
+        }
 
         if states.pressed(KeyCode::Escape) {
             requests.push_back(Request::Exit);
@@ -673,7 +679,8 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         _delta_x: f64,
         _delta_y: f64,
         _requests: &mut VecDeque<Request>,
-    ) {}
+    ) {
+    }
 
     fn scroll_handling(&mut self, _dx: f64, dy: f64, _requests: &mut VecDeque<Request>) {
         self.camera
@@ -727,15 +734,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         });
 
-        let new_view = new_texture.create_view(&TextureViewDescriptor {
-            format: TextureFormat::Depth32Float,
-            dimension: TextureViewDimension::D2,
-            aspect: TextureAspect::DepthOnly,
-            base_mip_level: 0,
-            level_count: 1,
-            base_array_layer: 0,
-            array_layer_count: 1,
-        });
+        let new_view = new_texture.create_default_view();
         self.depth_texture = Some(new_texture);
         self.depth_texture_view = Some(new_view);
     }
