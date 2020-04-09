@@ -265,8 +265,12 @@ impl Camera {
         let fov = self.fov.to_radians();
         let fov_dist = (fov * 0.5).tan();
 
-        let projection =
-            Mat4::perspective_rh_gl(fov, self.aspect_ratio, self.near_plane, self.far_plane);
+        let projection = Mat4::perspective_rh_gl(
+            fov,
+            self.width as f32 / self.height as f32,
+            self.near_plane,
+            self.far_plane,
+        );
 
         let pos = Vec3::from(self.pos);
         let dir = Vec3::from(self.direction);

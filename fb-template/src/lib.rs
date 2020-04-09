@@ -99,6 +99,7 @@ pub trait DeviceFramebuffer {
         width: u32,
         height: u32,
         device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
         sc_format: wgpu::TextureFormat,
         requests: &mut VecDeque<Request>,
     );
@@ -156,8 +157,6 @@ pub fn run_device_app<T: 'static + DeviceFramebuffer>(
         .build(&event_loop)
         .unwrap();
 
-    let (mut width, mut height) = window.inner_size().into();
-
     let surface = wgpu::Surface::create(&window);
 
     let adapter: wgpu::Adapter = block_on(wgpu::Adapter::request(
@@ -169,7 +168,7 @@ pub fn run_device_app<T: 'static + DeviceFramebuffer>(
     ))
     .unwrap();
 
-    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+    let (device, mut queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         extensions: wgpu::Extensions {
             anisotropic_filtering: false,
         },
@@ -182,12 +181,19 @@ pub fn run_device_app<T: 'static + DeviceFramebuffer>(
     let mut sc_descriptor = wgpu::SwapChainDescriptor {
         usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         format: wgpu::TextureFormat::Bgra8UnormSrgb,
-        width,
-        height,
+        width: start_width,
+        height: start_height,
         present_mode: wgpu::PresentMode::Mailbox,
     };
 
-    app.init(width, height, &device, sc_descriptor.format, &mut requests);
+    app.init(
+        sc_descriptor.width,
+        sc_descriptor.height,
+        &device,
+        &mut queue,
+        sc_descriptor.format,
+        &mut requests,
+    );
 
     let mut swap_chain = device.create_swap_chain(&surface, &sc_descriptor);
 
@@ -241,7 +247,12 @@ pub fn run_device_app<T: 'static + DeviceFramebuffer>(
             Event::RedrawRequested(_) => {
                 if resized {
                     swap_chain = device.create_swap_chain(&surface, &sc_descriptor);
-                    app.resize(width, height, &device, &mut requests);
+                    app.resize(
+                        sc_descriptor.width,
+                        sc_descriptor.height,
+                        &device,
+                        &mut requests,
+                    );
                     resized = false;
                 }
 
@@ -297,15 +308,11 @@ pub fn run_device_app<T: 'static + DeviceFramebuffer>(
                 }
             }
             Event::WindowEvent {
-                event: WindowEvent::Resized(_),
+                event: WindowEvent::Resized(size),
                 window_id,
             } if window_id == window.id() => {
-                let size = window.inner_size();
                 sc_descriptor.width = size.width;
                 sc_descriptor.height = size.height;
-
-                width = size.width;
-                height = size.height;
 
                 resized = true;
             }

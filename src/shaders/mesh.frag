@@ -6,21 +6,20 @@ layout(location = 1) in vec3 N;
 layout(location = 2) in flat uint MID;
 layout(location = 3) in vec2 TUV;
 
-// struct Material {
-//     vec3 color;
-//     vec3 specular;
-//     float opacity;
-//     float roughness;
-//     int diffuse_tex;
-//     int normal_tex;
-// };
+struct Material {
+    vec3 color;
+    vec3 specular;
+    float opacity;
+    float roughness;
+    int diffuse_tex;
+    int normal_tex;
+};
 
-// layout(set = 0, binding = 1) buffer readonly Materials {
-//     Material materials[];
-// };
+layout(set = 0, binding = 1) buffer readonly Materials {
+    Material materials[];
+};
 
 void main() {
-    // const vec3 color = materials[MID].color;
-    // Color = vec4(color * N, V.w);
-    Color = vec4(N, V.w);
+    const vec3 color = materials[MID].color;
+    Color = vec4(color * N, V.w);
 }

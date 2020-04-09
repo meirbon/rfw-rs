@@ -13,5 +13,4 @@ fn main() {
     fb_template::run_device_app(gpu_app, "GPU App", width, height);
     // let cpu_app = cpu_app::CPUApp::new().expect("Could not init App.");
     // fb_template::run_host_app(cpu_app, "Rust RT", width, height);
-
 }

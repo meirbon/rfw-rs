@@ -91,6 +91,10 @@ impl RastMesh {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.vertices.len()
+    }
+
     pub fn empty() -> RastMesh {
         RastMesh {
             vertices: Vec::new(),
@@ -100,28 +104,48 @@ impl RastMesh {
     }
 
     #[cfg(feature = "wgpu")]
-    pub fn create_wgpu_buffer(&self, device: &wgpu::Device) -> VertexBuffer {
-        use wgpu::*;
+    pub fn buffer_size(&self) -> usize {
+        self.vertices.len() * std::mem::size_of::<VertexData>()
+    }
 
-        let size = self.vertices.len() * std::mem::size_of::<VertexData>();
+    #[cfg(feature = "wgpu")]
+    pub fn as_slice(&self) -> &[VertexData] {
+        self.vertices.as_slice()
+    }
 
-        let triangle_buffer = device.create_buffer_mapped(&BufferDescriptor {
-            label: Some("mesh"),
-            size: size as BufferAddress,
-            usage: wgpu::BufferUsage::VERTEX,
-        });
-
-        triangle_buffer.data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(self.vertices.as_ptr() as *const u8, size)
-        });
-
-        VertexBuffer {
-            count: self.vertices.len(),
-            size_in_bytes: size,
-            buffer: triangle_buffer.finish(),
-            bounds: self.bounds(),
+    #[cfg(feature = "wgpu")]
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(self.vertices.as_ptr() as *const u8, self.buffer_size())
         }
     }
+
+    // #[cfg(feature = "wgpu")]
+    // pub fn create_wgpu_buffer(&self, device: &wgpu::Device) -> VertexBuffer {
+    //     use wgpu::*;
+
+    //     let size = self.vertices.len() * std::mem::size_of::<VertexData>();
+
+    //     let triangle_buffer = device.create_buffer_with_data(
+    //         unsafe { std::slice::from_raw_parts(self.vertices.as_ptr() as *const u8, size) },
+    //         wgpu::BufferUsage::VERTEX,
+    //     );
+
+    //     // let triangle_buffer = device.create_buffer_mapped(&BufferDescriptor {
+    //     // label: Some("mesh"),
+    //     // size: size as BufferAddress,
+    //     // usage: ,
+    //     // });
+    //     //
+    //     // triangle_buffer.data.copy_from_slice();
+
+    //     VertexBuffer {
+    //         count: self.vertices.len(),
+    //         size_in_bytes: size,
+    //         buffer: triangle_buffer,
+    //         bounds: self.bounds(),
+    //     }
+    // }
 }
 
 impl RTMesh {

@@ -41,7 +41,10 @@ pub struct GPUApp<'a> {
 
 impl<'a> GPUApp<'a> {
     pub fn new() -> Self {
-        let compiler = CompilerBuilder::new().build();
+        let compiler = CompilerBuilder::new()
+            .with_opt_level(OptimizationLevel::Zero)
+            .with_warnings_as_errors()
+            .build();
 
         let scene = TriangleScene::new();
 
@@ -117,6 +120,7 @@ impl<'a> GPUApp<'a> {
 
                 let instance_bind_group = self.instance_bind_groups.get(i).unwrap();
                 let vb: &VertexBuffer = &self.vertex_buffers[i];
+
                 render_pass.set_bind_group(1, instance_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, &vb.buffer, 0, 0);
                 render_pass.set_vertex_buffer(1, &vb.buffer, 0, 0);
@@ -141,11 +145,13 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         width: u32,
         height: u32,
         device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
         sc_format: wgpu::TextureFormat,
         _requests: &mut VecDeque<Request>,
     ) {
         self.width = width;
         self.height = height;
+        self.camera.resize(width, height);
 
         use wgpu::*;
         self.sc_format = sc_format;
@@ -359,7 +365,7 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             alpha_to_coverage_enabled: false,
         });
 
-        let uniform_buffer = device.create_buffer_mapped(&BufferDescriptor {
+        let uniform_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("vp-uniform"),
             size: 64,
             usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
@@ -378,16 +384,11 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         });
 
         self.staging_buffer = Some(staging_buffer.finish());
-
-        uniform_buffer.data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, 64)
-        });
-
-        self.uniform_buffer = Some(uniform_buffer.finish());
+        self.uniform_buffer = Some(uniform_buffer);
         self.material_buffer = Some(self.scene.get_material_list().create_wgpu_buffer(device));
 
-        self.vertex_buffers = self.scene.create_vertex_buffers(device);
-        self.instance_buffers = self.scene.create_wgpu_instances_buffer(device);
+        self.vertex_buffers = self.scene.create_vertex_buffers(device, queue);
+        self.instance_buffers = self.scene.create_wgpu_instances_buffer(device, queue);
         self.instance_bind_groups = self.scene.create_bind_groups(
             device,
             self.triangle_bind_group_layout.as_ref().unwrap(),
@@ -712,12 +713,29 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: self.sc_format,
-            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::STORAGE | TextureUsage::SAMPLED,
+            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::SAMPLED,
         });
+        let new_texture_view = new_texture.create_default_view();
 
-        self.output_texture = Some(new_texture);
-        let new_texture_view = self.output_texture.as_ref().unwrap().create_default_view();
         self.output_texture_view = Some(new_texture_view);
+        self.output_texture = Some(new_texture);
+
+        self.blit_bind_group = Some(device.create_bind_group(&BindGroupDescriptor {
+            label: Some("blit-bind-group"),
+            bindings: &[
+                Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        self.output_texture_view.as_ref().unwrap(),
+                    ),
+                },
+                Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(self.output_sampler.as_ref().unwrap()),
+                },
+            ],
+            layout: self.blit_bind_group_layout.as_ref().unwrap(),
+        }));
 
         let new_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("depth-texture"),
@@ -733,10 +751,10 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         });
-
         let new_view = new_texture.create_default_view();
-        self.depth_texture = Some(new_texture);
+
         self.depth_texture_view = Some(new_view);
+        self.depth_texture = Some(new_texture);
     }
 
     fn imgui(&mut self, _ui: &Ui) {}

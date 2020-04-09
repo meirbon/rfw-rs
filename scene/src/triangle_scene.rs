@@ -7,10 +7,10 @@ use bvh::{Bounds, RayPacket4, ShadowPacket4, AABB, BVH, MBVH};
 use glam::*;
 
 use serde::{Deserialize, Serialize};
+use std::ffi::{OsStr, OsString};
 use std::{
     collections::HashSet, error::Error, fs::File, io::prelude::*, io::BufReader, path::Path,
 };
-use std::ffi::{OsStr, OsString};
 
 /// Scene optimized for triangles
 /// Does not support objects other than Meshes, but does not require virtual calls because of this.
@@ -52,10 +52,7 @@ impl TriangleScene {
         &mut self.materials
     }
 
-    pub fn load_mesh<S: AsRef<Path>>(
-        &mut self,
-        path: S,
-    ) -> Option<usize> {
+    pub fn load_mesh<S: AsRef<Path>>(&mut self, path: S) -> Option<usize> {
         let path = path.as_ref();
         let extension = path.extension();
         if extension.is_none() {
@@ -110,40 +107,76 @@ impl TriangleScene {
     }
 
     #[cfg(feature = "wgpu")]
-    pub fn create_wgpu_instances_buffer(&self, device: &wgpu::Device) -> Vec<InstanceMatrices> {
+    pub fn create_wgpu_instances_buffer(
+        &self,
+        device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
+    ) -> Vec<InstanceMatrices> {
         use wgpu::*;
         (0..self.objects.len())
             .map(|i| {
                 let refs = &self.object_references[i];
+                let label = format!("object-{}-instances", i);
                 if refs.is_empty() {
                     let matrix = Mat4::identity();
 
                     let size = std::mem::size_of::<Mat4>();
-                    let buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
+                    let buffer = device.create_buffer(&BufferDescriptor {
+                        label: Some(label.as_str()),
                         size: size as BufferAddress,
                         usage: BufferUsage::STORAGE_READ,
                     });
 
-                    buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
-                    });
+                    let staging_buffer = device.create_buffer_with_data(
+                        unsafe {
+                            std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                        },
+                        BufferUsage::COPY_SRC,
+                    );
 
-                    let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
+                    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some(label.as_str()),
+                    });
+                    encoder.copy_buffer_to_buffer(
+                        &staging_buffer,
+                        0,
+                        &buffer,
+                        0,
+                        size as BufferAddress,
+                    );
+                    queue.submit(&[encoder.finish()]);
+
+                    let inverse_buffer = device.create_buffer(&BufferDescriptor {
+                        label: Some(label.as_str()),
                         size: size as BufferAddress,
                         usage: BufferUsage::STORAGE_READ,
                     });
 
-                    inverse_buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                    let staging_buffer = device.create_buffer_with_data(
+                        unsafe {
+                            std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, size)
+                        },
+                        BufferUsage::COPY_SRC,
+                    );
+
+                    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some(label.as_str()),
                     });
+
+                    encoder.copy_buffer_to_buffer(
+                        &staging_buffer,
+                        0,
+                        &buffer,
+                        0,
+                        size as BufferAddress,
+                    );
+                    queue.submit(&[encoder.finish()]);
 
                     InstanceMatrices {
                         count: 0,
                         actual_matrices: Vec::new(),
-                        matrices: buffer.finish(),
-                        inverse_matrices: inverse_buffer.finish(),
+                        matrices: buffer,
+                        inverse_matrices: inverse_buffer,
                     }
                 } else {
                     let mut instances: Vec<Mat4> = Vec::with_capacity(refs.len());
@@ -154,52 +187,65 @@ impl TriangleScene {
                     }
 
                     let size = instances.len() * std::mem::size_of::<Mat4>();
-                    let buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
+                    let buffer = device.create_buffer(&BufferDescriptor {
+                        label: Some(label.as_str()),
                         size: size as BufferAddress,
-                        usage: BufferUsage::STORAGE_READ,
+                        usage: BufferUsage::STORAGE_READ | BufferUsage::COPY_DST,
                     });
 
-                    buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(instances.as_ptr() as *const u8, size)
-                    });
+                    let staging_buffer = device.create_buffer_with_data(
+                        unsafe {
+                            std::slice::from_raw_parts(instances.as_ptr() as *const u8, size)
+                        },
+                        BufferUsage::COPY_SRC,
+                    );
 
-                    let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
+                    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some(label.as_str()),
+                    });
+                    encoder.copy_buffer_to_buffer(
+                        &staging_buffer,
+                        0,
+                        &buffer,
+                        0,
+                        size as BufferAddress,
+                    );
+                    queue.submit(&[encoder.finish()]);
+
+                    let inverse_buffer = device.create_buffer(&BufferDescriptor {
+                        label: Some(label.as_str()),
                         size: size as BufferAddress,
-                        usage: BufferUsage::STORAGE_READ,
+                        usage: BufferUsage::STORAGE_READ | BufferUsage::COPY_DST,
                     });
 
-                    inverse_buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(inverse_instances.as_ptr() as *const u8, size)
+                    let staging_buffer = device.create_buffer_with_data(
+                        unsafe {
+                            std::slice::from_raw_parts(
+                                inverse_instances.as_ptr() as *const u8,
+                                size,
+                            )
+                        },
+                        BufferUsage::COPY_SRC,
+                    );
+
+                    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some(label.as_str()),
                     });
 
-                    let size = instances.len() * std::mem::size_of::<Mat4>();
-                    let buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
-                        size: size as BufferAddress,
-                        usage: BufferUsage::STORAGE_READ,
-                    });
-
-                    buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(instances.as_ptr() as *const u8, size)
-                    });
-
-                    let inverse_buffer = device.create_buffer_mapped(&BufferDescriptor {
-                        label: Some(format!("object-{}-instances", i).as_str()),
-                        size: size as BufferAddress,
-                        usage: BufferUsage::STORAGE_READ,
-                    });
-
-                    inverse_buffer.data.copy_from_slice(unsafe {
-                        std::slice::from_raw_parts(inverse_instances.as_ptr() as *const u8, size)
-                    });
+                    encoder.copy_buffer_to_buffer(
+                        &staging_buffer,
+                        0,
+                        &inverse_buffer,
+                        0,
+                        size as BufferAddress,
+                    );
+                    queue.submit(&[encoder.finish()]);
 
                     InstanceMatrices {
                         count: instances.len(),
                         actual_matrices: instances,
-                        matrices: buffer.finish(),
-                        inverse_matrices: inverse_buffer.finish(),
+                        matrices: buffer,
+                        inverse_matrices: inverse_buffer,
                     }
                 }
             })
@@ -273,11 +319,49 @@ impl TriangleScene {
     }
 
     #[cfg(feature = "wgpu")]
-    pub fn create_vertex_buffers(&self, device: &wgpu::Device) -> Vec<VertexBuffer> {
-        self.objects
-            .iter()
-            .map(|o| o.create_wgpu_buffer(device))
-            .collect()
+    pub fn create_vertex_buffers(
+        &self,
+        device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
+    ) -> Vec<VertexBuffer> {
+        use wgpu::*;
+        let mut buffers = Vec::with_capacity(self.objects.len());
+
+        for (i, object) in self.objects.iter().enumerate() {
+            let object: &RastMesh = object;
+            let size = object.buffer_size();
+            let label = format!("object-{}", i);
+
+            let triangle_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some(label.as_str()),
+                size: size as BufferAddress,
+                usage: BufferUsage::VERTEX | BufferUsage::COPY_DST,
+            });
+
+            let staging_buffer =
+                device.create_buffer_with_data(object.as_bytes(), BufferUsage::COPY_SRC);
+
+            let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                label: Some(label.as_str()),
+            });
+            encoder.copy_buffer_to_buffer(
+                &staging_buffer,
+                0,
+                &triangle_buffer,
+                0,
+                size as BufferAddress,
+            );
+            queue.submit(&[encoder.finish()]);
+
+            buffers.push(VertexBuffer {
+                count: object.len(),
+                size_in_bytes: object.buffer_size(),
+                buffer: triangle_buffer,
+                bounds: object.bounds(),
+            });
+        }
+
+        buffers
     }
 
     pub fn get_objects(&self) -> &[RastMesh] {
@@ -285,15 +369,15 @@ impl TriangleScene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&RastMesh>),
+    where
+        T: FnMut(Option<&RastMesh>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&mut RastMesh>),
+    where
+        T: FnMut(Option<&mut RastMesh>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
@@ -556,15 +640,15 @@ impl RTTriangleScene {
     }
 
     pub fn get_object<T>(&self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&RTMesh>),
+    where
+        T: FnMut(Option<&RTMesh>),
     {
         cb(self.objects.get(index));
     }
 
     pub fn get_object_mut<T>(&mut self, index: usize, mut cb: T)
-        where
-            T: FnMut(Option<&mut RTMesh>),
+    where
+        T: FnMut(Option<&mut RTMesh>),
     {
         cb(self.objects.get_mut(index));
         self.flags.set_flag(SceneFlags::Dirty);
