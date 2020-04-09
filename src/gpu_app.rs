@@ -7,6 +7,7 @@ use crate::camera::*;
 use crate::utils::*;
 use scene::{InstanceMatrices, TriangleScene, VertexBuffer, VertexData};
 use std::collections::VecDeque;
+use futures::executor::block_on;
 
 pub struct GPUApp<'a> {
     width: u32,
@@ -77,34 +78,9 @@ impl<'a> GPUApp<'a> {
 }
 
 impl<'a> GPUApp<'a> {
-    fn update_uniform(&mut self, matrix: Mat4, device: &wgpu::Device) -> Request {
-        use wgpu::*;
-        let staging_buffer = device.create_buffer_mapped(&BufferDescriptor {
-            label: Some("staging-buffer"),
-            size: 64 as BufferAddress,
-            usage: BufferUsage::COPY_SRC,
-        });
-
-        staging_buffer.data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, 64)
-        });
-
-        self.staging_buffer = Some(staging_buffer.finish());
-        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("staging-encoder"),
-        });
-
-        let staging_buffer = self.staging_buffer.as_ref().unwrap();
-        let uniform_buffer = self.uniform_buffer.as_ref().unwrap();
-
-        encoder.copy_buffer_to_buffer(staging_buffer, 0, uniform_buffer, 0, 64);
-
-        Request::CommandBuffer(encoder.finish())
-    }
-
     fn record_render_pipeline(&mut self, encoder: &mut wgpu::CommandEncoder) {
         let pipeline = self.pipeline.as_ref().unwrap();
-        let frustrum: FrustrumG = FrustrumG::from_matrix(self.camera.get_gl_matrix());
+        let frustrum: FrustrumG = FrustrumG::from_matrix(self.camera.get_rh_matrix());
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -168,8 +144,11 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         height: u32,
         device: &wgpu::Device,
         sc_format: wgpu::TextureFormat,
-        requests: &mut VecDeque<Request>,
+        _requests: &mut VecDeque<Request>,
     ) {
+        self.width = width;
+        self.height = height;
+
         use wgpu::*;
         self.sc_format = sc_format;
 
@@ -224,8 +203,6 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             self.scene.serialize("models/dragon.scene").unwrap();
         }
 
-        self.resize(width, height, &device, requests);
-
         let vert_shader = include_str!("shaders/mesh.vert");
         let frag_shader = include_str!("shaders/mesh.frag");
 
@@ -244,17 +221,23 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         self.triangle_bind_group_layout = Some(self.scene.create_bind_group_layout(device));
         self.bind_group_layout =
             Some(device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                bindings: &[BindGroupLayoutEntry {
-                    // Matrix buffer
-                    binding: 0,
-                    visibility: ShaderStage::VERTEX,
-                    ty: BindingType::UniformBuffer { dynamic: false },
-                }, BindGroupLayoutEntry {
-                    // Material buffer
-                    binding: 1,
-                    visibility: ShaderStage::FRAGMENT,
-                    ty: BindingType::StorageBuffer { readonly: true, dynamic: false },
-                }],
+                bindings: &[
+                    BindGroupLayoutEntry {
+                        // Matrix buffer
+                        binding: 0,
+                        visibility: ShaderStage::VERTEX,
+                        ty: BindingType::UniformBuffer { dynamic: false },
+                    },
+                    BindGroupLayoutEntry {
+                        // Material buffer
+                        binding: 1,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::StorageBuffer {
+                            readonly: true,
+                            dynamic: false,
+                        },
+                    },
+                ],
                 label: Some("uniform-layout"),
             }));
 
@@ -287,9 +270,19 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: TextureFormat::Depth32Float,
-            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::STORAGE,
+            usage: TextureUsage::OUTPUT_ATTACHMENT,
         }));
-        self.depth_texture_view = Some(self.depth_texture.as_ref().unwrap().create_default_view());
+        self.depth_texture_view = Some(self.depth_texture.as_ref().unwrap().create_view(
+            &TextureViewDescriptor {
+                format: TextureFormat::Depth32Float,
+                dimension: TextureViewDimension::D2,
+                aspect: TextureAspect::DepthOnly,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                array_layer_count: 1,
+            },
+        ));
 
         self.pipeline_layout = Some(device.create_pipeline_layout(&PipelineLayoutDescriptor {
             bind_group_layouts: &[
@@ -379,8 +372,26 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
 
         let uniform_buffer = device.create_buffer_mapped(&BufferDescriptor {
             label: Some("vp-uniform"),
-            size: std::mem::size_of::<Mat4>() as BufferAddress,
-            usage: BufferUsage::COPY_DST | BufferUsage::UNIFORM,
+            size: 64,
+            usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+        });
+
+        let matrix = self.camera.get_rh_matrix();
+
+        let staging_buffer = device.create_buffer_mapped(&BufferDescriptor {
+            label: Some("staging-buffer"),
+            size: 64 as BufferAddress,
+            usage: BufferUsage::COPY_SRC | BufferUsage::MAP_WRITE,
+        });
+
+        staging_buffer.data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, 64)
+        });
+
+        self.staging_buffer = Some(staging_buffer.finish());
+
+        uniform_buffer.data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, 64)
         });
 
         self.uniform_buffer = Some(uniform_buffer.finish());
@@ -398,20 +409,22 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
 
         self.bind_group = Some(device.create_bind_group(&BindGroupDescriptor {
             layout: self.bind_group_layout.as_ref().unwrap(),
-            bindings: &[Binding {
-                binding: 0,
-                resource: BindingResource::Buffer {
-                    buffer: self.uniform_buffer.as_ref().unwrap(),
-                    range: 0..64,
+            bindings: &[
+                Binding {
+                    binding: 0,
+                    resource: BindingResource::Buffer {
+                        buffer: self.uniform_buffer.as_ref().unwrap(),
+                        range: 0..64,
+                    },
                 },
-            },
                 Binding {
                     binding: 1,
                     resource: BindingResource::Buffer {
                         buffer: mat_buffer,
                         range: 0..(*size),
                     },
-                }],
+                },
+            ],
             label: Some("mesh-bind-group-descriptor"),
         }));
 
@@ -518,17 +531,31 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         use wgpu::*;
         self.camera.far_plane = 1e2;
 
-        let matrix = self.camera.get_matrix();
-
-        requests.push_back(self.update_uniform(matrix, device));
-
-        if self.instance_buffers.is_empty() {
-            return;
-        }
+        let mapping = self.staging_buffer.as_ref().unwrap().map_write(0, 64);
+        let matrix = self.camera.get_rh_matrix();
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("render")
         });
+
+        let staging_buffer = self.staging_buffer.as_ref().unwrap();
+        let uniform_buffer = self.uniform_buffer.as_ref().unwrap();
+
+        encoder.copy_buffer_to_buffer(staging_buffer, 0, uniform_buffer, 0, 64);
+
+        device.poll(wgpu::Maintain::Wait);
+
+        if let Ok(mut mapping) = block_on(mapping) {
+            let slice = mapping.as_slice();
+            slice.copy_from_slice(unsafe {
+                std::slice::from_raw_parts(matrix.as_ref().as_ptr() as *const u8, 64)
+            });
+        }
+
+        if self.instance_buffers.is_empty() {
+            requests.push_back(Request::CommandBuffer(encoder.finish()));
+            return;
+        }
 
         self.record_render_pipeline(&mut encoder);
 
@@ -686,8 +713,8 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
         self.output_texture_view = Some(new_texture_view);
 
         let new_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth-tes"),
-            size: Extent3d {
+            label: Some("depth-texture"),
+            size: wgpu::Extent3d {
                 width: self.width,
                 height: self.height,
                 depth: 1,
@@ -695,11 +722,20 @@ impl<'a> DeviceFramebuffer for GPUApp<'a> {
             array_layer_count: 1,
             mip_level_count: 1,
             sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Depth32Float,
-            usage: TextureUsage::OUTPUT_ATTACHMENT | TextureUsage::STORAGE,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
         });
-        let new_view = new_texture.create_default_view();
+
+        let new_view = new_texture.create_view(&TextureViewDescriptor {
+            format: TextureFormat::Depth32Float,
+            dimension: TextureViewDimension::D2,
+            aspect: TextureAspect::DepthOnly,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            array_layer_count: 1,
+        });
         self.depth_texture = Some(new_texture);
         self.depth_texture_view = Some(new_view);
     }

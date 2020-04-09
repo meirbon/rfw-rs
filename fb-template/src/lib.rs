@@ -10,6 +10,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+use futures::executor::block_on;
 pub use imgui::*;
 use wgpu::BufferAddress;
 pub use winit::event::MouseButton as MouseButtonCode;
@@ -132,7 +133,7 @@ pub trait DeviceFramebuffer {
     fn imgui(&mut self, ui: &imgui::Ui);
 }
 
-pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
+pub fn run_device_app<T: 'static + DeviceFramebuffer>(
     mut app: T,
     title: &str,
     start_width: u32,
@@ -159,24 +160,21 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
 
     let surface = wgpu::Surface::create(&window);
 
-    let adapter: wgpu::Adapter = wgpu::Adapter::request(
+    let adapter: wgpu::Adapter = block_on(wgpu::Adapter::request(
         &wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
         },
         wgpu::BackendBit::PRIMARY,
-    )
-        .await
-        .unwrap();
+    ))
+    .unwrap();
 
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions {
-                anisotropic_filtering: false,
-            },
-            limits: wgpu::Limits::default(),
-        })
-        .await;
+    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        extensions: wgpu::Extensions {
+            anisotropic_filtering: false,
+        },
+        limits: wgpu::Limits::default(),
+    }));
 
     let mut requests: VecDeque<Request> = VecDeque::new();
     let mut command_buffers: Vec<wgpu::CommandBuffer> = Vec::new();
@@ -279,16 +277,17 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
 
                 app.render(&output_texture, &device, &mut requests);
 
-
                 loop {
                     let request = requests.pop_front();
                     match request {
                         Some(request) => match request {
                             Request::Exit => *control_flow = ControlFlow::Exit,
                             Request::TitleChange(title) => window.set_title(title.as_str()),
-                            Request::CommandBuffer(command_buffer) => command_buffers.push(command_buffer),
+                            Request::CommandBuffer(command_buffer) => {
+                                command_buffers.push(command_buffer)
+                            }
                         },
-                        _ => break
+                        _ => break,
                     }
                 }
 
@@ -335,20 +334,20 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(x as f64, y as f64, &mut requests);
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y, &mut requests);
@@ -364,7 +363,7 @@ pub async fn run_device_app<T: 'static + DeviceFramebuffer>(
     });
 }
 
-pub async fn run_host_app<T: 'static + HostFramebuffer>(
+pub fn run_host_app<T: 'static + HostFramebuffer>(
     mut app: T,
     title: &str,
     start_width: u32,
@@ -390,15 +389,14 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
     let (mut width, mut height) = window.inner_size().into();
 
     let surface = wgpu::Surface::create(&window);
-    let adapter: wgpu::Adapter = wgpu::Adapter::request(
+    let adapter: wgpu::Adapter = block_on(wgpu::Adapter::request(
         &wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
             compatible_surface: Some(&surface),
         },
         wgpu::BackendBit::PRIMARY,
-    )
-        .await
-        .unwrap();
+    ))
+    .unwrap();
 
     app.init(width, height);
 
@@ -422,7 +420,7 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
         .compile_from_string(frag_source, shaderc::ShaderKind::Fragment)
         .unwrap();
 
-    let (device, queue) = adapter_request.await;
+    let (device, queue) = block_on(adapter_request);
 
     let vert_module = device.create_shader_module(vert_module.as_slice());
     let frag_module = device.create_shader_module(frag_module.as_slice());
@@ -651,19 +649,23 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
 
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &bind_group_layout,
-                    bindings: &[wgpu::Binding {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer {
-                            buffer: &uniform_buffer,
-                            range: 0..64,
+                    bindings: &[
+                        wgpu::Binding {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer {
+                                buffer: &uniform_buffer,
+                                range: 0..64,
+                            },
                         },
-                    }, wgpu::Binding {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&render_texture_view),
-                    }, wgpu::Binding {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    }, ],
+                        wgpu::Binding {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&render_texture_view),
+                        },
+                        wgpu::Binding {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
                     label: Some("blit-bind-group"),
                 });
 
@@ -768,20 +770,20 @@ pub async fn run_host_app<T: 'static + HostFramebuffer>(
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::LineDelta(x, y),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::LineDelta(x, y),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(x as f64, y as f64);
             }
             Event::WindowEvent {
                 event:
-                WindowEvent::MouseWheel {
-                    delta: winit::event::MouseScrollDelta::PixelDelta(delta),
-                    ..
-                },
+                    WindowEvent::MouseWheel {
+                        delta: winit::event::MouseScrollDelta::PixelDelta(delta),
+                        ..
+                    },
                 window_id,
             } if window_id == window.id() => {
                 app.scroll_handling(delta.x, delta.y);

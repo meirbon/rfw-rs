@@ -55,7 +55,7 @@ impl MaterialList {
         let buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
             label: Some("material-buffer"),
             size,
-            usage: BufferUsage::STORAGE_READ
+            usage: BufferUsage::READ_ALL
         });
 
         buffer.data.copy_from_slice(unsafe {

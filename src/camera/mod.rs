@@ -243,7 +243,7 @@ impl Camera {
         self.direction = (target - origin).normalize().into();
     }
 
-    pub fn get_matrix(&self) -> Mat4 {
+    pub fn get_lh_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
         let fov = self.fov.to_radians();
         let fov_dist = (fov * 0.5).tan();
@@ -260,7 +260,7 @@ impl Camera {
         projection * flip * view
     }
 
-    pub fn get_gl_matrix(&self) -> Mat4 {
+    pub fn get_rh_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
         let fov = self.fov.to_radians();
         let fov_dist = (fov * 0.5).tan();
@@ -285,6 +285,6 @@ impl Camera {
     }
 
     pub fn calculate_frustrum(&self) -> frustrum::FrustrumG {
-        frustrum::FrustrumG::from_matrix(self.get_gl_matrix())
+        frustrum::FrustrumG::from_matrix(self.get_rh_matrix())
     }
 }

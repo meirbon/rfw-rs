@@ -104,10 +104,11 @@ impl RastMesh {
         use wgpu::*;
 
         let size = self.vertices.len() * std::mem::size_of::<VertexData>();
+
         let triangle_buffer = device.create_buffer_mapped(&BufferDescriptor {
             label: Some("mesh"),
             size: size as BufferAddress,
-            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::VERTEX,
         });
 
         triangle_buffer.data.copy_from_slice(unsafe {
@@ -381,7 +382,10 @@ impl Bounds for RastMesh {
 }
 
 impl<'a> SerializableObject<'a, RTMesh> for RTMesh {
-    fn serialize<S: AsRef<std::path::Path>>(&self, path: S) -> Result<(), Box<dyn std::error::Error>> {
+    fn serialize<S: AsRef<std::path::Path>>(
+        &self,
+        path: S,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use std::io::Write;
         let encoded: Vec<u8> = bincode::serialize(self)?;
         let mut file = std::fs::File::create(path)?;
@@ -389,7 +393,9 @@ impl<'a> SerializableObject<'a, RTMesh> for RTMesh {
         Ok(())
     }
 
-    fn deserialize<S: AsRef<std::path::Path>>(path: S) -> Result<RTMesh, Box<dyn std::error::Error>> {
+    fn deserialize<S: AsRef<std::path::Path>>(
+        path: S,
+    ) -> Result<RTMesh, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
         let object: Self = bincode::deserialize_from(reader)?;
@@ -398,7 +404,10 @@ impl<'a> SerializableObject<'a, RTMesh> for RTMesh {
 }
 
 impl<'a> SerializableObject<'a, RastMesh> for RastMesh {
-    fn serialize<S: AsRef<std::path::Path>>(&self, path: S) -> Result<(), Box<dyn std::error::Error>> {
+    fn serialize<S: AsRef<std::path::Path>>(
+        &self,
+        path: S,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use std::io::Write;
         let encoded: Vec<u8> = bincode::serialize(self)?;
         let mut file = std::fs::File::create(path)?;
@@ -406,7 +415,9 @@ impl<'a> SerializableObject<'a, RastMesh> for RastMesh {
         Ok(())
     }
 
-    fn deserialize<S: AsRef<std::path::Path>>(path: S) -> Result<RastMesh, Box<dyn std::error::Error>> {
+    fn deserialize<S: AsRef<std::path::Path>>(
+        path: S,
+    ) -> Result<RastMesh, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
         let object: Self = bincode::deserialize_from(reader)?;

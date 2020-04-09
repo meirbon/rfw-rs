@@ -141,7 +141,7 @@ impl FrustrumG {
     }
 
     pub fn new(camera: &crate::camera::Camera) -> FrustrumG {
-        let matrix = camera.get_gl_matrix();
+        let matrix = camera.get_rh_matrix();
 
         Self::from_matrix(matrix)
     }
