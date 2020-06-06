@@ -1,0 +1,137 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Vulkan debug",
+            "program": "${workspaceFolder}/target/debug/vulkan",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "-p",
+                    "vulkan"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Vulkan release",
+            "program": "${workspaceFolder}/target/release/vulkan",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "-p",
+                    "vulkan"
+                ]
+            },
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch CPU-RT debug",
+            "program": "${workspaceFolder}/target/debug/cpu-rt",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "-p",
+                    "cpu-rt"
+                ]
+            },
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch CPU-RT release",
+            "program": "${workspaceFolder}/target/release/cpu-rt",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "-p",
+                    "cpu-rt"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Deferred debug",
+            "program": "${workspaceFolder}/target/debug/deferred",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "-p",
+                    "deferred"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Deferred release",
+            "program": "${workspaceFolder}/target/release/deferred",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "-p",
+                    "deferred"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+    ]
+}

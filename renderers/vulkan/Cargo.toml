@@ -1,0 +1,23 @@
+[package]
+name = "vulkan"
+version = "0.1.0"
+authors = ["meir"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ash = "0.31"
+ash-window = "0.4"
+scene = { path = "../../scene" }
+shared = { path = "../shared" }
+glam = "0.8"
+winit = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["windef", "winuser"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = "0.18"
+cocoa = "0.20"
+objc = "0.2"

@@ -1,0 +1,83 @@
+#version 450
+
+#include "random.glsl"
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform Locals {
+    mat4 View;
+    mat4 Proj;
+    uvec4 light_count;
+    vec4 cam_pos;
+};
+
+layout(set = 1, binding = 0, r16f) uniform writeonly image2D SSAOTexture;
+layout(set = 1, binding = 1) uniform sampler Sampler;
+layout(set = 1, binding = 2) uniform texture2D ScreenSpace;
+layout(set = 1, binding = 3) uniform texture2D Normal;
+
+// TODO: Make these dynamically adjustable
+const float radius = 1.2;
+const float bias = 0.25;
+const int num_samples = 16;
+
+void createTangentSpace(const vec3 N, inout vec3 T, inout vec3 B)
+{
+    const float sign = sign(N.z);
+    const float a = -1.0f / (sign + N.z);
+    const float b = N.x * N.y * a;
+    T = vec3(1.0f + sign * N.x * N.x * a, sign * b, -sign * N.x);
+    B = vec3(b, sign + N.y * N.y * a, -N.y);
+}
+
+vec3 tangentToWorld(const vec3 s, const vec3 N, const vec3 T, const vec3 B) { return T * s.x + B * s.y + N * s.z; }
+
+vec3 worldToTangent(const vec3 s, const vec3 N, const vec3 T, const vec3 B) { return vec3(dot(T, s), dot(B, s), dot(N, s)); }
+
+vec3 randomSample(inout uint seed) {
+    const float r1 = RandomFloat(seed);
+    const float r2 = RandomFloat(seed);
+
+    const float r = sqrt(1.0 - r1 * r1);
+    const float phi = 2.0 * 3.14159265358979323846f * r2;
+    return vec3(cos(phi) * r, r1, sin(phi) * r);
+}
+
+void main()
+{
+    const ivec2 image_size = imageSize(SSAOTexture).xy;
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.x % image_size.x, gl_GlobalInvocationID.x / image_size.x);
+    if (pixel.x >= image_size.x || pixel.y >= image_size.y) {
+        return;
+    }
+
+    uint seed = WangHash((pixel.x + pixel.y * image_size.x) * 16789 * 1791);
+    const vec2 UV = vec2(pixel) / textureSize(sampler2D(ScreenSpace, Sampler), 0).xy;
+
+    // Inspired by https://www.trentreed.net/blog/screen-space-ambient-occlusion/
+    const vec3 fragPos = texture(sampler2D(ScreenSpace, Sampler), UV).xyz;
+    vec3 T, B;
+    const vec3 N = texture(sampler2D(Normal, Sampler), UV).xyz;
+    createTangentSpace(N, T, B);
+
+    // iterate over the sample kernel and calculate occlusion factor
+    float occlusion = 0.0;
+    for (int i = 0; i < num_samples; ++i)
+    {
+        const vec3 S = fragPos + tangentToWorld(randomSample(seed), N, T, B) * radius;
+        // project sample position (to sample texture) (to get position on screen/texture)
+        vec4 offset = vec4(S, 1.0);
+        offset = Proj * offset;// from view to clip-space
+        offset.xy /= offset.w;// perspective divide
+
+        const float sampleDepth = texture(sampler2D(ScreenSpace, Sampler), offset.xy * vec2(0.5, -0.5) + 0.5).z;
+        const float rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
+        if (sampleDepth >= S.z + bias) {
+            occlusion += 1.0 * rangeCheck;
+        }
+    }
+
+    occlusion = 1.0 - (occlusion * (1.0 / num_samples));
+    //    occlusion = occlusion * occlusion;
+    imageStore(SSAOTexture, pixel, vec4(occlusion));
+}

@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+    "renderers/cpu-rt",
+    "renderers/deferred",
+    "renderers/shared",
+    "renderers/vulkan",
+    "scene"
+]

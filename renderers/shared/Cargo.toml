@@ -1,0 +1,11 @@
+[package]
+name = "shared"
+version = "0.1.0"
+authors = ["meir"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+shaderc = "0.6"
+num = "0.2"
