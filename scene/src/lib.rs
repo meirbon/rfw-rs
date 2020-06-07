@@ -19,7 +19,7 @@ pub use material::*;
 pub use objects::*;
 pub use scene::*;
 
-use renderers::{Renderer, Setting};
+use renderers::{RenderMode, Renderer, Setting};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 pub use bitvec::prelude::*;
@@ -311,9 +311,9 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         self.renderer.lock().unwrap().resize(window, width, height);
     }
 
-    pub fn render(&self, camera: &Camera) {
+    pub fn render(&self, camera: &Camera, mode: RenderMode) {
         if let Ok(mut renderer) = self.renderer.try_lock() {
-            renderer.render(camera);
+            renderer.render(camera, mode);
         }
     }
 

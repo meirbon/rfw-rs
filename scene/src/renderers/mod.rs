@@ -92,6 +92,19 @@ impl Setting {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum RenderMode {
+    Default = 0,
+    Reset = 1,
+    Accumulate = 2,
+}
+
+impl Default for RenderMode {
+    fn default() -> Self {
+        RenderMode::Default
+    }
+}
+
 pub trait Renderer {
     /// Initializes renderer with surface given through a raw window handle
     fn init<T: HasRawWindowHandle>(
@@ -111,7 +124,7 @@ pub trait Renderer {
     /// This is an expensive step as it can involve operations such as acceleration structure rebuilds
     fn synchronize(&mut self);
     /// Renders an image to the window surface
-    fn render(&mut self, camera: &Camera);
+    fn render(&mut self, camera: &Camera, mode: RenderMode);
     /// Resizes framebuffer
     fn resize<T: HasRawWindowHandle>(&mut self, window: &T, width: usize, height: usize);
     /// Updates point lights, only lights with their 'changed' flag set to true have changed

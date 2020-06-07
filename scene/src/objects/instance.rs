@@ -27,6 +27,19 @@ impl Display for Instance {
     }
 }
 
+impl Default for Instance {
+    fn default() -> Self {
+        Self {
+            original_bounds: AABB::empty(),
+            bounds: AABB::empty(),
+            hit_id: 0,
+            transform: [0.0; 16],
+            inverse: [0.0; 16],
+            normal_transform: [0.0; 16],
+        }
+    }
+}
+
 #[allow(dead_code)]
 impl Instance {
     pub fn new(hit_id: isize, bounds: &AABB, transform: glam::Mat4) -> Instance {

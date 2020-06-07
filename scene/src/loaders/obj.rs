@@ -38,7 +38,7 @@ impl Obj {
     ) -> Result<Obj, SceneError> {
         let path = path.as_ref();
 
-        let object = tobj::load_obj(path, true);
+        let object = tobj::load_obj(path);
         if let Err(_) = object {
             return Err(SceneError::LoadError(path.to_path_buf()));
         }
@@ -63,6 +63,7 @@ impl Obj {
                     .max(0.0)
                     .min(1.0);
                 let opacity = 1.0 - material.dissolve;
+                let eta = material.optical_density;
 
                 let parent = if let Some(p) = path.parent() {
                     p.to_path_buf()
@@ -70,9 +71,16 @@ impl Obj {
                     PathBuf::new()
                 };
 
-                let d_path: PathBuf = parent.join(material.diffuse_texture.as_str()).to_path_buf();
-                let mut n_path: PathBuf =
-                    parent.join(material.normal_texture.as_str()).to_path_buf();
+                let d_path = if material.diffuse_texture == "" {
+                    None
+                } else {
+                    Some(parent.join(material.diffuse_texture.as_str()).to_path_buf())
+                };
+                let mut n_path = if material.normal_texture == "" {
+                    None
+                } else {
+                    Some(parent.join(material.normal_texture.as_str()).to_path_buf())
+                };
 
                 let mut roughness_map: Option<PathBuf> = None;
                 let mut metallic_map: Option<PathBuf> = None;
@@ -114,25 +122,32 @@ impl Obj {
                         "pm" | "map_pm" => {
                             metallic_map = Some(parent.join(value.as_str()).to_path_buf());
                         }
-                        "norm" => {
-                            n_path = parent.join(value.as_str()).to_path_buf();
+                        "norm" | "map_ns" | "map_bump" => {
+                            n_path = Some(parent.join(value.as_str()).to_path_buf());
                         }
                         _ => {}
                     }
                 });
 
-                material_indices[i] = mat_manager.add_with_maps(
+                let mat_index = mat_manager.add_with_maps(
                     color,
                     roughness,
                     specular,
                     opacity,
-                    Some(d_path),
-                    Some(n_path),
+                    d_path,
+                    n_path,
                     roughness_map,
                     metallic_map,
                     emissive_map,
                     sheen_map,
                 );
+                mat_manager.get_mut(mat_index, |m| {
+                    if let Some(mat) = m {
+                        mat.eta = eta;
+                    }
+                });
+
+                material_indices[i] = mat_index;
             }
 
             if material_indices.is_empty() {

@@ -2,10 +2,11 @@ use crate::surface::Surface;
 
 use futures::executor::block_on;
 use glam::*;
+use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
-use scene::renderers::Renderer;
+use scene::renderers::{RenderMode, Renderer};
 use scene::{
     constants, AreaLight, BitVec, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
     Light, Material, Mesh, PointLight, SpotLight, TIntersector, Texture,
@@ -26,6 +27,7 @@ pub struct RayTracer<'a> {
     pixel_buffer: wgpu::Buffer,
     width: usize,
     height: usize,
+    sample_count: usize,
 
     compiler: Compiler<'a>,
     output_sampler: wgpu::Sampler,
@@ -240,6 +242,7 @@ impl Renderer for RayTracer<'_> {
             pixel_buffer,
             width,
             height,
+            sample_count: 0,
             compiler,
             output_sampler,
             output_texture,
@@ -262,20 +265,20 @@ impl Renderer for RayTracer<'_> {
         }))
     }
 
-    fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
-        if id >= self.meshes.len() {
-            self.meshes.push(mesh.clone())
-        } else {
-            self.meshes[id] = mesh.clone();
+    fn set_mesh(&mut self, id: usize, mesh: &Mesh) {
+        while id >= self.meshes.len() {
+            self.meshes.push(Mesh::empty());
         }
+
+        self.meshes[id] = mesh.clone();
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
-        if id >= self.instances.len() {
-            self.instances.push(instance.clone());
-        } else {
-            self.instances[id] = instance.clone();
+        while id >= self.instances.len() {
+            self.instances.push(Instance::default());
         }
+
+        self.instances[id] = instance.clone();
     }
 
     fn set_materials(
@@ -305,8 +308,12 @@ impl Renderer for RayTracer<'_> {
         self.mbvh = MBVH::construct(&self.bvh);
     }
 
-    fn render(&mut self, camera: &scene::Camera) {
-        self.render_surface.clear();
+    fn render(&mut self, camera: &scene::Camera, mode: RenderMode) {
+        if mode == RenderMode::Reset {
+            self.sample_count = 0;
+            self.render_surface.clear();
+        }
+
         let view = camera.get_view();
         let surface = &self.render_surface;
 
@@ -334,7 +341,18 @@ impl Renderer for RayTracer<'_> {
 
         let area_lights = &self.area_lights;
 
+        // Initialize weights for pixels
+        let new_sample_count = self.sample_count + 1;
+        let new_weight = 1.0 / new_sample_count as f32;
+        let pixel_weight = if self.sample_count == 0 {
+            0.0
+        } else {
+            self.sample_count as f32 / new_sample_count as f32
+        };
+
         surface.as_tiles().into_par_iter().for_each(|t| {
+            let mut rng = thread_rng();
+
             for y in t.y_start..t.y_end {
                 let y = y as u32;
                 for x in (t.x_start..t.x_end).step_by(4) {
@@ -354,99 +372,126 @@ impl Renderer for RayTracer<'_> {
                         y_range[3] + y,
                     ];
 
-                    // const USE_PACKETS: bool = false;
-
-                    // if USE_PACKETS {
                     let mut packet = view.generate_ray4(&xs, &ys, width as u32);
-
-                    // let packet: &mut RayPacket4 = &mut packet[p as usize];
-                    let (instance_ids, prim_ids) =
-                        intersector.intersect4(&mut packet, [constants::DEFAULT_T_MIN; 4]);
-
-                    // let hit = intersector.get_hit_record4(&packet, instance_ids, prim_ids);
+                    let t_min = [constants::DEFAULT_T_MIN; 4];
+                    let (instance_ids, prim_ids) = intersector.intersect4(&mut packet, t_min);
 
                     for i in 0..4 {
                         let prim_id = prim_ids[i];
                         let instance_id = instance_ids[i];
+                        let pixel_x = x + i as u32;
+                        if let Some(cur_color) = surface.get(pixel_x, y) {
+                            let t = packet.t[i];
+                            let mut path_length = 0;
 
-                        surface.draw(
-                            x + i as u32,
-                            y,
-                            if prim_id >= 0 || instance_id >= 0 {
-                                // let origin = packet.
-                                let ray = packet.ray(i);
-                                let hit = intersector.get_hit_record(
-                                    ray,
-                                    packet.t[i],
-                                    instance_id,
-                                    prim_id,
-                                );
-                                let material = &materials[hit.mat_id as usize];
-                                let mat_color = Vec4::from(material.color).truncate();
+                            let color = if t < constants::DEFAULT_T_MAX
+                                && (prim_id >= 0 || instance_id >= 0)
+                            {
+                                path_length += 1;
+                                let mut throughput = Vec3::one();
+                                let mut color = Vec3::zero();
+                                let mut ray = packet.ray(i);
 
-                                if material.is_emissive() {
-                                    mat_color.extend(1.0)
-                                } else {
-                                    let normal: Vec3 = hit.normal.into();
-                                    let (origin, direction) = ray.into();
-                                    let p = origin + direction * hit.t;
-                                    let backward_facing = direction.dot(normal) >= 0.0;
+                                let mut hit =
+                                    intersector.get_hit_record(ray, t, instance_id, prim_id);
 
-                                    let normal = normal * if backward_facing { -1.0 } else { 1.0 };
+                                loop {
+                                    let material = &materials[hit.mat_id as usize];
+                                    let mat_color = Vec4::from(material.color).truncate();
 
-                                    let mut light = Vec3::zero();
-                                    area_lights.iter().for_each(|al| {
-                                        let pos = Vec3::from(al.position);
-                                        let l: Vec3 = pos - p;
-                                        let dist2 = l.dot(l);
-                                        let dist = dist2.sqrt();
-                                        let l: Vec3 = l / dist;
+                                    if material.is_emissive() {
+                                        // Only camera rays 'see' lights (TODO: implement multiple importance sampling)
+                                        if path_length <= 1 {
+                                            color += throughput * mat_color;
+                                        }
+                                        break;
+                                    } else {
+                                        let normal: Vec3 = hit.normal.into();
+                                        let (origin, direction) = ray.into();
+                                        let p: Vec3 = origin + direction * hit.t;
+                                        let backward_facing = -direction.dot(normal).signum();
+                                        let normal = normal * backward_facing;
 
-                                        let n_dot_l = normal.dot(l);
-                                        let ln_dot_l = -Vec3::from(al.normal).dot(l);
-                                        if n_dot_l <= 0.0 || ln_dot_l <= 0.0 {
-                                            return;
+                                        let brdf = mat_color * std::f32::consts::FRAC_1_PI;
+
+                                        // Next event estimation
+                                        let sampled_light = (rng.gen::<f32>()
+                                            * ((area_lights.len().max(1) - 1) as f32))
+                                            .round()
+                                            as usize;
+                                        if let Some(al) = area_lights.get(sampled_light) {
+                                            let nee_pdf = 1.0 / area_lights.len() as f32;
+                                            let pos = Vec3::from(al.position);
+                                            let l: Vec3 = pos - p;
+                                            let dist2 = l.dot(l);
+                                            let dist = dist2.sqrt();
+                                            let l: Vec3 = l / dist;
+
+                                            let n_dot_l = normal.dot(l);
+                                            let ln_dot_l = -Vec3::from(al.normal).dot(l);
+                                            if n_dot_l > 0.0 && ln_dot_l > 0.0 {
+                                                if !intersector.occludes(
+                                                    Ray::new(p.into(), l.into()),
+                                                    constants::EPSILON,
+                                                    dist - 2.0 * constants::EPSILON,
+                                                ) {
+                                                    let solid_angle = ln_dot_l * al.area / dist2;
+                                                    color += throughput
+                                                        * brdf
+                                                        * n_dot_l
+                                                        * solid_angle
+                                                        * al.get_radiance()
+                                                        / nee_pdf;
+                                                }
+                                            }
                                         }
 
-                                        if !intersector.occludes(
-                                            Ray::new(p.into(), l.into()),
-                                            constants::EPSILON,
-                                            dist - 2.0 * constants::EPSILON,
+                                        // Create a cosine-weighted reflection ray
+                                        let direction = Self::world_sample_cos(
+                                            normal,
+                                            rng.gen::<f32>(),
+                                            rng.gen::<f32>(),
+                                        );
+                                        let origin: Vec3 = p + direction * constants::EPSILON;
+                                        ray = Ray::new(origin.into(), direction.into());
+
+                                        // Intersect new ray
+                                        if let Some(h) = intersector.intersect(
+                                            ray,
+                                            constants::DEFAULT_T_MIN,
+                                            constants::DEFAULT_T_MAX,
                                         ) {
-                                            light += mat_color * n_dot_l * ln_dot_l / dist2
-                                                * al.area
-                                                * al.get_radiance();
-                                            // TODO area lights need area available
+                                            hit = h;
+                                            let n_dot_d = normal.dot(direction);
+                                            let pdf = n_dot_d * std::f32::consts::FRAC_1_PI;
+                                            throughput *= brdf * n_dot_d / pdf;
+                                        } else {
+                                            break;
                                         }
-                                    });
 
-                                    light.extend(1.0)
+                                        // Russian roulette
+                                        let probability =
+                                            throughput.max_element().max(constants::EPSILON);
+                                        if rng.gen::<f32>() < probability {
+                                            throughput /= probability;
+                                        } else {
+                                            break;
+                                        }
+                                    }
                                 }
+
+                                color.extend(1.0)
                             } else {
                                 Vec4::zero()
-                            },
-                        );
+                            };
+
+                            surface.draw(
+                                pixel_x,
+                                y,
+                                (*cur_color) * pixel_weight + color * new_weight,
+                            );
+                        }
                     }
-                    // } else {
-                    //     for i in 0..4 {
-                    //         surface.draw(x + i as u32, y, {
-                    //             let ray = view.generate_ray(xs[i], ys[i]);
-                    //             let (_, depth) = intersector.depth_test(
-                    //                 ray,
-                    //                 constants::DEFAULT_T_MIN,
-                    //                 constants::DEFAULT_T_MAX,
-                    //             );
-                    //             if depth == 0 {
-                    //                 Vec4::from([0.0; 4])
-                    //             } else {
-                    //                 let r = (depth as f32).log(2.0) * (1.0 / 16.0);
-                    //                 let g = (16 - depth.min(16)) as f32 * (1.0 / 32.0);
-                    //                 let b = depth as f32 * (1.0 / 128.0);
-                    //                 (r, g, b, 1.0).into()
-                    //             }
-                    //         });
-                    //     }
-                    // }
                 }
             }
         });
@@ -463,6 +508,7 @@ impl Renderer for RayTracer<'_> {
                 });
 
             self.device.poll(wgpu::Maintain::Wait);
+            let color_weight = Vec4::splat(255.0);
             if let Ok(mut mapping) = block_on(mapping) {
                 let width = self.width;
                 let fb_iterator = mapping.as_slice().par_chunks_mut(width * 4).enumerate();
@@ -475,7 +521,7 @@ impl Renderer for RayTracer<'_> {
                         let color: Vec4 = unsafe { *pixels.get_unchecked(x + y_offset) };
                         let color = color.min(Vec4::one()).max(Vec4::zero());
 
-                        let color: Vec4 = color * Vec4::splat(255.0);
+                        let color: Vec4 = color * color_weight;
                         let red = color.x() as u8;
                         let green = color.y() as u8;
                         let blue = color.z() as u8;
@@ -527,6 +573,8 @@ impl Renderer for RayTracer<'_> {
         } else {
             println!("Could not get next swap-chain texture.");
         }
+
+        self.sample_count += 1;
     }
 
     fn resize<T: HasRawWindowHandle>(&mut self, _window: &T, width: usize, height: usize) {
@@ -540,8 +588,11 @@ impl Renderer for RayTracer<'_> {
                 size: (new_size * 4) as wgpu::BufferAddress,
             });
         }
-        self.render_surface =
-            Surface::new(&mut self.pixels[0..(width * height)], width, height, 16, 16);
+
+        let pixel_ref = &mut self.pixels[0..(width * height)];
+        self.render_surface = Surface::new(pixel_ref, width, height, 16, 16);
+        self.render_surface.clear();
+        self.sample_count = 0;
 
         self.swap_chain = self.device.create_swap_chain(
             &self.surface,
@@ -573,6 +624,7 @@ impl Renderer for RayTracer<'_> {
             mip_level_count: 1,
             sample_count: 1,
         });
+
         self.output_texture_view = self.output_texture.create_default_view();
 
         self.output_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -612,5 +664,50 @@ impl Renderer for RayTracer<'_> {
     }
     fn set_setting(&mut self, _setting: scene::renderers::Setting) {
         todo!()
+    }
+}
+
+impl<'a> RayTracer<'a> {
+    fn create_tangent_space(normal: Vec3) -> (Vec3, Vec3) {
+        // *w = v2;
+        // *u = normalize(cross(fabs(v2.x) > fabs(v2.y) ? (float3)(0, 1, 0) : (float3)(1, 0, 0), *w));
+        // *v = cross(*w, *u);
+        // const float3 wi = -rDirection;
+        // return normalize((float3)(dot(*u, wi), dot(*v, wi), dot(*w, wi)));
+
+        let t = if normal.x().abs() > normal.y().abs() {
+            Vec3::new(0.0, 1.0, 0.0)
+        } else {
+            Vec3::new(1.0, 0.0, 0.0)
+        };
+
+        let t = t.cross(normal).normalize();
+        let b = normal.cross(t);
+        (t, b)
+    }
+
+    fn tangent_to_world(sample: Vec3, normal: Vec3, tb: (Vec3, Vec3)) -> Vec3 {
+        let (t, b) = tb;
+        sample.x() * b + sample.y() * t + sample.z() * normal
+    }
+
+    fn world_to_tangent(sample: Vec3, normal: Vec3, tb: (Vec3, Vec3)) -> Vec3 {
+        let (t, b) = tb;
+        Vec3::new(t.dot(sample), b.dot(sample), normal.dot(sample)).normalize()
+    }
+
+    fn sample_hemisphere_cos(r1: f32, r2: f32) -> Vec3 {
+        let r = r1.sqrt();
+        let theta = 2.0 * std::f32::consts::PI * r2;
+        let (x, y) = theta.sin_cos();
+        let x = r * x;
+        let y = r * y;
+        Vec3::new(x, y, (1.0 - r1).sqrt())
+    }
+
+    fn world_sample_cos(normal: Vec3, r1: f32, r2: f32) -> Vec3 {
+        let tb = Self::create_tangent_space(normal);
+        let sample = Self::sample_hemisphere_cos(r1, r2);
+        Self::tangent_to_world(sample, normal, tb)
     }
 }

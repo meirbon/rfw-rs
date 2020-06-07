@@ -82,7 +82,7 @@ impl MouseButtonHandler {
 use crate::utils::Timer;
 use glam::*;
 use scene::{
-    renderers::{Setting, SettingValue},
+    renderers::{RenderMode, Setting, SettingValue},
     InstanceRef,
 };
 use shared::utils;
@@ -139,6 +139,7 @@ fn main() {
     instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
+    let mut mode = RenderMode::Accumulate;
 
     renderer.synchronize();
 
@@ -256,11 +257,10 @@ fn main() {
                 let view_change = view_change * elapsed * 0.001;
                 let pos_change = pos_change * elapsed * 0.01;
 
-                if view_change != [0.0; 3].into() {
+                if view_change != Vec3::zero() || pos_change != Vec3::zero() {
                     camera.translate_target(view_change);
-                }
-                if pos_change != [0.0; 3].into() {
                     camera.translate_relative(pos_change);
+                    mode = RenderMode::Reset;
                 }
 
                 if resized {
@@ -272,7 +272,8 @@ fn main() {
                 }
 
                 renderer.synchronize();
-                renderer.render(&camera);
+                renderer.render(&camera, mode);
+                mode = RenderMode::Accumulate;
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

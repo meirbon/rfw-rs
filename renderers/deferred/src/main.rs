@@ -81,7 +81,7 @@ impl MouseButtonHandler {
 use crate::utils::Timer;
 use glam::*;
 use scene::{
-    renderers::{Setting, SettingValue},
+    renderers::{Setting, SettingValue, RenderMode},
     InstanceRef,
 };
 use shared::utils;
@@ -270,7 +270,7 @@ fn main() {
                 }
 
                 renderer.synchronize();
-                renderer.render(&camera);
+                renderer.render(&camera, RenderMode::Default);
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

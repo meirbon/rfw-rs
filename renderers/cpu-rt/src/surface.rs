@@ -57,6 +57,50 @@ impl<T: Sized + Copy + Send + Sync> Surface<T> {
         }
     }
 
+    pub fn get<B: Sized + Integer + Unsigned + Num + NumCast>(&self, x: B, y: B) -> Option<&T> {
+        let x: usize = x.to_usize().unwrap();
+        let y: usize = y.to_usize().unwrap();
+
+        if x < self.width && y <= self.height {
+            unsafe { self.ptr.add(x + y * self.width).as_ref() }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_unchecked<B: Sized + Integer + Unsigned + Num + NumCast>(&self, x: B, y: B) -> &T {
+        let x: usize = x.to_usize().unwrap();
+        let y: usize = y.to_usize().unwrap();
+
+        unsafe { self.ptr.add(x + y * self.width).as_ref().unwrap() }
+    }
+
+    pub fn get_mut<B: Sized + Integer + Unsigned + Num + NumCast>(
+        &self,
+        x: B,
+        y: B,
+    ) -> Option<&mut T> {
+        let x: usize = x.to_usize().unwrap();
+        let y: usize = y.to_usize().unwrap();
+
+        if x < self.width && y <= self.height {
+            unsafe { self.ptr.add(x + y * self.width).as_mut() }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_mut_unchecked<B: Sized + Integer + Unsigned + Num + NumCast>(
+        &self,
+        x: B,
+        y: B,
+    ) -> &mut T {
+        let x: usize = x.to_usize().unwrap();
+        let y: usize = y.to_usize().unwrap();
+
+        unsafe { self.ptr.add(x + y * self.width).as_mut().unwrap() }
+    }
+
     pub fn draw<B: Sized + Integer + Unsigned + Num + NumCast>(&self, x: B, y: B, color: T) {
         let x: usize = x.to_usize().unwrap();
         let y: usize = y.to_usize().unwrap();

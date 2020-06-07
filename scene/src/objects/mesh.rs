@@ -101,6 +101,12 @@ impl Display for Mesh {
     }
 }
 
+impl Default for Mesh {
+    fn default() -> Self {
+        Mesh::empty()
+    }
+}
+
 impl Mesh {
     pub fn new_indexed<T: AsRef<str>>(
         indices: &[[u32; 3]],
@@ -535,10 +541,6 @@ impl Mesh {
                 id: i as i32,
                 light_id: -1,
             };
-        });
-
-        meshes.iter().enumerate().for_each(|(i, m)| {
-            println!("Mesh ({}): {}", i, m);
         });
 
         Mesh {

@@ -4,7 +4,7 @@ use ash::extensions::{
 };
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{vk, Entry};
-use scene::renderers::{Renderer, Setting};
+use scene::renderers::{Renderer, Setting, RenderMode};
 use scene::{
     AreaLight, BitVec, Camera, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
     Local, Material, Mesh, PointLight, SpotLight, Texture,
@@ -417,7 +417,7 @@ impl<'a> Renderer for VkRenderer<'a> {
 
     fn synchronize(&mut self) {}
 
-    fn render(&mut self, _camera: &Camera) {
+    fn render(&mut self, _camera: &Camera, _mode: RenderMode) {
         record_submit_commandbuffer(
             &self.device,
             self.setup_command_buffer,

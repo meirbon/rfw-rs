@@ -1,8 +1,7 @@
 use futures::executor::block_on;
 use glam::*;
-use rtbvh::AABB;
-use scene::renderers::{Renderer, Setting, SettingValue};
-use scene::{BitVec, DeviceMaterial, FrustrumResult, HasRawWindowHandle, Instance};
+use scene::renderers::{Renderer, Setting, SettingValue, RenderMode};
+use scene::{BitVec, DeviceMaterial, HasRawWindowHandle, Instance};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -538,7 +537,7 @@ impl Renderer for Deferred<'_> {
         self.mesh_changed.set_all(false);
     }
 
-    fn render(&mut self, camera: &scene::Camera) {
+    fn render(&mut self, camera: &scene::Camera, _mode: RenderMode) {
         let mapping = self
             .camera_staging_buffer
             .map_write(0, Self::UNIFORM_CAMERA_SIZE);
