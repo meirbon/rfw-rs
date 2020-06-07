@@ -6,6 +6,7 @@ use image::GenericImageView;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use std::path::{Path, PathBuf};
 
@@ -19,12 +20,38 @@ pub struct MaterialList {
     textures: Vec<Texture>,
 }
 
+impl Display for MaterialList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "MaterialList: {{ changed: {}, changed_textures: {}, lights_materials: {}, materials: {}, textures: {} }}",
+            self.changed.count_ones(),
+            self.changed_textures.count_ones(),
+            self.light_flags.count_ones(),
+            self.materials.len(),
+            self.textures.len()
+        )
+    }
+}
+
 // TODO: Support other formats than BGRA8
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Texture {
     pub data: Vec<u32>,
     pub width: u32,
     pub height: u32,
+}
+
+impl Display for Texture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Texture {{ data: {} bytes, width: {}, height: {} }}",
+            self.data.len() * std::mem::size_of::<u32>(),
+            self.width,
+            self.height
+        )
+    }
 }
 
 impl Texture {

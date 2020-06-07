@@ -5,6 +5,7 @@ use rtbvh::{Ray, RayPacket4, AABB};
 
 use crate::MaterialList;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 /// Instance
 /// Takes in a bounding box and transform and transforms to and from object local space.
@@ -16,6 +17,14 @@ pub struct Instance {
     transform: [f32; 16],
     inverse: [f32; 16],
     normal_transform: [f32; 16],
+}
+
+impl Display for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Instance {{ original_bounds: {}, bounds: {}, hit_id: {}, transform: {}, inverse: {}, normal_transform: {} }}",
+            self.original_bounds, self.bounds, self.hit_id, Mat4::from_cols_array(&self.transform), Mat4::from_cols_array(&self.inverse), Mat4::from_cols_array(&self.normal_transform)
+        )
+    }
 }
 
 #[allow(dead_code)]

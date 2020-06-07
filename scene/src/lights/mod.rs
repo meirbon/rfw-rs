@@ -1,6 +1,7 @@
-use rtbvh::AABB;
 use glam::*;
+use rtbvh::AABB;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 pub trait Light {
     fn set_radiance(&mut self, radiance: Vec3);
@@ -56,6 +57,24 @@ pub struct AreaLight {
     pub vertex1: [f32; 3],
     radiance: [f32; 3],
     pub vertex2: [f32; 3],
+}
+
+impl Display for AreaLight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "AreaLight {{ position: {}, energy: {}, normal: {}, tri_idx: {}, vertex0: {}, inst_idx: {}, vertex1: {}, radiance: {}, vertex2: {} }}",
+            Vec3::from(self.position),
+            self.energy,
+            Vec3::from(self.normal),
+            self.tri_idx,
+            Vec3::from(self.vertex0),
+            self.inst_idx,
+            Vec3::from(self.vertex1),
+            Vec3::from(self.radiance),
+            Vec3::from(self.vertex2),
+        )
+    }
 }
 
 impl AreaLight {
@@ -145,6 +164,18 @@ pub struct PointLight {
     _dummy: i32,
 }
 
+impl Display for PointLight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PointLight {{ position: {}, energy: {}, radiance: {} }}",
+            Vec3::from(self.position),
+            self.energy,
+            Vec3::from(self.radiance)
+        )
+    }
+}
+
 impl PointLight {
     pub fn new(position: Vec3, radiance: Vec3) -> PointLight {
         Self {
@@ -225,6 +256,21 @@ pub struct SpotLight {
     pub direction: [f32; 3],
     energy: f32,
 } // 48 Bytes
+
+impl Display for SpotLight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SpotLight {{ position: {}, cos_inner: {}, radiance: {}, cos_outer: {}, direction: {}, energy: {} }}",
+            Vec3::from(self.position),
+            self.cos_inner,
+            Vec3::from(self.radiance),
+            self.cos_outer,
+            Vec3::from(self.direction),
+            self.energy
+        )
+    }
+}
 
 impl SpotLight {
     pub fn new(
@@ -320,6 +366,18 @@ pub struct DirectionalLight {
     radiance: [f32; 3],
     _dummy: i32,
 } // 32 Bytes
+
+impl Display for DirectionalLight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DirectionalLight {{ direction: {}, energy: {}, radiance: {} }}",
+            Vec3::from(self.direction),
+            self.energy,
+            Vec3::from(self.radiance),
+        )
+    }
+}
 
 impl DirectionalLight {
     pub fn new(direction: Vec3, radiance: Vec3) -> DirectionalLight {

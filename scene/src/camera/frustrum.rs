@@ -1,6 +1,7 @@
 use glam::*;
 use rtbvh::AABB;
 use std::convert::Into;
+use std::fmt::Display;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FrustrumResult {
@@ -9,10 +10,31 @@ pub enum FrustrumResult {
     Inside,
 }
 
+impl FrustrumResult {
+    pub fn should_render(&self) -> bool {
+        match self {
+            FrustrumResult::Outside => false,
+            FrustrumResult::Intersect => true,
+            FrustrumResult::Inside => true,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct FrustrumPlane {
-    pub normal: Vec3,
+    pub normal: [f32; 3],
     pub d: f32,
+}
+
+impl Display for FrustrumPlane {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FrustrumPlane {{ normal: {}, d: {} }}",
+            Vec3::from(self.normal),
+            self.d
+        )
+    }
 }
 
 impl FrustrumPlane {
@@ -31,42 +53,45 @@ impl FrustrumPlane {
         let aux1 = v0 - v1;
         let aux2 = v2 - v1;
 
-        let normal = (aux2 * aux1).normalize();
+        let normal: Vec3 = (aux2 * aux1).normalize();
 
         let point = v2;
         let d = -(normal.dot(point));
 
-        FrustrumPlane { normal, d }
+        FrustrumPlane {
+            normal: normal.into(),
+            d,
+        }
     }
 
     pub fn set_3_points(&mut self, v0: Vec3, v1: Vec3, v2: Vec3) {
         let aux1 = v0 - v1;
         let aux2 = v2 - v1;
 
-        let normal = (aux2 * aux1).normalize();
+        let normal: Vec3 = (aux2 * aux1).normalize();
 
         let point = v2;
         let d = -(normal.dot(point));
 
-        self.normal = normal;
+        self.normal = normal.into();
         self.d = d;
     }
 
     pub fn set_normal_and_point(&mut self, normal: Vec3, point: Vec3) {
-        self.normal = normal;
+        self.normal = normal.into();
         self.d = -(normal.dot(point));
     }
 
     pub fn set_coefficients(&mut self, a: f32, b: f32, c: f32, d: f32) {
         let normal = Vec3::from([a, b, c]);
         let length = normal.length();
-        let normal = normal / length;
-        self.normal = normal;
+        let normal: Vec3 = normal / length;
+        self.normal = normal.into();
         self.d = d / length;
     }
 
     pub fn distance(&self, p: Vec3) -> f32 {
-        self.d + self.normal.dot(p)
+        self.d + Vec3::from(self.normal).dot(p)
     }
 }
 
@@ -98,6 +123,21 @@ impl From<[f32; 4]> for FrustrumPlane {
 
 pub struct FrustrumG {
     pub planes: [FrustrumPlane; 6],
+}
+
+impl Display for FrustrumG {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FrustrumG: {{ planes: [{}, {}, {}, {}, {}, {}] }}",
+            self.planes[0],
+            self.planes[1],
+            self.planes[2],
+            self.planes[3],
+            self.planes[4],
+            self.planes[5],
+        )
+    }
 }
 
 impl FrustrumG {
@@ -161,7 +201,7 @@ impl FrustrumG {
             let mut min = [0.0; 3];
             let mut max = [0.0; 3];
 
-            if plane.normal.x() > 0.0 {
+            if plane.normal[0] > 0.0 {
                 min[0] = b.min[0];
                 max[0] = b.max[0];
             } else {
@@ -169,7 +209,7 @@ impl FrustrumG {
                 max[0] = b.min[0];
             }
 
-            if plane.normal.y() > 0.0 {
+            if plane.normal[1] > 0.0 {
                 min[1] = b.min[1];
                 max[1] = b.max[1];
             } else {
@@ -177,7 +217,7 @@ impl FrustrumG {
                 max[1] = b.min[1];
             }
 
-            if plane.normal.z() > 0.0 {
+            if plane.normal[2] > 0.0 {
                 min[2] = b.min[2];
                 max[2] = b.max[2];
             } else {

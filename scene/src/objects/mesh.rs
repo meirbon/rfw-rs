@@ -7,6 +7,7 @@ use crate::MaterialList;
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Display;
 
 pub trait ToMesh {
     fn into_mesh(self) -> Mesh;
@@ -27,12 +28,36 @@ pub struct VertexData {
     // 56
 }
 
+impl Display for VertexData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VertexData {{ vertex: {}, normal: {}, mat_id: {}, uv: {}, tangent: {} }}",
+            Vec4::from(self.vertex),
+            Vec3::from(self.normal),
+            self.mat_id,
+            Vec2::from(self.uv),
+            Vec4::from(self.tangent)
+        )
+    }
+}
+
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct VertexMesh {
     pub first: u32,
     pub last: u32,
     pub mat_id: u32,
     pub bounds: AABB,
+}
+
+impl Display for VertexMesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VertexMesh {{ first: {}, last: {}, mat_id: {}, bounds: {} }}",
+            self.first, self.last, self.mat_id, self.bounds
+        )
+    }
 }
 
 impl VertexData {
@@ -57,6 +82,23 @@ pub struct Mesh {
     pub bvh: Option<BVH>,
     pub mbvh: Option<MBVH>,
     pub name: String,
+}
+
+impl Display for Mesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Mesh {{ triangles: {}, vertices: {}, materials: {}, meshes: {}, bounds: {}, bvh: {}, mbvh: {}, name: {} }}",
+            self.triangles.len(),
+            self.vertices.len(),
+            self.materials.len(),
+            self.meshes.len(),
+            self.bounds,
+            self.bvh.is_some(),
+            self.mbvh.is_some(),
+            self.name.as_str()
+        )
+    }
 }
 
 impl Mesh {
@@ -493,6 +535,10 @@ impl Mesh {
                 id: i as i32,
                 light_id: -1,
             };
+        });
+
+        meshes.iter().enumerate().for_each(|(i, m)| {
+            println!("Mesh ({}): {}", i, m);
         });
 
         Mesh {

@@ -1,5 +1,6 @@
 use futures::executor::block_on;
 use glam::*;
+use rtbvh::AABB;
 use scene::renderers::{Renderer, Setting, SettingValue};
 use scene::{BitVec, DeviceMaterial, FrustrumResult, HasRawWindowHandle, Instance};
 use shared::*;
@@ -582,17 +583,18 @@ impl Renderer for Deferred<'_> {
             let matrix = camera.get_rh_matrix();
             let frustrum = scene::FrustrumG::from_matrix(matrix);
 
-            let instances_bounds = &self.instances.bounds;
-
             render_pass.set_pipeline(&self.pipeline.pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
             for i in 0..self.instances.len() {
                 let instance = &self.instances.instances[i];
                 let device_instance = &self.instances.device_instances[i];
-                let bounds = &instances_bounds[i];
+                let bounds = &self.instances.bounds[i];
 
-                if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside {
+                if !frustrum
+                    .aabb_in_frustrum(&bounds.root_bounds)
+                    .should_render()
+                {
                     continue;
                 }
 
@@ -606,8 +608,10 @@ impl Renderer for Deferred<'_> {
                 render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
                 for j in 0..mesh.sub_meshes.len() {
-                    let bounds = &bounds.mesh_bounds[i];
-                    if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                    if !frustrum
+                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                        .should_render()
+                    {
                         continue;
                     }
 

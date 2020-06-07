@@ -1,7 +1,7 @@
 use super::mesh::DeferredMesh;
-use rtbvh::{Bounds, AABB};
 use glam::*;
 use rayon::prelude::*;
+use rtbvh::{Bounds, AABB};
 use scene::{BitVec, Instance};
 
 pub struct DeviceInstance {
@@ -17,8 +17,8 @@ pub struct InstanceBounds {
 
 impl InstanceBounds {
     pub fn new(instance: &Instance, mesh: &DeferredMesh) -> Self {
-        let root_bounds = instance.bounds();
         let transform = instance.get_transform();
+        let root_bounds = instance.bounds();
         let mesh_bounds = mesh
             .sub_meshes
             .iter()

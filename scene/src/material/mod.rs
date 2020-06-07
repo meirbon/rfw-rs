@@ -4,6 +4,7 @@ pub use list::*;
 
 use glam::*;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
@@ -34,6 +35,22 @@ impl Default for MaterialFlags {
     }
 }
 
+impl Display for MaterialFlags {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, 
+            "MaterialFlags {{ HasDiffuseMap: {}, HasNormalMap: {}, HasRoughnessMap: {}, HasMetallicMap: {}, HasEmissiveMap: {}, HasSheenMap: {} }}",
+            self.get(MaterialProps::HasDiffuseMap),
+            self.get(MaterialProps::HasNormalMap),
+            self.get(MaterialProps::HasRoughnessMap),
+            self.get(MaterialProps::HasMetallicMap),
+            self.get(MaterialProps::HasEmissiveMap),
+            self.get(MaterialProps::HasSheenMap),
+        )
+    }
+    
+}
+
 #[allow(dead_code)]
 impl MaterialFlags {
     pub fn set(&mut self, prop: MaterialProps, value: bool) {
@@ -57,33 +74,61 @@ impl MaterialFlags {
 pub struct Material {
     pub color: [f32; 4],    // 16
     pub specular: [f32; 4], // 32
-
     pub metallic: f32,
     pub subsurface: f32,
     pub specular_f: f32,
     pub roughness: f32,
-
     pub specular_tint: f32,
     pub anisotropic: f32,
     pub sheen: f32,
     pub sheen_tint: f32,
-
     pub clearcoat: f32,
     pub clearcoat_gloss: f32,
     pub transmission: f32,
     pub eta: f32,
-
     pub custom0: f32,
     pub custom1: f32,
     pub custom2: f32,
     pub custom3: f32,
-
     pub diffuse_tex: i16,
     pub normal_tex: i16,
     pub roughness_tex: i16,
     pub metallic_tex: i16,
     pub emissive_tex: i16,
     pub sheen_tex: i16,
+}
+
+impl Display for Material {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Material {{ color: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, roughness_tex: {}, metallic_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
+            Vec4::from(self.color),
+            Vec4::from(self.specular),
+            self.metallic,
+            self.subsurface,
+            self.specular_f,
+            self.roughness,
+            self.specular_tint,
+            self.anisotropic,
+            self.sheen,
+            self.sheen_tint,
+            self.clearcoat,
+            self.clearcoat_gloss,
+            self.transmission,
+            self.eta,
+            self.custom0,
+            self.custom1,
+            self.custom2,
+            self.custom3,
+            self.diffuse_tex,
+            self.normal_tex,
+            self.roughness_tex,
+            self.metallic_tex,
+            self.emissive_tex,
+            self.sheen_tex,
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
