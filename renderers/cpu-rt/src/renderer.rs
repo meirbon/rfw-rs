@@ -4,11 +4,11 @@ use futures::executor::block_on;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
-use rtbvh::{Bounds, AABB, BVH, MBVH};
+use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
 use scene::renderers::Renderer;
 use scene::{
     constants, AreaLight, BitVec, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
-    Material, Mesh, PointLight, SpotLight, TIntersector, Texture,
+    Light, Material, Mesh, PointLight, SpotLight, TIntersector, Texture,
 };
 use shared::*;
 use std::error::Error;
@@ -332,6 +332,8 @@ impl Renderer for RayTracer<'_> {
             _ => [0, 0, 0, 0],
         };
 
+        let area_lights = &self.area_lights;
+
         surface.as_tiles().into_par_iter().for_each(|t| {
             for y in t.y_start..t.y_end {
                 let y = y as u32;
@@ -380,10 +382,46 @@ impl Renderer for RayTracer<'_> {
                                     prim_id,
                                 );
                                 let material = &materials[hit.mat_id as usize];
+                                let mat_color = Vec4::from(material.color).truncate();
 
-                                let color: Vec3 = Vec4::from(material.color).truncate()
-                                    * (-Vec3::from(ray.direction).dot(hit.normal.into())).max(0.2);
-                                color.extend(1.0)
+                                if material.is_emissive() {
+                                    mat_color.extend(1.0)
+                                } else {
+                                    let normal: Vec3 = hit.normal.into();
+                                    let (origin, direction) = ray.into();
+                                    let p = origin + direction * hit.t;
+                                    let backward_facing = direction.dot(normal) >= 0.0;
+
+                                    let normal = normal * if backward_facing { -1.0 } else { 1.0 };
+
+                                    let mut light = Vec3::zero();
+                                    area_lights.iter().for_each(|al| {
+                                        let pos = Vec3::from(al.position);
+                                        let l: Vec3 = pos - p;
+                                        let dist2 = l.dot(l);
+                                        let dist = dist2.sqrt();
+                                        let l: Vec3 = l / dist;
+
+                                        let n_dot_l = normal.dot(l);
+                                        let ln_dot_l = -Vec3::from(al.normal).dot(l);
+                                        if n_dot_l <= 0.0 || ln_dot_l <= 0.0 {
+                                            return;
+                                        }
+
+                                        if !intersector.occludes(
+                                            Ray::new(p.into(), l.into()),
+                                            constants::EPSILON,
+                                            dist - 2.0 * constants::EPSILON,
+                                        ) {
+                                            light += mat_color * n_dot_l * ln_dot_l / dist2
+                                                * al.area
+                                                * al.get_radiance();
+                                            // TODO area lights need area available
+                                        }
+                                    });
+
+                                    light.extend(1.0)
+                                }
                             } else {
                                 Vec4::zero()
                             },

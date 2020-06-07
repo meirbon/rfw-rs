@@ -414,6 +414,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn synchronize(&self) {
         if let Ok(mut renderer) = self.renderer.try_lock() {
             let mut changed = false;
+            let mut update_lights = false;
             if let Ok(mut objects) = self.scene.objects_lock() {
                 if objects.objects_changed.any() {
                     for i in 0..objects.objects.len() {
@@ -426,6 +427,32 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                     }
                     objects.objects_changed.set_all(false);
                     changed = true;
+                }
+
+                if objects.instances_changed.any() {
+                    if let Ok(materials) = self.scene.materials_lock() {
+                        let mut found_light = false;
+                        let light_flags = materials.light_flags();
+                        for i in 0..objects.instances.len() {
+                            let object_id = objects.instances[i].get_hit_id();
+                            for j in 0..objects.objects[object_id].meshes.len() {
+                                if let Some(flag) = light_flags
+                                    .get(objects.objects[object_id].meshes[j].mat_id as usize)
+                                {
+                                    if *flag {
+                                        found_light = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if found_light {
+                                break;
+                            }
+                        }
+
+                        update_lights = update_lights || found_light;
+                    }
                 }
 
                 if objects.instances_changed.any() {
@@ -442,7 +469,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 }
             }
 
-            let update_lights = if let Ok(mut materials) = self.scene.materials_lock() {
+            if let Ok(mut materials) = self.scene.materials_lock() {
                 let mut mat_changed = false;
                 if materials.textures_changed() {
                     renderer.set_textures(materials.textures_slice());
@@ -458,9 +485,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 }
 
                 materials.reset_changed();
-                mat_changed
-            } else {
-                false
+                update_lights = update_lights || mat_changed;
             };
 
             if update_lights {

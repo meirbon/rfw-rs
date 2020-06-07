@@ -159,14 +159,10 @@ impl Instance {
 
     #[inline(always)]
     pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
-        let inverse = self.get_inverse_transform();
         let normal_transform = self.get_normal_transform();
-
-        let p = inverse * glam::Vec3::from(hit.p).extend(1.0);
         let normal = normal_transform * glam::Vec3::from(hit.normal).extend(0.0);
 
         HitRecord {
-            p: p.truncate().into(),
             normal: normal.truncate().normalize().into(),
             ..hit
         }

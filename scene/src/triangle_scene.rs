@@ -563,12 +563,15 @@ impl TriangleScene {
         let mut area_lights: Vec<AreaLight> = Vec::new();
 
         if let Ok(scene) = self.scene.lock() {
+            let mut triangle_light_ids: Vec<(u32, u32, u32)> = Vec::new();
+
             scene
                 .instances
                 .iter()
                 .enumerate()
                 .for_each(|(inst_idx, instance)| {
-                    let m = &scene.objects[instance.get_hit_id()];
+                    let mesh_id = instance.get_hit_id();
+                    let m = &scene.objects[mesh_id];
                     for v in m.meshes.iter() {
                         let light_flag = light_flags.get(v.mat_id as usize);
                         if light_flag.is_none() {
@@ -596,11 +599,18 @@ impl TriangleScene {
                                 let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
                                 let color = materials[v.mat_id as usize].color;
 
+                                let triangle_id = i;
+                                let id = area_lights.len();
+                                triangle_light_ids.push((
+                                    mesh_id as u32,
+                                    triangle_id as u32,
+                                    id as u32,
+                                ));
+
                                 area_lights.push(AreaLight::new(
                                     position,
                                     Vec4::from(color).truncate(),
                                     normal,
-                                    i as i32,
                                     inst_idx as i32,
                                     vertex0,
                                     vertex1,
@@ -610,7 +620,14 @@ impl TriangleScene {
                         }
                     }
                 });
-        } else {
+
+            let mut scene = scene;
+            triangle_light_ids
+                .into_iter()
+                .for_each(|(mesh_id, triangle_id, id)| {
+                    scene.objects[mesh_id as usize].triangles[triangle_id as usize].light_id =
+                        id as i32;
+                });
         }
 
         if let Ok(mut lights) = self.lights.lock() {

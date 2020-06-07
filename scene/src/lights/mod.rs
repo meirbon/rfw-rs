@@ -1,3 +1,4 @@
+use crate::RTTriangle;
 use glam::*;
 use rtbvh::AABB;
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ pub trait Light {
     fn get_matrix(&self) -> Mat4;
     fn get_light_info(&self) -> LightInfo;
     fn get_range(&self) -> AABB;
+    fn get_radiance(&self) -> Vec3;
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -48,26 +50,26 @@ pub struct CubeLightInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct AreaLight {
-    pub position: [f32; 3],
-    energy: f32,
-    pub normal: [f32; 3],
-    pub tri_idx: i32,
-    pub vertex0: [f32; 3],
-    pub inst_idx: i32,
-    pub vertex1: [f32; 3],
-    radiance: [f32; 3],
-    pub vertex2: [f32; 3],
+    pub position: [f32; 3], // 12
+    energy: f32,            // 16
+    pub normal: [f32; 3],   // 28
+    pub area: f32,
+    pub vertex0: [f32; 3], // 44
+    pub inst_idx: i32,     // 48
+    pub vertex1: [f32; 3], // 60
+    radiance: [f32; 3],    // 72
+    pub vertex2: [f32; 3], // 84
 }
 
 impl Display for AreaLight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "AreaLight {{ position: {}, energy: {}, normal: {}, tri_idx: {}, vertex0: {}, inst_idx: {}, vertex1: {}, radiance: {}, vertex2: {} }}",
+            "AreaLight {{ position: {}, energy: {}, normal: {}, area: {}, vertex0: {}, inst_idx: {}, vertex1: {}, radiance: {}, vertex2: {} }}",
             Vec3::from(self.position),
             self.energy,
             Vec3::from(self.normal),
-            self.tri_idx,
+            self.area,
             Vec3::from(self.vertex0),
             self.inst_idx,
             Vec3::from(self.vertex1),
@@ -82,7 +84,6 @@ impl AreaLight {
         pos: Vec3,
         radiance: Vec3,
         normal: Vec3,
-        tri_id: i32,
         inst_id: i32,
         vertex0: Vec3,
         vertex1: Vec3,
@@ -94,7 +95,7 @@ impl AreaLight {
             position: pos.into(),
             energy,
             normal: normal.into(),
-            tri_idx: tri_id,
+            area: RTTriangle::area(vertex0, vertex1, vertex2),
             vertex0: vertex0.into(),
             inst_idx: inst_id,
             vertex1: vertex1.into(),
@@ -152,6 +153,10 @@ impl Light for AreaLight {
         let range_z = Vec3::new(0.0, 0.0, self.energy) * up;
 
         AABB::from_points(&[pos, pos + range_x, pos + range_y, pos + range_z])
+    }
+
+    fn get_radiance(&self) -> Vec3 {
+        self.radiance.into()
     }
 }
 
@@ -356,6 +361,10 @@ impl Light for SpotLight {
             extent - height,
         ])
     }
+
+    fn get_radiance(&self) -> Vec3 {
+        self.radiance.into()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -455,5 +464,9 @@ impl Light for DirectionalLight {
             center - h * up,
             center + l * direction,
         ])
+    }
+
+    fn get_radiance(&self) -> Vec3 {
+        self.radiance.into()
     }
 }
