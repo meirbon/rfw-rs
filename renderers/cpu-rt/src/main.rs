@@ -125,17 +125,12 @@ fn main() {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    renderer
-        .add_spot_light([0.0, 10.0, 0.0], [0.0, 0.0, 1.0], [150.0; 3], 30.0, 45.0)
-        .unwrap();
-
-    renderer.add_directional_light([0.0, -1.0, 0.0], [1.0; 3]);
-
     let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
     let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
     instance.rotate_y(180.0);
     instance.translate_y(-2.5);
     instance.translate_z(6.5);
+    instance.scale([10.0; 3]);
     instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
@@ -250,6 +245,7 @@ fn main() {
                 if key_handler.pressed(KeyCode::Space) {
                     instance.rotate_y(elapsed / 10.0);
                     instance.synchronize().unwrap();
+                    mode = RenderMode::Reset;
                 }
 
                 timer.reset();

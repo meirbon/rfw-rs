@@ -15,7 +15,7 @@ shared = { path = "../shared" }
 rayon = "1.3"
 num_cpus = "1.13"
 glam = "0.8"
-rand = "0.7"
+rand = { version = "0.7", features = ["small_rng"] }
 tobj = "2.0"
 num = "0.2"
 crossbeam = "0.7"

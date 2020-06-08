@@ -372,7 +372,12 @@ impl Renderer for RayTracer<'_> {
                         y_range[3] + y,
                     ];
 
-                    let mut packet = view.generate_ray4(&xs, &ys, width as u32);
+                    let r0: [f32; 4] = [rng.gen(), rng.gen(), rng.gen(), rng.gen()];
+                    let r1: [f32; 4] = [rng.gen(), rng.gen(), rng.gen(), rng.gen()];
+                    let r2: [f32; 4] = [rng.gen(), rng.gen(), rng.gen(), rng.gen()];
+                    let r3: [f32; 4] = [rng.gen(), rng.gen(), rng.gen(), rng.gen()];
+
+                    let mut packet = view.generate_lens_ray4(xs, ys, r0, r1, r2, r3, width as u32);
                     let t_min = [constants::DEFAULT_T_MIN; 4];
                     let (instance_ids, prim_ids) = intersector.intersect4(&mut packet, t_min);
 
@@ -395,7 +400,7 @@ impl Renderer for RayTracer<'_> {
                                 let mut hit =
                                     intersector.get_hit_record(ray, t, instance_id, prim_id);
 
-                                loop {
+                                while path_length < 8 {
                                     let material = &materials[hit.mat_id as usize];
                                     let mat_color = Vec4::from(material.color).truncate();
 
@@ -452,7 +457,7 @@ impl Renderer for RayTracer<'_> {
                                             rng.gen::<f32>(),
                                             rng.gen::<f32>(),
                                         );
-                                        let origin: Vec3 = p + direction * constants::EPSILON;
+                                        let origin: Vec3 = p;
                                         ray = Ray::new(origin.into(), direction.into());
 
                                         // Intersect new ray
@@ -696,12 +701,25 @@ impl<'a> RayTracer<'a> {
         Vec3::new(t.dot(sample), b.dot(sample), normal.dot(sample)).normalize()
     }
 
+    fn sample_hemisphere(r1: f32, r2: f32) -> Vec3 {
+        let r = (1.0 - r1 * r1).sqrt();
+        let phi = 2.0 * std::f32::consts::PI * r2;
+        let (x, y) = phi.sin_cos();
+        let (x, y) = (x * r, y * r);
+        Vec3::new(x, y, r1)
+    }
+
+    fn world_sample(normal: Vec3, r1: f32, r2: f32) -> Vec3 {
+        let tb = Self::create_tangent_space(normal);
+        let sample = Self::sample_hemisphere(r1, r2);
+        Self::tangent_to_world(sample, normal, tb)
+    }
+
     fn sample_hemisphere_cos(r1: f32, r2: f32) -> Vec3 {
         let r = r1.sqrt();
         let theta = 2.0 * std::f32::consts::PI * r2;
         let (x, y) = theta.sin_cos();
-        let x = r * x;
-        let y = r * y;
+        let (x, y) = (x * r, y * r);
         Vec3::new(x, y, (1.0 - r1).sqrt())
     }
 

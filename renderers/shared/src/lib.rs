@@ -355,9 +355,14 @@ impl<'a> Compiler<'a> {
         precompiled.push(".spv");
         let precompiled = PathBuf::from(precompiled);
         if precompiled.exists() && !self.has_macros {
-            let should_recompile: bool = if let Ok(meta_data) = path.as_ref().metadata() {
-                if let Ok(source_last_modified) = meta_data.modified() {
-                    let last_modified = precompiled.metadata().unwrap().modified().unwrap();
+            let should_recompile: bool = if let (Ok(meta_data), Ok(pre_meta_data)) =
+                (path.as_ref().metadata(), precompiled.metadata())
+            {
+                let source_last_modified = meta_data.modified();
+                let last_modified = pre_meta_data.modified();
+                if let (Ok(source_last_modified), Ok(last_modified)) =
+                    (source_last_modified, last_modified)
+                {
                     source_last_modified.cmp(&last_modified) == Ordering::Less
                 } else {
                     true

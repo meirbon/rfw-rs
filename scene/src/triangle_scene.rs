@@ -9,6 +9,7 @@ use loaders::obj;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::{
+    cmp::Ordering,
     collections::HashSet,
     error,
     error::Error,
@@ -203,68 +204,67 @@ impl TriangleScene {
         }
         let extension = extension.unwrap();
 
-        if extension == "obj" {
-            let cached_object = path.with_extension("rm");
-            if !cached_object.exists() {
-                let mesh = {
-                    // Load if cached object is not available
-                    let obj = obj::Obj::new(path, self.materials.clone());
-                    if obj.is_err() {
-                        return None;
-                    }
-
-                    let obj = obj.unwrap();
-                    let mesh = if build_bvh {
-                        let mut mesh = obj.into_mesh();
-                        mesh.construct_bvh();
-                        mesh
-                    } else {
-                        obj.into_mesh()
-                    };
-
-                    let materials = self.materials.lock().unwrap();
-                    // Serialize object for future use
-                    mesh.serialize_object(cached_object.as_path(), &materials)
-                        .unwrap();
-                    mesh
-                };
-
-                return Some(self.add_object(mesh));
+        let cache_mesh = |mesh: &mut Mesh, cached_object: &PathBuf| {
+            if build_bvh {
+                mesh.construct_bvh();
             }
 
-            let mesh = {
-                let mut materials = self.materials.lock().unwrap();
-                // Attempt to deserialize
-                crate::objects::Mesh::deserialize_object(cached_object.as_path(), &mut materials)
+            let materials = self.materials.lock().unwrap();
+            mesh.serialize_object(cached_object.as_path(), &materials)
+                .unwrap();
+        };
+
+        let cached_object = path.with_extension("rm");
+        // First check if cached object exists and check whether we can load it
+        if cached_object.exists() {
+            // Did object change, if so -> reload object
+            let should_reload = if let (Ok(cached_changed), Ok(mesh_changed)) =
+                (cached_object.as_path().metadata(), path.metadata())
+            {
+                let cached_changed = cached_changed.modified();
+                let mesh_changed = mesh_changed.modified();
+                if let (Ok(cached_changed), Ok(mesh_changed)) = (cached_changed, mesh_changed) {
+                    mesh_changed.cmp(&cached_changed) == Ordering::Less
+                } else {
+                    true
+                }
+            } else {
+                true
             };
 
-            // Reload if necessary
-            if mesh.is_err() {
-                let mesh = {
-                    let obj = obj::Obj::new(path, self.materials.clone());
-                    if obj.is_err() {
-                        return None;
-                    }
-
-                    let obj = obj.unwrap();
-                    let mesh = if build_bvh {
-                        let mut mesh = obj.into_mesh();
+            // Object did not change, attempt to deserialize
+            if !should_reload {
+                if let Ok(mut mesh) = {
+                    let mut materials = self.materials.lock().unwrap();
+                    // Attempt to deserialize
+                    Mesh::deserialize_object(cached_object.as_path(), &mut materials)
+                } {
+                    // Build BVH if necessary
+                    if build_bvh && mesh.bvh.is_none() {
                         mesh.construct_bvh();
-                        mesh
-                    } else {
-                        obj.into_mesh()
-                    };
-
-                    let materials = self.materials.lock().unwrap();
-                    mesh.serialize_object(cached_object.as_path(), &materials)
-                        .unwrap();
-                    mesh
-                };
-
-                return Some(self.add_object(mesh));
+                    }
+                    return Some(self.add_object(mesh));
+                }
             }
+        }
 
-            let mesh = mesh.unwrap();
+        // Load obj files
+        if extension == "obj" {
+            let mesh = {
+                // Load if cached object is not available
+                let obj = obj::Obj::new(path, self.materials.clone());
+                if obj.is_err() {
+                    return None;
+                }
+
+                let obj = obj.unwrap();
+                let mut mesh = obj.into_mesh();
+
+                // Serialize object for future use
+                cache_mesh(&mut mesh, &cached_object);
+                mesh
+            };
+
             return Some(self.add_object(mesh));
         }
 

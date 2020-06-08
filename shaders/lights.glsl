@@ -24,7 +24,7 @@ struct PointLight {
 
 struct AreaLight {
     vec4 position_energy;
-    vec4 normal_tri_id;
+    vec4 normal_area;
     vec4 vertex0_inst_id;
     float vertex1_x;
     float vertex1_y;
