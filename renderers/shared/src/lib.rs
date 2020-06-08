@@ -15,6 +15,7 @@ pub use shaderc::ResourceKind;
 pub use shaderc::ShaderKind;
 pub use shaderc::SourceLanguage;
 pub use shaderc::TargetEnv;
+use std::error::Error;
 
 #[derive(Debug, Clone)]
 pub enum CompilerError {
@@ -36,6 +37,8 @@ impl Display for CompilerError {
         )
     }
 }
+
+impl Error for CompilerError {}
 
 #[derive(Debug, Clone)]
 pub struct CompilationError {

@@ -4,7 +4,7 @@ use ash::extensions::{
 };
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{vk, Entry};
-use scene::renderers::{Renderer, Setting, RenderMode};
+use scene::renderers::{RenderMode, Renderer, Setting};
 use scene::{
     AreaLight, BitVec, Camera, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
     Local, Material, Mesh, PointLight, SpotLight, Texture,
@@ -64,6 +64,10 @@ pub struct VkRenderer<'a> {
 
     pub present_complete_semaphore: vk::Semaphore,
     pub rendering_complete_semaphore: vk::Semaphore,
+
+    pub pipeline_cache: vk::PipelineCache,
+    pub debug_pipeline_layout: vk::PipelineLayout,
+    pub debug_pipeline: vk::Pipeline,
 }
 
 impl<'a> VkRenderer<'a> {
@@ -370,13 +374,202 @@ impl<'a> Renderer for VkRenderer<'a> {
                 .create_semaphore(&semaphore_create_info, None)
                 .unwrap();
 
+            let debug_pipeline_layout = device
+                .create_pipeline_layout(
+                    &vk::PipelineLayoutCreateInfo {
+                        s_type: Default::default(),
+                        p_next: std::ptr::null(),
+                        flags: Default::default(),
+                        set_layout_count: 0,
+                        p_set_layouts: std::ptr::null(),
+                        push_constant_range_count: 0,
+                        p_push_constant_ranges: std::ptr::null(),
+                    },
+                    None,
+                )
+                .unwrap();
+            let quad_vert = include_str!("../shaders/quad.vert");
+            let quad_frag = include_str!("../shaders/quad.frag");
+
+            let mut compiler = CompilerBuilder::new()
+                .with_opt_level(OptimizationLevel::Performance)
+                .build()
+                .unwrap();
+
+            let pipeline_cache = device
+                .create_pipeline_cache(
+                    &vk::PipelineCacheCreateInfo {
+                        s_type: Default::default(),
+                        p_next: std::ptr::null(),
+                        flags: Default::default(),
+                        initial_data_size: 0,
+                        p_initial_data: std::ptr::null(),
+                    },
+                    None,
+                )
+                .unwrap();
+
+            let vert_module = compiler
+                .compile_from_string(quad_vert, ShaderKind::Vertex)
+                .unwrap();
+            let frag_module = compiler
+                .compile_from_string(quad_frag, ShaderKind::Fragment)
+                .unwrap();
+            let vert_module = device
+                .create_shader_module(
+                    &vk::ShaderModuleCreateInfo {
+                        s_type: Default::default(),
+                        p_next: std::ptr::null(),
+                        flags: Default::default(),
+                        code_size: vert_module.len() * std::mem::size_of::<u32>(),
+                        p_code: vert_module.as_ptr(),
+                    },
+                    None,
+                )
+                .unwrap();
+            let frag_module = device
+                .create_shader_module(
+                    &vk::ShaderModuleCreateInfo {
+                        s_type: Default::default(),
+                        p_next: std::ptr::null(),
+                        flags: Default::default(),
+                        code_size: frag_module.len() * std::mem::size_of::<u32>(),
+                        p_code: frag_module.as_ptr(),
+                    },
+                    None,
+                )
+                .unwrap();
+
+            let stages = [
+                vk::PipelineShaderStageCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    stage: vk::ShaderStageFlags::VERTEX,
+                    module: vertex_module,
+                    p_name: "main".as_ptr() as *const i8,
+                    p_specialization_info: std::ptr::null(),
+                },
+                vk::PipelineShaderStageCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    stage: vk::ShaderStageFlags::FRAGMENT,
+                    module: frag_module,
+                    p_name: "main".as_ptr() as *const i8,
+                    p_specialization_info: std::ptr::null(),
+                },
+            ];
+
+            let debug_create_info = vk::GraphicsPipelineCreateInfo {
+                s_type: Default::default(),
+                p_next: std::ptr::null(),
+                flags: Default::default(),
+                stage_count: 0,
+                p_stages: stages.as_ptr(),
+                p_vertex_input_state: &vk::PipelineVertexInputStateCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    vertex_binding_description_count: 0,
+                    p_vertex_binding_descriptions: std::ptr::null(),
+                    vertex_attribute_description_count: 0,
+                    p_vertex_attribute_descriptions: std::ptr::null(),
+                },
+                p_input_assembly_state: std::ptr::null(),
+                p_tessellation_state: std::ptr::null(),
+                p_viewport_state: &vk::PipelineViewportStateCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    viewport_count: 1,
+                    p_viewports: &vk::Viewport {
+                        x: 0.0,
+                        y: 0.0,
+                        width: width as f32,
+                        height: height as f32,
+                        min_depth: 0.0,
+                        max_depth: 0.0,
+                    },
+                    scissor_count: 0,
+                    p_scissors: std::ptr::null(),
+                },
+                p_rasterization_state: &vk::PipelineRasterizationStateCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    depth_clamp_enable: 0,
+                    rasterizer_discard_enable: 0,
+                    polygon_mode: vk::PolygonMode::FILL,
+                    cull_mode: vk::CullModeFlags::NONE,
+                    front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+                    depth_bias_enable: 0,
+                    depth_bias_constant_factor: 0.0,
+                    depth_bias_clamp: 0.0,
+                    depth_bias_slope_factor: 0.0,
+                    line_width: 0.0,
+                },
+                p_multisample_state: &vk::PipelineMultisampleStateCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    rasterization_samples: vk::SampleCountFlags::TYPE_1,
+                    sample_shading_enable: 0,
+                    min_sample_shading: 0.0,
+                    p_sample_mask: [!0 as vk::SampleMask].as_ptr(),
+                    alpha_to_coverage_enable: 0,
+                    alpha_to_one_enable: 0,
+                },
+                p_depth_stencil_state: &vk::PipelineDepthStencilStateCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    depth_test_enable: 0,
+                    depth_write_enable: 0,
+                    depth_compare_op: Default::default(),
+                    depth_bounds_test_enable: 0,
+                    stencil_test_enable: 0,
+                    front: Default::default(),
+                    back: Default::default(),
+                    min_depth_bounds: 0.0,
+                    max_depth_bounds: 0.0,
+                },
+                p_color_blend_state: &vk::PipelineColorBlendStateCreateInfo {
+                    s_type: Default::default(),
+                    p_next: std::ptr::null(),
+                    flags: Default::default(),
+                    logic_op_enable: 0,
+                    logic_op: Default::default(),
+                    attachment_count: 0,
+                    p_attachments: [vk::PipelineColorBlendAttachmentState {
+                        blend_enable: 0,
+                        src_color_blend_factor: Default::default(),
+                        dst_color_blend_factor: Default::default(),
+                        color_blend_op: Default::default(),
+                        src_alpha_blend_factor: Default::default(),
+                        dst_alpha_blend_factor: Default::default(),
+                        alpha_blend_op: Default::default(),
+                        color_write_mask: Default::default(),
+                    }]
+                    .as_ptr(),
+                    blend_constants: [1.0; 4],
+                },
+                p_dynamic_state: std::ptr::null(),
+                layout: Default::default(),
+                render_pass: Default::default(),
+                subpass: 0,
+                base_pipeline_handle: Default::default(),
+                base_pipeline_index: 0,
+            };
+
+            let debug_pipeline = device
+                .create_graphics_pipelines(pipeline_cache, &[debug_create_info], None)
+                .unwrap()[0];
+
             println!("Initialized");
 
             Ok(Box::new(Self {
-                compiler: CompilerBuilder::new()
-                    .with_opt_level(OptimizationLevel::Performance)
-                    .build()
-                    .unwrap(),
+                compiler,
                 entry,
                 instance,
                 device,
@@ -403,6 +596,9 @@ impl<'a> Renderer for VkRenderer<'a> {
                 depth_image_memory,
                 present_complete_semaphore,
                 rendering_complete_semaphore,
+                pipeline_cache,
+                debug_pipeline_layout,
+                debug_pipeline,
             }))
         }
     }
@@ -425,7 +621,7 @@ impl<'a> Renderer for VkRenderer<'a> {
             &[],
             &[],
             &[],
-            |_device, _setup_command_buffer| {
+            |device, command_buffer| {
                 let layout_transition_barriers = vk::ImageMemoryBarrier::builder()
                     .image(self.depth_image)
                     .dst_access_mask(
@@ -443,7 +639,19 @@ impl<'a> Renderer for VkRenderer<'a> {
                     );
 
                 unsafe {
-                    self.device.cmd_pipeline_barrier(
+                    device.cmd_begin_render_pass(command_buffer, &vk::RenderPassBeginInfo {
+                        s_type: Default::default(),
+                        p_next: std::ptr::null(),
+                        render_pass: vk::RenderPass::,
+                        framebuffer: Default::default(),
+                        render_area: Default::default(),
+                        clear_value_count: 0,
+                        p_clear_values: ()
+                    }, vk::SubpassContents::INLINE);
+                }
+
+                unsafe {
+                    device.cmd_pipeline_barrier(
                         self.setup_command_buffer,
                         vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                         vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
