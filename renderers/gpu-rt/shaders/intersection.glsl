@@ -36,17 +36,113 @@ bool intersect(const RTTriangle triangle, const vec3 origin, const vec3 directio
 }
 
 bool intersect_node(const BVHNode node, const vec3 origin, const vec3 dir_inverse, const float t, inout float t_min, inout float t_max) {
-    const vec3 vmin = node.bmin;
-    const vec3 vmax = node.bmax;
 
-    const vec3 t1 = (vmin - origin) * dir_inverse;
-    const vec3 t2 = (vmax - origin) * dir_inverse;
+    float tmin = (node.bmin_x - origin.x) * dir_inverse.x;
+    float tmax = (node.bmax_x - origin.x) * dir_inverse.x;
 
-    const vec3 tmin = min(t1, t2);
-    const vec3 tmax = max(t1, t2);
+    t_min = min(tmin, tmax);
+    t_max = max(tmin, tmax);
 
-    t_min = max(tmin[0], max(tmin[1], tmin[2]));
-    t_max = min(tmax[0], min(tmax[1], tmax[2]));
+    tmin = (node.bmin_y - origin.y) * dir_inverse.y;
+    tmax = (node.bmax_y - origin.y) * dir_inverse.y;
+
+    t_min = max(t_min, min(tmin, tmax));
+    t_max = min(t_max, max(tmin, tmax));
+
+    tmin = (node.bmin_z - origin.z) * dir_inverse.z;
+    tmax = (node.bmax_z - origin.z) * dir_inverse.z;
+
+    t_min = max(t_min, min(tmin, tmax));
+    t_max = min(t_max, max(tmin, tmax));
 
     return t_max > 0.0 && t_max > t_min && t_min < t;
+}
+
+void swapf(inout float a, inout float b) {
+    float tmp = a;
+    a = b;
+    b = a;
+}
+
+void swapu(inout uint a, inout uint b) {
+    uint tmp = a;
+    a = b;
+    b = a;
+}
+
+bool intersect_mnode(const MBVHNode node, const vec3 origin, const vec3 dir_inverse, const float t, inout uvec4 index, inout bvec4 result) {
+    vec4 t1 = (node.min_x - origin.x) * dir_inverse.x;
+    vec4 t2 = (node.max_x - origin.x) * dir_inverse.x;
+
+    vec4 tmin = min(t1, t2);
+    vec4 tmax = max(t1, t2);
+
+    t1 = (node.min_y - origin.y) * dir_inverse.y;
+    t2 = (node.max_y - origin.y) * dir_inverse.y;
+
+    tmin = max(tmin, min(t1, t2));
+    tmax = min(tmax, max(t1, t2));
+
+    t1 = (node.min_z - origin.z) * dir_inverse.z;
+    t2 = (node.max_z - origin.z) * dir_inverse.z;
+
+    tmin = max(tmin, min(t1, t2));
+    tmax = min(tmax, max(t1, t2));
+
+    index = uvec4(0, 1, 2, 3);
+
+    const bvec4 ge = greaterThanEqual(tmax, tmin);
+    const bvec4 lt = lessThan(tmin, vec4(t));
+    result = bvec4(ge.x && lt.x, ge.y && lt.y, ge.z && lt.z, ge.w && lt.w);
+
+    float tmp;
+    uint utmp;
+    index = uvec4(0, 1, 2, 3);
+    if (tmin[0] > tmin[1]) {
+        tmp = tmin[0];
+        tmin[0] = tmin[1];
+        tmin[1] = tmp;
+
+        utmp = index[0];
+        index[0] = index[1];
+        index[1] = utmp;
+    }
+    if (tmin[2] > tmin[3]) {
+        tmp = tmin[2];
+        tmin[2] = tmin[3];
+        tmin[3] = tmp;
+
+        utmp = index[2];
+        index[2] = index[3];
+        index[3] = utmp;
+    }
+    if (tmin[0] > tmin[2]) {
+        tmp = tmin[0];
+        tmin[0] = tmin[2];
+        tmin[2] = tmp;
+
+        utmp = index[0];
+        index[0] = index[2];
+        index[2] = utmp;
+    }
+    if (tmin[1] > tmin[3]) {
+        tmp = tmin[1];
+        tmin[1] = tmin[3];
+        tmin[3] = tmp;
+
+        utmp = index[1];
+        index[1] = index[3];
+        index[3] = utmp;
+    }
+    if (tmin[2] > tmin[3]) {
+        tmp = tmin[2];
+        tmin[2] = tmin[3];
+        tmin[3] = tmp;
+
+        utmp = index[2];
+        index[2] = index[3];
+        index[3] = utmp;
+    }
+
+    return any(result);
 }

@@ -98,7 +98,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     pub fn update(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder) {
         if self.dirty {
             let copy_size = self.bytes() as wgpu::BufferAddress;
-            let mut staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
                 usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
                 label: Some("update-staging-buffer"),
                 size: copy_size,

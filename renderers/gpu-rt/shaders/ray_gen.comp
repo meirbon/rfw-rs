@@ -17,37 +17,42 @@ layout(std430, set = 0, binding = 4) buffer writeonly pathDirections { vec4 dire
 layout(std430, set = 1, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
 layout(std430, set = 1, binding = 1) buffer readonly primIndices { uint prim_indices[]; };
 layout(std430, set = 1, binding = 2) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
-//layout(std430, set = 1, binding = 3) buffer readonly meshMBVHNodes { MBVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = 3) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
 layout(std430, set = 1, binding = 4) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
 
 //layout(std430, set = 1, binding = 5) buffer readonly topIndices { uint instance_indices[]; };
 //layout(std430, set = 1, binding = 6) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
 //layout(std430, set = 1, binding = 7) buffer readonly topMBVHNodes { MBVHNode top_bvh_nodes[]; };
 
-void intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
+int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
 {
-    int hit_stack[64];
+    uint hit_stack[64];
+    hit_stack[0] = 0;
     int stack_ptr = 0;
+    int hit = -1;
 
     const vec3 dir_inverse = 1.0 / direction;
     while (stack_ptr >= 0) {
-        int node_index = hit_stack[stack_ptr];
-        stack_ptr -= 1;
+        const uint node_index = hit_stack[stack_ptr] + bvh_offset;
+        stack_ptr = stack_ptr - 1;
 
-        int count = bvh_nodes[bvh_offset + node_index].count;
-        int left_first = bvh_nodes[bvh_offset + node_index].left_first;
+        const int count = bvh_nodes[node_index].count;
+        const int left_first = bvh_nodes[node_index].left_first;
 
-        if (count >= 0) {
+        if (count >= 0) { // Leaf node
             for (int i = 0; i < count; i++)
             {
                 uint prim_id = triangle_offset + prim_indices[left_first + i + prim_offset];
-                intersect(rt_triangles[prim_id], origin, direction, t_min, t);
+                if (intersect(rt_triangles[prim_id], origin, direction, t_min, t)) {
+                    hit = int(prim_id);
+                }
             }
-        } else if (left_first >= 0) {
+        } else if (left_first >= 0) { // Regular node
             float _ltmin, _ltmax;
             float _rtmin, _rtmax;
             bool hit_left = intersect_node(bvh_nodes[left_first + bvh_offset], origin, dir_inverse, t, _rtmin, _rtmax);
-            bool hit_right = intersect_node(bvh_nodes[left_first + bvh_offset], origin, dir_inverse, t, _rtmin, _rtmax);
+            bool hit_right = intersect_node(bvh_nodes[left_first + bvh_offset + 1], origin, dir_inverse, t, _rtmin, _rtmax);
+
             if (hit_left && hit_right) {
                 if (_ltmin < _rtmin) {
                     stack_ptr += 1;
@@ -69,6 +74,73 @@ void intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
             }
         }
     }
+
+    return hit;
+}
+
+struct MBVHTraversal {
+    int left_first;
+    int count;
+};
+
+int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
+{
+    MBVHTraversal hit_stack[32];
+    int stack_ptr = -1;
+    int hit = -1;
+
+    const vec3 dir_inverse = 1.0 / direction;
+
+    bvec4 result;
+    uvec4 index;
+
+    if (!intersect_mnode(mbvh_nodes[bvh_offset], origin, dir_inverse, t, index, result)) {
+        return hit;
+    }
+
+    ivec4 children = mbvh_nodes[bvh_offset].children;
+    ivec4 counts = mbvh_nodes[bvh_offset].counts;
+    for (int i = 3; i >= 0; i--) {
+        const uint idx = index[i];
+        if (result[idx] && children[idx] >= 0) {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr].left_first = children[idx];
+            hit_stack[stack_ptr].count = counts[idx];
+        }
+    }
+
+    while (stack_ptr >= 0) {
+        const int left_first = hit_stack[stack_ptr].left_first;
+        const int count = hit_stack[stack_ptr].count;
+        stack_ptr -= 1;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++) {
+                const uint prim_id = triangle_offset + prim_indices[left_first + i + prim_offset];
+                if (intersect(rt_triangles[prim_id], origin, direction, t_min, t)) {
+                    hit = int(prim_id);
+                }
+            }
+        } else {
+            if (!intersect_mnode(mbvh_nodes[bvh_offset + left_first], origin, dir_inverse, t, index, result)) {
+                continue;
+            }
+
+            children = mbvh_nodes[bvh_offset + left_first].children;
+            counts = mbvh_nodes[bvh_offset + left_first].counts;
+
+            for (int i = 3; i >= 0; i--) {
+                const uint idx = index[i];
+                if (result[idx] && children[idx] >= 0) {
+                    stack_ptr = stack_ptr + 1;
+                    hit_stack[stack_ptr].left_first = children[idx];
+                    hit_stack[stack_ptr].count = counts[idx];
+                }
+            }
+        }
+    }
+
+    return hit;
 }
 
 
@@ -95,27 +167,14 @@ void main() {
     float t = 1e26;
     const vec3 origin = camera.position.xyz;
 
-//    if (intersect(rt_triangles[0], camera.position.xyz, direction, 1e-5, t)) {
-//        color = abs(vec3(vec4(rt_triangles[0].gn_v0.xyz, 0)));
-//    }
-//
-//    if (intersect(rt_triangles[1], camera.position.xyz, direction, 1e-5, t)) {
-//        color = abs(vec3(vec4(rt_triangles[1].gn_v0.xyz, 0)));
-//    }
-
     const vec3 inst_org = (instances[0].inverse * vec4(origin, 1)).xyz;
     const vec3 inst_dir = (instances[0].normal * vec4(direction, 0)).xyz;
 
-    for (int i = 0; i < 32; i++) {
-        if (intersect(rt_triangles[i], inst_org, inst_dir, 1e-5, t)) {
-            color = abs(vec3(vec4(rt_triangles[i].gn.xyz, 0)));
-        }
+//    const int hit = intersect_bvh(inst_org, inst_dir, instances[0].bvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
+    const int hit = intersect_mbvh(inst_org, inst_dir, instances[0].mbvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
+    if (hit >= 0) {
+        color = abs(rt_triangles[hit].gn);
     }
-
-//    intersect_bvh(origin, direction, 0, 0, 0, 1e-5, t);
-//    if (t < 1e25) {
-//        color = direction;
-//    }
 
     imageStore(OutputTex, pixel_id, vec4(color, 1.0));
 }

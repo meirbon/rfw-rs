@@ -25,18 +25,22 @@ struct CameraView {
 };
 
 struct BVHNode {
-    vec3 bmin;
-    vec3 bmax;
+    float bmin_x;
+    float bmin_y;
+    float bmin_z;
+    float bmax_x;
+    float bmax_y;
+    float bmax_z;
     int left_first;
     int count;
 };
 
 struct MBVHNode {
     vec4 min_x;
-    vec4 min_y;
-    vec4 min_z;
     vec4 max_x;
+    vec4 min_y;
     vec4 max_y;
+    vec4 min_z;
     vec4 max_z;
     ivec4 children;
     ivec4 counts;
@@ -69,7 +73,7 @@ struct InstanceDescriptor {
     mat4 normal;
 
     uint bvh_offset;
+    uint mbvh_offset;
     uint triangle_offset;
     uint prim_index_offset;
-    uint dummy;
 };

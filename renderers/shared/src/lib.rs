@@ -416,6 +416,14 @@ impl<'a> Compiler<'a> {
         }
 
         let binary_result = binary_result.unwrap();
+        if binary_result.get_num_warnings() > 0 {
+            eprintln!(
+                "File {} produced {} warnings: {}",
+                path.as_ref().display(),
+                binary_result.get_num_warnings(),
+                binary_result.get_warning_messages()
+            );
+        }
         let bytes = binary_result.as_binary().to_vec();
 
         let file = File::create(&precompiled);

@@ -4,7 +4,6 @@
 static ALLOC: rpmalloc::RpMalloc = rpmalloc::RpMalloc;
 
 mod renderer;
-mod surface;
 
 enum AppType {
     CPURayTracer,
@@ -88,8 +87,8 @@ use scene::{
 use shared::utils;
 
 fn main() {
-    let mut width = 512;
-    let mut height = 512;
+    let mut width = 1024;
+    let mut height = 640;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -131,6 +130,11 @@ fn main() {
     instance.translate_y(-2.5);
     instance.translate_z(10.0);
     instance.synchronize().unwrap();
+
+    // let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
+    // let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
+    // instance.scale(Vec3::splat(0.1));
+    // instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Reset;

@@ -1,11 +1,9 @@
-use crate::surface::Surface;
-
 use crate::renderer::mem::ManagedBuffer;
 use futures::executor::block_on;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
-use rtbvh::{BVHNode, Bounds, AABB, BVH, MBVH};
+use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
     AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
@@ -100,6 +98,7 @@ pub struct GPUMeshData {
     pub triangle_offset: u32,
     pub triangles: u32,
     pub prim_index_offset: u32,
+    pub mbvh_offset: u32,
 }
 
 impl Default for GPUMeshData {
@@ -110,6 +109,7 @@ impl Default for GPUMeshData {
             triangle_offset: 0,
             triangles: 0,
             prim_index_offset: 0,
+            mbvh_offset: 0,
         }
     }
 }
@@ -122,21 +122,21 @@ pub struct GPUInstanceData {
     pub normal: Mat4,
 
     pub bvh_offset: u32,
+    pub mbvh_offset: u32,
     pub triangle_offset: u32,
     pub prim_index_offset: u32,
-    dummy: u32,
 }
 
 impl Default for GPUInstanceData {
     fn default() -> Self {
         Self {
-            bvh_offset: 0,
-            triangle_offset: 0,
-            prim_index_offset: 0,
-            dummy: 0,
             matrix: Mat4::identity(),
             inverse: Mat4::identity(),
             normal: Mat4::identity(),
+            bvh_offset: 0,
+            mbvh_offset: 0,
+            triangle_offset: 0,
+            prim_index_offset: 0,
         }
     }
 }
@@ -169,9 +169,11 @@ pub struct RayTracer<'a> {
     meshes_changed: BitVec,
     meshes_gpu_data: Vec<GPUMeshData>,
     meshes_bvh_buffer: ManagedBuffer<BVHNode>,
+    meshes_mbvh_buffer: ManagedBuffer<MBVHNode>,
     meshes_prim_indices: ManagedBuffer<u32>,
     mesh_prim_index_counter: usize,
     mesh_bvh_index_counter: usize,
+    mesh_mbvh_index_counter: usize,
 
     instances: Vec<Instance>,
     instances_buffer: ManagedBuffer<GPUInstanceData>,
@@ -220,12 +222,14 @@ impl Renderer for RayTracer<'_> {
         let surface = wgpu::Surface::create(window);
         let adapter = block_on(wgpu::Adapter::request(
             &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::Default,
+                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
             },
             wgpu::BackendBit::PRIMARY,
         ))
         .unwrap();
+
+        println!("Picked render device: {}", adapter.get_info().name);
 
         let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             extensions: wgpu::Extensions {
@@ -239,7 +243,7 @@ impl Renderer for RayTracer<'_> {
             height: height as u32,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             format: Self::SWAPCHAIN_FORMAT,
-            present_mode: wgpu::PresentMode::Mailbox,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         let swap_chain = device.create_swap_chain(&surface, &descriptor);
@@ -307,6 +311,14 @@ impl Renderer for RayTracer<'_> {
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
+                        binding: MeshBindings::MBVHNodes as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
                         binding: MeshBindings::Triangles as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
@@ -317,7 +329,10 @@ impl Renderer for RayTracer<'_> {
                 ],
             });
 
-        let mut compiler = CompilerBuilder::new().build().unwrap();
+        let mut compiler = CompilerBuilder::new()
+            .with_opt_level(OptimizationLevel::Performance)
+            .build()
+            .unwrap();
 
         let output_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -465,6 +480,12 @@ impl Renderer for RayTracer<'_> {
             wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
         );
 
+        let meshes_mbvh_buffer = ManagedBuffer::new(
+            &device,
+            65536,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+
         let meshes_prim_indices = ManagedBuffer::new(
             &device,
             65536,
@@ -488,6 +509,7 @@ impl Renderer for RayTracer<'_> {
                 instances_buffer.as_binding(MeshBindings::InstanceDescriptors as u32),
                 meshes_prim_indices.as_binding(MeshBindings::PrimIndices as u32),
                 meshes_bvh_buffer.as_binding(MeshBindings::BVHNodes as u32),
+                meshes_mbvh_buffer.as_binding(MeshBindings::MBVHNodes as u32),
                 triangles_buffer.as_binding(MeshBindings::Triangles as u32),
             ],
             label: Some("mesh-bind-group"),
@@ -518,9 +540,11 @@ impl Renderer for RayTracer<'_> {
             meshes_changed: Default::default(),
             meshes_gpu_data: vec![],
             meshes_bvh_buffer,
+            meshes_mbvh_buffer,
             meshes_prim_indices,
             mesh_prim_index_counter: 0,
             mesh_bvh_index_counter: 0,
+            mesh_mbvh_index_counter: 0,
             instances: Vec::new(),
             instances_buffer,
             triangles_buffer,
@@ -600,6 +624,7 @@ impl Renderer for RayTracer<'_> {
         if constructed != 0 {
             self.triangles_index_counter = 0;
             self.mesh_bvh_index_counter = 0;
+            self.mesh_mbvh_index_counter = 0;
             self.mesh_prim_index_counter = 0;
 
             self.meshes_gpu_data
@@ -608,22 +633,27 @@ impl Renderer for RayTracer<'_> {
                 let mesh = &self.meshes[i];
                 let start_triangle = self.triangles_index_counter;
                 let start_bvh_node = self.mesh_bvh_index_counter;
+                let start_mbvh_node = self.mesh_mbvh_index_counter;
                 let start_prim_index = self.mesh_prim_index_counter;
 
                 self.meshes_gpu_data[i].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
                 self.meshes_gpu_data[i].bvh_offset = start_bvh_node as u32;
+                self.meshes_gpu_data[i].mbvh_offset = start_mbvh_node as u32;
                 self.meshes_gpu_data[i].triangles = mesh.triangles.len() as u32;
                 self.meshes_gpu_data[i].triangle_offset = start_triangle as u32;
                 self.meshes_gpu_data[i].prim_index_offset = start_prim_index as u32;
 
                 self.triangles_index_counter += mesh.triangles.len();
                 self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
+                self.mesh_mbvh_index_counter += mesh.mbvh.as_ref().unwrap().m_nodes.len();
                 self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
             }
 
             self.meshes_prim_indices
                 .resize(&self.device, self.mesh_prim_index_counter);
             self.meshes_bvh_buffer
+                .resize(&self.device, self.mesh_bvh_index_counter);
+            self.meshes_mbvh_buffer
                 .resize(&self.device, self.mesh_bvh_index_counter);
             self.triangles_buffer
                 .resize(&self.device, self.triangles_index_counter);
@@ -642,13 +672,20 @@ impl Renderer for RayTracer<'_> {
                     offset_data.bvh_offset as usize,
                 );
 
+                self.meshes_mbvh_buffer.copy_from_slice_offset(
+                    mesh.mbvh.as_ref().unwrap().m_nodes.as_slice(),
+                    offset_data.mbvh_offset as usize,
+                );
+
                 self.triangles_buffer.copy_from_slice_offset(
                     mesh.triangles.as_slice(),
                     offset_data.triangle_offset as usize,
                 );
             }
 
+            self.meshes_prim_indices.update(&self.device, &mut encoder);
             self.meshes_bvh_buffer.update(&self.device, &mut encoder);
+            self.meshes_mbvh_buffer.update(&self.device, &mut encoder);
             self.triangles_buffer.update(&self.device, &mut encoder);
         }
 
@@ -664,6 +701,7 @@ impl Renderer for RayTracer<'_> {
                 inst.prim_index_offset = mesh_data.prim_index_offset;
                 inst.triangle_offset = mesh_data.triangle_offset;
                 inst.bvh_offset = mesh_data.bvh_offset;
+                inst.mbvh_offset = mesh_data.mbvh_offset;
                 inst.matrix = instances[i].get_transform();
                 inst.inverse = instances[i].get_inverse_transform();
                 inst.normal = instances[i].get_normal_transform();
@@ -678,6 +716,8 @@ impl Renderer for RayTracer<'_> {
                     .as_binding(MeshBindings::PrimIndices as u32),
                 self.meshes_bvh_buffer
                     .as_binding(MeshBindings::BVHNodes as u32),
+                self.meshes_mbvh_buffer
+                    .as_binding(MeshBindings::MBVHNodes as u32),
                 self.triangles_buffer
                     .as_binding(MeshBindings::Triangles as u32),
             ],
@@ -704,7 +744,7 @@ impl Renderer for RayTracer<'_> {
         }
 
         let view = camera.get_view();
-        let mut camera_data = CameraData::new(
+        let camera_data = CameraData::new(
             view,
             self.width,
             self.height,
@@ -826,7 +866,7 @@ impl Renderer for RayTracer<'_> {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Mailbox,
+                present_mode: wgpu::PresentMode::Immediate,
                 format: Self::SWAPCHAIN_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },
