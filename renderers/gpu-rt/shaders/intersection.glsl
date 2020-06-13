@@ -93,11 +93,16 @@ bool intersect_mnode(const MBVHNode node, const vec3 origin, const vec3 dir_inve
 
     const bvec4 ge = greaterThanEqual(tmax, tmin);
     const bvec4 lt = lessThan(tmin, vec4(t));
-    result = bvec4(ge.x && lt.x, ge.y && lt.y, ge.z && lt.z, ge.w && lt.w);
+    for (int i = 0; i < 4; i++) {
+        result[i] = ge[i] && lt[i];
+    }
+    if (!any(result)) {
+        return false;
+    }
 
-    float tmp;
-    uint utmp;
     index = uvec4(0, 1, 2, 3);
+    float tmp;
+    lowp uint utmp;
     if (tmin[0] > tmin[1]) {
         tmp = tmin[0];
         tmin[0] = tmin[1];

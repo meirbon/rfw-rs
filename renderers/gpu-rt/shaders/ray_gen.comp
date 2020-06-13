@@ -4,6 +4,8 @@
 #include "structs.glsl"
 #include "intersection.glsl"
 
+#define USE_MBVH 1
+
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
@@ -94,18 +96,14 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
     bvec4 result;
     uvec4 index;
 
-    if (!intersect_mnode(mbvh_nodes[bvh_offset], origin, dir_inverse, t, index, result)) {
+    if (!intersect_mnode(mbvh_nodes[bvh_offset], origin, dir_inverse, t, index, result))
         return hit;
-    }
-
-    ivec4 children = mbvh_nodes[bvh_offset].children;
-    ivec4 counts = mbvh_nodes[bvh_offset].counts;
     for (int i = 3; i >= 0; i--) {
         const uint idx = index[i];
-        if (result[idx] && children[idx] >= 0) {
+        if (result[idx] && mbvh_nodes[bvh_offset].children[idx] >= 0) {
             stack_ptr = stack_ptr + 1;
-            hit_stack[stack_ptr].left_first = children[idx];
-            hit_stack[stack_ptr].count = counts[idx];
+            hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset].children[idx];
+            hit_stack[stack_ptr].count = mbvh_nodes[bvh_offset].counts[idx];
         }
     }
 
@@ -116,25 +114,19 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
 
         if (count >= 0) { // Leaf node
             for (int i = 0; i < count; i++) {
-                const uint prim_id = triangle_offset + prim_indices[left_first + i + prim_offset];
-                if (intersect(rt_triangles[prim_id], origin, direction, t_min, t)) {
-                    hit = int(prim_id);
+                if (intersect(rt_triangles[triangle_offset + prim_indices[left_first + i + prim_offset]], origin, direction, t_min, t)) {
+                    hit = int(triangle_offset + prim_indices[left_first + i + prim_offset]);
                 }
             }
         } else {
-            if (!intersect_mnode(mbvh_nodes[bvh_offset + left_first], origin, dir_inverse, t, index, result)) {
+            if (!intersect_mnode(mbvh_nodes[bvh_offset + left_first], origin, dir_inverse, t, index, result))
                 continue;
-            }
-
-            children = mbvh_nodes[bvh_offset + left_first].children;
-            counts = mbvh_nodes[bvh_offset + left_first].counts;
-
             for (int i = 3; i >= 0; i--) {
                 const uint idx = index[i];
-                if (result[idx] && children[idx] >= 0) {
+                if (result[idx] && mbvh_nodes[bvh_offset + left_first].children[idx] >= 0) {
                     stack_ptr = stack_ptr + 1;
-                    hit_stack[stack_ptr].left_first = children[idx];
-                    hit_stack[stack_ptr].count = counts[idx];
+                    hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset + left_first].children[idx];
+                    hit_stack[stack_ptr].count = mbvh_nodes[bvh_offset + left_first].counts[idx];
                 }
             }
         }
@@ -170,8 +162,12 @@ void main() {
     const vec3 inst_org = (instances[0].inverse * vec4(origin, 1)).xyz;
     const vec3 inst_dir = (instances[0].normal * vec4(direction, 0)).xyz;
 
-//    const int hit = intersect_bvh(inst_org, inst_dir, instances[0].bvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
+#if USE_MBVH
     const int hit = intersect_mbvh(inst_org, inst_dir, instances[0].mbvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
+#else
+    const int hit = intersect_bvh(inst_org, inst_dir, instances[0].bvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
+#endif
+    
     if (hit >= 0) {
         color = abs(rt_triangles[hit].gn);
     }

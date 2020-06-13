@@ -330,7 +330,7 @@ impl Renderer for RayTracer<'_> {
             });
 
         let mut compiler = CompilerBuilder::new()
-            .with_opt_level(OptimizationLevel::Performance)
+            // .with_opt_level(OptimizationLevel::Performance)
             .build()
             .unwrap();
 
@@ -696,6 +696,7 @@ impl Renderer for RayTracer<'_> {
         self.instances_buffer.as_mut_slice()[0..self.instances.len()]
             .iter_mut()
             .enumerate()
+            .par_bridge()
             .for_each(|(i, inst)| {
                 let mesh_data = &mesh_data[instances[i].get_hit_id()];
                 inst.prim_index_offset = mesh_data.prim_index_offset;

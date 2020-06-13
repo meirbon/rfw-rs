@@ -444,7 +444,7 @@ impl Camera {
         let path = path.as_ref().with_extension("cam");
         use std::io::Write;
         let encoded: Vec<u8> = bincode::serialize(self)?;
-        let mut file = std::fs::File::create(path)?;
+        let mut file = std::fs::File::create(&path)?;
         file.write_all(encoded.as_ref())?;
         Ok(())
     }
