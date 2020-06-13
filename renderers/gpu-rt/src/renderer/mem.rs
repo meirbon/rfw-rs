@@ -11,6 +11,7 @@ pub struct ManagedBuffer<T: Sized + Default + Clone> {
 
 impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     pub fn new(device: &wgpu::Device, capacity: usize, usage: wgpu::BufferUsage) -> Self {
+        let usage = usage | wgpu::BufferUsage::COPY_DST;
         let device_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (capacity * std::mem::size_of::<T>()) as wgpu::BufferAddress,
@@ -52,6 +53,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.dirty = true;
         self.host_buffer.as_mut_slice()
     }
 

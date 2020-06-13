@@ -26,15 +26,19 @@ enum IntersectionBindings {
 }
 
 #[repr(u32)]
-enum MeshBindings {
+enum TopBindings {
     InstanceDescriptors = 0,
-    PrimIndices = 1,
-    BVHNodes = 2,
-    MBVHNodes = 3,
-    Triangles = 4,
-    TopInstanceIndices = 5,
-    TopBVHNodes = 6,
-    TopMBVHNodes = 7,
+    TopInstanceIndices = 1,
+    TopBVHNodes = 2,
+    TopMBVHNodes = 3,
+}
+
+#[repr(u32)]
+enum MeshBindings {
+    PrimIndices = 0,
+    BVHNodes = 1,
+    MBVHNodes = 2,
+    Triangles = 3,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -158,6 +162,12 @@ pub struct RayTracer<'a> {
 
     mesh_bind_group: wgpu::BindGroup,
     mesh_bind_group_layout: wgpu::BindGroupLayout,
+
+    top_bind_group: wgpu::BindGroup,
+    top_bind_group_layout: wgpu::BindGroupLayout,
+    top_bvh_buffer: ManagedBuffer<BVHNode>,
+    top_mbvh_buffer: ManagedBuffer<MBVHNode>,
+    top_indices: ManagedBuffer<u32>,
 
     compiler: Compiler<'a>,
     output_bind_group: bind_group::BindGroup,
@@ -286,14 +296,6 @@ impl Renderer for RayTracer<'_> {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("mesh-bind-group-layout"),
                 bindings: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: MeshBindings::InstanceDescriptors as u32,
-                        visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::StorageBuffer {
-                            dynamic: false,
-                            readonly: true,
-                        },
-                    },
                     wgpu::BindGroupLayoutEntry {
                         binding: MeshBindings::PrimIndices as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
@@ -456,9 +458,52 @@ impl Renderer for RayTracer<'_> {
             .unwrap()
             .build(&device);
 
+        let top_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("top-bind-group-layout"),
+                bindings: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::InstanceDescriptors as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::TopInstanceIndices as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::TopBVHNodes as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::TopMBVHNodes as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                ],
+            });
+
         let intersection_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&intersection_bind_group.layout, &mesh_bind_group_layout],
+                bind_group_layouts: &[
+                    &intersection_bind_group.layout,
+                    &mesh_bind_group_layout,
+                    &top_bind_group_layout,
+                ],
             });
 
         let compute_module = compiler
@@ -474,39 +519,20 @@ impl Renderer for RayTracer<'_> {
                 },
             });
 
-        let meshes_bvh_buffer = ManagedBuffer::new(
-            &device,
-            65536,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
-        );
+        let meshes_bvh_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
 
-        let meshes_mbvh_buffer = ManagedBuffer::new(
-            &device,
-            65536,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
-        );
+        let meshes_mbvh_buffer =
+            ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
 
-        let meshes_prim_indices = ManagedBuffer::new(
-            &device,
-            65536,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
-        );
+        let meshes_prim_indices =
+            ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
 
-        let triangles_buffer = ManagedBuffer::new(
-            &device,
-            65536,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
-        );
+        let triangles_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
 
-        let instances_buffer = ManagedBuffer::new(
-            &device,
-            2048,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
-        );
+        let instances_buffer = ManagedBuffer::new(&device, 2048, wgpu::BufferUsage::STORAGE_READ);
 
         let mesh_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             bindings: &[
-                instances_buffer.as_binding(MeshBindings::InstanceDescriptors as u32),
                 meshes_prim_indices.as_binding(MeshBindings::PrimIndices as u32),
                 meshes_bvh_buffer.as_binding(MeshBindings::BVHNodes as u32),
                 meshes_mbvh_buffer.as_binding(MeshBindings::MBVHNodes as u32),
@@ -514,6 +540,21 @@ impl Renderer for RayTracer<'_> {
             ],
             label: Some("mesh-bind-group"),
             layout: &mesh_bind_group_layout,
+        });
+
+        let top_bvh_buffer = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
+        let top_mbvh_buffer = ManagedBuffer::new(&device, 512, wgpu::BufferUsage::STORAGE_READ);
+        let top_indices = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
+
+        let top_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("top-bind-group"),
+            layout: &top_bind_group_layout,
+            bindings: &[
+                instances_buffer.as_binding(TopBindings::InstanceDescriptors as u32),
+                top_bvh_buffer.as_binding(TopBindings::TopBVHNodes as u32),
+                top_mbvh_buffer.as_binding(TopBindings::TopMBVHNodes as u32),
+                top_indices.as_binding(TopBindings::TopInstanceIndices as u32),
+            ],
         });
 
         Ok(Box::new(Self {
@@ -527,6 +568,11 @@ impl Renderer for RayTracer<'_> {
             intersection_pipeline,
             mesh_bind_group,
             mesh_bind_group_layout,
+            top_bind_group,
+            top_bind_group_layout,
+            top_bvh_buffer,
+            top_mbvh_buffer,
+            top_indices,
             width,
             height,
             sample_count: 0,
@@ -687,6 +733,21 @@ impl Renderer for RayTracer<'_> {
             self.meshes_bvh_buffer.update(&self.device, &mut encoder);
             self.meshes_mbvh_buffer.update(&self.device, &mut encoder);
             self.triangles_buffer.update(&self.device, &mut encoder);
+
+            self.mesh_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                bindings: &[
+                    self.meshes_prim_indices
+                        .as_binding(MeshBindings::PrimIndices as u32),
+                    self.meshes_bvh_buffer
+                        .as_binding(MeshBindings::BVHNodes as u32),
+                    self.meshes_mbvh_buffer
+                        .as_binding(MeshBindings::MBVHNodes as u32),
+                    self.triangles_buffer
+                        .as_binding(MeshBindings::Triangles as u32),
+                ],
+                label: Some("mesh-bind-group"),
+                layout: &self.mesh_bind_group_layout,
+            });
         }
 
         self.instances_buffer
@@ -708,31 +769,47 @@ impl Renderer for RayTracer<'_> {
                 inst.normal = instances[i].get_normal_transform();
             });
 
-        self.instances_buffer.update(&self.device, &mut encoder);
-        self.mesh_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            bindings: &[
-                self.instances_buffer
-                    .as_binding(MeshBindings::InstanceDescriptors as u32),
-                self.meshes_prim_indices
-                    .as_binding(MeshBindings::PrimIndices as u32),
-                self.meshes_bvh_buffer
-                    .as_binding(MeshBindings::BVHNodes as u32),
-                self.meshes_mbvh_buffer
-                    .as_binding(MeshBindings::MBVHNodes as u32),
-                self.triangles_buffer
-                    .as_binding(MeshBindings::Triangles as u32),
-            ],
-            label: Some("mesh-bind-group"),
-            layout: &self.mesh_bind_group_layout,
-        });
-
-        self.queue.submit(&[encoder.finish()]);
-
         let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
         let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
         let builder = LocallyOrderedClusteringBuilder::new(aabbs.as_slice(), centers.as_slice());
         self.bvh = builder.build();
         self.mbvh = MBVH::construct(&self.bvh);
+
+        self.top_bvh_buffer
+            .resize(&self.device, self.bvh.nodes.len());
+        self.top_mbvh_buffer
+            .resize(&self.device, self.mbvh.nodes.len());
+        self.top_indices
+            .resize(&self.device, self.bvh.prim_indices.len());
+
+        self.top_bvh_buffer
+            .copy_from_slice(self.bvh.nodes.as_slice());
+        self.top_mbvh_buffer
+            .copy_from_slice(self.mbvh.m_nodes.as_slice());
+        self.top_indices
+            .copy_from_slice(self.bvh.prim_indices.as_slice());
+
+        self.top_bvh_buffer.update(&self.device, &mut encoder);
+        self.top_mbvh_buffer.update(&self.device, &mut encoder);
+        self.top_indices.update(&self.device, &mut encoder);
+        self.instances_buffer.update(&self.device, &mut encoder);
+
+        self.queue.submit(&[encoder.finish()]);
+
+        self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("top-bind-group"),
+            layout: &self.top_bind_group_layout,
+            bindings: &[
+                self.instances_buffer
+                    .as_binding(TopBindings::InstanceDescriptors as u32),
+                self.top_bvh_buffer
+                    .as_binding(TopBindings::TopBVHNodes as u32),
+                self.top_mbvh_buffer
+                    .as_binding(TopBindings::TopMBVHNodes as u32),
+                self.top_indices
+                    .as_binding(TopBindings::TopInstanceIndices as u32),
+            ],
+        });
     }
 
     fn render(&mut self, camera: &scene::Camera, mode: RenderMode) {
@@ -773,9 +850,10 @@ impl Renderer for RayTracer<'_> {
                 &[],
             );
             compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
             compute_pass.dispatch(
                 (self.width as f32 / 16.0).ceil() as u32,
-                (self.height as f32 / 16.0).ceil() as u32,
+                (self.height as f32 / 4.0).ceil() as u32,
                 1,
             );
         }

@@ -6,7 +6,7 @@
 
 #define USE_MBVH 1
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
 layout(set = 0, binding = 1) uniform Camera {
@@ -16,15 +16,15 @@ layout(std430, set = 0, binding = 2) buffer writeonly pathStates { vec4 states[]
 layout(std430, set = 0, binding = 3) buffer writeonly pathOrigins { vec4 origins[]; };
 layout(std430, set = 0, binding = 4) buffer writeonly pathDirections { vec4 directions[]; };
 
-layout(std430, set = 1, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
-layout(std430, set = 1, binding = 1) buffer readonly primIndices { uint prim_indices[]; };
-layout(std430, set = 1, binding = 2) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
-layout(std430, set = 1, binding = 3) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
-layout(std430, set = 1, binding = 4) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
+layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
+layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
+layout(std430, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
 
-//layout(std430, set = 1, binding = 5) buffer readonly topIndices { uint instance_indices[]; };
-//layout(std430, set = 1, binding = 6) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
-//layout(std430, set = 1, binding = 7) buffer readonly topMBVHNodes { MBVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
+layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
+layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
 
 int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
 {
@@ -94,12 +94,12 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
     const vec3 dir_inverse = 1.0 / direction;
 
     bvec4 result;
-    uvec4 index;
+    vec4 index;
 
     if (!intersect_mnode(mbvh_nodes[bvh_offset], origin, dir_inverse, t, index, result))
-        return hit;
+    return hit;
     for (int i = 3; i >= 0; i--) {
-        const uint idx = index[i];
+        const uint idx = floatBitsToInt(index[i]) & 3;
         if (result[idx] && mbvh_nodes[bvh_offset].children[idx] >= 0) {
             stack_ptr = stack_ptr + 1;
             hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset].children[idx];
@@ -120,9 +120,9 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
             }
         } else {
             if (!intersect_mnode(mbvh_nodes[bvh_offset + left_first], origin, dir_inverse, t, index, result))
-                continue;
+            continue;
             for (int i = 3; i >= 0; i--) {
-                const uint idx = index[i];
+                const uint idx = floatBitsToInt(index[i]) & 3;;
                 if (result[idx] && mbvh_nodes[bvh_offset + left_first].children[idx] >= 0) {
                     stack_ptr = stack_ptr + 1;
                     hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset + left_first].children[idx];
@@ -135,6 +135,118 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
     return hit;
 }
 
+
+ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, const float tmin, inout float t)
+{
+    uint hit_stack[64];
+    hit_stack[0] = 0;
+    int stack_ptr = 0;
+    ivec2 hit = ivec2(-1);
+
+    const vec3 dir_inverse = 1.0 / direction;
+    while (stack_ptr >= 0) {
+        const int count = top_bvh_nodes[stack_ptr].count;
+        const int left_first = top_bvh_nodes[stack_ptr].left_first;
+        stack_ptr = stack_ptr - 1;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++)
+            {
+                const uint instance_id = instance_indices[left_first + i];
+                const vec3 inst_org = (instances[instance_id].inverse * vec4(origin, 1)).xyz;
+                const vec3 inst_dir = (instances[instance_id].normal * vec4(direction, 0)).xyz;
+                const int potential_hit = intersect_bvh(inst_org, inst_dir, instances[instance_id].bvh_offset, instances[instance_id].triangle_offset, instances[instance_id].prim_index_offset, tmin, t);
+                if (potential_hit >= 0) {
+                    hit = ivec2(instance_id, potential_hit);
+                }
+            }
+        } else if (left_first >= 0) { // Regular node
+            float _ltmin, _ltmax;
+            float _rtmin, _rtmax;
+            const bool hit_left = intersect_node(top_bvh_nodes[left_first], origin, dir_inverse, t, _rtmin, _rtmax);
+            const bool hit_right = intersect_node(top_bvh_nodes[left_first + 1], origin, dir_inverse, t, _rtmin, _rtmax);
+
+            if (hit_left && hit_right) {
+                if (_ltmin < _rtmin) {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                } else {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                }
+            } else if (hit_left) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first;
+            } else if (hit_right) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first + 1;
+            }
+        }
+    }
+
+    return hit;
+}
+
+
+ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, const float tmin, inout float t)
+{
+    MBVHTraversal hit_stack[32];
+    int stack_ptr = -1;
+    ivec2 hit = ivec2(-1);
+
+    const vec3 dir_inverse = 1.0 / direction;
+
+    bvec4 result;
+    vec4 index;
+
+    if (!intersect_mnode(top_mbvh_nodes[0], origin, dir_inverse, t, index, result)) {
+        return hit;
+    }
+    for (int i = 3; i >= 0; i--) {
+        const uint idx = floatBitsToInt(index[i]) & 3;
+        if (result[idx] && top_mbvh_nodes[0].children[idx] >= 0) {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr].left_first = mbvh_nodes[0].children[idx];
+            hit_stack[stack_ptr].count = mbvh_nodes[0].counts[idx];
+        }
+    }
+
+    while (stack_ptr >= 0) {
+        const int left_first = hit_stack[stack_ptr].left_first;
+        const int count = hit_stack[stack_ptr].count;
+        stack_ptr -= 1;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++) {
+                const uint instance_id = instance_indices[left_first + i];
+                const vec3 inst_org = (instances[instance_id].inverse * vec4(origin, 1)).xyz;
+                const vec3 inst_dir = (instances[instance_id].normal * vec4(direction, 0)).xyz;
+                const int potential_hit = intersect_mbvh(inst_org, inst_dir, instances[instance_id].mbvh_offset, instances[instance_id].triangle_offset, instances[instance_id].prim_index_offset, tmin, t);
+                if (potential_hit >= 0) {
+                    hit = ivec2(instance_id, potential_hit);
+                }
+            }
+        } else {
+            if (!intersect_mnode(top_mbvh_nodes[left_first], origin, dir_inverse, t, index, result)) {
+                continue;
+            }
+            for (int i = 3; i >= 0; i--) {
+                const uint idx = floatBitsToInt(index[i]) & 3;;
+                if (result[idx] && mbvh_nodes[left_first].children[idx] >= 0) {
+                    stack_ptr = stack_ptr + 1;
+                    hit_stack[stack_ptr].left_first = mbvh_nodes[left_first].children[idx];
+                    hit_stack[stack_ptr].count = mbvh_nodes[left_first].counts[idx];
+                }
+            }
+        }
+    }
+
+    return hit;
+}
 
 void main() {
     const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
@@ -149,27 +261,22 @@ void main() {
     const float v = pixel_id.y * camera.inv_height;
 
     const vec3 point_on_pixel = camera.p1.xyz + u * camera.right.xyz + v * camera.up.xyz;
+    const vec3 origin = camera.position.xyz;
     const vec3 direction = normalize(point_on_pixel - camera.position.xyz);
+    float t = 1e26;
+    #if USE_MBVH
+    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t);
+    #else
+    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t);
+    #endif
 
     origins[path_id] = vec4(camera.position.xyz, intBitsToFloat(path_id));
     directions[path_id] = vec4(direction, 0.0);
+    states[path_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, 0);
 
     vec3 color = vec3(0.0);
-
-    float t = 1e26;
-    const vec3 origin = camera.position.xyz;
-
-    const vec3 inst_org = (instances[0].inverse * vec4(origin, 1)).xyz;
-    const vec3 inst_dir = (instances[0].normal * vec4(direction, 0)).xyz;
-
-#if USE_MBVH
-    const int hit = intersect_mbvh(inst_org, inst_dir, instances[0].mbvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
-#else
-    const int hit = intersect_bvh(inst_org, inst_dir, instances[0].bvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
-#endif
-    
-    if (hit >= 0) {
-        color = abs(rt_triangles[hit].gn);
+    if (hit.y >= 0) {
+        color = abs(rt_triangles[hit.y].gn);
     }
 
     imageStore(OutputTex, pixel_id, vec4(color, 1.0));

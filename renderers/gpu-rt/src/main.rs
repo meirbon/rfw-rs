@@ -82,7 +82,7 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef, Quad,
+    InstanceRef,
 };
 use shared::utils;
 
@@ -130,17 +130,20 @@ fn main() {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    // let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    // let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-    // instance.rotate_y(180.0);
-    // instance.translate_y(-2.5);
-    // instance.translate_z(10.0);
-    // instance.synchronize().unwrap();
+    let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
+    for i in 0..10 {
+        let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
+        instance.rotate_y(180.0);
+        instance.translate_y(-2.5);
+        instance.translate_x(((i - 5) * 8) as f32);
+        instance.translate_z(10.0);
+        instance.synchronize().unwrap();
+    }
 
-    let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
-    let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
-    instance.scale(Vec3::splat(0.1));
-    instance.synchronize().unwrap();
+    // let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
+    // let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
+    // instance.scale(Vec3::splat(0.1));
+    // instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Reset;
@@ -251,11 +254,11 @@ fn main() {
                     elapsed
                 };
 
-                if key_handler.pressed(KeyCode::Space) {
-                    instance.rotate_y(elapsed / 10.0);
-                    instance.synchronize().unwrap();
-                    mode = RenderMode::Reset;
-                }
+                // if key_handler.pressed(KeyCode::Space) {
+                //     instance.rotate_y(elapsed / 10.0);
+                //     instance.synchronize().unwrap();
+                //     mode = RenderMode::Reset;
+                // }
 
                 timer.reset();
 
