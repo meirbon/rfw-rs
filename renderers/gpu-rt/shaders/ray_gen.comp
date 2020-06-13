@@ -4,7 +4,7 @@
 #include "structs.glsl"
 #include "intersection.glsl"
 
-#define USE_MBVH 0
+#define USE_MBVH 1
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -193,7 +193,59 @@ ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, in
     return hit;
 }
 
+ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, inout float t)
+{
+    MBVHTraversal hit_stack[32];
+    int stack_ptr = -1;
+    ivec2 hit = ivec2(-1);
 
+    const vec3 dir_inverse = 1.0 / direction;
+
+    bvec4 result;
+    vec4 index;
+
+    if (!intersect_mnode(top_mbvh_nodes[0], origin, dir_inverse, t, index, result))
+        return hit;
+    for (int i = 3; i >= 0; i--) {
+        const int idx = floatBitsToInt(index[i]) & 3;
+        if (result[idx] && top_mbvh_nodes[0].children[idx] >= 0) {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr].left_first = top_mbvh_nodes[0].children[idx];
+            hit_stack[stack_ptr].count = top_mbvh_nodes[0].counts[idx];
+        }
+    }
+
+    while (stack_ptr >= 0) {
+        const int left_first = hit_stack[stack_ptr].left_first;
+        const int count = hit_stack[stack_ptr].count;
+        stack_ptr -= 1;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++) {
+                uint inst_id = instance_indices[left_first + i];
+                vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
+                vec3 inst_dir = (instances[inst_id].normal * vec4(direction, 0)).xyz;
+                int potential_hit = intersect_mbvh(inst_org, inst_dir, instances[inst_id].mbvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t);
+                if (potential_hit >= 0) {
+                    hit = ivec2(inst_id, potential_hit);
+                }
+            }
+        } else {
+            if (!intersect_mnode(top_mbvh_nodes[left_first], origin, dir_inverse, t, index, result))
+                continue;
+            for (int i = 3; i >= 0; i--) {
+                const int idx = floatBitsToInt(index[i]) & 3;
+                if (result[idx] && top_mbvh_nodes[left_first].children[idx] >= 0) {
+                    stack_ptr = stack_ptr + 1;
+                    hit_stack[stack_ptr].left_first = top_mbvh_nodes[left_first].children[idx];
+                    hit_stack[stack_ptr].count = top_mbvh_nodes[left_first].counts[idx];
+                }
+            }
+        }
+    }
+
+    return hit;
+}
 
 void main() {
     const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
@@ -218,20 +270,15 @@ void main() {
     float t = 1e26;
     const vec3 origin = camera.position.xyz;
 
-    const vec3 inst_org = (instances[0].inverse * vec4(origin, 1)).xyz;
-    const vec3 inst_dir = (instances[0].normal * vec4(direction, 0)).xyz;
-
 #if USE_MBVH
-    const int hit = intersect_mbvh(inst_org, inst_dir, instances[0].mbvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
-    if (hit >= 0) {
-        color = abs(rt_triangles[hit].gn);
-    }
+    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t);
 #else
     const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t);
+#endif
+
     if (hit.y >= 0) {
         color = abs(rt_triangles[hit.y].gn);
     }
-#endif
 
     imageStore(OutputTex, pixel_id, vec4(color, 1.0));
 }
