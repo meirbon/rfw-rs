@@ -321,6 +321,24 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         futures::executor::block_on(self.scene.load_mesh(path))
     }
 
+    pub fn add_material<B: Into<[f32; 3]>>(
+        &self,
+        color: B,
+        roughness: f32,
+        specular: B,
+        transmission: f32,
+    ) -> Option<usize> {
+        if let Ok(mut materials) = self.scene.materials.lock() {
+            Some(materials.add(color, roughness, specular, transmission))
+        } else {
+            None
+        }
+    }
+
+    pub fn add_object<B: Into<Mesh>>(&self, object: B) -> Option<usize> {
+        self.scene.add_object(object.into())
+    }
+
     pub fn add_instance(&self, object: usize) -> Result<InstanceRef, triangle_scene::SceneError> {
         let id = self.scene.add_instance(object, Mat4::identity())?;
 

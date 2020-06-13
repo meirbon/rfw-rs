@@ -25,12 +25,8 @@ struct CameraView {
 };
 
 struct BVHNode {
-    float min_x;
-    float min_y;
-    float min_z;
-    float max_x;
-    float max_y;
-    float max_z;
+    vec3 bmin;
+    vec3 bmax;
     int left_first;
     int count;
 };
@@ -44,4 +40,36 @@ struct MBVHNode {
     vec4 max_z;
     ivec4 children;
     ivec4 counts;
+};
+
+struct RTTriangle {
+    vec3 v0;
+    float tu0;
+    vec3 v1;
+    float tu1;
+    vec3 v2;
+    float tu2;
+    vec3 gn;
+    float tv0;
+    vec3 n0;
+    float tv1;
+    vec3 n1;
+    float tv2;
+    vec3 n2;
+    int id;
+    int light_id;
+    int mat_id;
+    int _dummy0;
+    int _dummy1;
+};
+
+struct InstanceDescriptor {
+    mat4 matrix;
+    mat4 inverse;
+    mat4 normal;
+
+    uint bvh_offset;
+    uint triangle_offset;
+    uint prim_index_offset;
+    uint dummy;
 };

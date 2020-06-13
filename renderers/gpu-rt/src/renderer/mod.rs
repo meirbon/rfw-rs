@@ -1,21 +1,22 @@
 use crate::surface::Surface;
 
+use crate::renderer::mem::ManagedBuffer;
 use futures::executor::block_on;
 use glam::*;
-use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
-use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
+use rtbvh::{BVHNode, Bounds, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
-    constants, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, HasRawWindowHandle,
-    Instance, Light, Material, Mesh, PointLight, SpotLight, TIntersector, Texture,
+    AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
+    Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
 };
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod bind_group;
+mod mem;
 
 #[repr(u32)]
 enum IntersectionBindings {
@@ -24,6 +25,18 @@ enum IntersectionBindings {
     PathStates = 2,
     PathOrigins = 3,
     PathDirections = 4,
+}
+
+#[repr(u32)]
+enum MeshBindings {
+    InstanceDescriptors = 0,
+    PrimIndices = 1,
+    BVHNodes = 2,
+    MBVHNodes = 3,
+    Triangles = 4,
+    TopInstanceIndices = 5,
+    TopBVHNodes = 6,
+    TopMBVHNodes = 7,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -80,6 +93,54 @@ impl CameraData {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct GPUMeshData {
+    pub bvh_offset: u32,
+    pub bvh_nodes: u32,
+    pub triangle_offset: u32,
+    pub triangles: u32,
+    pub prim_index_offset: u32,
+}
+
+impl Default for GPUMeshData {
+    fn default() -> Self {
+        Self {
+            bvh_offset: 0,
+            bvh_nodes: 0,
+            triangle_offset: 0,
+            triangles: 0,
+            prim_index_offset: 0,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+pub struct GPUInstanceData {
+    pub matrix: Mat4,
+    pub inverse: Mat4,
+    pub normal: Mat4,
+
+    pub bvh_offset: u32,
+    pub triangle_offset: u32,
+    pub prim_index_offset: u32,
+    dummy: u32,
+}
+
+impl Default for GPUInstanceData {
+    fn default() -> Self {
+        Self {
+            bvh_offset: 0,
+            triangle_offset: 0,
+            prim_index_offset: 0,
+            dummy: 0,
+            matrix: Mat4::identity(),
+            inverse: Mat4::identity(),
+            normal: Mat4::identity(),
+        }
+    }
+}
+
 pub struct RayTracer<'a> {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -95,6 +156,9 @@ pub struct RayTracer<'a> {
     intersection_pipeline_layout: wgpu::PipelineLayout,
     intersection_pipeline: wgpu::ComputePipeline,
 
+    mesh_bind_group: wgpu::BindGroup,
+    mesh_bind_group_layout: wgpu::BindGroupLayout,
+
     compiler: Compiler<'a>,
     output_bind_group: bind_group::BindGroup,
     output_texture: wgpu::Texture,
@@ -102,10 +166,22 @@ pub struct RayTracer<'a> {
     output_pipeline: wgpu::RenderPipeline,
 
     meshes: Vec<Mesh>,
+    meshes_changed: BitVec,
+    meshes_gpu_data: Vec<GPUMeshData>,
+    meshes_bvh_buffer: ManagedBuffer<BVHNode>,
+    meshes_prim_indices: ManagedBuffer<u32>,
+    mesh_prim_index_counter: usize,
+    mesh_bvh_index_counter: usize,
+
     instances: Vec<Instance>,
+    instances_buffer: ManagedBuffer<GPUInstanceData>,
+    triangles_buffer: ManagedBuffer<RTTriangle>,
+    triangles_index_counter: usize,
+
     materials: Vec<Material>,
     device_materials: Vec<DeviceMaterial>,
     textures: Vec<Texture>,
+
     bvh: BVH,
     mbvh: MBVH,
 
@@ -201,6 +277,45 @@ impl Renderer for RayTracer<'_> {
             })
             .unwrap()
             .build(&device);
+
+        let mesh_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("mesh-bind-group-layout"),
+                bindings: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: MeshBindings::InstanceDescriptors as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: MeshBindings::PrimIndices as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: MeshBindings::BVHNodes as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: MeshBindings::Triangles as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                ],
+            });
 
         let mut compiler = CompilerBuilder::new().build().unwrap();
 
@@ -328,7 +443,7 @@ impl Renderer for RayTracer<'_> {
 
         let intersection_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&intersection_bind_group.layout],
+                bind_group_layouts: &[&intersection_bind_group.layout, &mesh_bind_group_layout],
             });
 
         let compute_module = compiler
@@ -344,6 +459,41 @@ impl Renderer for RayTracer<'_> {
                 },
             });
 
+        let meshes_bvh_buffer = ManagedBuffer::new(
+            &device,
+            65536,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+
+        let meshes_prim_indices = ManagedBuffer::new(
+            &device,
+            65536,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+
+        let triangles_buffer = ManagedBuffer::new(
+            &device,
+            65536,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+
+        let instances_buffer = ManagedBuffer::new(
+            &device,
+            2048,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+
+        let mesh_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            bindings: &[
+                instances_buffer.as_binding(MeshBindings::InstanceDescriptors as u32),
+                meshes_prim_indices.as_binding(MeshBindings::PrimIndices as u32),
+                meshes_bvh_buffer.as_binding(MeshBindings::BVHNodes as u32),
+                triangles_buffer.as_binding(MeshBindings::Triangles as u32),
+            ],
+            label: Some("mesh-bind-group"),
+            layout: &mesh_bind_group_layout,
+        });
+
         Ok(Box::new(Self {
             device,
             queue,
@@ -353,6 +503,8 @@ impl Renderer for RayTracer<'_> {
             intersection_bind_group,
             intersection_pipeline_layout,
             intersection_pipeline,
+            mesh_bind_group,
+            mesh_bind_group_layout,
             width,
             height,
             sample_count: 0,
@@ -363,7 +515,16 @@ impl Renderer for RayTracer<'_> {
             output_pipeline_layout,
             output_pipeline,
             meshes: Vec::new(),
+            meshes_changed: Default::default(),
+            meshes_gpu_data: vec![],
+            meshes_bvh_buffer,
+            meshes_prim_indices,
+            mesh_prim_index_counter: 0,
+            mesh_bvh_index_counter: 0,
             instances: Vec::new(),
+            instances_buffer,
+            triangles_buffer,
+            triangles_index_counter: 0,
             materials: Vec::new(),
             device_materials: Vec::new(),
             textures: Vec::new(),
@@ -377,15 +538,17 @@ impl Renderer for RayTracer<'_> {
     }
 
     fn set_mesh(&mut self, id: usize, mesh: &Mesh) {
-        while id >= self.meshes.len() {
+        if id >= self.meshes.len() {
             self.meshes.push(Mesh::empty());
+            self.meshes_changed.push(true);
         }
 
         self.meshes[id] = mesh.clone();
+        self.meshes_changed.set(id, true);
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
-        while id >= self.instances.len() {
+        if id >= self.instances.len() {
             self.instances.push(Instance::default());
         }
 
@@ -406,11 +569,123 @@ impl Renderer for RayTracer<'_> {
     }
 
     fn synchronize(&mut self) {
-        self.meshes.par_iter_mut().for_each(|mesh| {
-            if let None = mesh.bvh {
-                mesh.construct_bvh();
+        if self.meshes.is_empty() {
+            return;
+        }
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("synchronize-command"),
+            });
+
+        let meshes_changed = &self.meshes_changed;
+        let constructed: usize = self
+            .meshes
+            .iter_mut()
+            .enumerate()
+            .par_bridge()
+            .map(|(i, mesh)| {
+                if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                    mesh.construct_bvh();
+                    1
+                } else {
+                    0
+                }
+            })
+            .sum();
+
+        self.meshes_changed.set_all(false);
+
+        if constructed != 0 {
+            self.triangles_index_counter = 0;
+            self.mesh_bvh_index_counter = 0;
+            self.mesh_prim_index_counter = 0;
+
+            self.meshes_gpu_data
+                .resize(self.meshes.len(), GPUMeshData::default());
+            for i in 0..self.meshes.len() {
+                let mesh = &self.meshes[i];
+                let start_triangle = self.triangles_index_counter;
+                let start_bvh_node = self.mesh_bvh_index_counter;
+                let start_prim_index = self.mesh_prim_index_counter;
+
+                self.meshes_gpu_data[i].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
+                self.meshes_gpu_data[i].bvh_offset = start_bvh_node as u32;
+                self.meshes_gpu_data[i].triangles = mesh.triangles.len() as u32;
+                self.meshes_gpu_data[i].triangle_offset = start_triangle as u32;
+                self.meshes_gpu_data[i].prim_index_offset = start_prim_index as u32;
+
+                self.triangles_index_counter += mesh.triangles.len();
+                self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
+                self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
             }
+
+            self.meshes_prim_indices
+                .resize(&self.device, self.mesh_prim_index_counter);
+            self.meshes_bvh_buffer
+                .resize(&self.device, self.mesh_bvh_index_counter);
+            self.triangles_buffer
+                .resize(&self.device, self.triangles_index_counter);
+
+            for i in 0..self.meshes.len() {
+                let mesh = &self.meshes[i];
+                let offset_data = &self.meshes_gpu_data[i];
+
+                self.meshes_prim_indices.copy_from_slice_offset(
+                    mesh.bvh.as_ref().unwrap().prim_indices.as_slice(),
+                    offset_data.prim_index_offset as usize,
+                );
+
+                self.meshes_bvh_buffer.copy_from_slice_offset(
+                    mesh.bvh.as_ref().unwrap().nodes.as_slice(),
+                    offset_data.bvh_offset as usize,
+                );
+
+                self.triangles_buffer.copy_from_slice_offset(
+                    mesh.triangles.as_slice(),
+                    offset_data.triangle_offset as usize,
+                );
+            }
+
+            self.meshes_bvh_buffer.update(&self.device, &mut encoder);
+            self.triangles_buffer.update(&self.device, &mut encoder);
+        }
+
+        self.instances_buffer
+            .resize(&self.device, self.instances.len());
+        let mesh_data = self.meshes_gpu_data.as_slice();
+        let instances = self.instances.as_slice();
+        self.instances_buffer.as_mut_slice()[0..self.instances.len()]
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, inst)| {
+                let mesh_data = &mesh_data[instances[i].get_hit_id()];
+                inst.prim_index_offset = mesh_data.prim_index_offset;
+                inst.triangle_offset = mesh_data.triangle_offset;
+                inst.bvh_offset = mesh_data.bvh_offset;
+                inst.matrix = instances[i].get_transform();
+                inst.inverse = instances[i].get_inverse_transform();
+                inst.normal = instances[i].get_normal_transform();
+            });
+
+        self.instances_buffer.update(&self.device, &mut encoder);
+        self.mesh_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            bindings: &[
+                self.instances_buffer
+                    .as_binding(MeshBindings::InstanceDescriptors as u32),
+                self.meshes_prim_indices
+                    .as_binding(MeshBindings::PrimIndices as u32),
+                self.meshes_bvh_buffer
+                    .as_binding(MeshBindings::BVHNodes as u32),
+                self.triangles_buffer
+                    .as_binding(MeshBindings::Triangles as u32),
+            ],
+            label: Some("mesh-bind-group"),
+            layout: &self.mesh_bind_group_layout,
         });
+
+        self.queue.submit(&[encoder.finish()]);
 
         let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
         let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
@@ -420,6 +695,10 @@ impl Renderer for RayTracer<'_> {
     }
 
     fn render(&mut self, camera: &scene::Camera, mode: RenderMode) {
+        if self.meshes.is_empty() {
+            return;
+        }
+
         if mode == RenderMode::Reset {
             self.sample_count = 0;
         }
@@ -452,6 +731,7 @@ impl Renderer for RayTracer<'_> {
                 self.intersection_bind_group.as_bind_group(&self.device),
                 &[],
             );
+            compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
             compute_pass.dispatch(
                 (self.width as f32 / 16.0).ceil() as u32,
                 (self.height as f32 / 16.0).ceil() as u32,

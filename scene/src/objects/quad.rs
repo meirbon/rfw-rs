@@ -1,5 +1,5 @@
+use crate::{Mesh, ToMesh};
 use glam::*;
-use crate::{ToMesh, Mesh};
 
 pub struct Quad {
     pub normal: Vec3,
@@ -16,11 +16,20 @@ pub struct Quad {
 
 #[allow(dead_code)]
 impl Quad {
-    pub fn new(normal: Vec3, position: Vec3, width: f32, height: f32, material_id: u32) -> Quad {
+    pub fn new<T: Into<[f32; 3]>>(
+        normal: T,
+        position: T,
+        width: f32,
+        height: f32,
+        material_id: u32,
+    ) -> Quad {
         let material_id = material_id.max(0);
         // TODO: uvs
         let uvs = [vec2(0.0, 0.0); 6];
         let material_ids = [material_id as u32; 2];
+
+        let normal = Vec3::from(normal.into());
+        let position = Vec3::from(position.into());
 
         let (vertices, normals) = Quad::generate_render_data(position, normal, width, height);
 
@@ -66,6 +75,12 @@ impl Quad {
 
 impl ToMesh for Quad {
     fn into_mesh(self) -> Mesh {
-        Mesh::new(&self.vertices, &self.normals, &self.uvs, &self.material_ids, Some("quad"))
+        Mesh::new(
+            &self.vertices,
+            &self.normals,
+            &self.uvs,
+            &self.material_ids,
+            Some("quad"),
+        )
     }
 }

@@ -446,7 +446,7 @@ impl<'a> Renderer for VkRenderer<'a> {
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     stage: vk::ShaderStageFlags::VERTEX,
-                    module: vertex_module,
+                    module: vert_module,
                     p_name: "main".as_ptr() as *const i8,
                     p_specialization_info: std::ptr::null(),
                 },
@@ -637,18 +637,6 @@ impl<'a> Renderer for VkRenderer<'a> {
                             .level_count(1)
                             .build(),
                     );
-
-                unsafe {
-                    device.cmd_begin_render_pass(command_buffer, &vk::RenderPassBeginInfo {
-                        s_type: Default::default(),
-                        p_next: std::ptr::null(),
-                        render_pass: vk::RenderPass::,
-                        framebuffer: Default::default(),
-                        render_area: Default::default(),
-                        clear_value_count: 0,
-                        p_clear_values: ()
-                    }, vk::SubpassContents::INLINE);
-                }
 
                 unsafe {
                     device.cmd_pipeline_barrier(

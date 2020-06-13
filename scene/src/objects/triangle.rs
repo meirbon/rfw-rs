@@ -33,6 +33,37 @@ pub struct RTTriangle {
     pub id: i32,
 
     pub light_id: i32,
+    pub mat_id: i32,
+
+    // GLSL structs' size are rounded up to the base alignment of vec4s
+    // Thus, we pad these triangles to become 128 bytes and 16-byte (vec4) aligned
+    pub extra0: i32,
+    pub extra1: i32,
+}
+
+impl Default for RTTriangle {
+    fn default() -> Self {
+        Self {
+            vertex0: [0.0; 3],
+            u0: 0.0,
+            vertex1: [0.0; 3],
+            u1: 0.0,
+            vertex2: [0.0; 3],
+            u2: 0.0,
+            normal: [0.0; 3],
+            v0: 0.0,
+            n0: [0.0; 3],
+            v1: 0.0,
+            n1: [0.0; 3],
+            v2: 0.0,
+            n2: [0.0; 3],
+            id: 0,
+            light_id: 0,
+            mat_id: 0,
+            extra0: 0,
+            extra1: 0,
+        }
+    }
 }
 
 impl SpatialTriangle for RTTriangle {
@@ -79,26 +110,6 @@ impl RTTriangle {
     pub fn center(&self) -> Vec3 {
         let (v0, v1, v2) = self.vertices();
         (v0 + v1 + v2) * (1.0 / 3.0)
-    }
-
-    pub fn zero() -> RTTriangle {
-        RTTriangle {
-            vertex0: [0.0; 3],
-            u0: 0.0,
-            vertex1: [0.0; 3],
-            u1: 0.0,
-            vertex2: [0.0; 3],
-            u2: 0.0,
-            normal: [0.0; 3],
-            v0: 0.0,
-            n0: [0.0; 3],
-            v1: 0.0,
-            n1: [0.0; 3],
-            v2: 0.0,
-            n2: [0.0; 3],
-            id: -1,
-            light_id: -1,
-        }
     }
 
     #[inline(always)]

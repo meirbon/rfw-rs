@@ -243,7 +243,7 @@ impl TriangleScene {
                     if build_bvh && mesh.bvh.is_none() {
                         mesh.construct_bvh();
                     }
-                    return Some(self.add_object(mesh));
+                    return self.add_object(mesh);
                 }
             }
         }
@@ -265,7 +265,7 @@ impl TriangleScene {
                 mesh
             };
 
-            return Some(self.add_object(mesh));
+            return self.add_object(mesh);
         }
 
         None
@@ -293,21 +293,23 @@ impl TriangleScene {
         cb(scene.objects.get_mut(index));
     }
 
-    pub fn add_object(&self, object: Mesh) -> usize {
-        let mut scene = self.scene.lock().unwrap();
+    pub fn add_object(&self, object: Mesh) -> Option<usize> {
+        if let Ok(mut scene) = self.scene.lock() {
+            if !scene.empty_object_slots.is_empty() {
+                let new_index = scene.empty_object_slots.pop().unwrap();
+                scene.objects[new_index] = object;
+                scene.object_references[new_index] = HashSet::new();
+                scene.objects_changed.set(new_index, true);
+                return Some(new_index);
+            }
 
-        if !scene.empty_object_slots.is_empty() {
-            let new_index = scene.empty_object_slots.pop().unwrap();
-            scene.objects[new_index] = object;
-            scene.object_references[new_index] = HashSet::new();
-            scene.objects_changed.set(new_index, true);
-            return new_index;
+            scene.objects.push(object);
+            scene.object_references.push(HashSet::new());
+            scene.objects_changed.push(true);
+            Some(scene.objects.len() - 1)
+        } else {
+            None
         }
-
-        scene.objects.push(object);
-        scene.object_references.push(HashSet::new());
-        scene.objects_changed.push(true);
-        scene.objects.len() - 1
     }
 
     pub fn set_object(&self, index: usize, object: Mesh) -> Result<(), SceneError> {

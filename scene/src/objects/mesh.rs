@@ -30,6 +30,7 @@ pub struct VertexData {
 
 impl Display for VertexData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use glam::*;
         write!(
             f,
             "VertexData {{ vertex: {}, normal: {}, mat_id: {}, uv: {}, tangent: {} }}",
@@ -321,7 +322,7 @@ impl Mesh {
             })
         }
 
-        let mut triangles = vec![RTTriangle::zero(); vertices.len() / 3];
+        let mut triangles = vec![RTTriangle::default(); vertices.len() / 3];
         triangles.iter_mut().enumerate().for_each(|(i, triangle)| {
             let i0 = i * 3;
             let i1 = i0 + 1;
@@ -357,6 +358,8 @@ impl Mesh {
                 n2: n2.into(),
                 id: i as i32,
                 light_id: -1,
+                mat_id: material_ids[i] as i32,
+                ..Default::default()
             };
         });
 
@@ -1042,5 +1045,11 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
         });
 
         Ok(mesh)
+    }
+}
+
+impl<T: ToMesh> From<T> for Mesh {
+    fn from(v: T) -> Self {
+        v.into_mesh()
     }
 }

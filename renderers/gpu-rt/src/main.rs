@@ -83,7 +83,7 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef,
+    InstanceRef, Quad,
 };
 use shared::utils;
 
@@ -129,8 +129,7 @@ fn main() {
     let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
     instance.rotate_y(180.0);
     instance.translate_y(-2.5);
-    instance.translate_z(6.5);
-    instance.scale([10.0; 3]);
+    instance.translate_z(10.0);
     instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
