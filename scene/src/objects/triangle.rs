@@ -222,15 +222,11 @@ impl RTTriangle {
         }
 
         let p = origin + direction * t;
-        let (u, v) = Self::bary_centrics(
-            vertex0,
-            vertex1,
-            vertex2,
-            edge1,
-            edge2,
-            p,
-            glam::Vec3::from(self.normal),
-        );
+
+        let gnormal = Vec3::from(self.normal);
+        let inv_denom = 1.0 / gnormal.dot(gnormal);
+        let (u, v) = (u * inv_denom, v * inv_denom);
+
         let w = 1.0 - u - v;
         let normal = glam::Vec3::from(self.n0) * u
             + glam::Vec3::from(self.n1) * v

@@ -4,7 +4,7 @@
 #include "structs.glsl"
 #include "intersection.glsl"
 
-#define USE_MBVH 1
+#define USE_MBVH 0
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -26,7 +26,7 @@ layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_
 layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
 layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
 
-int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
+int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv)
 {
     uint hit_stack[64];
     hit_stack[0] = 0;
@@ -45,7 +45,7 @@ int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint
             for (int i = 0; i < count; i++)
             {
                 uint prim_id = triangle_offset + prim_indices[left_first + i + prim_offset];
-                if (intersect(rt_triangles[prim_id], origin, direction, t_min, t)) {
+                if (intersect(rt_triangles[prim_id], origin, direction, t_min, t, uv)) {
                     hit = int(prim_id);
                 }
             }
@@ -85,7 +85,7 @@ struct MBVHTraversal {
     int count;
 };
 
-int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
+int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv)
 {
     MBVHTraversal hit_stack[32];
     int stack_ptr = -1;
@@ -114,7 +114,7 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
 
         if (count >= 0) { // Leaf node
             for (int i = 0; i < count; i++) {
-                if (intersect(rt_triangles[triangle_offset + prim_indices[left_first + i + prim_offset]], origin, direction, t_min, t)) {
+                if (intersect(rt_triangles[triangle_offset + prim_indices[left_first + i + prim_offset]], origin, direction, t_min, t, uv)) {
                     hit = int(triangle_offset + prim_indices[left_first + i + prim_offset]);
                 }
             }
@@ -136,7 +136,7 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
 }
 
 
-ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, inout float t)
+ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, inout float t, inout vec2 uv)
 {
     uint hit_stack[64];
     hit_stack[0] = 0;
@@ -157,7 +157,7 @@ ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, in
                 uint inst_id = instance_indices[left_first + i];
                 vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
                 vec3 inst_dir = (instances[inst_id].normal * vec4(direction, 0)).xyz;
-                int potential_hit = intersect_bvh(inst_org, inst_dir, instances[inst_id].bvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t);
+                int potential_hit = intersect_bvh(inst_org, inst_dir, instances[inst_id].bvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t, uv);
                 if (potential_hit >= 0) {
                     hit = ivec2(inst_id, potential_hit);
                 }
@@ -193,7 +193,7 @@ ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, in
     return hit;
 }
 
-ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, inout float t)
+ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, inout float t, inout vec2 uv)
 {
     MBVHTraversal hit_stack[32];
     int stack_ptr = -1;
@@ -225,7 +225,7 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
                 uint inst_id = instance_indices[left_first + i];
                 vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
                 vec3 inst_dir = (instances[inst_id].normal * vec4(direction, 0)).xyz;
-                int potential_hit = intersect_mbvh(inst_org, inst_dir, instances[inst_id].mbvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t);
+                int potential_hit = intersect_mbvh(inst_org, inst_dir, instances[inst_id].mbvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t, uv);
                 if (potential_hit >= 0) {
                     hit = ivec2(inst_id, potential_hit);
                 }
@@ -262,22 +262,27 @@ void main() {
     const vec3 point_on_pixel = camera.p1.xyz + u * camera.right.xyz + v * camera.up.xyz;
     const vec3 direction = normalize(point_on_pixel - camera.position.xyz);
 
-    origins[path_id] = vec4(camera.position.xyz, intBitsToFloat(path_id));
-    directions[path_id] = vec4(direction, 0.0);
-
     vec3 color = vec3(0.0);
 
     float t = 1e26;
+    vec2 uv = vec2(0.0);
     const vec3 origin = camera.position.xyz;
 
 #if USE_MBVH
-    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t);
+    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t, uv);
 #else
-    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t);
+    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t, uv);
 #endif
 
+    const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
+    origins[path_id] = vec4(origin, intBitsToFloat(path_id));
+    directions[path_id] = vec4(direction, 0.0);
+    states[path_id] = vec4(intBitsToFloat(hit), t, uintBitsToFloat(bary));
+
     if (hit.y >= 0) {
-        color = abs(rt_triangles[hit.y].gn);
+        const vec3 n = normalize(uv.x * rt_triangles[hit.y].n0 + uv.y * rt_triangles[hit.y].n1 + (1.0 - uv.x - uv.y) * rt_triangles[hit.y].n2);
+
+        color = n;
     }
 
     imageStore(OutputTex, pixel_id, vec4(color, 1.0));
