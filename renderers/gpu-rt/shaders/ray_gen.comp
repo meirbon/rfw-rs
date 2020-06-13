@@ -4,7 +4,7 @@
 #include "structs.glsl"
 #include "intersection.glsl"
 
-#define USE_MBVH 1
+#define USE_MBVH 0
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -136,6 +136,65 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
 }
 
 
+ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, inout float t)
+{
+    uint hit_stack[64];
+    hit_stack[0] = 0;
+    int stack_ptr = 0;
+    ivec2 hit = ivec2(-1);
+
+    const vec3 dir_inverse = 1.0 / direction;
+    while (stack_ptr >= 0) {
+        const uint node_index = hit_stack[stack_ptr];
+        stack_ptr = stack_ptr - 1;
+
+        const int count = top_bvh_nodes[node_index].count;
+        const int left_first = top_bvh_nodes[node_index].left_first;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++)
+            {
+                uint inst_id = instance_indices[left_first + i];
+                vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
+                vec3 inst_dir = (instances[inst_id].normal * vec4(direction, 0)).xyz;
+                int potential_hit = intersect_bvh(inst_org, inst_dir, instances[inst_id].bvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t);
+                if (potential_hit >= 0) {
+                    hit = ivec2(inst_id, potential_hit);
+                }
+            }
+        } else if (left_first >= 0) { // Regular node
+            float _ltmin, _ltmax;
+            float _rtmin, _rtmax;
+            bool hit_left = intersect_node(top_bvh_nodes[left_first], origin, dir_inverse, t, _rtmin, _rtmax);
+            bool hit_right = intersect_node(top_bvh_nodes[left_first + 1], origin, dir_inverse, t, _rtmin, _rtmax);
+
+            if (hit_left && hit_right) {
+                if (_ltmin < _rtmin) {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                } else {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                }
+            } else if (hit_left) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first;
+            } else if (hit_right) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first + 1;
+            }
+        }
+    }
+
+    return hit;
+}
+
+
+
 void main() {
     const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 size = imageSize(OutputTex);
@@ -164,13 +223,15 @@ void main() {
 
 #if USE_MBVH
     const int hit = intersect_mbvh(inst_org, inst_dir, instances[0].mbvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
-#else
-    const int hit = intersect_bvh(inst_org, inst_dir, instances[0].bvh_offset, instances[0].triangle_offset, instances[0].prim_index_offset, 1e-5, t);
-#endif
-    
     if (hit >= 0) {
         color = abs(rt_triangles[hit].gn);
     }
+#else
+    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t);
+    if (hit.y >= 0) {
+        color = abs(rt_triangles[hit.y].gn);
+    }
+#endif
 
     imageStore(OutputTex, pixel_id, vec4(color, 1.0));
 }
