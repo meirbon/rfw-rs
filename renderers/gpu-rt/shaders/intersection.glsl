@@ -69,12 +69,11 @@ void swapu(inout uint a, inout uint b) {
     a = b;
     b = a;
 }
-
-bool intersect_mnode(const MBVHNode node, const vec3 origin, const vec3 dir_inverse, const float t, inout uvec4 index, inout bvec4 result) {
+bool intersect_mnode(const MBVHNode node, const vec3 origin, const vec3 dir_inverse, const float t, inout vec4 tmin, inout bvec4 result) {
     vec4 t1 = (node.min_x - origin.x) * dir_inverse.x;
     vec4 t2 = (node.max_x - origin.x) * dir_inverse.x;
 
-    vec4 tmin = min(t1, t2);
+    tmin = min(t1, t2);
     vec4 tmax = max(t1, t2);
 
     t1 = (node.min_y - origin.y) * dir_inverse.y;
@@ -89,65 +88,47 @@ bool intersect_mnode(const MBVHNode node, const vec3 origin, const vec3 dir_inve
     tmin = max(tmin, min(t1, t2));
     tmax = min(tmax, max(t1, t2));
 
-    index = uvec4(0, 1, 2, 3);
-
     const bvec4 ge = greaterThanEqual(tmax, tmin);
     const bvec4 lt = lessThan(tmin, vec4(t));
     for (int i = 0; i < 4; i++) {
         result[i] = ge[i] && lt[i];
     }
+
     if (!any(result)) {
         return false;
     }
 
-    index = uvec4(0, 1, 2, 3);
+    tmin.x = intBitsToFloat((floatBitsToInt(tmin.x) & 0xFFFFFFFC));
+    tmin.y = intBitsToFloat(((floatBitsToInt(tmin.y) & 0xFFFFFFFC) | 1));
+    tmin.z = intBitsToFloat(((floatBitsToInt(tmin.z) & 0xFFFFFFFC) | 2));
+    tmin.w = intBitsToFloat(((floatBitsToInt(tmin.w) & 0xFFFFFFFC) | 3));
+
     float tmp;
-    lowp uint utmp;
     if (tmin[0] > tmin[1]) {
         tmp = tmin[0];
         tmin[0] = tmin[1];
         tmin[1] = tmp;
-
-        utmp = index[0];
-        index[0] = index[1];
-        index[1] = utmp;
     }
     if (tmin[2] > tmin[3]) {
         tmp = tmin[2];
         tmin[2] = tmin[3];
         tmin[3] = tmp;
-
-        utmp = index[2];
-        index[2] = index[3];
-        index[3] = utmp;
     }
     if (tmin[0] > tmin[2]) {
         tmp = tmin[0];
         tmin[0] = tmin[2];
         tmin[2] = tmp;
-
-        utmp = index[0];
-        index[0] = index[2];
-        index[2] = utmp;
     }
     if (tmin[1] > tmin[3]) {
         tmp = tmin[1];
         tmin[1] = tmin[3];
         tmin[3] = tmp;
-
-        utmp = index[1];
-        index[1] = index[3];
-        index[3] = utmp;
     }
     if (tmin[2] > tmin[3]) {
         tmp = tmin[2];
         tmin[2] = tmin[3];
         tmin[3] = tmp;
-
-        utmp = index[2];
-        index[2] = index[3];
-        index[3] = utmp;
     }
 
-    return any(result);
+    return true;
 }

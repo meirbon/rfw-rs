@@ -16,15 +16,15 @@ layout(std430, set = 0, binding = 2) buffer writeonly pathStates { vec4 states[]
 layout(std430, set = 0, binding = 3) buffer writeonly pathOrigins { vec4 origins[]; };
 layout(std430, set = 0, binding = 4) buffer writeonly pathDirections { vec4 directions[]; };
 
-layout(std430, set = 1, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
-layout(std430, set = 1, binding = 1) buffer readonly primIndices { uint prim_indices[]; };
-layout(std430, set = 1, binding = 2) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
-layout(std430, set = 1, binding = 3) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
-layout(std430, set = 1, binding = 4) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
+layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
+layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
+layout(std430, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
 
-//layout(std430, set = 1, binding = 5) buffer readonly topIndices { uint instance_indices[]; };
-//layout(std430, set = 1, binding = 6) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
-//layout(std430, set = 1, binding = 7) buffer readonly topMBVHNodes { MBVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
+layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
+layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
 
 int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t)
 {
@@ -94,12 +94,12 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
     const vec3 dir_inverse = 1.0 / direction;
 
     bvec4 result;
-    uvec4 index;
+    vec4 index;
 
     if (!intersect_mnode(mbvh_nodes[bvh_offset], origin, dir_inverse, t, index, result))
         return hit;
     for (int i = 3; i >= 0; i--) {
-        const uint idx = index[i];
+        const int idx = floatBitsToInt(index[i]) & 3;
         if (result[idx] && mbvh_nodes[bvh_offset].children[idx] >= 0) {
             stack_ptr = stack_ptr + 1;
             hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset].children[idx];
@@ -122,7 +122,7 @@ int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uin
             if (!intersect_mnode(mbvh_nodes[bvh_offset + left_first], origin, dir_inverse, t, index, result))
                 continue;
             for (int i = 3; i >= 0; i--) {
-                const uint idx = index[i];
+                const int idx = floatBitsToInt(index[i]) & 3;
                 if (result[idx] && mbvh_nodes[bvh_offset + left_first].children[idx] >= 0) {
                     stack_ptr = stack_ptr + 1;
                     hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset + left_first].children[idx];
