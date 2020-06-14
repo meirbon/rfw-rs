@@ -135,15 +135,14 @@ impl InstanceRef {
         match self.objects.try_lock() {
             Ok(mut o) => {
                 if let Some(instance) = o.instances.get_mut(self.id) {
-                    let t: Mat4 = Mat4::from_translation(self.translation);
-                    let r_x = Mat4::from_rotation_x(self.rotation_x);
-                    let r_y = Mat4::from_rotation_y(self.rotation_y);
-                    let r_z = Mat4::from_rotation_z(self.rotation_z);
-                    let r = r_x * r_y * r_z;
-                    let s = Mat4::from_scale(self.scaling);
-
-                    let trs = t * r * s;
-                    instance.set_transform(trs);
+                    let rotation_x = Quat::from_axis_angle(Vec3::unit_x(), self.rotation_x);
+                    let rotation_y = Quat::from_axis_angle(Vec3::unit_y(), self.rotation_y);
+                    let rotation_z = Quat::from_axis_angle(Vec3::unit_z(), self.rotation_z);
+                    instance.set_transform(Mat4::from_scale_rotation_translation(
+                        self.scaling.into(),
+                        rotation_x * rotation_y * rotation_z,
+                        self.translation.into(),
+                    ));
                 }
 
                 o.instances_changed.set(self.id, true);

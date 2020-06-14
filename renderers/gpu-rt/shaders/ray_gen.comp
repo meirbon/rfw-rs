@@ -4,7 +4,7 @@
 #include "structs.glsl"
 #include "intersection.glsl"
 
-#define USE_MBVH 0
+#define USE_MBVH 1
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
@@ -156,7 +156,7 @@ ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, in
             {
                 uint inst_id = instance_indices[left_first + i];
                 vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
-                vec3 inst_dir = (instances[inst_id].normal * vec4(direction, 0)).xyz;
+                vec3 inst_dir = (instances[inst_id].inverse * vec4(direction, 0)).xyz;
                 int potential_hit = intersect_bvh(inst_org, inst_dir, instances[inst_id].bvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t, uv);
                 if (potential_hit >= 0) {
                     hit = ivec2(inst_id, potential_hit);
@@ -224,7 +224,7 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
             for (int i = 0; i < count; i++) {
                 uint inst_id = instance_indices[left_first + i];
                 vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
-                vec3 inst_dir = (instances[inst_id].normal * vec4(direction, 0)).xyz;
+                vec3 inst_dir = (instances[inst_id].inverse * vec4(direction, 0)).xyz;
                 int potential_hit = intersect_mbvh(inst_org, inst_dir, instances[inst_id].mbvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t, uv);
                 if (potential_hit >= 0) {
                     hit = ivec2(inst_id, potential_hit);

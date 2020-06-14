@@ -2,7 +2,9 @@ use crate::renderer::mem::ManagedBuffer;
 use futures::executor::block_on;
 use glam::*;
 use rayon::prelude::*;
-use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
+use rtbvh::builders::{
+    binned_sah::BinnedSahBuilder, locb::LocallyOrderedClusteringBuilder, Builder,
+};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
@@ -121,14 +123,17 @@ impl Default for GPUMeshData {
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct GPUInstanceData {
-    pub matrix: Mat4,
-    pub inverse: Mat4,
-    pub normal: Mat4,
-
     pub bvh_offset: u32,
     pub mbvh_offset: u32,
     pub triangle_offset: u32,
     pub prim_index_offset: u32,
+    _dummy0: Vec4,
+    _dummy1: Vec4,
+    _dummy2: Vec4,
+
+    pub matrix: Mat4,
+    pub inverse: Mat4,
+    pub normal: Mat4,
 }
 
 impl Default for GPUInstanceData {
@@ -141,6 +146,9 @@ impl Default for GPUInstanceData {
             mbvh_offset: 0,
             triangle_offset: 0,
             prim_index_offset: 0,
+            _dummy0: Vec4::zero(),
+            _dummy1: Vec4::zero(),
+            _dummy2: Vec4::zero(),
         }
     }
 }
@@ -754,10 +762,22 @@ impl Renderer for RayTracer<'_> {
             .resize(&self.device, self.instances.len());
         let mesh_data = self.meshes_gpu_data.as_slice();
         let instances = self.instances.as_slice();
+
+        let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
+        let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
+        let builder = BinnedSahBuilder::new(aabbs.as_slice(), centers.as_slice());
+        self.bvh = builder.build();
+        self.mbvh = MBVH::construct(&self.bvh);
+
+        self.top_bvh_buffer
+            .resize(&self.device, self.bvh.nodes.len());
+        self.top_mbvh_buffer
+            .resize(&self.device, self.mbvh.nodes.len());
+        self.top_indices
+            .resize(&self.device, self.bvh.prim_indices.len());
         self.instances_buffer.as_mut_slice()[0..self.instances.len()]
             .iter_mut()
             .enumerate()
-            .par_bridge()
             .for_each(|(i, inst)| {
                 let mesh_data = &mesh_data[instances[i].get_hit_id()];
                 inst.prim_index_offset = mesh_data.prim_index_offset;
@@ -768,19 +788,6 @@ impl Renderer for RayTracer<'_> {
                 inst.inverse = instances[i].get_inverse_transform();
                 inst.normal = instances[i].get_normal_transform();
             });
-
-        let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
-        let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
-        let builder = LocallyOrderedClusteringBuilder::new(aabbs.as_slice(), centers.as_slice());
-        self.bvh = builder.build();
-        self.mbvh = MBVH::construct(&self.bvh);
-
-        self.top_bvh_buffer
-            .resize(&self.device, self.bvh.nodes.len());
-        self.top_mbvh_buffer
-            .resize(&self.device, self.mbvh.nodes.len());
-        self.top_indices
-            .resize(&self.device, self.bvh.prim_indices.len());
 
         self.top_bvh_buffer
             .copy_from_slice(self.bvh.nodes.as_slice());
