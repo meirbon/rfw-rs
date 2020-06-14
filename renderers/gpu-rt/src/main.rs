@@ -10,7 +10,7 @@ enum AppType {
     GPU,
 }
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -82,7 +82,7 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef, Quad,
+    InstanceRef,
 };
 use shared::utils;
 

@@ -3,7 +3,7 @@ use futures::executor::block_on;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::builders::{
-    binned_sah::BinnedSahBuilder, locb::LocallyOrderedClusteringBuilder, Builder,
+    binned_sah::BinnedSahBuilder, Builder,
 };
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};

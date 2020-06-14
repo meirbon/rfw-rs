@@ -268,9 +268,9 @@ void main() {
     const vec3 origin = camera.position.xyz;
 
 #if USE_MBVH
-    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t, uv);
+    ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t, uv);
 #else
-    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t, uv);
+    ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t, uv);
 #endif
 
     const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
@@ -279,8 +279,8 @@ void main() {
     states[path_id] = vec4(intBitsToFloat(hit), t, uintBitsToFloat(bary));
 
     if (hit.y >= 0) {
-        const vec3 n = normalize(uv.x * rt_triangles[hit.y].n0 + uv.y * rt_triangles[hit.y].n1 + (1.0 - uv.x - uv.y) * rt_triangles[hit.y].n2);
-
+        vec3 n = normalize(uv.x * rt_triangles[hit.y].n0 + uv.y * rt_triangles[hit.y].n1 + (1.0 - uv.x - uv.y) * rt_triangles[hit.y].n2);
+        n = (instances[hit.x].normal * vec4(n, 0)).xyz;
         color = n;
     }
 
