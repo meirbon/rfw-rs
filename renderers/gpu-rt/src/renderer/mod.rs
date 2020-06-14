@@ -762,8 +762,8 @@ impl Renderer for RayTracer<'_> {
             .resize(&self.device, self.instances.len());
         let mesh_data = self.meshes_gpu_data.as_slice();
         let instances = self.instances.as_slice();
-
         let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
+
         let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
         let builder = BinnedSahBuilder::new(aabbs.as_slice(), centers.as_slice());
         self.bvh = builder.build();
@@ -802,7 +802,6 @@ impl Renderer for RayTracer<'_> {
         self.instances_buffer.update(&self.device, &mut encoder);
 
         self.queue.submit(&[encoder.finish()]);
-
         self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
             layout: &self.top_bind_group_layout,

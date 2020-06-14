@@ -7,6 +7,49 @@
         {
             "type": "lldb",
             "request": "launch",
+            "name": "Launch GPU-RT debug",
+            "program": "${workspaceFolder}/target/debug/gpu-rt",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "-p",
+                    "gpu-rt"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch GPU-RT release",
+            "program": "${workspaceFolder}/target/release/gpu-rt",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "-p",
+                    "gpu-rt"
+                ]
+            },
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "terminal": "console"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
             "name": "Launch Vulkan debug",
             "program": "${workspaceFolder}/target/debug/vulkan",
             "env": {
