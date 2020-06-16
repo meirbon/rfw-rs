@@ -6,8 +6,8 @@ use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::{vk, Entry};
 use scene::renderers::{RenderMode, Renderer, Setting};
 use scene::{
-    AreaLight, BitVec, Camera, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
-    Local, Material, Mesh, PointLight, SpotLight, Texture,
+    raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, Camera, DeviceMaterial,
+    DirectionalLight, Instance, Local, Material, Mesh, PointLight, SpotLight, Texture,
 };
 use shared::*;
 use std::error::Error;
@@ -68,6 +68,7 @@ pub struct VkRenderer<'a> {
     pub pipeline_cache: vk::PipelineCache,
     pub debug_pipeline_layout: vk::PipelineLayout,
     pub debug_pipeline: vk::Pipeline,
+    pub render_pass: vk::RenderPass,
 }
 
 impl<'a> VkRenderer<'a> {
@@ -377,7 +378,7 @@ impl<'a> Renderer for VkRenderer<'a> {
             let debug_pipeline_layout = device
                 .create_pipeline_layout(
                     &vk::PipelineLayoutCreateInfo {
-                        s_type: Default::default(),
+                        s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
                         p_next: std::ptr::null(),
                         flags: Default::default(),
                         set_layout_count: 0,
@@ -399,7 +400,7 @@ impl<'a> Renderer for VkRenderer<'a> {
             let pipeline_cache = device
                 .create_pipeline_cache(
                     &vk::PipelineCacheCreateInfo {
-                        s_type: Default::default(),
+                        s_type: vk::StructureType::PIPELINE_CACHE_CREATE_INFO,
                         p_next: std::ptr::null(),
                         flags: Default::default(),
                         initial_data_size: 0,
@@ -418,7 +419,7 @@ impl<'a> Renderer for VkRenderer<'a> {
             let vert_module = device
                 .create_shader_module(
                     &vk::ShaderModuleCreateInfo {
-                        s_type: Default::default(),
+                        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
                         p_next: std::ptr::null(),
                         flags: Default::default(),
                         code_size: vert_module.len() * std::mem::size_of::<u32>(),
@@ -430,7 +431,7 @@ impl<'a> Renderer for VkRenderer<'a> {
             let frag_module = device
                 .create_shader_module(
                     &vk::ShaderModuleCreateInfo {
-                        s_type: Default::default(),
+                        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
                         p_next: std::ptr::null(),
                         flags: Default::default(),
                         code_size: frag_module.len() * std::mem::size_of::<u32>(),
@@ -442,33 +443,87 @@ impl<'a> Renderer for VkRenderer<'a> {
 
             let stages = [
                 vk::PipelineShaderStageCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     stage: vk::ShaderStageFlags::VERTEX,
                     module: vert_module,
-                    p_name: "main".as_ptr() as *const i8,
+                    p_name: CString::new("main").unwrap().as_ptr(),
                     p_specialization_info: std::ptr::null(),
                 },
                 vk::PipelineShaderStageCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_SHADER_STAGE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     stage: vk::ShaderStageFlags::FRAGMENT,
                     module: frag_module,
-                    p_name: "main".as_ptr() as *const i8,
+                    p_name: CString::new("main").unwrap().as_ptr(),
                     p_specialization_info: std::ptr::null(),
                 },
             ];
 
-            let debug_create_info = vk::GraphicsPipelineCreateInfo {
-                s_type: Default::default(),
+            let attachment_info = [
+                vk::AttachmentDescription {
+                    flags: Default::default(),
+                    format: surface_format.format,
+                    samples: vk::SampleCountFlags::TYPE_1,
+                    load_op: vk::AttachmentLoadOp::CLEAR,
+                    store_op: vk::AttachmentStoreOp::STORE,
+                    stencil_load_op: vk::AttachmentLoadOp::CLEAR,
+                    stencil_store_op: vk::AttachmentStoreOp::STORE,
+                    initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    final_layout: vk::ImageLayout::GENERAL,
+                },
+                vk::AttachmentDescription {
+                    flags: Default::default(),
+                    format: Self::DEPTH_FORMAT,
+                    samples: vk::SampleCountFlags::TYPE_1,
+                    load_op: vk::AttachmentLoadOp::CLEAR,
+                    store_op: vk::AttachmentStoreOp::STORE,
+                    stencil_load_op: vk::AttachmentLoadOp::CLEAR,
+                    stencil_store_op: vk::AttachmentStoreOp::STORE,
+                    initial_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    final_layout: vk::ImageLayout::GENERAL,
+                },
+            ];
+
+            let sub_pass = vk::SubpassDescription::builder()
+                .color_attachments(&[vk::AttachmentReference::builder()
+                    .attachment(0)
+                    .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .build()])
+                .depth_stencil_attachment(&vk::AttachmentReference::builder().attachment(1))
+                .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+                .build();
+            let render_pass = vk::RenderPassCreateInfo {
+                s_type: vk::StructureType::RENDER_PASS_CREATE_INFO,
                 p_next: std::ptr::null(),
                 flags: Default::default(),
-                stage_count: 0,
+                attachment_count: 1,
+                p_attachments: attachment_info.as_ptr(),
+                subpass_count: 1,
+                p_subpasses: &sub_pass,
+                dependency_count: 0,
+                p_dependencies: std::ptr::null(),
+            };
+
+            let render_pass = device.create_render_pass(&render_pass, None).unwrap();
+            let scissor = vk::Rect2D::builder()
+                .extent(vk::Extent2D {
+                    width: width as u32,
+                    height: height as u32,
+                })
+                .offset(vk::Offset2D { x: 0, y: 0 })
+                .build();
+
+            let debug_create_info = vk::GraphicsPipelineCreateInfo {
+                s_type: vk::StructureType::GRAPHICS_PIPELINE_CREATE_INFO,
+                p_next: std::ptr::null(),
+                flags: Default::default(),
+                stage_count: 2,
                 p_stages: stages.as_ptr(),
                 p_vertex_input_state: &vk::PipelineVertexInputStateCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     vertex_binding_description_count: 0,
@@ -479,7 +534,7 @@ impl<'a> Renderer for VkRenderer<'a> {
                 p_input_assembly_state: std::ptr::null(),
                 p_tessellation_state: std::ptr::null(),
                 p_viewport_state: &vk::PipelineViewportStateCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_VIEWPORT_STATE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     viewport_count: 1,
@@ -491,11 +546,11 @@ impl<'a> Renderer for VkRenderer<'a> {
                         min_depth: 0.0,
                         max_depth: 0.0,
                     },
-                    scissor_count: 0,
-                    p_scissors: std::ptr::null(),
+                    scissor_count: 1,
+                    p_scissors: &scissor,
                 },
                 p_rasterization_state: &vk::PipelineRasterizationStateCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     depth_clamp_enable: 0,
@@ -510,7 +565,7 @@ impl<'a> Renderer for VkRenderer<'a> {
                     line_width: 0.0,
                 },
                 p_multisample_state: &vk::PipelineMultisampleStateCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     rasterization_samples: vk::SampleCountFlags::TYPE_1,
@@ -521,7 +576,7 @@ impl<'a> Renderer for VkRenderer<'a> {
                     alpha_to_one_enable: 0,
                 },
                 p_depth_stencil_state: &vk::PipelineDepthStencilStateCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     depth_test_enable: 0,
@@ -535,7 +590,7 @@ impl<'a> Renderer for VkRenderer<'a> {
                     max_depth_bounds: 0.0,
                 },
                 p_color_blend_state: &vk::PipelineColorBlendStateCreateInfo {
-                    s_type: Default::default(),
+                    s_type: vk::StructureType::PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
                     p_next: std::ptr::null(),
                     flags: Default::default(),
                     logic_op_enable: 0,
@@ -555,9 +610,9 @@ impl<'a> Renderer for VkRenderer<'a> {
                     blend_constants: [1.0; 4],
                 },
                 p_dynamic_state: std::ptr::null(),
-                layout: Default::default(),
-                render_pass: Default::default(),
-                subpass: 0,
+                layout: debug_pipeline_layout,
+                render_pass: render_pass,
+                subpass: 1,
                 base_pipeline_handle: Default::default(),
                 base_pipeline_index: 0,
             };
@@ -599,6 +654,7 @@ impl<'a> Renderer for VkRenderer<'a> {
                 pipeline_cache,
                 debug_pipeline_layout,
                 debug_pipeline,
+                render_pass,
             }))
         }
     }

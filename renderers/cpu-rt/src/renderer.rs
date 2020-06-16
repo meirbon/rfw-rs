@@ -8,8 +8,9 @@ use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
-    constants, AreaLight, BitVec, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
-    Light, Material, Mesh, PointLight, SpotLight, TIntersector, Texture,
+    constants, raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, DeviceMaterial,
+    DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight, TIntersector,
+    Texture,
 };
 use shared::*;
 use std::error::Error;

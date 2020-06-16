@@ -2,7 +2,7 @@ use futures::executor::block_on;
 use glam::*;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{BitVec, DeviceMaterial, HasRawWindowHandle, Instance};
+use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
