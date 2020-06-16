@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod constants;
+pub mod graph;
 pub mod intersector;
 pub mod lights;
 pub mod loaders;
@@ -23,7 +24,7 @@ use renderers::{RenderMode, Renderer, Setting};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 pub use bitvec::prelude::*;
-pub use raw_window_handle::HasRawWindowHandle;
+pub use raw_window_handle;
 pub use triangle_scene::*;
 
 use glam::*;
@@ -294,7 +295,7 @@ pub struct RenderSystem<T: Sized + Renderer> {
 }
 
 impl<T: Sized + Renderer> RenderSystem<T> {
-    pub fn new<B: HasRawWindowHandle>(
+    pub fn new<B: raw_window_handle::HasRawWindowHandle>(
         window: &B,
         width: usize,
         height: usize,
@@ -307,7 +308,12 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         })
     }
 
-    pub fn resize<B: HasRawWindowHandle>(&self, window: &B, width: usize, height: usize) {
+    pub fn resize<B: raw_window_handle::HasRawWindowHandle>(
+        &self,
+        window: &B,
+        width: usize,
+        height: usize,
+    ) {
         self.renderer.lock().unwrap().resize(window, width, height);
     }
 

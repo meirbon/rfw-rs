@@ -1,0 +1,47 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "structs.glsl"
+
+layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
+layout(set = 0, binding = 1) uniform Camera { CameraView camera; };
+layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
+layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
+layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
+layout(set = 0, binding = 5, rgba32f) uniform image2D AccTex;
+
+layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
+layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
+layout(std430, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
+
+layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
+layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
+layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
+
+#define T_VAL S.t
+#define PATH_ID floatBitsToInt(O.w)
+#define INST_ID floatBitsToInt(S.x)
+#define TRI_ID floatBitsToInt(S.y)
+
+void main()
+{
+    const uint job_id = gl_GlobalInvocationID.x;
+    if (job_id >= camera.path_count) {
+        return;
+    }
+
+    vec4 O = origins[job_id];
+    vec4 D = directions[job_id];
+    vec4 S = states[job_id];
+    
+    vec3 color = vec3(0.0);
+    if (INST_ID >= 0)
+    {
+        color = abs(rt_triangles[TRI_ID].gn);
+    }
+
+    imageStore(AccTex, ivec2(PATH_ID % camera.width, PATH_ID / camera.width), vec4(color, 1.0));
+}

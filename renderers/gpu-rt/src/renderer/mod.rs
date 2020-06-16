@@ -6,8 +6,8 @@ use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
-    AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, HasRawWindowHandle, Instance,
-    Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
+    raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial,
+    DirectionalLight, Instance, Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
 };
 use shared::*;
 use std::error::Error;
@@ -23,6 +23,7 @@ enum IntersectionBindings {
     PathStates = 2,
     PathOrigins = 3,
     PathDirections = 4,
+    AccumulationBuffer = 5,
 }
 
 #[repr(u32)]
@@ -159,6 +160,8 @@ pub struct RayTracer<'a> {
     intersection_bind_group: bind_group::BindGroup,
     intersection_pipeline_layout: wgpu::PipelineLayout,
     intersection_pipeline: wgpu::ComputePipeline,
+    shade_pipeline: wgpu::ComputePipeline,
+    blit_pipeline: wgpu::ComputePipeline,
 
     mesh_bind_group: wgpu::BindGroup,
     mesh_bind_group_layout: wgpu::BindGroupLayout,
@@ -174,6 +177,7 @@ pub struct RayTracer<'a> {
     output_texture: wgpu::Texture,
     output_pipeline_layout: wgpu::PipelineLayout,
     output_pipeline: wgpu::RenderPipeline,
+    accumulation_texture: wgpu::Texture,
 
     meshes: Vec<Mesh>,
     meshes_changed: BitVec,
@@ -218,6 +222,7 @@ impl Display for RayTracerError {
 
 impl RayTracer<'_> {
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+    const ACC_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
     const SWAPCHAIN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
     const PACKET_WIDTH: usize = 4;
     const PACKET_HEIGHT: usize = 1;
@@ -259,6 +264,7 @@ impl Renderer for RayTracer<'_> {
         let swap_chain = device.create_swap_chain(&surface, &descriptor);
 
         let output_texture = Self::create_output_texture(&device, width, height);
+        let accumulation_texture = Self::create_output_texture(&device, width, height);
 
         let output_bind_group = bind_group::BindGroupBuilder::default()
             .with_binding(bind_group::BindGroupBinding {
@@ -395,7 +401,7 @@ impl Renderer for RayTracer<'_> {
                 binding: bind_group::Binding::WriteStorageTexture(
                     output_texture.create_default_view(),
                     Self::OUTPUT_FORMAT,
-                    wgpu::TextureComponentType::Uint,
+                    wgpu::TextureComponentType::Float,
                     wgpu::TextureViewDimension::D2,
                 ),
             })
@@ -453,6 +459,17 @@ impl Renderer for RayTracer<'_> {
                             as wgpu::BufferAddress,
                     }),
                     0..(width * height * std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
+                ),
+            })
+            .unwrap()
+            .with_binding(bind_group::BindGroupBinding {
+                index: IntersectionBindings::AccumulationBuffer as u32,
+                visibility: wgpu::ShaderStage::COMPUTE,
+                binding: bind_group::Binding::WriteStorageTexture(
+                    accumulation_texture.create_default_view(),
+                    Self::OUTPUT_FORMAT,
+                    wgpu::TextureComponentType::Float,
+                    wgpu::TextureViewDimension::D2,
                 ),
             })
             .unwrap()
@@ -519,6 +536,30 @@ impl Renderer for RayTracer<'_> {
                 },
             });
 
+        let compute_module = compiler
+            .compile_from_file("renderers/gpu-rt/shaders/shade.comp", ShaderKind::Compute)
+            .unwrap();
+        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let shade_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &intersection_pipeline_layout,
+            compute_stage: wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &compute_module,
+            },
+        });
+
+        let compute_module = compiler
+            .compile_from_file("renderers/gpu-rt/shaders/blit.comp", ShaderKind::Compute)
+            .unwrap();
+        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let blit_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &intersection_pipeline_layout,
+            compute_stage: wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &compute_module,
+            },
+        });
+
         let meshes_bvh_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
 
         let meshes_mbvh_buffer =
@@ -566,6 +607,8 @@ impl Renderer for RayTracer<'_> {
             intersection_bind_group,
             intersection_pipeline_layout,
             intersection_pipeline,
+            shade_pipeline,
+            blit_pipeline,
             mesh_bind_group,
             mesh_bind_group_layout,
             top_bind_group,
@@ -582,6 +625,7 @@ impl Renderer for RayTracer<'_> {
             output_texture,
             output_pipeline_layout,
             output_pipeline,
+            accumulation_texture,
             meshes: Vec::new(),
             meshes_changed: Default::default(),
             meshes_gpu_data: vec![],
@@ -842,15 +886,33 @@ impl Renderer for RayTracer<'_> {
             });
 
         {
+            let bind_group = self.intersection_bind_group.as_bind_group(&self.device);
+            // Generate & Intersect
             let mut compute_pass = encoder.begin_compute_pass();
             compute_pass.set_pipeline(&self.intersection_pipeline);
-            compute_pass.set_bind_group(
-                0,
-                self.intersection_bind_group.as_bind_group(&self.device),
-                &[],
-            );
+            compute_pass.set_bind_group(0, bind_group, &[]);
             compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
             compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+            compute_pass.dispatch(
+                (self.width as f32 / 16.0).ceil() as u32,
+                (self.height as f32 / 4.0).ceil() as u32,
+                1,
+            );
+
+            // Shade
+            compute_pass.set_pipeline(&self.shade_pipeline);
+            compute_pass.set_bind_group(0, bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+            compute_pass.dispatch(
+                ((self.width * self.height) as f32 / 16.0).ceil() as u32,
+                1,
+                1,
+            );
+
+            // Blit
+            compute_pass.set_pipeline(&self.blit_pipeline);
+            compute_pass.set_bind_group(0, bind_group, &[]);
             compute_pass.dispatch(
                 (self.width as f32 / 16.0).ceil() as u32,
                 (self.height as f32 / 4.0).ceil() as u32,
@@ -955,14 +1017,26 @@ impl Renderer for RayTracer<'_> {
         self.height = height;
 
         self.output_texture = Self::create_output_texture(&self.device, width, height);
+        self.accumulation_texture = Self::create_accumulation_texture(&self.device, width, height);
 
         self.output_bind_group
             .bind(
-                0,
+                IntersectionBindings::Output as u32,
                 bind_group::Binding::SampledTexture(
                     self.output_texture.create_default_view(),
                     Self::OUTPUT_FORMAT,
-                    wgpu::TextureComponentType::Uint,
+                    wgpu::TextureComponentType::Float,
+                    wgpu::TextureViewDimension::D2,
+                ),
+            )
+            .unwrap();
+        self.output_bind_group
+            .bind(
+                IntersectionBindings::AccumulationBuffer as u32,
+                bind_group::Binding::SampledTexture(
+                    self.accumulation_texture.create_default_view(),
+                    Self::ACC_FORMAT,
+                    wgpu::TextureComponentType::Float,
                     wgpu::TextureViewDimension::D2,
                 ),
             )
@@ -1018,6 +1092,27 @@ impl<'a> RayTracer<'a> {
             array_layer_count: 1,
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::STORAGE,
             format: Self::OUTPUT_FORMAT,
+            dimension: wgpu::TextureDimension::D2,
+            mip_level_count: 1,
+            sample_count: 1,
+        })
+    }
+
+    fn create_accumulation_texture(
+        device: &wgpu::Device,
+        width: usize,
+        height: usize,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("output-texture"),
+            size: wgpu::Extent3d {
+                width: width as u32,
+                height: height as u32,
+                depth: 1,
+            },
+            array_layer_count: 1,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::STORAGE,
+            format: Self::ACC_FORMAT,
             dimension: wgpu::TextureDimension::D2,
             mip_level_count: 1,
             sample_count: 1,

@@ -1,0 +1,23 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "structs.glsl"
+
+layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
+layout(set = 0, binding = 1) uniform Camera { CameraView camera; };
+layout(std430, set = 0, binding = 2) buffer writeonly pathStates { vec4 states[]; };
+layout(std430, set = 0, binding = 3) buffer writeonly pathOrigins { vec4 origins[]; };
+layout(std430, set = 0, binding = 4) buffer writeonly pathDirections { vec4 directions[]; };
+layout(set = 0, binding = 5, rgba32f) uniform image2D AccTex;
+
+void main()
+{
+    const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 size = imageSize(OutputTex);
+    if (pixel_id.x >= size.x || pixel_id.y > size.y) {
+        return;
+    }
+
+    imageStore(OutputTex, pixel_id, imageLoad(AccTex, pixel_id).rgba);
+}

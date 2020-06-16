@@ -4,6 +4,7 @@ members = [
     "renderers/cpu-rt",
     "renderers/deferred",
     "renderers/gpu-rt",
+    "renderers/metal-rt",
     "renderers/shared",
     "renderers/vulkan",
     "scene"

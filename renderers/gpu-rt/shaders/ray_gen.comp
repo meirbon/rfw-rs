@@ -9,9 +9,7 @@
 layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
-layout(set = 0, binding = 1) uniform Camera {
-    CameraView camera;
-};
+layout(set = 0, binding = 1) uniform Camera { CameraView camera; };
 layout(std430, set = 0, binding = 2) buffer writeonly pathStates { vec4 states[]; };
 layout(std430, set = 0, binding = 3) buffer writeonly pathOrigins { vec4 origins[]; };
 layout(std430, set = 0, binding = 4) buffer writeonly pathDirections { vec4 directions[]; };
@@ -273,11 +271,4 @@ void main() {
     origins[path_id] = vec4(camera.position.xyz, intBitsToFloat(path_id));
     directions[path_id] = vec4(direction, 0.0);
     states[path_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, 0);
-
-    vec3 color = vec3(0.0);
-    if (hit.y >= 0) {
-        color = abs(rt_triangles[hit.y].gn);
-    }
-
-    imageStore(OutputTex, pixel_id, vec4(color, 1.0));
 }

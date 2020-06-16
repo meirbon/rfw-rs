@@ -70,8 +70,9 @@ impl MaterialFlags {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Material {
+    pub name: String,
     pub color: [f32; 4],    // 16
     pub specular: [f32; 4], // 32
     pub metallic: f32,
@@ -102,7 +103,8 @@ impl Display for Material {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Material {{ color: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, roughness_tex: {}, metallic_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
+            "Material {{ name: {}, color: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, roughness_tex: {}, metallic_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
+            self.name,
             Vec4::from(self.color),
             Vec4::from(self.specular),
             self.metallic,
@@ -207,6 +209,7 @@ impl Into<DeviceMaterial> for &Material {
 impl Default for Material {
     fn default() -> Self {
         Self {
+            name: String::new(),
             color: [1.0; 4],
             specular: [1.0; 4],
             metallic: 0.0,

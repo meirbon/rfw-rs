@@ -208,7 +208,7 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
         path: S,
         materials: &MaterialList,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let material = *materials.get(self.mat_id as usize).unwrap();
+        let material = materials.get(self.mat_id as usize).unwrap();
         let mut d_tex: Option<Texture> = None;
         let mut n_tex: Option<Texture> = None;
 
@@ -232,7 +232,7 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
 
         let plane = SerializedPlane {
             plane: self.clone(),
-            material,
+            material: material.clone(),
             d_tex,
             n_tex,
         };
