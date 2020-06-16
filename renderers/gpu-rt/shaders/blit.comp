@@ -14,7 +14,7 @@ layout(set = 0, binding = 5, rgba32f) uniform image2D AccTex;
 void main()
 {
     const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
-    const ivec2 size = imageSize(OutputTex);
+    const ivec2 size = imageSize(AccTex);
     if (pixel_id.x >= size.x || pixel_id.y > size.y) {
         return;
     }

@@ -142,6 +142,18 @@ pub struct DeviceMaterial {
     _padding: [u32; 3],       // 64
 }
 
+impl Default for DeviceMaterial {
+    fn default() -> Self {
+        Self {
+            color: [0.0; 4],
+            specular: [0.0; 4],
+            parameters: [0; 4],
+            flags: 0,
+            _padding: [0; 3],
+        }
+    }
+}
+
 impl Into<DeviceMaterial> for &Material {
     fn into(self) -> DeviceMaterial {
         let to_char = |f: f32| -> u8 { (f.min(1.0).max(0.0) * 255.0) as u8 };

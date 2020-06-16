@@ -2,7 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 #include "structs.glsl"
 
-layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
 layout(set = 0, binding = 1) uniform Camera { CameraView camera; };
@@ -20,28 +20,45 @@ layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { Insta
 layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
 layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
 layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
+layout(std430, set = 2, binding = 4) buffer readonly Materials { Material materials[]; };
 
-#define T_VAL S.t
 #define PATH_ID floatBitsToInt(O.w)
 #define INST_ID floatBitsToInt(S.x)
 #define TRI_ID floatBitsToInt(S.y)
+#define T_VAL S.z
+#define HIT_U (float(floatBitsToUint(S.w) & 65535) * (1.0f / 65535.0f))
+#define HIT_V (float(floatBitsToUint(S.w) >> 16) * (1.0f / 65535.0f))
+#define MAT_ID rt_triangles[TRI_ID].mat_id
 
 void main()
 {
     const uint job_id = gl_GlobalInvocationID.x;
-    if (job_id >= camera.path_count) {
+    const ivec2 size = imageSize(AccTex);
+    if (job_id >= uint(size.x * size.y)) {
+        return;
+    }
+    
+    const vec4 S = states[job_id];
+    const vec4 O = origins[job_id];
+    if (INST_ID < 0) {
+        if (camera.sample_count == 0) {
+            imageStore(AccTex, ivec2(PATH_ID % camera.width, PATH_ID / camera.width), vec4(0.0));
+        }
         return;
     }
 
-    vec4 O = origins[job_id];
-    vec4 D = directions[job_id];
-    vec4 S = states[job_id];
+    const vec4 D = directions[job_id];
     
-    vec3 color = vec3(0.0);
-    if (INST_ID >= 0)
-    {
-        color = abs(rt_triangles[TRI_ID].gn);
-    }
+    const float u = HIT_U;
+    const float v = HIT_V;
+    const float w = 1.0 - u - v;
 
-    imageStore(AccTex, ivec2(PATH_ID % camera.width, PATH_ID / camera.width), vec4(color, 1.0));
+    vec3 gN = rt_triangles[TRI_ID].gn;
+    vec3 N = w * rt_triangles[TRI_ID].n0 + u * rt_triangles[TRI_ID].n1 + v * rt_triangles[TRI_ID].n2;
+
+    gN = normalize((instances[INST_ID].normal * vec4(gN, 0.0)).xyz);
+    N = normalize((instances[INST_ID].normal * vec4(N, 0.0)).xyz);
+
+    vec4 color = materials[MAT_ID].color * abs(dot(D.xyz, N));
+    imageStore(AccTex, ivec2(PATH_ID % camera.width, PATH_ID / camera.width), color);
 }

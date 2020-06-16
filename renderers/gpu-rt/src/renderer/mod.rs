@@ -2,7 +2,7 @@ use crate::renderer::mem::ManagedBuffer;
 use futures::executor::block_on;
 use glam::*;
 use rayon::prelude::*;
-use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
+use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
@@ -32,6 +32,7 @@ enum TopBindings {
     TopInstanceIndices = 1,
     TopBVHNodes = 2,
     TopMBVHNodes = 3,
+    Materials = 4,
 }
 
 #[repr(u32)]
@@ -45,18 +46,30 @@ enum MeshBindings {
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 struct CameraData {
-    view: CameraView,
-    path_count: i32,
-    extension_id: i32,
-    shadow_id: i32,
-    width: i32,
-    height: i32,
-    sample_count: i32,
-    clamp_value: f32,
-    point_light_count: i32,
-    area_light_count: i32,
-    spot_light_count: i32,
-    directional_light_count: i32,
+    pub pos: Vec4,
+    pub right: Vec4,
+    pub up: Vec4,
+    pub p1: Vec4,
+
+    pub lens_size: f32,
+    pub spread_angle: f32,
+    pub epsilon: f32,
+    pub inv_width: f32,
+
+    pub inv_height: f32,
+    pub path_count: i32,
+    pub extension_id: i32,
+    pub shadow_id: i32,
+
+    pub width: i32,
+    pub height: i32,
+    pub sample_count: i32,
+    pub clamp_value: f32,
+
+    pub point_light_count: i32,
+    pub area_light_count: i32,
+    pub spot_light_count: i32,
+    pub directional_light_count: i32,
 }
 
 impl CameraData {
@@ -71,7 +84,15 @@ impl CameraData {
         dl_count: usize,
     ) -> Self {
         Self {
-            view,
+            pos: view.pos.extend(1.0),
+            right: view.right.extend(1.0),
+            up: view.up.extend(1.0),
+            p1: view.p1.extend(1.0),
+            lens_size: view.lens_size,
+            spread_angle: view.spread_angle,
+            epsilon: view.epsilon,
+            inv_width: view.inv_width,
+            inv_height: view.inv_height,
             path_count: (width * height) as i32,
             extension_id: 0,
             shadow_id: 0,
@@ -122,14 +143,17 @@ impl Default for GPUMeshData {
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct GPUInstanceData {
-    pub matrix: Mat4,
-    pub inverse: Mat4,
-    pub normal: Mat4,
-
     pub bvh_offset: u32,
     pub mbvh_offset: u32,
     pub triangle_offset: u32,
     pub prim_index_offset: u32,
+    _dummy0: Vec4,
+    _dummy1: Vec4,
+    _dummy2: Vec4,
+
+    pub matrix: Mat4,
+    pub inverse: Mat4,
+    pub normal: Mat4,
 }
 
 impl Default for GPUInstanceData {
@@ -142,6 +166,9 @@ impl Default for GPUInstanceData {
             mbvh_offset: 0,
             triangle_offset: 0,
             prim_index_offset: 0,
+            _dummy0: Vec4::zero(),
+            _dummy1: Vec4::zero(),
+            _dummy2: Vec4::zero(),
         }
     }
 }
@@ -195,8 +222,9 @@ pub struct RayTracer<'a> {
     triangles_index_counter: usize,
 
     materials: Vec<Material>,
-    device_materials: Vec<DeviceMaterial>,
     textures: Vec<Texture>,
+
+    materials_buffer: ManagedBuffer<DeviceMaterial>,
 
     bvh: BVH,
     mbvh: MBVH,
@@ -258,7 +286,7 @@ impl Renderer for RayTracer<'_> {
             height: height as u32,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             format: Self::SWAPCHAIN_FORMAT,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Mailbox,
         };
 
         let swap_chain = device.create_swap_chain(&surface, &descriptor);
@@ -511,6 +539,14 @@ impl Renderer for RayTracer<'_> {
                             readonly: true,
                         },
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::Materials as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
                 ],
             });
 
@@ -586,6 +622,7 @@ impl Renderer for RayTracer<'_> {
         let top_bvh_buffer = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
         let top_mbvh_buffer = ManagedBuffer::new(&device, 512, wgpu::BufferUsage::STORAGE_READ);
         let top_indices = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
+        let materials_buffer = ManagedBuffer::new(&device, 32, wgpu::BufferUsage::STORAGE_READ);
 
         let top_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
@@ -595,6 +632,7 @@ impl Renderer for RayTracer<'_> {
                 top_bvh_buffer.as_binding(TopBindings::TopBVHNodes as u32),
                 top_mbvh_buffer.as_binding(TopBindings::TopMBVHNodes as u32),
                 top_indices.as_binding(TopBindings::TopInstanceIndices as u32),
+                materials_buffer.as_binding(TopBindings::Materials as u32),
             ],
         });
 
@@ -640,8 +678,8 @@ impl Renderer for RayTracer<'_> {
             triangles_buffer,
             triangles_index_counter: 0,
             materials: Vec::new(),
-            device_materials: Vec::new(),
             textures: Vec::new(),
+            materials_buffer,
             bvh: BVH::empty(),
             mbvh: MBVH::empty(),
             point_lights: Vec::new(),
@@ -671,11 +709,36 @@ impl Renderer for RayTracer<'_> {
 
     fn set_materials(
         &mut self,
-        materials: &[scene::Material],
+        _materials: &[scene::Material],
         device_materials: &[scene::DeviceMaterial],
     ) {
-        self.materials = materials.to_vec();
-        self.device_materials = device_materials.to_vec();
+        self.materials_buffer
+            .resize(&self.device, device_materials.len());
+        self.materials_buffer.copy_from_slice(device_materials);
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("material-copy"),
+            });
+        self.materials_buffer.update(&self.device, &mut encoder);
+        self.queue.submit(&[encoder.finish()]);
+        self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("top-bind-group"),
+            layout: &self.top_bind_group_layout,
+            bindings: &[
+                self.instances_buffer
+                    .as_binding(TopBindings::InstanceDescriptors as u32),
+                self.top_bvh_buffer
+                    .as_binding(TopBindings::TopBVHNodes as u32),
+                self.top_mbvh_buffer
+                    .as_binding(TopBindings::TopMBVHNodes as u32),
+                self.top_indices
+                    .as_binding(TopBindings::TopInstanceIndices as u32),
+                self.materials_buffer
+                    .as_binding(TopBindings::Materials as u32),
+            ],
+        });
     }
 
     fn set_textures(&mut self, textures: &[scene::Texture]) {
@@ -798,10 +861,22 @@ impl Renderer for RayTracer<'_> {
             .resize(&self.device, self.instances.len());
         let mesh_data = self.meshes_gpu_data.as_slice();
         let instances = self.instances.as_slice();
+        let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
+
+        let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
+        let builder = BinnedSahBuilder::new(aabbs.as_slice(), centers.as_slice());
+        self.bvh = builder.build();
+        self.mbvh = MBVH::construct(&self.bvh);
+
+        self.top_bvh_buffer
+            .resize(&self.device, self.bvh.nodes.len());
+        self.top_mbvh_buffer
+            .resize(&self.device, self.mbvh.nodes.len());
+        self.top_indices
+            .resize(&self.device, self.bvh.prim_indices.len());
         self.instances_buffer.as_mut_slice()[0..self.instances.len()]
             .iter_mut()
             .enumerate()
-            .par_bridge()
             .for_each(|(i, inst)| {
                 let mesh_data = &mesh_data[instances[i].get_hit_id()];
                 inst.prim_index_offset = mesh_data.prim_index_offset;
@@ -812,19 +887,6 @@ impl Renderer for RayTracer<'_> {
                 inst.inverse = instances[i].get_inverse_transform();
                 inst.normal = instances[i].get_normal_transform();
             });
-
-        let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
-        let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
-        let builder = LocallyOrderedClusteringBuilder::new(aabbs.as_slice(), centers.as_slice());
-        self.bvh = builder.build();
-        self.mbvh = MBVH::construct(&self.bvh);
-
-        self.top_bvh_buffer
-            .resize(&self.device, self.bvh.nodes.len());
-        self.top_mbvh_buffer
-            .resize(&self.device, self.mbvh.nodes.len());
-        self.top_indices
-            .resize(&self.device, self.bvh.prim_indices.len());
 
         self.top_bvh_buffer
             .copy_from_slice(self.bvh.nodes.as_slice());
@@ -839,7 +901,6 @@ impl Renderer for RayTracer<'_> {
         self.instances_buffer.update(&self.device, &mut encoder);
 
         self.queue.submit(&[encoder.finish()]);
-
         self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
             layout: &self.top_bind_group_layout,
@@ -852,6 +913,8 @@ impl Renderer for RayTracer<'_> {
                     .as_binding(TopBindings::TopMBVHNodes as u32),
                 self.top_indices
                     .as_binding(TopBindings::TopInstanceIndices as u32),
+                self.materials_buffer
+                    .as_binding(TopBindings::Materials as u32),
             ],
         });
     }
@@ -895,7 +958,7 @@ impl Renderer for RayTracer<'_> {
             compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
             compute_pass.dispatch(
                 (self.width as f32 / 16.0).ceil() as u32,
-                (self.height as f32 / 4.0).ceil() as u32,
+                (self.height as f32 / 16.0).ceil() as u32,
                 1,
             );
 
@@ -1007,7 +1070,7 @@ impl Renderer for RayTracer<'_> {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
                 format: Self::SWAPCHAIN_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },

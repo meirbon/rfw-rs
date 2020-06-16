@@ -1,4 +1,4 @@
-bool intersect(const RTTriangle triangle, const vec3 origin, const vec3 direction, float t_min, inout float t)
+bool intersect(const RTTriangle triangle, const vec3 origin, const vec3 direction, float t_min, inout float t, inout vec2 uv)
 {
     const vec3 v0 = triangle.v0;
     const vec3 v1 = triangle.v1;
@@ -29,6 +29,8 @@ bool intersect(const RTTriangle triangle, const vec3 origin, const vec3 directio
     const float _t = f * dot(edge2, q);
     if (_t > t_min && _t < t) {
         t = _t;
+        const float denom = 1.0 / dot(triangle.gn, triangle.gn); 
+        uv = vec2(u * denom, v * denom);
         return true;
     }
 
@@ -36,7 +38,6 @@ bool intersect(const RTTriangle triangle, const vec3 origin, const vec3 directio
 }
 
 bool intersect_node(const BVHNode node, const vec3 origin, const vec3 dir_inverse, const float t, inout float t_min, inout float t_max) {
-
     float tmin = (node.bmin_x - origin.x) * dir_inverse.x;
     float tmax = (node.bmax_x - origin.x) * dir_inverse.x;
 

@@ -125,13 +125,18 @@ fn main() {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
+    let mut instances = Vec::new();
+
     let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-    instance.rotate_y(180.0);
-    instance.translate_y(-2.5);
-    instance.translate_z(6.5);
-    instance.scale([10.0; 3]);
-    instance.synchronize().unwrap();
+    for i in 0..=10 {
+        let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
+        instance.rotate_y(180.0);
+        instance.translate_y(-2.5);
+        instance.translate_x(((i - 5) * 8) as f32);
+        instance.translate_z(10.0);
+        instance.synchronize().unwrap();
+        instances.push(instance);
+    }
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Accumulate;
@@ -243,8 +248,10 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instance.rotate_y(elapsed / 10.0);
-                    instance.synchronize().unwrap();
+                    instances.iter_mut().for_each(|instance| {
+                        instance.rotate_y(elapsed / 10.0);
+                        instance.synchronize().unwrap();
+                    });
                     mode = RenderMode::Reset;
                 }
 

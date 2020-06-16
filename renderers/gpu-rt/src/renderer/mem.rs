@@ -62,6 +62,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.dirty = true;
         self.host_buffer.get_mut(index)
     }
 
@@ -83,6 +84,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
         for i in 0..data.len() {
             self.host_buffer[i] = data[i].clone();
         }
+        self.dirty = true;
     }
 
     pub fn copy_from_slice_offset(&mut self, data: &[T], offset: usize) {
@@ -95,6 +97,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
         for i in offset..(offset + data.len()) {
             self.host_buffer[i] = data[i - offset].clone();
         }
+        self.dirty = true;
     }
 
     pub fn update(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder) {
@@ -148,7 +151,8 @@ impl<T: Sized + Default + Clone> Index<usize> for ManagedBuffer<T> {
 
 impl<T: Sized + Default + Clone> IndexMut<usize> for ManagedBuffer<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if let Some(item) = self.get_mut(index) {
+        if let Some(item) = self.host_buffer.get_mut(index) {
+            self.dirty = true;
             item
         } else {
             panic!("Index {} was out of bounds", index);

@@ -68,12 +68,25 @@ struct RTTriangle {
 };
 
 struct InstanceDescriptor {
-    mat4 matrix;
-    mat4 inverse;
-    mat4 normal;
-
     uint bvh_offset;
     uint mbvh_offset;
     uint triangle_offset;
     uint prim_index_offset;
+    vec4 _dummy0;
+    vec4 _dummy1;
+    vec4 _dummy2;
+
+    mat4 matrix;
+    mat4 inverse;
+    mat4 normal;
+};
+
+struct Material {
+    vec4 color;
+    vec4 specular;
+    uvec4 parameters;
+    uint flags;
+    uint _dummy0;
+    uint _dummy1;
+    uint _dummy2;
 };
