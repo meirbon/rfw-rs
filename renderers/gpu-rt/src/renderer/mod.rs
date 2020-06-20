@@ -1093,12 +1093,12 @@ impl Renderer for RayTracer<'_> {
                 ),
             )
             .unwrap();
-        self.output_bind_group
+        self.intersection_bind_group
             .bind(
                 IntersectionBindings::AccumulationBuffer as u32,
-                bind_group::Binding::SampledTexture(
+                bind_group::Binding::WriteStorageTexture(
                     self.accumulation_texture.create_default_view(),
-                    Self::ACC_FORMAT,
+                    Self::OUTPUT_FORMAT,
                     wgpu::TextureComponentType::Float,
                     wgpu::TextureViewDimension::D2,
                 ),
