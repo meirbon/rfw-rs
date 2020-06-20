@@ -15,6 +15,7 @@ pub use shaderc::ResourceKind;
 pub use shaderc::ShaderKind;
 pub use shaderc::SourceLanguage;
 pub use shaderc::TargetEnv;
+use std::error::Error;
 
 #[derive(Debug, Clone)]
 pub enum CompilerError {
@@ -36,6 +37,8 @@ impl Display for CompilerError {
         )
     }
 }
+
+impl Error for CompilerError {}
 
 #[derive(Debug, Clone)]
 pub struct CompilationError {
@@ -355,9 +358,14 @@ impl<'a> Compiler<'a> {
         precompiled.push(".spv");
         let precompiled = PathBuf::from(precompiled);
         if precompiled.exists() && !self.has_macros {
-            let should_recompile: bool = if let Ok(meta_data) = path.as_ref().metadata() {
-                if let Ok(source_last_modified) = meta_data.modified() {
-                    let last_modified = precompiled.metadata().unwrap().modified().unwrap();
+            let should_recompile: bool = if let (Ok(meta_data), Ok(pre_meta_data)) =
+                (path.as_ref().metadata(), precompiled.metadata())
+            {
+                let source_last_modified = meta_data.modified();
+                let last_modified = pre_meta_data.modified();
+                if let (Ok(source_last_modified), Ok(last_modified)) =
+                    (source_last_modified, last_modified)
+                {
                     source_last_modified.cmp(&last_modified) == Ordering::Less
                 } else {
                     true
@@ -408,6 +416,14 @@ impl<'a> Compiler<'a> {
         }
 
         let binary_result = binary_result.unwrap();
+        if binary_result.get_num_warnings() > 0 {
+            eprintln!(
+                "File {} produced {} warnings: {}",
+                path.as_ref().display(),
+                binary_result.get_num_warnings(),
+                binary_result.get_warning_messages()
+            );
+        }
         let bytes = binary_result.as_binary().to_vec();
 
         let file = File::create(&precompiled);

@@ -1,5 +1,5 @@
 [package]
-name = "cpu-rt"
+name = "gpu-rt"
 version = "0.1.0"
 authors = ["meir"]
 edition = "2018"

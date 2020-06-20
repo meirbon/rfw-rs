@@ -1,10 +1,6 @@
 #![allow(dead_code)]
 
-#[global_allocator]
-static ALLOC: rpmalloc::RpMalloc = rpmalloc::RpMalloc;
-
 mod renderer;
-mod surface;
 
 enum AppType {
     CPURayTracer,
@@ -79,13 +75,10 @@ impl MouseButtonHandler {
     }
 }
 
-use crate::utils::Timer;
 use glam::*;
-use scene::{
-    renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef,
-};
 use shared::utils;
+use scene::renderers::RenderMode;
+use utils::Timer;
 
 fn main() {
     let mut width = 512;
@@ -111,35 +104,27 @@ fn main() {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    use renderer::RayTracer;
+    use renderer::MetalRT;
     use scene::RenderSystem;
 
-    let dpi_factor = window.current_monitor().scale_factor();
-    let render_width = (width as f64 / dpi_factor) as usize;
-    let render_height = (height as f64 / dpi_factor) as usize;
-
-    let renderer: RenderSystem<RayTracer> =
-        RenderSystem::new(&window, render_width, render_height).unwrap();
-    let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
+    let renderer: RenderSystem<MetalRT> = RenderSystem::new(&window, width, height).unwrap();
+    let mut camera = scene::Camera::new(width as u32, height as u32);
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let mut instances = Vec::new();
+    renderer
+        .add_spot_light([0.0, 10.0, 0.0], [0.0, 0.0, 1.0], [150.0; 3], 30.0, 45.0)
+        .unwrap();
 
-    let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    for i in 0..=10 {
-        let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-        instance.rotate_y(180.0);
-        instance.translate_y(-2.5);
-        instance.translate_x(((i - 5) * 8) as f32);
-        instance.translate_z(10.0);
-        instance.synchronize().unwrap();
-        instances.push(instance);
-    }
+    renderer.add_directional_light([0.0, -1.0, 0.0], [1.0; 3]);
 
-    let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
-    let mut mode = RenderMode::Accumulate;
+    // let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
+    // let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
+    // instance.rotate_y(180.0);
+    // instance.translate_y(-2.5);
+    // instance.translate_z(6.5);
+    // instance.synchronize().unwrap();
 
     renderer.synchronize();
 
@@ -165,40 +150,6 @@ fn main() {
             Event::RedrawRequested(_) => {
                 if key_handler.pressed(KeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
-                }
-
-                if !settings.is_empty() {
-                    let mut value = None;
-                    if key_handler.pressed(KeyCode::Key0) {
-                        value = Some(0);
-                    }
-                    if key_handler.pressed(KeyCode::Key1) {
-                        value = Some(1);
-                    }
-                    if key_handler.pressed(KeyCode::Key2) {
-                        value = Some(2);
-                    }
-                    if key_handler.pressed(KeyCode::Key3) {
-                        value = Some(3);
-                    }
-                    if key_handler.pressed(KeyCode::Key4) {
-                        value = Some(4);
-                    }
-                    if key_handler.pressed(KeyCode::Key5) {
-                        value = Some(5);
-                    }
-                    if key_handler.pressed(KeyCode::Key6) {
-                        value = Some(6);
-                    }
-                    if key_handler.pressed(KeyCode::Key7) {
-                        value = Some(7);
-                    }
-
-                    if let Some(value) = value {
-                        let mut setting: Setting = settings[0].clone();
-                        setting.set(SettingValue::Int(value));
-                        renderer.set_setting(setting).unwrap();
-                    }
                 }
 
                 let mut view_change = Vec3::new(0.0, 0.0, 0.0);
@@ -247,36 +198,26 @@ fn main() {
                     elapsed
                 };
 
-                if key_handler.pressed(KeyCode::Space) {
-                    instances.iter_mut().for_each(|instance| {
-                        instance.rotate_y(elapsed / 10.0);
-                        instance.synchronize().unwrap();
-                    });
-                    mode = RenderMode::Reset;
-                }
-
                 timer.reset();
 
                 let view_change = view_change * elapsed * 0.001;
                 let pos_change = pos_change * elapsed * 0.01;
 
-                if view_change != Vec3::zero() || pos_change != Vec3::zero() {
+                if view_change != [0.0; 3].into() {
                     camera.translate_target(view_change);
+                }
+                if pos_change != [0.0; 3].into() {
                     camera.translate_relative(pos_change);
-                    mode = RenderMode::Reset;
                 }
 
                 if resized {
-                    let render_width = (width as f64 / dpi_factor) as usize;
-                    let render_height = (height as f64 / dpi_factor) as usize;
-                    renderer.resize(&window, render_width, render_height);
-                    camera.resize(render_width as u32, render_height as u32);
+                    renderer.resize(&window, width, height);
+                    camera.resize(width as u32, height as u32);
                     resized = false;
                 }
 
                 renderer.synchronize();
-                renderer.render(&camera, mode);
-                mode = RenderMode::Accumulate;
+                renderer.render(&camera, RenderMode::Reset);
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

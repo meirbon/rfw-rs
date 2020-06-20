@@ -233,11 +233,17 @@ impl MaterialList {
         }
     }
 
-    pub fn add(&mut self, color: Vec3, roughness: f32, specular: Vec3, transmission: f32) -> usize {
+    pub fn add<B: Into<[f32; 3]>>(
+        &mut self,
+        color: B,
+        roughness: f32,
+        specular: B,
+        transmission: f32,
+    ) -> usize {
         let material = Material {
-            color: color.extend(1.0).into(),
+            color: Vec3::from(color.into()).extend(1.0).into(),
             roughness,
-            specular: specular.extend(1.0).into(),
+            specular: Vec3::from(specular.into()).extend(1.0).into(),
             transmission,
             ..Material::default()
         };

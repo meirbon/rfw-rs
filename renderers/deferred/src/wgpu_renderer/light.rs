@@ -1,4 +1,5 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
+use rtbvh::AABB;
 use scene::{lights::*, BitVec, FrustrumG, FrustrumResult, VertexData};
 use shared::*;
 use std::ops::Range;
@@ -38,16 +39,16 @@ impl DeferredLights {
         ]
     }
 
-    pub fn set_spot_lights(&mut self, changed: &BitVec, lights: &[SpotLight]) {
-        self.spot_lights.set(changed, lights);
+    pub fn set_spot_lights(&mut self, changed: &BitVec, lights: &[SpotLight], scene_bounds: &AABB) {
+        self.spot_lights.set(changed, lights, scene_bounds);
     }
 
-    pub fn set_area_lights(&mut self, changed: &BitVec, lights: &[AreaLight]) {
-        self.area_lights.set(changed, lights);
+    pub fn set_area_lights(&mut self, changed: &BitVec, lights: &[AreaLight], scene_bounds: &AABB) {
+        self.area_lights.set(changed, lights, scene_bounds);
     }
 
-    pub fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight]) {
-        self.directional_lights.set(changed, lights);
+    pub fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight], scene_bounds: &AABB) {
+        self.directional_lights.set(changed, lights, scene_bounds);
     }
 
     pub fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
@@ -103,13 +104,13 @@ impl<T: Sized + Light + Clone> LightShadows<T> {
         }
     }
 
-    pub fn push(&mut self, light: T) {
-        self.info.push(light.get_light_info());
+    pub fn push(&mut self, light: T, scene_bounds: &AABB) {
+        self.info.push(light.get_light_info(scene_bounds));
         self.lights.push(light);
         self.changed.push(true);
     }
 
-    pub fn set(&mut self, changed: &BitVec, lights: &[T]) {
+    pub fn set(&mut self, changed: &BitVec, lights: &[T], scene_bounds: &AABB) {
         self.lights = Vec::from(lights);
         self.info.resize(lights.len(), LightInfo::default());
         self.changed = changed.clone();
@@ -119,7 +120,7 @@ impl<T: Sized + Light + Clone> LightShadows<T> {
                 continue;
             }
 
-            self.info[i] = self.lights[i].get_light_info();
+            self.info[i] = self.lights[i].get_light_info(scene_bounds);
         }
     }
 
@@ -435,7 +436,7 @@ impl ShadowMapArray {
             }),
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::Front,
+                cull_mode: wgpu::CullMode::None,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -658,7 +659,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 2,
+                depth: 1,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -785,7 +786,10 @@ impl ShadowMapArray {
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shadow-map-uniform-buffer"),
             size: new_size,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::MAP_WRITE,
+            usage: wgpu::BufferUsage::UNIFORM
+                | wgpu::BufferUsage::MAP_WRITE
+                | wgpu::BufferUsage::COPY_SRC
+                | wgpu::BufferUsage::COPY_DST,
         });
 
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {

@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod constants;
+pub mod graph;
 pub mod intersector;
 pub mod lights;
 pub mod loaders;
@@ -23,7 +24,7 @@ use renderers::{RenderMode, Renderer, Setting};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 pub use bitvec::prelude::*;
-pub use raw_window_handle::HasRawWindowHandle;
+pub use raw_window_handle;
 pub use triangle_scene::*;
 
 use glam::*;
@@ -135,15 +136,14 @@ impl InstanceRef {
         match self.objects.try_lock() {
             Ok(mut o) => {
                 if let Some(instance) = o.instances.get_mut(self.id) {
-                    let t: Mat4 = Mat4::from_translation(self.translation);
-                    let r_x = Mat4::from_rotation_x(self.rotation_x);
-                    let r_y = Mat4::from_rotation_y(self.rotation_y);
-                    let r_z = Mat4::from_rotation_z(self.rotation_z);
-                    let r = r_x * r_y * r_z;
-                    let s = Mat4::from_scale(self.scaling);
-
-                    let trs = t * r * s;
-                    instance.set_transform(trs);
+                    let rotation_x = Quat::from_axis_angle(Vec3::unit_x(), self.rotation_x);
+                    let rotation_y = Quat::from_axis_angle(Vec3::unit_y(), self.rotation_y);
+                    let rotation_z = Quat::from_axis_angle(Vec3::unit_z(), self.rotation_z);
+                    instance.set_transform(Mat4::from_scale_rotation_translation(
+                        self.scaling.into(),
+                        rotation_x * rotation_y * rotation_z,
+                        self.translation.into(),
+                    ));
                 }
 
                 o.instances_changed.set(self.id, true);
@@ -294,7 +294,7 @@ pub struct RenderSystem<T: Sized + Renderer> {
 }
 
 impl<T: Sized + Renderer> RenderSystem<T> {
-    pub fn new<B: HasRawWindowHandle>(
+    pub fn new<B: raw_window_handle::HasRawWindowHandle>(
         window: &B,
         width: usize,
         height: usize,
@@ -307,7 +307,12 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         })
     }
 
-    pub fn resize<B: HasRawWindowHandle>(&self, window: &B, width: usize, height: usize) {
+    pub fn resize<B: raw_window_handle::HasRawWindowHandle>(
+        &self,
+        window: &B,
+        width: usize,
+        height: usize,
+    ) {
         self.renderer.lock().unwrap().resize(window, width, height);
     }
 
@@ -319,6 +324,24 @@ impl<T: Sized + Renderer> RenderSystem<T> {
 
     pub fn load_mesh<B: AsRef<Path>>(&self, path: B) -> Option<usize> {
         futures::executor::block_on(self.scene.load_mesh(path))
+    }
+
+    pub fn add_material<B: Into<[f32; 3]>>(
+        &self,
+        color: B,
+        roughness: f32,
+        specular: B,
+        transmission: f32,
+    ) -> Option<usize> {
+        if let Ok(mut materials) = self.scene.materials.lock() {
+            Some(materials.add(color, roughness, specular, transmission))
+        } else {
+            None
+        }
+    }
+
+    pub fn add_object<B: Into<Mesh>>(&self, object: B) -> Option<usize> {
+        self.scene.add_object(object.into())
     }
 
     pub fn add_instance(&self, object: usize) -> Result<InstanceRef, triangle_scene::SceneError> {

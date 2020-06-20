@@ -297,7 +297,7 @@ impl Instance {
 
 impl Bounds for Instance {
     fn bounds(&self) -> AABB {
-        self.bounds.clone()
+        self.original_bounds.transformed(self.get_transform())
     }
 }
 

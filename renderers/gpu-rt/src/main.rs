@@ -4,14 +4,13 @@
 static ALLOC: rpmalloc::RpMalloc = rpmalloc::RpMalloc;
 
 mod renderer;
-mod surface;
 
 enum AppType {
     CPURayTracer,
     GPU,
 }
 
-use std::collections::HashMap;
+use std::{collections::HashMap};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -88,8 +87,8 @@ use scene::{
 use shared::utils;
 
 fn main() {
-    let mut width = 512;
-    let mut height = 512;
+    let mut width = 1024;
+    let mut height = 640;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -120,26 +119,38 @@ fn main() {
 
     let renderer: RenderSystem<RayTracer> =
         RenderSystem::new(&window, render_width, render_height).unwrap();
-    let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
+    let camera_path = "saved_camera";
+    let mut camera = scene::Camera::deserialize(camera_path).unwrap_or(scene::Camera::new(
+        render_width as u32,
+        render_height as u32,
+    ));
+    camera.resize(render_width as u32, render_height as u32);
+
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
     let mut instances = Vec::new();
 
-    let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    for i in 0..=10 {
-        let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-        instance.rotate_y(180.0);
-        instance.translate_y(-2.5);
-        instance.translate_x(((i - 5) * 8) as f32);
-        instance.translate_z(10.0);
-        instance.synchronize().unwrap();
-        instances.push(instance);
-    }
+    // let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
+    // for i in 0..=10 {
+    //     let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
+    //     instance.rotate_y(180.0);
+    //     instance.translate_y(-2.5);
+    //     instance.translate_x(((i - 5) * 8) as f32);
+    //     instance.translate_z(10.0);
+    //     instance.synchronize().unwrap();
+    //     instances.push(instance);
+    // }
+
+    let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
+    let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
+    instance.scale(Vec3::splat(0.1));
+    instance.synchronize().unwrap();
+    instances.push(instance);
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
-    let mut mode = RenderMode::Accumulate;
+    let mut mode = RenderMode::Reset;
 
     renderer.synchronize();
 
@@ -315,6 +326,10 @@ fn main() {
                 mouse_button_handler.insert(button, state);
             }
             _ => (),
+        }
+
+        if *control_flow == ControlFlow::Exit {
+            camera.serialize(camera_path).unwrap();
         }
     });
 }

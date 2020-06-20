@@ -1,7 +1,8 @@
 use futures::executor::block_on;
 use glam::*;
-use scene::renderers::{Renderer, Setting, SettingValue, RenderMode};
-use scene::{BitVec, DeviceMaterial, HasRawWindowHandle, Instance};
+use rtbvh::AABB;
+use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
+use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -58,6 +59,7 @@ pub struct Deferred<'a> {
     output: output::DeferredOutput,
     compiler: Compiler<'a>,
     pipeline: pipeline::RenderPipeline,
+    scene_bounds: AABB,
 
     ssao_pass: pass::SSAOPass,
     radiance_pass: pass::RadiancePass,
@@ -304,6 +306,7 @@ impl Renderer for Deferred<'_> {
             ssao_pass,
             radiance_pass,
             blit_pass,
+            scene_bounds: AABB::new(),
 
             debug_view: output::DeferredView::Output,
             debug_enabled: false,
@@ -329,6 +332,12 @@ impl Renderer for Deferred<'_> {
             id,
             instance.clone(),
             &self.meshes[instance.get_hit_id()],
+        );
+
+        self.scene_bounds.grow_bb(
+            &instance
+                .local_bounds()
+                .transformed(instance.get_transform()),
         );
     }
 
@@ -708,17 +717,20 @@ impl Renderer for Deferred<'_> {
     }
 
     fn set_spot_lights(&mut self, changed: &BitVec, lights: &[scene::SpotLight]) {
-        self.lights.set_spot_lights(changed, lights);
+        self.lights
+            .set_spot_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
     fn set_area_lights(&mut self, changed: &BitVec, lights: &[scene::AreaLight]) {
-        self.lights.set_area_lights(changed, lights);
+        self.lights
+            .set_area_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
     fn set_directional_lights(&mut self, changed: &BitVec, lights: &[scene::DirectionalLight]) {
-        self.lights.set_directional_lights(changed, lights);
+        self.lights
+            .set_directional_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 

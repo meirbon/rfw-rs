@@ -1,5 +1,5 @@
-use rtbvh::{Ray, RayPacket4};
 use glam::*;
+use rtbvh::{Ray, RayPacket4};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -84,7 +84,130 @@ impl CameraView {
         Ray::new(self.pos.into(), direction.into())
     }
 
-    pub fn generate_ray4(&self, x: &[u32; 4], y: &[u32; 4], width: u32) -> RayPacket4 {
+    pub fn generate_lens_ray4(
+        &self,
+        x: [u32; 4],
+        y: [u32; 4],
+        r0: [f32; 4],
+        r1: [f32; 4],
+        r2: [f32; 4],
+        r3: [f32; 4],
+        width: u32,
+    ) -> RayPacket4 {
+        let ids = [
+            x[0] + y[0] * width,
+            x[1] + y[1] * width,
+            x[2] + y[2] * width,
+            x[3] + y[3] * width,
+        ];
+
+        let r0 = Vec4::from(r0);
+        let r1 = Vec4::from(r1);
+        let r2 = Vec4::from(r2);
+        let r3 = Vec4::from(r3);
+
+        let blade: Vec4 = r0 * Vec4::splat(9.0);
+        let r2: Vec4 = (r2 - blade * (1.0 / 9.0)) * 9.0;
+        let pi_over_4dot5: Vec4 = Vec4::splat(PI / 4.5);
+        let blade_param: Vec4 = blade * pi_over_4dot5;
+
+        // TODO: Create SIMD implementation of these cos, sin operations
+        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        // {
+        // }
+
+        // #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        let (x1, y1) = {
+            let mut x = [0.0 as f32; 4];
+            let mut y = [0.0 as f32; 4];
+            for i in 0..4 {
+                let (cos, sin) = blade_param[i].sin_cos();
+                x[i] = cos;
+                y[i] = sin;
+            }
+
+            (Vec4::from(x), Vec4::from(y))
+        };
+
+        let blade_param = (blade + Vec4::one()) * pi_over_4dot5;
+        let (x2, y2) = {
+            let mut x = [0.0 as f32; 4];
+            let mut y = [0.0 as f32; 4];
+            for i in 0..4 {
+                let (cos, sin) = blade_param[i].sin_cos();
+                x[i] = cos;
+                y[i] = sin;
+            }
+
+            (Vec4::from(x), Vec4::from(y))
+        };
+
+        let (r2, r3) = {
+            let mask: Vec4Mask = (r2 + r3).cmpgt(Vec4::one());
+            (
+                mask.select(Vec4::one() - r2, r2),
+                mask.select(Vec4::one() - r3, r3),
+            )
+        };
+
+        let x = Vec4::from([x[0] as f32, x[1] as f32, x[2] as f32, x[3] as f32]);
+        let y = Vec4::from([y[0] as f32, y[1] as f32, y[2] as f32, y[3] as f32]);
+
+        let xr = x1 * r2 + x2 * r2;
+        let yr = y1 * r2 + y2 * r3;
+
+        let u = (x + r0) * self.inv_width;
+        let v = (y + r1) * self.inv_height;
+
+        let p_x = Vec4::from([self.p1.x(); 4]) + u * self.right.x() + v * self.up.x();
+        let p_y = Vec4::from([self.p1.y(); 4]) + u * self.right.y() + v * self.up.y();
+        let p_z = Vec4::from([self.p1.z(); 4]) + u * self.right.z() + v * self.up.z();
+
+        let direction_x = p_x - Vec4::from([self.pos.x(); 4]);
+        let direction_y = p_y - Vec4::from([self.pos.y(); 4]);
+        let direction_z = p_z - Vec4::from([self.pos.z(); 4]);
+
+        let length_squared = direction_x * direction_x;
+        let length_squared = length_squared + direction_y * direction_y;
+        let length_squared = length_squared + direction_z * direction_z;
+
+        let length = vec4_sqrt(length_squared);
+
+        let inv_length = Vec4::one() / length;
+
+        let direction_x = (direction_x * inv_length).into();
+        let direction_y = (direction_y * inv_length).into();
+        let direction_z = (direction_z * inv_length).into();
+
+        let origin_x = Vec4::splat(self.pos.x());
+        let origin_y = Vec4::splat(self.pos.y());
+        let origin_z = Vec4::splat(self.pos.z());
+
+        let lens_size = Vec4::splat(self.lens_size);
+        let right_x = Vec4::splat(self.right.x());
+        let right_y = Vec4::splat(self.right.y());
+        let right_z = Vec4::splat(self.right.z());
+        let up_x = Vec4::splat(self.up.x());
+        let up_y = Vec4::splat(self.up.y());
+        let up_z = Vec4::splat(self.up.z());
+
+        let origin_x = origin_x + lens_size * (right_x * xr + up_x * yr);
+        let origin_y = origin_y + lens_size * (right_y * xr + up_y * yr);
+        let origin_z = origin_z + lens_size * (right_z * xr + up_z * yr);
+
+        RayPacket4 {
+            origin_x: origin_x.into(),
+            origin_y: origin_y.into(),
+            origin_z: origin_z.into(),
+            direction_x,
+            direction_y,
+            direction_z,
+            t: [DEFAULT_T_MAX; 4],
+            pixel_ids: ids,
+        }
+    }
+
+    pub fn generate_ray4(&self, x: [u32; 4], y: [u32; 4], width: u32) -> RayPacket4 {
         let ids = [
             x[0] + y[0] * width,
             x[1] + y[1] * width,
@@ -321,7 +444,7 @@ impl Camera {
         let path = path.as_ref().with_extension("cam");
         use std::io::Write;
         let encoded: Vec<u8> = bincode::serialize(self)?;
-        let mut file = std::fs::File::create(path)?;
+        let mut file = std::fs::File::create(&path)?;
         file.write_all(encoded.as_ref())?;
         Ok(())
     }

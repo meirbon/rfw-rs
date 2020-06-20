@@ -30,6 +30,7 @@ pub struct VertexData {
 
 impl Display for VertexData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use glam::*;
         write!(
             f,
             "VertexData {{ vertex: {}, normal: {}, mat_id: {}, uv: {}, tangent: {} }}",
@@ -119,7 +120,8 @@ impl Mesh {
         let mut vertices = Vec::with_capacity(indices.len() * 3);
         let mut normals = Vec::with_capacity(indices.len() * 3);
         let mut uvs = Vec::with_capacity(indices.len() * 3);
-        indices.into_iter().for_each(|i| {
+        let mut material_indices = Vec::with_capacity(indices.len());
+        indices.into_iter().enumerate().for_each(|(j, i)| {
             let i0 = i[0] as usize;
             let i1 = i[1] as usize;
             let i2 = i[2] as usize;
@@ -135,6 +137,8 @@ impl Mesh {
             uvs.push(original_uvs[i0]);
             uvs.push(original_uvs[i1]);
             uvs.push(original_uvs[i2]);
+
+            material_indices.push(material_ids[j]);
         });
 
         debug_assert_eq!(vertices.len(), normals.len());
@@ -142,208 +146,13 @@ impl Mesh {
         debug_assert_eq!(uvs.len(), material_ids.len() * 3);
         debug_assert_eq!(vertices.len() % 3, 0);
 
-        let mut bounds = AABB::new();
-        let mut vertex_data = vec![VertexData::zero(); vertices.len()];
-
-        let normals = if normals[0].cmpeq(Vec3::zero()).all() {
-            let mut normals = vec![Vec3::zero(); vertices.len()];
-            for i in (0..vertices.len()).step_by(3) {
-                let v0 = vertices[i + 0];
-                let v1 = vertices[i + 1];
-                let v2 = vertices[i + 2];
-
-                let e1 = v1 - v0;
-                let e2 = v2 - v0;
-
-                let n = e1.cross(e2).normalize();
-
-                let a = (v1 - v0).length();
-                let b = (v2 - v1).length();
-                let c = (v0 - v2).length();
-                let s = (a + b + c) * 0.5;
-                let area = (s * (s - a) * (s - b) * (s - c)).sqrt();
-                let n = n * area;
-
-                normals[i + 0] += n;
-                normals[i + 1] += n;
-                normals[i + 2] += n;
-            }
-
-            normals.par_iter_mut().for_each(|n| *n = n.normalize());
-            normals
-        } else {
-            Vec::from(normals)
-        };
-
-        let mut tangents = vec![Vec4::zero(); vertices.len()];
-        let mut bitangents = vec![Vec3::zero(); vertices.len()];
-
-        for i in (0..vertices.len()).step_by(3) {
-            let v0 = vertices[i];
-            let v1 = vertices[i + 1];
-            let v2 = vertices[i + 2];
-
-            bounds.grow(v0);
-            bounds.grow(v1);
-            bounds.grow(v2);
-
-            let e1 = v1 - v0;
-            let e2 = v2 - v0;
-
-            let tex0 = uvs[i];
-            let tex1 = uvs[i + 1];
-            let tex2 = uvs[i + 2];
-
-            let uv1 = tex1 - tex0;
-            let uv2 = tex2 - tex0;
-
-            let n = e1.cross(e2).normalize();
-
-            let (t, b) = if uv1.dot(uv1) == 0.0 || uv2.dot(uv2) == 0.0 {
-                let tangent = e1.normalize();
-                let bitangent = n.cross(tangent).normalize();
-                (tangent.extend(0.0), bitangent)
-            } else {
-                let r = 1.0 / (uv1.x() * uv2.y() - uv1.y() * uv2.x());
-                let tangent = (e1 * uv2.y() - e2 * uv1.y()) * r;
-                let bitangent = (e1 * uv2.x() - e2 * uv1.x()) * r;
-                let tangent = tangent.extend(0.0);
-                (tangent, bitangent)
-            };
-
-            tangents[i + 0] += t;
-            tangents[i + 1] += t;
-            tangents[i + 2] += t;
-
-            bitangents[i + 0] += b;
-            bitangents[i + 1] += b;
-            bitangents[i + 2] += b;
-        }
-
-        let bounds = bounds;
-
-        for i in 0..vertices.len() {
-            let n = normals[i];
-            let tangent = tangents[i].truncate();
-            let bitangent = bitangents[i];
-
-            let t = (tangent - (n * n.dot(tangent))).normalize();
-            let c = n.cross(t);
-
-            let w = c.dot(bitangent).signum();
-            tangents[i] = tangent.extend(w);
-        }
-
-        tangents.par_iter_mut().for_each(|t| {
-            *t = t.normalize();
-        });
-
-        vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
-            let vertex: [f32; 3] = vertices[i].into();
-            let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
-            let normal = normals[i].into();
-
-            *v = VertexData {
-                vertex,
-                normal,
-                mat_id: material_ids[i / 3],
-                uv: uvs[i].into(),
-                tangent: tangents[i].into(),
-            };
-        });
-
-        let mut last_id = material_ids[0];
-        let mut start = 0;
-        let mut range = 0;
-        let mut meshes: Vec<VertexMesh> = Vec::new();
-        let mut v_bounds = AABB::new();
-
-        for i in 0..material_ids.len() {
-            range += 1;
-            for j in 0..3 {
-                v_bounds.grow(vertices[i * 3 + j]);
-            }
-
-            if last_id != material_ids[i] {
-                meshes.push(VertexMesh {
-                    first: start * 3,
-                    last: (start + range) * 3,
-                    mat_id: last_id,
-                    bounds: v_bounds.clone(),
-                });
-
-                v_bounds = AABB::new();
-                last_id = material_ids[i];
-                start = i as u32;
-                range = 1;
-            }
-        }
-
-        if meshes.is_empty() {
-            meshes.push(VertexMesh {
-                first: 0,
-                last: vertices.len() as u32,
-                mat_id: material_ids[0],
-                bounds: bounds.clone(),
-            });
-        }
-
-        let mut triangles = vec![RTTriangle::zero(); vertices.len() / 3];
-        triangles
-            .par_iter_mut()
-            .enumerate()
-            .for_each(|(i, triangle)| {
-                let i0 = i * 3;
-                let i1 = i0 + 1;
-                let i2 = i0 + 2;
-
-                let vertex0 = vertices[i0];
-                let vertex1 = vertices[i1];
-                let vertex2 = vertices[i2];
-
-                let n0 = normals[i0];
-                let n1 = normals[i1];
-                let n2 = normals[i2];
-
-                let uv0 = uvs[i0];
-                let uv1 = uvs[i1];
-                let uv2 = uvs[i2];
-
-                let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
-
-                *triangle = RTTriangle {
-                    vertex0: vertex0.into(),
-                    u0: uv0.x(),
-                    vertex1: vertex1.into(),
-                    u1: uv1.x(),
-                    vertex2: vertex2.into(),
-                    u2: uv2.x(),
-                    normal: normal.into(),
-                    v0: uv0.y(),
-                    n0: n0.into(),
-                    v1: uv1.y(),
-                    n1: n1.into(),
-                    v2: uv2.y(),
-                    n2: n2.into(),
-                    id: i as i32,
-                    light_id: -1,
-                };
-            });
-
-        Mesh {
-            triangles,
-            vertices: vertex_data,
-            materials: Vec::from(material_ids),
-            meshes,
-            bounds,
-            bvh: None,
-            mbvh: None,
-            name: if let Some(name) = name {
-                String::from(name.as_ref())
-            } else {
-                String::new()
-            },
-        }
+        Mesh::new(
+            vertices.as_slice(),
+            normals.as_slice(),
+            uvs.as_slice(),
+            material_indices.as_slice(),
+            name,
+        )
     }
 
     pub fn new<T: AsRef<str>>(
@@ -496,15 +305,24 @@ impl Mesh {
         }
 
         if meshes.is_empty() {
+            // There only is 1 mesh available
             meshes.push(VertexMesh {
                 first: 0,
                 last: vertices.len() as u32,
                 mat_id: material_ids[0],
                 bounds: bounds.clone(),
             });
+        } else if (start + range) != (material_ids.len() as u32 - 1) {
+            // Add last mesh to list
+            meshes.push(VertexMesh {
+                first: start * 3,
+                last: (start + range) * 3,
+                mat_id: last_id,
+                bounds: v_bounds,
+            })
         }
 
-        let mut triangles = vec![RTTriangle::zero(); vertices.len() / 3];
+        let mut triangles = vec![RTTriangle::default(); vertices.len() / 3];
         triangles.iter_mut().enumerate().for_each(|(i, triangle)| {
             let i0 = i * 3;
             let i1 = i0 + 1;
@@ -540,6 +358,8 @@ impl Mesh {
                 n2: n2.into(),
                 id: i as i32,
                 light_id: -1,
+                mat_id: material_ids[i] as i32,
+                ..Default::default()
             };
         });
 
@@ -1082,7 +902,7 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
         materials: &MaterialList,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Create a new local material list
-        let mut new_mat_list = MaterialList::empty();
+        let mut local_mat_list = MaterialList::empty();
 
         // Gather all material indices
         use std::collections::BTreeSet;
@@ -1108,7 +928,7 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
                     // Push texture to material list
                     texture_mapping.insert(
                         index as i16,
-                        new_mat_list.push_texture(materials.get_texture(index).unwrap().clone())
+                        local_mat_list.push_texture(materials.get_texture(index).unwrap().clone())
                             as i16,
                     );
                 }
@@ -1144,10 +964,10 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
             material.diffuse_tex = *d_key.unwrap();
             material.normal_tex = *n_key.unwrap();
 
-            material_mapping.insert(index as u32, new_mat_list.push(material) as u32);
+            material_mapping.insert(index as u32, local_mat_list.push(material) as u32);
         }
 
-        assert_eq!(material_indices.len(), new_mat_list.len());
+        assert_eq!(material_indices.len(), local_mat_list.len());
 
         // Create a clone of original mesh so that we can overwrite its material indices
         let mut mesh = self.clone();
@@ -1162,7 +982,7 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
 
         let serialized_mesh = SerializedMesh {
             mesh,
-            materials: new_mat_list,
+            materials: local_mat_list,
         };
 
         let mut file = std::fs::File::create(path)?;
@@ -1225,5 +1045,11 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
         });
 
         Ok(mesh)
+    }
+}
+
+impl<T: ToMesh> From<T> for Mesh {
+    fn from(v: T) -> Self {
+        v.into_mesh()
     }
 }

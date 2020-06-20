@@ -48,16 +48,8 @@ impl Obj {
         {
             let mut mat_manager = mat_manager.lock().unwrap();
             for (i, material) in materials.iter().enumerate() {
-                let mut color = Vec3::new(
-                    material.diffuse[0],
-                    material.diffuse[1],
-                    material.diffuse[2],
-                );
-                let specular = Vec3::new(
-                    material.specular[0],
-                    material.specular[1],
-                    material.specular[2],
-                );
+                let mut color = Vec3::from(material.diffuse);
+                let specular = Vec3::from(material.specular);
 
                 let roughness = (1.0 - material.shininess.log10() / 1000.0)
                     .max(0.0)
@@ -93,18 +85,19 @@ impl Obj {
                     match key.as_str() {
                         "ke" => {
                             // Emissive
-                            let values = value.split(" ");
+                            let values = value.split_ascii_whitespace();
                             let mut f_values = [0.0 as f32; 3];
                             let mut i = 0;
+
                             for value in values {
                                 assert!(i <= 2);
-                                let value: f32 = value.parse().unwrap();
+                                let value: f32 = value.parse().unwrap_or(0.0);
                                 f_values[i] = value;
                                 i += 1;
                             }
 
                             let mut value: Vec3 = Vec3::from(f_values);
-                            if value.cmple(Vec3::one()).all() {
+                            if !value.cmpeq(Vec3::zero()).all() && value.cmple(Vec3::one()).all() {
                                 value = value * Vec3::splat(10.0);
                             }
 
@@ -201,7 +194,9 @@ impl Obj {
 
                 if i % 3 == 0 {
                     let material_id = if mesh.material_id.is_some() {
-                        material_indices[mesh.material_id.unwrap()]
+                        *material_indices
+                            .get(mesh.material_id.unwrap())
+                            .unwrap_or(&0)
                     } else {
                         material_indices[0]
                     };

@@ -81,7 +81,7 @@ impl MouseButtonHandler {
 use crate::utils::Timer;
 use glam::*;
 use scene::{
-    renderers::{Setting, SettingValue, RenderMode},
+    renderers::{RenderMode, Setting, SettingValue},
     InstanceRef,
 };
 use shared::utils;
@@ -126,15 +126,26 @@ fn main() {
     let mut resized = false;
 
     renderer
-        .add_spot_light([0.0, 10.0, 0.0], [0.0, 0.0, 1.0], [150.0; 3], 30.0, 45.0)
+        .add_spot_light(
+            [0.0, 10.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [150.0, 100.0, 200.0],
+            30.0,
+            45.0,
+        )
         .unwrap();
-
-    renderer.add_directional_light([0.0, -1.0, 0.0], [1.0; 3]);
-
+    renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
     let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
     let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
     instance.scale(Vec3::splat(0.1));
     instance.synchronize().unwrap();
+
+    // let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
+    // let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
+    // instance.rotate_y(180.0);
+    // instance.translate_y(-2.5);
+    // instance.translate_z(6.5);
+    // instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 
