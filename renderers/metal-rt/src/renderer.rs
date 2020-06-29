@@ -86,22 +86,22 @@ impl Renderer for MetalRT {
         }
     }
 
-    fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {}
+    fn set_mesh(&mut self, _id: usize, _mesh: &scene::Mesh) {}
 
-    fn set_instance(&mut self, id: usize, instance: &scene::Instance) {}
+    fn set_instance(&mut self, _id: usize, _instance: &scene::Instance) {}
 
     fn set_materials(
         &mut self,
-        materials: &[scene::Material],
-        device_materials: &[scene::DeviceMaterial],
+        _materials: &[scene::Material],
+        _device_materials: &[scene::DeviceMaterial],
     ) {
     }
 
-    fn set_textures(&mut self, textures: &[scene::Texture]) {}
+    fn set_textures(&mut self, _textures: &[scene::Texture]) {}
 
     fn synchronize(&mut self) {}
 
-    fn render(&mut self, camera: &scene::Camera, mode: scene::renderers::RenderMode) {
+    fn render(&mut self, _camera: &scene::Camera, _mode: scene::renderers::RenderMode) {
         let drawable = match self.layer.next_drawable() {
             Some(drawable) => drawable,
             None => return,
@@ -168,22 +168,22 @@ impl Renderer for MetalRT {
 
     fn resize<T: scene::raw_window_handle::HasRawWindowHandle>(
         &mut self,
-        window: &T,
-        width: usize,
-        height: usize,
+        _window: &T,
+        _width: usize,
+        _height: usize,
     ) {
     }
 
-    fn set_point_lights(&mut self, changed: &scene::BitVec, lights: &[scene::PointLight]) {}
+    fn set_point_lights(&mut self, _changed: &scene::BitVec, _lights: &[scene::PointLight]) {}
 
-    fn set_spot_lights(&mut self, changed: &scene::BitVec, lights: &[scene::SpotLight]) {}
+    fn set_spot_lights(&mut self, _changed: &scene::BitVec, _lights: &[scene::SpotLight]) {}
 
-    fn set_area_lights(&mut self, changed: &scene::BitVec, lights: &[scene::AreaLight]) {}
+    fn set_area_lights(&mut self, _changed: &scene::BitVec, _lights: &[scene::AreaLight]) {}
 
     fn set_directional_lights(
         &mut self,
-        changed: &scene::BitVec,
-        lights: &[scene::DirectionalLight],
+        _changed: &scene::BitVec,
+        _lights: &[scene::DirectionalLight],
     ) {
     }
 
@@ -191,7 +191,7 @@ impl Renderer for MetalRT {
         todo!()
     }
 
-    fn set_setting(&mut self, setting: scene::renderers::Setting) {}
+    fn set_setting(&mut self, _setting: scene::renderers::Setting) {}
 }
 
 impl MetalRT {

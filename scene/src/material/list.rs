@@ -4,13 +4,16 @@ use bitvec::prelude::*;
 use glam::*;
 use image::GenericImageView;
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct MaterialList {
     changed: BitVec,
     changed_textures: BitVec,
@@ -35,7 +38,8 @@ impl Display for MaterialList {
 }
 
 // TODO: Support other formats than BGRA8
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Texture {
     pub data: Vec<u32>,
     pub width: u32,

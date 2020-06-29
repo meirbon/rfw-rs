@@ -1,11 +1,14 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
 
-use crate::{Material, MaterialList, Texture};
+use crate::{MaterialList, Texture, Material};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};
+
+#[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Plane {
     pos: [f32; 3],
     right: [f32; 3],
@@ -194,7 +197,8 @@ impl Bounds for Plane {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 struct SerializedPlane {
     pub plane: Plane,
     pub material: Material,
@@ -202,6 +206,7 @@ struct SerializedPlane {
     pub n_tex: Option<Texture>,
 }
 
+#[cfg(feature = "object_caching")]
 impl<'a> SerializableObject<'a, Plane> for Plane {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

@@ -1,3 +1,6 @@
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
 use crate::objects::*;
 use crate::{loaders, Mesh, *};
 
@@ -6,7 +9,6 @@ use rtbvh::{Bounds, AABB};
 
 use bitvec::prelude::*;
 use loaders::obj;
-use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::{
     cmp::Ordering,
@@ -55,7 +57,8 @@ impl fmt::Display for SceneError {
 
 impl error::Error for SceneError {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct InstancedObjects {
     pub objects: Vec<Mesh>,
     pub object_references: Vec<HashSet<usize>>,
@@ -82,7 +85,8 @@ impl Default for InstancedObjects {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct SceneLights {
     pub point_lights: Vec<PointLight>,
     pub pl_changed: BitVec,
@@ -119,7 +123,8 @@ pub struct TriangleScene {
     pub settings: Arc<Mutex<Flags>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 struct SerializableScene {
     objects: InstancedObjects,
     lights: SceneLights,
@@ -204,46 +209,49 @@ impl TriangleScene {
         }
         let extension = extension.unwrap();
 
-        let cache_mesh = |mesh: &mut Mesh, cached_object: &PathBuf| {
-            if build_bvh {
-                mesh.construct_bvh();
-            }
-
-            let materials = self.materials.lock().unwrap();
-            mesh.serialize_object(cached_object.as_path(), &materials)
-                .unwrap();
-        };
-
-        let cached_object = path.with_extension("rm");
-        // First check if cached object exists and check whether we can load it
-        if cached_object.exists() {
-            // Did object change, if so -> reload object
-            let should_reload = if let (Ok(cached_changed), Ok(mesh_changed)) =
-                (cached_object.as_path().metadata(), path.metadata())
-            {
-                let cached_changed = cached_changed.modified();
-                let mesh_changed = mesh_changed.modified();
-                if let (Ok(cached_changed), Ok(mesh_changed)) = (cached_changed, mesh_changed) {
-                    mesh_changed.cmp(&cached_changed) == Ordering::Less
-                } else {
-                    true
+        #[cfg(feature = "object_caching")]
+        {
+            let cache_mesh = |mesh: &mut Mesh, cached_object: &PathBuf| {
+                if build_bvh {
+                    mesh.construct_bvh();
                 }
-            } else {
-                true
+
+                let materials = self.materials.lock().unwrap();
+                mesh.serialize_object(cached_object.as_path(), &materials)
+                    .unwrap();
             };
 
-            // Object did not change, attempt to deserialize
-            if !should_reload {
-                if let Ok(mut mesh) = {
-                    let mut materials = self.materials.lock().unwrap();
-                    // Attempt to deserialize
-                    Mesh::deserialize_object(cached_object.as_path(), &mut materials)
-                } {
-                    // Build BVH if necessary
-                    if build_bvh && mesh.bvh.is_none() {
-                        mesh.construct_bvh();
+            let cached_object = path.with_extension("rm");
+            // First check if cached object exists and check whether we can load it
+            if cached_object.exists() {
+                // Did object change, if so -> reload object
+                let should_reload = if let (Ok(cached_changed), Ok(mesh_changed)) =
+                    (cached_object.as_path().metadata(), path.metadata())
+                {
+                    let cached_changed = cached_changed.modified();
+                    let mesh_changed = mesh_changed.modified();
+                    if let (Ok(cached_changed), Ok(mesh_changed)) = (cached_changed, mesh_changed) {
+                        mesh_changed.cmp(&cached_changed) == Ordering::Less
+                    } else {
+                        true
                     }
-                    return self.add_object(mesh);
+                } else {
+                    true
+                };
+
+                // Object did not change, attempt to deserialize
+                if !should_reload {
+                    if let Ok(mut mesh) = {
+                        let mut materials = self.materials.lock().unwrap();
+                        // Attempt to deserialize
+                        Mesh::deserialize_object(cached_object.as_path(), &mut materials)
+                    } {
+                        // Build BVH if necessary
+                        if build_bvh && mesh.bvh.is_none() {
+                            mesh.construct_bvh();
+                        }
+                        return self.add_object(mesh);
+                    }
                 }
             }
         }
@@ -261,7 +269,9 @@ impl TriangleScene {
                 let mut mesh = obj.into_mesh();
 
                 // Serialize object for future use
+                #[cfg(feature = "object_caching")]
                 cache_mesh(&mut mesh, &cached_object);
+
                 mesh
             };
 
@@ -436,6 +446,7 @@ impl TriangleScene {
         Ok(())
     }
 
+    #[cfg(feature = "object_caching")]
     pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
         let ser_object = SerializableScene::from(self);
         let encoded: Vec<u8> = bincode::serialize(&ser_object)?;
@@ -448,6 +459,7 @@ impl TriangleScene {
         Ok(())
     }
 
+    #[cfg(feature = "object_caching")]
     pub fn deserialize<S: AsRef<Path>>(path: S) -> Result<Self, Box<dyn Error>> {
         let mut input = OsString::from(path.as_ref().as_os_str());
         input.push(Self::FF_EXTENSION);

@@ -1,6 +1,5 @@
 use glam::*;
 use rtbvh::{Ray, RayPacket4};
-use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 use crate::constants::DEFAULT_T_MAX;
@@ -9,12 +8,16 @@ pub mod frustrum;
 
 pub use frustrum::*;
 
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
     use std::arch::x86_64::_mm_sqrt_ps;
     unsafe { _mm_sqrt_ps(vec.into()).into() }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Camera {
     pub pos: [f32; 3],
     up: [f32; 3],
@@ -437,6 +440,7 @@ impl Camera {
         frustrum::FrustrumG::from_matrix(self.get_rh_matrix())
     }
 
+    #[cfg(feature = "object_caching")]
     pub fn serialize<S: AsRef<std::path::Path>>(
         &self,
         path: S,
@@ -449,6 +453,7 @@ impl Camera {
         Ok(())
     }
 
+    #[cfg(feature = "object_caching")]
     pub fn deserialize<S: AsRef<std::path::Path>>(
         path: S,
     ) -> Result<Camera, Box<dyn std::error::Error>> {

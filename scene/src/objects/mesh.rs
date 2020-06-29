@@ -5,15 +5,19 @@ use crate::objects::*;
 use crate::scene::{PrimID, USE_MBVH};
 use crate::MaterialList;
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Display;
+
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
 
 pub trait ToMesh {
     fn into_mesh(self) -> Mesh;
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct VertexData {
     pub vertex: [f32; 4],
@@ -43,7 +47,8 @@ impl Display for VertexData {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
 pub struct VertexMesh {
     pub first: u32,
     pub last: u32,
@@ -72,8 +77,8 @@ impl VertexData {
         }
     }
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Mesh {
     pub triangles: Vec<RTTriangle>,
     pub vertices: Vec<VertexData>,
@@ -889,12 +894,14 @@ impl Bounds for Mesh {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 struct SerializedMesh {
     pub mesh: Mesh,
     pub materials: MaterialList,
 }
 
+#[cfg(feature = "object_caching")]
 impl<'a> SerializableObject<'a, Mesh> for Mesh {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

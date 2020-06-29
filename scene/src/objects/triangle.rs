@@ -2,13 +2,15 @@ use crate::constants::EPSILON;
 use crate::objects::*;
 use crate::scene::PrimID;
 
+#[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
 use glam::Vec3;
 use rtbvh::{builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB};
 use std::ops::BitAnd;
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct RTTriangle {
     pub vertex0: [f32; 3],

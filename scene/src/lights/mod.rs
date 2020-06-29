@@ -1,8 +1,10 @@
 use crate::RTTriangle;
 use glam::*;
 use rtbvh::AABB;
-use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
 
 pub trait Light {
     fn set_radiance(&mut self, radiance: Vec3);
@@ -48,7 +50,8 @@ pub struct CubeLightInfo {
     range: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AreaLight {
     pub position: [f32; 3], // 12
@@ -169,7 +172,8 @@ impl Light for AreaLight {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct PointLight {
     pub position: [f32; 3],
@@ -260,7 +264,8 @@ impl PointLight {
     }
 } // 32 Bytes
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct SpotLight {
     pub position: [f32; 3],
@@ -380,7 +385,8 @@ impl Light for SpotLight {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DirectionalLight {
     pub direction: [f32; 3],

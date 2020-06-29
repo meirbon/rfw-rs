@@ -3,10 +3,13 @@ pub mod list;
 pub use list::*;
 
 use glam::*;
-use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct MaterialFlags {
     bits: u32,
@@ -18,7 +21,8 @@ impl Into<u32> for MaterialFlags {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub enum MaterialProps {
     HasDiffuseMap = 0,
@@ -69,8 +73,9 @@ impl MaterialFlags {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
 #[repr(C)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Material {
     pub name: String,
     pub color: [f32; 4],    // 16

@@ -677,7 +677,7 @@ impl<'a> Renderer for VkRenderer<'a> {
             &[],
             &[],
             &[],
-            |device, command_buffer| {
+            |device, _command_buffer| {
                 let layout_transition_barriers = vk::ImageMemoryBarrier::builder()
                     .image(self.depth_image)
                     .dst_access_mask(

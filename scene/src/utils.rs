@@ -1,6 +1,8 @@
+#[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
 pub struct Flags {
     bits: u32,
 }

@@ -10,7 +10,7 @@ enum AppType {
     GPU,
 }
 
-use std::{collections::HashMap};
+use std::collections::HashMap;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -119,12 +119,7 @@ fn main() {
 
     let renderer: RenderSystem<RayTracer> =
         RenderSystem::new(&window, render_width, render_height).unwrap();
-    let camera_path = "saved_camera";
-    let mut camera = scene::Camera::deserialize(camera_path).unwrap_or(scene::Camera::new(
-        render_width as u32,
-        render_height as u32,
-    ));
-    camera.resize(render_width as u32, render_height as u32);
+    let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
 
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
@@ -326,10 +321,6 @@ fn main() {
                 mouse_button_handler.insert(button, state);
             }
             _ => (),
-        }
-
-        if *control_flow == ControlFlow::Exit {
-            camera.serialize(camera_path).unwrap();
         }
     });
 }

@@ -16,7 +16,8 @@ pub use quad::*;
 pub use sphere::*;
 pub use triangle::*;
 
-use crate::MaterialList;
+
+#[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug)]
@@ -198,14 +199,15 @@ pub trait Intersect: Bounds + Send + Sync {
     fn get_mat_id(&self, prim_id: PrimID) -> u32;
 }
 
+#[cfg(feature = "object_caching")]
 pub trait SerializableObject<'a, T: Serialize + Deserialize<'a>> {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
         path: S,
-        materials: &MaterialList,
+        materials: &crate::MaterialList,
     ) -> Result<(), Box<dyn std::error::Error>>;
     fn deserialize_object<S: AsRef<std::path::Path>>(
         path: S,
-        materials: &mut MaterialList,
+        materials: &mut crate::MaterialList,
     ) -> Result<T, Box<dyn std::error::Error>>;
 }

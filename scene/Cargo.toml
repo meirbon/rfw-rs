@@ -4,16 +4,13 @@ version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-#gltf = "0.15"
 tobj = "1.0"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 rayon = "1.3.0"
 num_cpus = "1.13"
 glam = "0.8"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
 bincode = "1.2"
 image = "0.23"
 futures = "0.3"
@@ -24,4 +21,4 @@ gltf = "0.15"
 
 [features]
 default = []
-object_caching = []
+object_caching = ["serde"]
