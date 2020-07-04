@@ -164,7 +164,7 @@ impl Renderer for Deferred<'_> {
                 compatible_surface: Some(&surface),
                 power_preference: wgpu::PowerPreference::HighPerformance,
             },
-            if cfg!(target_os = "linux") {
+            if cfg!(target_os = "windows") {
                 wgpu::BackendBit::DX12
             } else {
                 wgpu::BackendBit::PRIMARY
