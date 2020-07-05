@@ -15,7 +15,6 @@ pub trait ToMesh {
     fn into_mesh(self) -> Mesh;
 }
 
-
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
@@ -175,7 +174,7 @@ impl Mesh {
         let mut bounds = AABB::new();
         let mut vertex_data = vec![VertexData::zero(); vertices.len()];
 
-        let normals = if normals[0].cmpeq(Vec3::zero()).all() {
+        let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
             let mut normals = vec![Vec3::zero(); vertices.len()];
             for i in (0..vertices.len()).step_by(3) {
                 let v0 = vertices[i + 0];
@@ -205,40 +204,39 @@ impl Mesh {
             Vec::from(normals)
         };
 
-        let mut tangents = vec![Vec4::zero(); vertices.len()];
-        let mut bitangents = vec![Vec3::zero(); vertices.len()];
+        let mut tangents: Vec<Vec4> = vec![Vec4::zero(); vertices.len()];
+        let mut bitangents: Vec<Vec3> = vec![Vec3::zero(); vertices.len()];
 
         for i in (0..vertices.len()).step_by(3) {
-            let v0 = vertices[i];
-            let v1 = vertices[i + 1];
-            let v2 = vertices[i + 2];
+            let v0: Vec3 = vertices[i];
+            let v1: Vec3 = vertices[i + 1];
+            let v2: Vec3 = vertices[i + 2];
 
             bounds.grow(v0);
             bounds.grow(v1);
             bounds.grow(v2);
 
-            let e1 = v1 - v0;
-            let e2 = v2 - v0;
+            let e1: Vec3 = v1 - v0;
+            let e2: Vec3 = v2 - v0;
 
-            let tex0 = uvs[i];
-            let tex1 = uvs[i + 1];
-            let tex2 = uvs[i + 2];
+            let tex0: Vec2 = uvs[i];
+            let tex1: Vec2 = uvs[i + 1];
+            let tex2: Vec2 = uvs[i + 2];
 
-            let uv1 = tex1 - tex0;
-            let uv2 = tex2 - tex0;
+            let uv1: Vec2 = tex1 - tex0;
+            let uv2: Vec2 = tex2 - tex0;
 
             let n = e1.cross(e2).normalize();
 
             let (t, b) = if uv1.dot(uv1) == 0.0 || uv2.dot(uv2) == 0.0 {
-                let tangent = e1.normalize();
-                let bitangent = n.cross(tangent).normalize();
+                let tangent: Vec3 = e1.normalize();
+                let bitangent: Vec3 = n.cross(tangent).normalize();
                 (tangent.extend(0.0), bitangent)
             } else {
                 let r = 1.0 / (uv1.x() * uv2.y() - uv1.y() * uv2.x());
-                let tangent = (e1 * uv2.y() - e2 * uv1.y()) * r;
-                let bitangent = (e1 * uv2.x() - e2 * uv1.x()) * r;
-                let tangent = tangent.extend(0.0);
-                (tangent, bitangent)
+                let tangent: Vec3 = (e1 * uv2.y() - e2 * uv1.y()) * r;
+                let bitangent: Vec3 = (e1 * uv2.x() - e2 * uv1.x()) * r;
+                (tangent.extend(0.0), bitangent)
             };
 
             tangents[i + 0] += t;
@@ -253,20 +251,16 @@ impl Mesh {
         let bounds = bounds;
 
         for i in 0..vertices.len() {
-            let n = normals[i];
-            let tangent = tangents[i].truncate();
-            let bitangent = bitangents[i];
+            let n: Vec3 = normals[i];
+            let tangent = tangents[i].truncate().normalize();
+            let bitangent = bitangents[i].normalize();
 
-            let t = (tangent - (n * n.dot(tangent))).normalize();
-            let c = n.cross(t);
+            let t: Vec3 = (tangent - (n * n.dot(tangent))).normalize();
+            let c: Vec3 = n.cross(t);
 
             let w = c.dot(bitangent).signum();
-            tangents[i] = tangent.extend(w);
+            tangents[i] = tangent.normalize().extend(w);
         }
-
-        tangents.par_iter_mut().for_each(|t| {
-            *t = t.normalize();
-        });
 
         vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
             let vertex: [f32; 3] = vertices[i].into();
@@ -345,7 +339,18 @@ impl Mesh {
             let uv1 = uvs[i1];
             let uv2 = uvs[i2];
 
+            let tangent0: Vec4 = tangents[i0];
+            let tangent1: Vec4 = tangents[i1];
+            let tangent2: Vec4 = tangents[i1];
+
             let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
+
+            let ta = (1024 * 1024) as f32
+                * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
+                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                .abs();
+            let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
+            let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
             *triangle = RTTriangle {
                 vertex0: vertex0.into(),
@@ -362,8 +367,12 @@ impl Mesh {
                 v2: uv2.y(),
                 n2: n2.into(),
                 id: i as i32,
+                tangent0: tangent0.into(),
+                tangent1: tangent1.into(),
+                tangent2: tangent2.into(),
                 light_id: -1,
                 mat_id: material_ids[i] as i32,
+                lod,
                 ..Default::default()
             };
         });

@@ -125,24 +125,15 @@ fn main() {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let mut instances = Vec::new();
-
     // let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    // for i in 0..=10 {
-    //     let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-    //     instance.rotate_y(180.0);
-    //     instance.translate_y(-2.5);
-    //     instance.translate_x(((i - 5) * 8) as f32);
-    //     instance.translate_z(10.0);
-    //     instance.synchronize().unwrap();
-    //     instances.push(instance);
-    // }
+    // let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
+    // instance.rotate_y(180.0);
+    // instance.translate_y(-2.5);
+    // instance.translate_z(10.0);
+    // instance.synchronize().unwrap();
 
     let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
     let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
-    instance.scale(Vec3::splat(0.1));
-    instance.synchronize().unwrap();
-    instances.push(instance);
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Reset;
@@ -254,10 +245,8 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instances.iter_mut().for_each(|instance| {
-                        instance.rotate_y(elapsed / 10.0);
-                        instance.synchronize().unwrap();
-                    });
+                    instance.rotate_y(elapsed / 10.0);
+                    instance.synchronize().unwrap();
                     mode = RenderMode::Reset;
                 }
 

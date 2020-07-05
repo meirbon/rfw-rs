@@ -3,6 +3,7 @@ struct CameraView {
     vec4 right;
     vec4 up;
     vec4 p1;
+    
     float lens_size;
     float spread_angle;
     float epsilon;
@@ -49,22 +50,44 @@ struct MBVHNode {
 struct RTTriangle {
     vec3 v0;
     float tu0;
+    // 16
+
     vec3 v1;
     float tu1;
+    // 32
+    
     vec3 v2;
     float tu2;
+    // 48
+    
     vec3 gn;
     float tv0;
+    // 64
+    
     vec3 n0;
     float tv1;
+    // 80
+    
     vec3 n1;
     float tv2;
+    // 96
+    
     vec3 n2;
     int id;
+    // 112
+    
+    vec4 T0;
+    // 128
+    vec4 T1;
+    // 144
+    vec4 T2;
+    // 160
+
     int light_id;
     int mat_id;
-    int _dummy0;
-    int _dummy1;
+    float lod;
+    int extra0;
+    // 176
 };
 
 struct InstanceDescriptor {
@@ -85,8 +108,21 @@ struct Material {
     vec4 color;
     vec4 specular;
     uvec4 parameters;
+    
     uint flags;
-    uint _dummy0;
-    uint _dummy1;
-    uint _dummy2;
+    int diffuse_map;
+    int normal_map;
+    int roughness_map;
+
+    int emissive_map;
+    int sheen_map;
+    int _dummy0;
+    int _dummy1;
 };
+
+#define HAS_DIFFUSE_MAP(flags) ((flags & (1 << 0)) > 0)
+#define HAS_NORMMAL_MAP(flags) ((flags & (1 << 1)) > 0)
+#define HAS_ROUGHNESS_MAP(flags) ((flags & (1 << 2)) > 0)
+#define HAS_METALLIC_MAP(flags) ((flags & (1 << 3)) > 0)
+#define HAS_EMISSIVE_MAP(flags) ((flags & (1 << 4)) > 0)
+#define HAS_SHEEN_MAP(flags) ((flags & (1 << 5)) > 0)

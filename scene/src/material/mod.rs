@@ -139,12 +139,20 @@ impl Display for Material {
 }
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct DeviceMaterial {
     pub color: [f32; 4],      // 16
     pub specular: [f32; 4],   // 32
     pub parameters: [u32; 4], // 48
+    
     pub flags: u32,           // 52
-    _padding: [u32; 3],       // 64
+    pub diffuse_map: i32,     // 56
+    pub normal_map: i32,      // 60
+    pub roughness_map: i32,   // 64
+
+    pub emissive_map: i32,    // 68
+    pub sheen_map: i32,       // 72
+    pub _dummy: [i32; 2]      // 80
 }
 
 impl Default for DeviceMaterial {
@@ -154,7 +162,12 @@ impl Default for DeviceMaterial {
             specular: [0.0; 4],
             parameters: [0; 4],
             flags: 0,
-            _padding: [0; 3],
+            diffuse_map: -1,
+            normal_map: -1,
+            roughness_map: -1,
+            emissive_map: -1,
+            sheen_map: -1,
+            _dummy: [0; 2],
         }
     }
 }
@@ -218,7 +231,12 @@ impl Into<DeviceMaterial> for &Material {
             specular: self.specular,
             parameters,
             flags: flags.into(),
-            _padding: [0; 3],
+            diffuse_map: self.diffuse_tex as i32,
+            normal_map: self.normal_tex as i32,
+            roughness_map: self.roughness_tex as i32,
+            emissive_map: self.emissive_tex as i32,
+            sheen_map: self.sheen_tex as i32,
+            ..Default::default()
         }
     }
 }

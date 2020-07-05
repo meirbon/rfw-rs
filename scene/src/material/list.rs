@@ -191,6 +191,72 @@ impl Texture {
         let y = (y as i32).min(self.height as i32).max(0) as usize;
         self.data[y * self.width as usize + x]
     }
+
+    /// Texel count
+    pub fn len(&self) -> usize {
+        (self.width * self.height) as usize
+    }
+
+    pub fn mip_level_width(&self, mip_level: usize) -> usize {
+        let mut w = self.width as usize;
+        for _ in 0..mip_level {
+            w >>= 1;
+        }
+        w
+    }
+
+    pub fn mip_level_height(&self, mip_level: usize) -> usize {
+        let mut h = self.height as usize;
+        for _ in 0..mip_level {
+            h >>= 1;
+        }
+        h
+    }
+
+    pub fn mip_level_width_height(&self, mip_level: usize) -> (usize, usize) {
+        let mut w = self.width as usize;
+        let mut h = self.height as usize;
+
+        if mip_level == 0 {
+            return (w, h);
+        }
+
+        for _ in 0..mip_level {
+            w >>= 1;
+            h >>= 1
+        }
+
+        (w, h)
+    }
+
+    /// Resizes texture into given dimensions, this is an expensive operation.
+    pub fn resized(&self, width: usize, height: usize) -> Texture {
+        let mut image: image::ImageBuffer<image::Bgra<u8>, Vec<u8>> =
+            image::ImageBuffer::new(self.width, self.height);
+        image.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                self.data.as_ptr() as *const u8,
+                (self.width * self.height) as usize * std::mem::size_of::<u32>(),
+            )
+        });
+        let image = image::imageops::resize(
+            &image,
+            width as u32,
+            height as u32,
+            image::imageops::FilterType::Nearest,
+        );
+
+        let mut data = vec![0; width * height];
+        data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(image.as_ptr() as *const u32, (width * height) as usize)
+        });
+
+        Texture {
+            data,
+            width: width as u32,
+            height: height as u32,
+        }
+    }
 }
 
 #[allow(dead_code)]

@@ -15,36 +15,44 @@ use std::ops::BitAnd;
 pub struct RTTriangle {
     pub vertex0: [f32; 3],
     pub u0: f32,
-
+    // 16
     pub vertex1: [f32; 3],
     pub u1: f32,
-
+    // 32
     pub vertex2: [f32; 3],
     pub u2: f32,
-
+    // 48
     pub normal: [f32; 3],
     pub v0: f32,
-
+    // 64
     pub n0: [f32; 3],
     pub v1: f32,
-
+    // 80
     pub n1: [f32; 3],
     pub v2: f32,
-
+    // 96
     pub n2: [f32; 3],
     pub id: i32,
-
+    // 112
+    pub tangent0: [f32; 4],
+    // 128
+    pub tangent1: [f32; 4],
+    // 144
+    pub tangent2: [f32; 4],
+    // 160
     pub light_id: i32,
     pub mat_id: i32,
+    pub lod: f32,
+    pub extra0: i32,
+    // 176
 
     // GLSL structs' size are rounded up to the base alignment of vec4s
-    // Thus, we pad these triangles to become 128 bytes and 16-byte (vec4) aligned
-    pub extra0: i32,
-    pub extra1: i32,
+    // Thus, we pad these triangles to become 160 bytes and 16-byte (vec4) aligned
 }
 
 impl Default for RTTriangle {
     fn default() -> Self {
+        // assert_eq!(std::mem::size_of::<RTTriangle>() % 16, 0);
         Self {
             vertex0: [0.0; 3],
             u0: 0.0,
@@ -60,10 +68,13 @@ impl Default for RTTriangle {
             v2: 0.0,
             n2: [0.0; 3],
             id: 0,
+            tangent0: [0.0; 4],
+            tangent1: [0.0; 4],
+            tangent2: [0.0; 4],
             light_id: 0,
             mat_id: 0,
+            lod: 0.0,
             extra0: 0,
-            extra1: 0,
         }
     }
 }

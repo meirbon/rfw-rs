@@ -33,6 +33,8 @@ enum TopBindings {
     TopBVHNodes = 2,
     TopMBVHNodes = 3,
     Materials = 4,
+    Textures = 5,
+    TextureSampler = 6,
 }
 
 #[repr(u32)]
@@ -225,6 +227,9 @@ pub struct RayTracer<'a> {
     textures: Vec<Texture>,
 
     materials_buffer: ManagedBuffer<DeviceMaterial>,
+    texture_array: wgpu::Texture,
+    texture_array_view: wgpu::TextureView,
+    texture_sampler: wgpu::Sampler,
 
     bvh: BVH,
     mbvh: MBVH,
@@ -254,6 +259,9 @@ impl RayTracer<'_> {
     const SWAPCHAIN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
     const PACKET_WIDTH: usize = 4;
     const PACKET_HEIGHT: usize = 1;
+    const TEXTURE_WIDTH: usize = 1024;
+    const TEXTURE_HEIGHT: usize = 1024;
+    const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 }
 
 impl Renderer for RayTracer<'_> {
@@ -547,6 +555,20 @@ impl Renderer for RayTracer<'_> {
                             readonly: true,
                         },
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::Textures as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::SampledTexture {
+                            component_type: wgpu::TextureComponentType::Uint,
+                            dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: TopBindings::TextureSampler as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::Sampler { comparison: false },
+                    },
                 ],
             });
 
@@ -624,6 +646,35 @@ impl Renderer for RayTracer<'_> {
         let top_indices = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
         let materials_buffer = ManagedBuffer::new(&device, 32, wgpu::BufferUsage::STORAGE_READ);
 
+        let texture_array = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("texture_array"),
+            size: wgpu::Extent3d {
+                width: Self::TEXTURE_WIDTH as u32,
+                height: Self::TEXTURE_HEIGHT as u32,
+                depth: 1,
+            },
+            array_layer_count: 32,
+            mip_level_count: Texture::MIP_LEVELS as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::TEXTURE_FORMAT,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        });
+
+        let texture_array_view = texture_array.create_default_view();
+
+        let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: (Texture::MIP_LEVELS - 1) as f32,
+            compare: wgpu::CompareFunction::Never,
+        });
+
         let top_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
             layout: &top_bind_group_layout,
@@ -633,6 +684,14 @@ impl Renderer for RayTracer<'_> {
                 top_mbvh_buffer.as_binding(TopBindings::TopMBVHNodes as u32),
                 top_indices.as_binding(TopBindings::TopInstanceIndices as u32),
                 materials_buffer.as_binding(TopBindings::Materials as u32),
+                wgpu::Binding {
+                    binding: TopBindings::Textures as u32,
+                    resource: wgpu::BindingResource::TextureView(&texture_array_view),
+                },
+                wgpu::Binding {
+                    binding: TopBindings::TextureSampler as u32,
+                    resource: wgpu::BindingResource::Sampler(&texture_sampler),
+                },
             ],
         });
 
@@ -680,6 +739,9 @@ impl Renderer for RayTracer<'_> {
             materials: Vec::new(),
             textures: Vec::new(),
             materials_buffer,
+            texture_array,
+            texture_array_view,
+            texture_sampler,
             bvh: BVH::empty(),
             mbvh: MBVH::empty(),
             point_lights: Vec::new(),
@@ -737,12 +799,108 @@ impl Renderer for RayTracer<'_> {
                     .as_binding(TopBindings::TopInstanceIndices as u32),
                 self.materials_buffer
                     .as_binding(TopBindings::Materials as u32),
+                wgpu::Binding {
+                    binding: TopBindings::Textures as u32,
+                    resource: wgpu::BindingResource::TextureView(&self.texture_array_view),
+                },
+                wgpu::Binding {
+                    binding: TopBindings::TextureSampler as u32,
+                    resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
+                },
             ],
         });
     }
 
     fn set_textures(&mut self, textures: &[scene::Texture]) {
-        self.textures = textures.to_vec();
+        self.textures = textures
+            .par_iter()
+            .map(|t| {
+                if t.width as usize == Self::TEXTURE_WIDTH
+                    && t.height as usize == Self::TEXTURE_HEIGHT
+                {
+                    t.clone()
+                } else {
+                    let mut texture = t.resized(Self::TEXTURE_WIDTH, Self::TEXTURE_HEIGHT);
+                    texture.generate_mipmaps(Texture::MIP_LEVELS);
+                    texture
+                }
+            })
+            .collect();
+
+        self.texture_array = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("texture_array"),
+            size: wgpu::Extent3d {
+                width: Self::TEXTURE_WIDTH as u32,
+                height: Self::TEXTURE_HEIGHT as u32,
+                depth: 1,
+            },
+            array_layer_count: textures.len() as u32,
+            mip_level_count: Texture::MIP_LEVELS as u32,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::TEXTURE_FORMAT,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        });
+
+        let texel_count = self.textures.iter().map(|t| t.data.len()).sum();
+        let buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            label: Some("texture_array_staging_buufer"),
+            size: (texel_count * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
+
+        let buffer_slice = unsafe {
+            std::slice::from_raw_parts_mut(buffer.data.as_mut_ptr() as *mut u32, texel_count)
+        };
+
+        let mut offset = 0;
+        for texture in self.textures.iter() {
+            buffer_slice[offset..(offset + texture.data.len())]
+                .copy_from_slice(texture.data.as_slice());
+            offset += texture.data.len();
+        }
+        assert_eq!(offset, texel_count);
+        let buffer = buffer.finish();
+
+        let mut command_encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("texture_array_copy_command"),
+                });
+        offset = 0;
+        for (t, texture) in self.textures.iter().enumerate() {
+            for i in 0..Texture::MIP_LEVELS {
+                let (width, height) = texture.mip_level_width_height(i);
+
+                assert!(width > 0, "width was 0");
+                assert!(height > 0, "height was 0");
+                command_encoder.copy_buffer_to_texture(
+                    wgpu::BufferCopyView {
+                        buffer: &buffer,
+                        bytes_per_row: (width * std::mem::size_of::<u32>()) as u32,
+                        offset: offset as wgpu::BufferAddress,
+                        rows_per_image: 0,
+                    },
+                    wgpu::TextureCopyView {
+                        mip_level: i as u32,
+                        array_layer: t as u32,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                        texture: &self.texture_array,
+                    },
+                    wgpu::Extent3d {
+                        width: width as u32,
+                        height: height as u32,
+                        depth: 1,
+                    },
+                );
+
+                offset += (width * height) * std::mem::size_of::<u32>();
+            }
+        }
+
+        assert_eq!(offset, texel_count * std::mem::size_of::<u32>());
+        self.queue.submit(&[command_encoder.finish()]);
+        self.texture_array_view = self.texture_array.create_default_view();
     }
 
     fn synchronize(&mut self) {
@@ -915,6 +1073,14 @@ impl Renderer for RayTracer<'_> {
                     .as_binding(TopBindings::TopInstanceIndices as u32),
                 self.materials_buffer
                     .as_binding(TopBindings::Materials as u32),
+                wgpu::Binding {
+                    binding: TopBindings::Textures as u32,
+                    resource: wgpu::BindingResource::TextureView(&self.texture_array_view),
+                },
+                wgpu::Binding {
+                    binding: TopBindings::TextureSampler as u32,
+                    resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
+                },
             ],
         });
     }
