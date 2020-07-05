@@ -249,6 +249,7 @@ pub struct RayTracer<'a> {
 
     lights_bind_group_layout: wgpu::BindGroupLayout,
     lights_bind_group: wgpu::BindGroup,
+    light_counts: [usize; 4],
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -833,6 +834,7 @@ impl Renderer for RayTracer<'_> {
             directional_lights,
             lights_bind_group_layout,
             lights_bind_group,
+            light_counts: [0; 4]
         }))
     }
 
@@ -1205,10 +1207,10 @@ impl Renderer for RayTracer<'_> {
             self.width,
             self.height,
             self.sample_count,
-            self.point_lights.len(),
-            self.area_lights.len(),
-            self.spot_lights.len(),
-            self.directional_lights.len(),
+            self.light_counts[LightBindings::PointLights as usize],
+            self.light_counts[LightBindings::AreaLights as usize],
+            self.light_counts[LightBindings::SpotLights as usize],
+            self.light_counts[LightBindings::DirectionalLights as usize],
         );
 
         self.write_camera_data(&camera_data);
@@ -1391,21 +1393,25 @@ impl Renderer for RayTracer<'_> {
     }
 
     fn set_point_lights(&mut self, _changed: &BitVec, lights: &[scene::PointLight]) {
+        self.light_counts[LightBindings::PointLights as usize] = lights.len();
         self.point_lights.resize(&self.device, lights.len());
         self.point_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn set_spot_lights(&mut self, _changed: &BitVec, lights: &[scene::SpotLight]) {
+        self.light_counts[LightBindings::SpotLights as usize] = lights.len();
         self.spot_lights.resize(&self.device, lights.len());
         self.spot_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn set_area_lights(&mut self, _changed: &BitVec, lights: &[scene::AreaLight]) {
+        self.light_counts[LightBindings::AreaLights as usize] = lights.len();
         self.area_lights.resize(&self.device, lights.len());
         self.area_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[scene::DirectionalLight]) {
+        self.light_counts[LightBindings::DirectionalLights as usize] = lights.len();
         self.directional_lights.resize(&self.device, lights.len());
         self.directional_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }

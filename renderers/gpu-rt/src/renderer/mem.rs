@@ -19,7 +19,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
         });
 
         Self {
-            host_buffer: vec![T::default(); capacity],
+            host_buffer: vec![T::default(); capacity.max(1)],
             device_buffer,
             staging_buffer: None,
             usage,
