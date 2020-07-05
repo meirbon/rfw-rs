@@ -45,6 +45,14 @@ enum MeshBindings {
     Triangles = 3,
 }
 
+#[repr(u32)]
+enum LightBindings {
+    PointLights = 0,
+    SpotLights = 1,
+    AreaLights = 2,
+    DirectionalLights = 3,
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 struct CameraData {
@@ -234,10 +242,13 @@ pub struct RayTracer<'a> {
     bvh: BVH,
     mbvh: MBVH,
 
-    point_lights: Vec<PointLight>,
-    spot_lights: Vec<SpotLight>,
-    area_lights: Vec<AreaLight>,
-    directional_lights: Vec<DirectionalLight>,
+    point_lights: ManagedBuffer<PointLight>,
+    spot_lights: ManagedBuffer<SpotLight>,
+    area_lights: ManagedBuffer<AreaLight>,
+    directional_lights: ManagedBuffer<DirectionalLight>,
+
+    lights_bind_group_layout: wgpu::BindGroupLayout,
+    lights_bind_group: wgpu::BindGroup,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -572,12 +583,84 @@ impl Renderer for RayTracer<'_> {
                 ],
             });
 
+        let point_lights = ManagedBuffer::new(
+            &device,
+            32,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+        let spot_lights = ManagedBuffer::new(
+            &device,
+            32,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+        let area_lights = ManagedBuffer::new(
+            &device,
+            32,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+        let directional_lights = ManagedBuffer::new(
+            &device,
+            32,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+        );
+
+        let lights_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("lights_bind_group_layout"),
+                bindings: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: LightBindings::PointLights as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: LightBindings::SpotLights as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: LightBindings::AreaLights as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: LightBindings::DirectionalLights as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            readonly: true,
+                        },
+                    },
+                ],
+            });
+
+        let lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lights_bind_group"),
+            layout: &lights_bind_group_layout,
+            bindings: &[
+                point_lights.as_binding(LightBindings::PointLights as u32),
+                spot_lights.as_binding(LightBindings::SpotLights as u32),
+                area_lights.as_binding(LightBindings::AreaLights as u32),
+                directional_lights.as_binding(LightBindings::DirectionalLights as u32),
+            ],
+        });
+
         let intersection_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[
                     &intersection_bind_group.layout,
                     &mesh_bind_group_layout,
                     &top_bind_group_layout,
+                    &lights_bind_group_layout,
                 ],
             });
 
@@ -744,10 +827,12 @@ impl Renderer for RayTracer<'_> {
             texture_sampler,
             bvh: BVH::empty(),
             mbvh: MBVH::empty(),
-            point_lights: Vec::new(),
-            spot_lights: Vec::new(),
-            area_lights: Vec::new(),
-            directional_lights: Vec::new(),
+            point_lights,
+            spot_lights,
+            area_lights,
+            directional_lights,
+            lights_bind_group_layout,
+            lights_bind_group,
         }))
     }
 
@@ -1058,6 +1143,26 @@ impl Renderer for RayTracer<'_> {
         self.top_indices.update(&self.device, &mut encoder);
         self.instances_buffer.update(&self.device, &mut encoder);
 
+        self.point_lights.update(&self.device, &mut encoder);
+        self.spot_lights.update(&self.device, &mut encoder);
+        self.area_lights.update(&self.device, &mut encoder);
+        self.directional_lights.update(&self.device, &mut encoder);
+
+        self.lights_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lights_bind_group"),
+            layout: &self.lights_bind_group_layout,
+            bindings: &[
+                self.point_lights
+                    .as_binding(LightBindings::PointLights as u32),
+                self.spot_lights
+                    .as_binding(LightBindings::SpotLights as u32),
+                self.area_lights
+                    .as_binding(LightBindings::AreaLights as u32),
+                self.directional_lights
+                    .as_binding(LightBindings::DirectionalLights as u32),
+            ],
+        });
+
         self.queue.submit(&[encoder.finish()]);
         self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
@@ -1133,6 +1238,7 @@ impl Renderer for RayTracer<'_> {
             compute_pass.set_bind_group(0, bind_group, &[]);
             compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
             compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
             compute_pass.dispatch(
                 ((self.width * self.height) as f32 / 16.0).ceil() as u32,
                 1,
@@ -1285,19 +1391,23 @@ impl Renderer for RayTracer<'_> {
     }
 
     fn set_point_lights(&mut self, _changed: &BitVec, lights: &[scene::PointLight]) {
-        self.point_lights = Vec::from(lights);
+        self.point_lights.resize(&self.device, lights.len());
+        self.point_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn set_spot_lights(&mut self, _changed: &BitVec, lights: &[scene::SpotLight]) {
-        self.spot_lights = Vec::from(lights);
+        self.spot_lights.resize(&self.device, lights.len());
+        self.spot_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn set_area_lights(&mut self, _changed: &BitVec, lights: &[scene::AreaLight]) {
-        self.area_lights = Vec::from(lights);
+        self.area_lights.resize(&self.device, lights.len());
+        self.area_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[scene::DirectionalLight]) {
-        self.directional_lights = Vec::from(lights);
+        self.directional_lights.resize(&self.device, lights.len());
+        self.directional_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {

@@ -126,3 +126,46 @@ struct Material {
 #define HAS_METALLIC_MAP(flags) ((flags & (1 << 3)) > 0)
 #define HAS_EMISSIVE_MAP(flags) ((flags & (1 << 4)) > 0)
 #define HAS_SHEEN_MAP(flags) ((flags & (1 << 5)) > 0)
+
+struct PointLight {
+    vec3 position;
+    float energy;
+
+    vec3 radiance;
+    int dummy;
+};
+
+struct SpotLight {
+    vec3 position;
+    float cos_inner;
+
+    vec3 radiance;
+    float cos_outer;
+
+    vec3 direction;
+    float energy;
+};
+
+
+struct AreaLight {
+    vec3 position;
+    float energy;
+
+    vec3 normal;
+    float area;
+
+    vec3 vertex0;
+    int inst_id;
+
+    vec3 vertex1;
+    vec3 radiance;
+    vec3 vertex;
+};
+
+struct DirectionalLight {
+    vec3 direction;
+    float energy;
+
+    vec3 radiance;
+    int dummy;
+};

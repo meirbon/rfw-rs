@@ -65,6 +65,22 @@ pub struct AreaLight {
     pub vertex2: [f32; 3],  // 84
 }
 
+impl Default for AreaLight {
+    fn default() -> Self {
+        Self {
+            position: [0.0; 3], // 12
+            energy: 0.0,        // 16
+            normal: [0.0; 3],   // 28
+            area: 0.0,
+            vertex0: [0.0; 3],  // 44
+            inst_idx: 0,        // 48
+            vertex1: [0.0; 3],  // 60
+            radiance: [0.0; 3], // 72
+            vertex2: [0.0; 3],  // 84
+        }
+    }
+}
+
 impl Display for AreaLight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -182,6 +198,17 @@ pub struct PointLight {
     _dummy: i32,
 }
 
+impl Default for PointLight {
+    fn default() -> Self {
+        Self {
+            position: [0.0; 3],
+            energy: 0.0,
+            radiance: [0.0; 3],
+            _dummy: 0,
+        }
+    }
+}
+
 impl Display for PointLight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -275,6 +302,19 @@ pub struct SpotLight {
     pub direction: [f32; 3],
     energy: f32,
 } // 48 Bytes
+
+impl Default for SpotLight {
+    fn default() -> Self {
+        Self {
+            position: [0.0; 3],
+            cos_inner: 0.0,
+            radiance: [0.0; 3],
+            cos_outer: 0.0,
+            direction: [0.0; 3],
+            energy: 0.0,
+        }
+    }
+}
 
 impl Display for SpotLight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -394,6 +434,17 @@ pub struct DirectionalLight {
     radiance: [f32; 3],
     _dummy: i32,
 } // 32 Bytes
+
+impl Default for DirectionalLight {
+    fn default() -> Self {
+        Self {
+            direction: [0.0; 3],
+            energy: 0.0,
+            radiance: [0.0; 3],
+            _dummy: 0,
+        }
+    }
+}
 
 impl Display for DirectionalLight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

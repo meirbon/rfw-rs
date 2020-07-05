@@ -26,6 +26,11 @@ layout(std430, set = 2, binding = 4) buffer readonly Materials { Material materi
 layout(set = 2, binding = 5) uniform texture2DArray matTextures;
 layout(set = 2, binding = 6) uniform sampler matTexSampler;
 
+layout(std430, set = 3, binding = 0) buffer readonly PointLights { PointLight pointLights; };
+layout(std430, set = 3, binding = 1) buffer readonly SpotLights { SpotLight spotLights; };
+layout(std430, set = 3, binding = 2) buffer readonly AreaLights { AreaLight areaLights; };
+layout(std430, set = 3, binding = 3) buffer readonly DirectionalLights { DirectionalLight directionalLights; };
+
 #define MIPLEVELCOUNT 5
 
 #define PATH_ID floatBitsToInt(O.w)
