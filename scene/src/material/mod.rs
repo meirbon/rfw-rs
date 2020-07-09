@@ -79,6 +79,7 @@ impl MaterialFlags {
 pub struct Material {
     pub name: String,
     pub color: [f32; 4],    // 16
+    pub absorption: [f32; 4],
     pub specular: [f32; 4], // 32
     pub metallic: f32,
     pub subsurface: f32,
@@ -108,9 +109,10 @@ impl Display for Material {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Material {{ name: {}, color: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, roughness_tex: {}, metallic_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
+            "Material {{ name: {}, color: {}, absorption: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, roughness_tex: {}, metallic_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
             self.name,
             Vec4::from(self.color),
+            Vec4::from(self.absorption),
             Vec4::from(self.specular),
             self.metallic,
             self.subsurface,
@@ -142,6 +144,7 @@ impl Display for Material {
 #[repr(C)]
 pub struct DeviceMaterial {
     pub color: [f32; 4],      // 16
+    pub absorption: [f32; 4],      // 16
     pub specular: [f32; 4],   // 32
     pub parameters: [u32; 4], // 48
     
@@ -159,6 +162,7 @@ impl Default for DeviceMaterial {
     fn default() -> Self {
         Self {
             color: [0.0; 4],
+            absorption: [0.0; 4],
             specular: [0.0; 4],
             parameters: [0; 4],
             flags: 0,
@@ -228,6 +232,7 @@ impl Into<DeviceMaterial> for &Material {
 
         DeviceMaterial {
             color: self.color,
+            absorption: self.absorption,
             specular: self.specular,
             parameters,
             flags: flags.into(),
@@ -246,6 +251,7 @@ impl Default for Material {
         Self {
             name: String::new(),
             color: [1.0; 4],
+            absorption: [0.0; 4],
             specular: [1.0; 4],
             metallic: 0.0,
             subsurface: 0.0,

@@ -1633,15 +1633,17 @@ impl Renderer for RayTracer<'_> {
 
         self.queue.submit(&[encoder.finish()]);
 
-        self.intersection_bind_group.bind(
-            IntersectionBindings::Skybox as u32,
-            bind_group::Binding::SampledTexture(
-                self.skybox_texture.create_default_view(),
-                Self::TEXTURE_FORMAT,
-                wgpu::TextureComponentType::Uint,
-                wgpu::TextureViewDimension::D2,
-            ),
-        );
+        self.intersection_bind_group
+            .bind(
+                IntersectionBindings::Skybox as u32,
+                bind_group::Binding::SampledTexture(
+                    self.skybox_texture.create_default_view(),
+                    Self::TEXTURE_FORMAT,
+                    wgpu::TextureComponentType::Uint,
+                    wgpu::TextureViewDimension::D2,
+                ),
+            )
+            .unwrap();
     }
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {

@@ -140,7 +140,7 @@ fn main() {
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Reset;
 
-    renderer.set_skybox("models/pisa.png");
+    renderer.set_skybox("models/pisa.png").unwrap();
 
     renderer.synchronize();
 

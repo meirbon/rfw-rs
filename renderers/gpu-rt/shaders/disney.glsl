@@ -1,7 +1,7 @@
 #ifndef DISNEY_H
 #define DISNEY_H
 
-#include "structures.glsl"
+#include "utils.glsl"
 
 struct InputValues
 {
@@ -104,20 +104,20 @@ float BSDFPdf(const ShadingData shadingData, const vec3 N, const vec3 wo, const 
 {
     float bsdfPdf = 0.0f, brdfPdf;
     if (dot(wi, N) <= 0.0f)
-    brdfPdf = INV2PI * SUBSURFACE * 0.5f;
+    brdfPdf = INV2PI * shadingData.subsurface * 0.5f;
     else
     {
-        const float F = Fr(dot(N, wo), ETA);
+        const float F = Fr(dot(N, wo), shadingData.eta);
         const vec3 halfway = SafeNormalize(wi + wo);
         const float cosThetaHalf = abs(dot(halfway, N));
-        const float pdfHalf = GTR2(cosThetaHalf, ROUGHNESS) * cosThetaHalf;
+        const float pdfHalf = GTR2(cosThetaHalf, shadingData.roughness) * cosThetaHalf;
         // calculate pdf for each method given outgoing light vector
         const float pdfSpec = 0.25f * pdfHalf / max(1.e-6f, dot(wi, halfway));
-        const float pdfDiff = abs(dot(wi, N)) * INVPI * (1.0f - SUBSURFACE);
+        const float pdfDiff = abs(dot(wi, N)) * INVPI * (1.0f - shadingData.subsurface);
         bsdfPdf = pdfSpec * F;
         brdfPdf = mix(pdfDiff, pdfSpec, 0.5f);
     }
-    return mix(brdfPdf, bsdfPdf, TRANSMISSION);
+    return mix(brdfPdf, bsdfPdf, shadingData.transmission);
 }
 
 // evaluate the BSDF for a given pair of directions
@@ -131,50 +131,50 @@ vec3 BSDFEval(const ShadingData shadingData, const vec3 N, const vec3 wo, const 
     const vec3 Cdlin = shadingData.color.xyz;
     const float Cdlum = .3f * Cdlin.x + .6f * Cdlin.y + .1f * Cdlin.z;// luminance approx.
     const vec3 Ctint = Cdlum > 0.0f ? Cdlin / Cdlum : vec3(1.0f);// normalize lum. to isolate hue+sat
-    const vec3 Cspec0 = mix(SPECULAR * .08f * mix(vec3(1.0f), Ctint, SPECTINT), Cdlin, METALLIC);
+    const vec3 Cspec0 = mix(shadingData.specular * .08f * mix(vec3(1.0f), Ctint, shadingData.specular_tint), Cdlin, shadingData.metallic);
     vec3 bsdf = vec3(0);
     vec3 brdf = vec3(0);
-    if (TRANSMISSION > 0.0f)
+    if (shadingData.transmission > 0.0f)
     {
         // evaluate BSDF
         if (NDotL <= 0)
         {
             // transmission Fresnel
-            const float F = Fr(NDotV, ETA);
-            bsdf = vec3((1.0f - F) / abs(NDotL) * (1.0f - METALLIC) * TRANSMISSION);
+            const float F = Fr(NDotV, shadingData.eta);
+            bsdf = vec3((1.0f - F) / abs(NDotL) * (1.0f - shadingData.metallic) * shadingData.transmission);
         }
         else
         {
             // specular lobe
-            const float a = ROUGHNESS;
+            const float a = shadingData.roughness;
             const float Ds = GTR2(NDotH, a);
 
             // Fresnel term with the microfacet normal
-            const float FH = Fr(LDotH, ETA);
+            const float FH = Fr(LDotH, shadingData.eta);
             const vec3 Fs = mix(Cspec0, vec3(1.0f), FH);
             const float Gs = SmithGGX(NDotV, a) * SmithGGX(NDotL, a);
             bsdf = (Gs * Ds) * Fs;
         }
     }
-    if (TRANSMISSION < 1.0f)
+    if (shadingData.transmission < 1.0f)
     {
         // evaluate BRDF
         if (NDotL <= 0)
         {
-            if (SUBSURFACE > 0.0f)
+            if (shadingData.subsurface > 0.0f)
             {
                 // take sqrt to account for entry/exit of the ray through the medium
                 // this ensures transmitted light corresponds to the diffuse model
                 const vec3 s = vec3(sqrt(shadingData.color.x), sqrt(shadingData.color.y), sqrt(shadingData.color.z));
                 const float FL = SchlickFresnel(abs(NDotL)), FV = SchlickFresnel(NDotV);
                 const float Fd = (1.0f - 0.5f * FL) * (1.0f - 0.5f * FV);
-                brdf = INVPI * s * SUBSURFACE * Fd * (1.0f - METALLIC);
+                brdf = INVPI * s * shadingData.subsurface * Fd * (1.0f - shadingData.metallic);
             }
         }
         else
         {
             // specular
-            const float a = ROUGHNESS;
+            const float a = shadingData.roughness;
             const float Ds = GTR2(NDotH, a);
 
             // Fresnel term with the microfacet normal
@@ -189,36 +189,38 @@ vec3 BSDFEval(const ShadingData shadingData, const vec3 N, const vec3 wo, const 
             const float Fd = mix(1.0f, Fd90, FL) * mix(1.0f, Fd90, FV);
 
             // clearcoat (ior = 1.5 -> F0 = 0.04)
-            const float Dr = GTR1(NDotH, mix(.1, .001, CLEARCOATGLOSS));
+            const float Dr = GTR1(NDotH, mix(.1, .001, shadingData.clearcoat_gloss));
             const float Fc = mix(.04f, 1.0f, FH);
             const float Gr = SmithGGX(NDotL, .25) * SmithGGX(NDotV, .25);
 
-            brdf = INVPI * Fd * Cdlin * (1.0f - METALLIC) * (1.0f - SUBSURFACE) + Gs * Fs * Ds + CLEARCOAT * Gr * Fc * Dr;
+            brdf = INVPI * Fd * Cdlin * (1.0f - shadingData.metallic) * (1.0f - shadingData.subsurface) + Gs * Fs * Ds + shadingData.clearcoat * Gr * Fc * Dr;
         }
     }
 
-    const vec3 final = mix(brdf, bsdf, TRANSMISSION);
+    const vec3 final = mix(brdf, bsdf, shadingData.transmission);
 
-    if (backfacing)
-    return final * exp(-vec3(shadingData.absorption) * t);
-    else
-    return final;
+    if (backfacing) {
+        return final * exp(-vec3(shadingData.absorption) * t);
+    }
+    else {
+        return final;
+    }
 }
 
 // generate an importance sampled BSDF direction
 void BSDFSample(const ShadingData shadingData, const vec3 T, const vec3 B, const vec3 N, const vec3 wo, inout vec3 wi, inout float pdf, inout int type,
 const float t, const bool backfacing, const float r3, const float r4)
 {
-    if (r3 < TRANSMISSION)
+    if (r3 < shadingData.transmission)
     {
         // sample BSDF
-        float F = Fr(dot(N, wo), ETA);
+        float F = Fr(dot(N, wo), shadingData.eta);
         if (r4 < F)// sample reflectance or transmission based on Fresnel term
         {
             // sample reflection
-            const float r1 = r3 / TRANSMISSION;
+            const float r1 = r3 / shadingData.transmission;
             const float r2 = r4 / F;
-            const float cosThetaHalf = sqrt((1.0f - r2) / (1.0f + (sqr(ROUGHNESS) - 1.0f) * r2));
+            const float cosThetaHalf = sqrt((1.0f - r2) / (1.0f + (sqr(shadingData.roughness) - 1.0f) * r2));
             const float sinThetaHalf = sqrt(max(0.0f, 1.0f - sqr(cosThetaHalf)));
             const float sinPhiHalf = sin(r1 * TWOPI);
             const float cosPhiHalf = cos(r1 * TWOPI);
@@ -231,28 +233,28 @@ const float t, const bool backfacing, const float r3, const float r4)
         else // sample transmission
         {
             pdf = 0;
-            if (Refract(wo, N, ETA, wi))
-            type = BSDF_TYPE_SPECULAR, pdf = (1.0f - F) * TRANSMISSION;
+            if (Refract(wo, N, shadingData.eta, wi))
+            type = BSDF_TYPE_SPECULAR, pdf = (1.0f - F) * shadingData.transmission;
             return;
         }
     }
     else // sample BRDF
     {
-        const float r1 = (r3 - TRANSMISSION) / (1 - TRANSMISSION);
+        const float r1 = (r3 - shadingData.transmission) / (1 - shadingData.transmission);
         if (r4 < 0.5f)
         {
             // sample diffuse
             const float r2 = r4 * 2;
             vec3 d;
-            if (r2 < SUBSURFACE)
+            if (r2 < shadingData.subsurface)
             {
-                const float r5 = r2 / SUBSURFACE;
+                const float r5 = r2 / shadingData.subsurface;
                 d = DiffuseReflectionUniform(r1, r5);
                 type = BSDF_TYPE_TRANSMITTED, d.z *= -1.0f;
             }
             else
             {
-                const float r5 = (r2 - SUBSURFACE) / (1 - SUBSURFACE);
+                const float r5 = (r2 - shadingData.subsurface) / (1 - shadingData.subsurface);
                 d = DiffuseReflectionCosWeighted(r1, r5);
                 type = BSDF_TYPE_REFLECTED;
             }
@@ -262,7 +264,7 @@ const float t, const bool backfacing, const float r3, const float r4)
         {
             // sample specular
             const float r2 = (r4 - 0.5f) * 2.0f;
-            const float cosThetaHalf = sqrt((1.0f - r2) / (1.0f + (sqr(ROUGHNESS) - 1.0f) * r2));
+            const float cosThetaHalf = sqrt((1.0f - r2) / (1.0f + (sqr(shadingData.roughness) - 1.0f) * r2));
             const float sinThetaHalf = sqrt(max(0.0f, 1.0f - sqr(cosThetaHalf)));
             const float sinPhiHalf = sin(r1 * TWOPI);
             const float cosPhiHalf = cos(r1 * TWOPI);

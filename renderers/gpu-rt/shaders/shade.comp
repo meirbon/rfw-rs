@@ -4,6 +4,7 @@
 #include "structs.glsl"
 #include "utils.glsl"
 #include "random.glsl"
+#include "disney.glsl"
 
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -92,7 +93,8 @@ void main()
         return;
     }
 
-    vec4 color = materials[MAT_ID].color;
+    ShadingData shadingData = extractParameters(materials[MAT_ID].color.xyz, materials[MAT_ID].absorption.xyz, materials[MAT_ID].specular.xyz, materials[MAT_ID].parameters);
+
     const uint flags = materials[MAT_ID].flags;
 
     const uint sampleId = PATH_ID / (offset) + camera.sample_count;
@@ -121,10 +123,10 @@ void main()
     }
     
     // If material contains an emissive map, defer returning
-    if (any(greaterThan(color.xyz, vec3(1.0f))) && !HAS_EMISSIVE_MAP(flags)) { // Hit a light
+    if (any(greaterThan(shadingData.color.xyz, vec3(1.0f))) && !HAS_EMISSIVE_MAP(flags)) { // Hit a light
         // Retrieve emissiveness first
         if (HAS_EMISSIVE_MAP(flags)) {
-            color = fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].emissive_map);
+            shadingData.color = fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].emissive_map).rgb;
         }
 
         vec3 contribution = vec3(0);
@@ -133,7 +135,7 @@ void main()
         {
             if (camera.path_length == 0 /*|| (FLAGS & S_VIASPECULAR) != 0*/)
             {
-                contribution = throughput * color.xyz * (1.0f / bsdfPdf);
+                contribution = throughput * shadingData.color.xyz * (1.0f / bsdfPdf);
             }
             else
             {
@@ -145,7 +147,7 @@ void main()
                     return;
                 }
 
-                contribution = throughput * color.xyz * (1.0f / (bsdfPdf + lightPdf * pickProb));
+                contribution = throughput * shadingData.color.xyz * (1.0f / (bsdfPdf + lightPdf * pickProb));
             }
         }
 
@@ -160,7 +162,7 @@ void main()
         const float tv = w * rt_triangles[TRI_ID].tv0 + u * rt_triangles[TRI_ID].tv1 + v * rt_triangles[TRI_ID].tv2;
 
         if (HAS_DIFFUSE_MAP(flags)) {
-            color *= fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].diffuse_map);
+            shadingData.color *= fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].diffuse_map).rgb;
         }
 
         if (HAS_NORMMAL_MAP(flags)) {
@@ -177,7 +179,7 @@ void main()
     throughput *= 1.0f / bsdfPdf;// Apply postponed bsdf pdf
 
     const vec3 R = normalize(tangent_to_world(sample_hemisphere(randf(seed), randf(seed)), N.xyz, T.xyz, B.xyz));
-    const vec3 bsdf = color.xyz * (1.0f / 3.14159265359f);
+    const vec3 bsdf = shadingData.color.xyz * (1.0f / 3.14159265359f);
     const float n_dot_r = abs(dot(N, R));
     throughput = throughput * bsdf * n_dot_r / (1.0f * 3.14159265359f);
 

@@ -3,6 +3,7 @@
 
 struct Material {
     vec4 color;
+    vec4 absorption;
     vec4 specular;
     uvec4 parameters;
 
@@ -19,6 +20,7 @@ struct Material {
 
 struct ShadingData {
     vec3 color;
+    vec3 absorption;
     vec3 specular;
     float metallic;
     float subsurface;
@@ -69,9 +71,10 @@ struct ShadingData {
 #define CUSTOM2(parameters) CHAR2FLT(parameters.w, 16)
 #define CUSTOM3(parameters) CHAR2FLT(parameters.w, 24)
 
-ShadingData extractParameters(const vec3 color, const vec3 specular, const uvec4 parameters) {
+ShadingData extractParameters(const vec3 color, const vec3 absorption, const vec3 specular, const uvec4 parameters) {
     ShadingData data;
     data.color = color;
+    data.absorption = absorption;
     data.specular = specular;
     data.metallic = METALLIC(parameters);
     data.subsurface = SUBSURFACE(parameters);
