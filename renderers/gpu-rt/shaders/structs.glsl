@@ -160,8 +160,13 @@ struct AreaLight {
     int inst_id;
 
     vec3 vertex1;
+    int _dummy0;
+    
     vec3 radiance;
-    vec3 vertex;
+    int _dummy1;
+
+    vec3 vertex2;
+    int _dummy2;
 };
 
 struct DirectionalLight {
@@ -170,4 +175,10 @@ struct DirectionalLight {
 
     vec3 radiance;
     int dummy;
+};
+
+struct PotentialContribution {
+    vec4 O;
+	vec4 D;
+	vec4 E_pixelId;
 };

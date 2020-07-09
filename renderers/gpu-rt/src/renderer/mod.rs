@@ -25,6 +25,7 @@ enum IntersectionBindings {
     PathDirections = 4,
     PathThroughputs = 5,
     AccumulationBuffer = 6,
+    PotentialContributions = 7,
 }
 
 #[repr(u32)]
@@ -208,6 +209,7 @@ pub struct RayTracer<'a> {
     intersection_pipeline: wgpu::ComputePipeline,
 
     extend_pipeline: wgpu::ComputePipeline,
+    shadow_pipeline: wgpu::ComputePipeline,
 
     shade_pipeline: wgpu::ComputePipeline,
     blit_pipeline: wgpu::ComputePipeline,
@@ -557,6 +559,21 @@ impl Renderer for RayTracer<'_> {
                 ),
             })
             .unwrap()
+            .with_binding(bind_group::BindGroupBinding {
+                index: IntersectionBindings::PotentialContributions as u32,
+                visibility: wgpu::ShaderStage::COMPUTE,
+                binding: bind_group::Binding::WriteStorageBuffer(
+                    device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("accumulation_buffer"),
+                        size: (width * height * 12 * std::mem::size_of::<f32>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsage::STORAGE,
+                    }),
+                    0..((width * height * 12 * std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress),
+                ),
+            })
+            .unwrap()
             .build(&device);
 
         let top_bind_group_layout =
@@ -730,6 +747,21 @@ impl Renderer for RayTracer<'_> {
         });
 
         let compute_module = compiler
+            .compile_from_file(
+                "renderers/gpu-rt/shaders/ray_shadow.comp",
+                ShaderKind::Compute,
+            )
+            .unwrap();
+        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let shadow_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &intersection_pipeline_layout,
+            compute_stage: wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &compute_module,
+            },
+        });
+
+        let compute_module = compiler
             .compile_from_file("renderers/gpu-rt/shaders/shade.comp", ShaderKind::Compute)
             .unwrap();
         let compute_module = device.create_shader_module(compute_module.as_slice());
@@ -840,6 +872,7 @@ impl Renderer for RayTracer<'_> {
             intersection_pipeline_layout,
             intersection_pipeline,
             extend_pipeline,
+            shadow_pipeline,
             shade_pipeline,
             blit_pipeline,
             mesh_bind_group,
@@ -1267,7 +1300,6 @@ impl Renderer for RayTracer<'_> {
 
         let mut path_count = self.width * self.height;
         let mut i = 0;
-        let mut shadow_rays = 0;
         while path_count > 0 && i < 3 {
             self.write_camera_data(&camera_data);
 
@@ -1279,11 +1311,13 @@ impl Renderer for RayTracer<'_> {
             self.read_camera_data(&mut camera_data);
 
             path_count = camera_data.extension_id as usize;
-            shadow_rays += camera_data.shadow_id as usize;
+            if camera_data.shadow_id > 0 {
+                self.perform_pass(camera_data.shadow_id as usize, 0, PassType::Shadow);
+            }
 
+            camera_data.shadow_id = 0;
             camera_data.path_length += 1;
             camera_data.extension_id = 0;
-            camera_data.shadow_id = 0;
             camera_data.path_count = path_count as i32;
             i += 1;
         }
@@ -1444,6 +1478,21 @@ impl Renderer for RayTracer<'_> {
                         usage: wgpu::BufferUsage::STORAGE,
                     }),
                     0..((self.width * self.height * 4 * std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress),
+                ),
+            )
+            .unwrap();
+        self.intersection_bind_group
+            .bind(
+                IntersectionBindings::PotentialContributions as u32,
+                bind_group::Binding::WriteStorageBuffer(
+                    self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("accumulation_buffer"),
+                        size: (self.width * self.height * 12 * std::mem::size_of::<f32>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsage::STORAGE,
+                    }),
+                    0..((self.width * self.height * 12 * std::mem::size_of::<f32>())
                         as wgpu::BufferAddress),
                 ),
             )
@@ -1624,7 +1673,13 @@ impl<'a> RayTracer<'a> {
                     compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
                     compute_pass.dispatch((width as f32 / 64.0).ceil() as u32, 1, 1);
                 }
-                PassType::Shadow => {}
+                PassType::Shadow => {
+                    compute_pass.set_pipeline(&self.shadow_pipeline);
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.dispatch((width as f32 / 64.0).ceil() as u32, 1, 1);
+                }
             }
         }
 

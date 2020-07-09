@@ -37,6 +37,38 @@ bool intersect(const RTTriangle triangle, const vec3 origin, const vec3 directio
     return false;
 }
 
+bool intersect_occludes(const RTTriangle triangle, const vec3 origin, const vec3 direction, float t_min, float t)
+{
+    const vec3 v0 = triangle.v0;
+    const vec3 v1 = triangle.v1;
+    const vec3 v2 = triangle.v2;
+
+    const vec3 edge1 = v1 - v0;
+    const vec3 edge2 = v2 - v0;
+
+    const vec3 h = cross(direction, edge2);
+    const float a = dot(edge1, h);
+    if (a > -0.0001 && a < 0.0001) {
+        return false;
+    }
+
+    const float f = 1.0 / a;
+    const vec3 s = origin - v0;
+    const float u = f * dot(s, h);
+    if (u < 0.0 || u > 1.0) {
+        return false;
+    }
+
+    const vec3 q = cross(s, edge1);
+    const float v = f * dot(direction, q);
+    if (v < 0.0 || (u + v) > 1.0) {
+        return false;
+    }
+
+    const float _t = f * dot(edge2, q);
+    return _t > t_min && _t < t;
+}
+
 bool intersect_node(const BVHNode node, const vec3 origin, const vec3 dir_inverse, const float t, inout float t_min, inout float t_max) {
     float tmin = (node.bmin_x - origin.x) * dir_inverse.x;
     float tmax = (node.bmax_x - origin.x) * dir_inverse.x;

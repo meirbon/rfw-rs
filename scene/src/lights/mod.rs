@@ -61,8 +61,11 @@ pub struct AreaLight {
     pub vertex0: [f32; 3],  // 44
     pub inst_idx: i32,      // 48
     pub vertex1: [f32; 3],  // 60
+    _dummy0: i32,
     pub radiance: [f32; 3], // 72
+    _dummy1: i32,
     pub vertex2: [f32; 3],  // 84
+    _dummy2: i32,
 }
 
 impl Default for AreaLight {
@@ -75,8 +78,11 @@ impl Default for AreaLight {
             vertex0: [0.0; 3],  // 44
             inst_idx: 0,        // 48
             vertex1: [0.0; 3],  // 60
+            _dummy0: 0,
             radiance: [0.0; 3], // 72
+            _dummy1: 0,
             vertex2: [0.0; 3],  // 84
+            _dummy2: 0,
         }
     }
 }
@@ -119,8 +125,11 @@ impl AreaLight {
             vertex0: vertex0.into(),
             inst_idx: inst_id,
             vertex1: vertex1.into(),
+            _dummy0: 0,
             radiance: radiance.into(),
+            _dummy1: 1,
             vertex2: vertex2.into(),
+            _dummy2: 2,
         }
     }
 }

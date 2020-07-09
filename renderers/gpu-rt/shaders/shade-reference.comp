@@ -14,7 +14,7 @@ layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
 layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
 layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
 layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
-layout(std140, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
+layout(std430, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
 
 layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
 layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
@@ -44,20 +44,10 @@ layout(std430, set = 3, binding = 3) buffer readonly DirectionalLights { Directi
 #define HIT_V (float(floatBitsToUint(S.w) >> 16) * (1.0f / 65535.0f))
 #define MAT_ID rt_triangles[TRI_ID].mat_id
 
-#define AREALIGHTCOUNT camera.area_light_count
-#define POINTLIGHTCOUNT camera.point_light_count
+#define AREALIGHTCOUNT camera.point_light_count
+#define POINTLIGHTCOUNT camera.area_light_count
 #define SPOTLIGHTCOUNT camera.spot_light_count
 #define DIRECTIONALLIGHTCOUNT camera.directional_light_count
-
-vec3 RandomBarycentrics(const float r0);
-float PotentialAreaLightContribution(const int idx, const vec3 O, const vec3 N, const vec3 I, const vec3 bary);
-float PotentialPointLightContribution(const int idx, const vec3 I, const vec3 N);
-float PotentialSpotLightContribution(const int idx, const vec3 I, const vec3 N);
-float PotentialDirectionalLightContribution(const int idx, const vec3 I, const vec3 N);
-float LightPickProb(const int idx, const vec3 O, const vec3 N, const vec3 I);
-float CalculateLightPDF(const vec3 D, const float t, const float lightArea, const vec3 lightNormal);
-vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout float pickProb, inout float lightPdf, inout vec3 lightColor);
-float blueNoiseSampler(int x, int y, int sampleIdx, int sampleDimension);
 
 vec4 fetchTexel(const vec2 texCoord, const int texturdId, const float LOD);
 vec4 fetchTexelTrilinear(const float lambda, const vec2 texCoord, const int textureId);
@@ -88,9 +78,7 @@ void main()
     
     // If material contains an emissive map, defer returning
     if (any(greaterThan(color.xyz, vec3(1.0f))) && !HAS_EMISSIVE_MAP(flags)) { // Hit a light
-        if (camera.path_length == 0) {
-            acPixels[PATH_ID] += color;
-        }
+        acPixels[PATH_ID] += vec4(color.xyz * throughput, 0);
         return;
     }
 
@@ -136,7 +124,6 @@ void main()
     const bool backFacing = dot(D.xyz, gN) >= 0.0f;
     if (backFacing) {
         N = N * -1.0f;
-        gN = gN * -1.0f;
     }
 
     const vec3 P = O.xyz + T_VAL * D.xyz;
@@ -152,41 +139,6 @@ void main()
 
     // Prevent any nans
     throughput = max(throughput, vec3(0.0f));
-
-    // Light sampling
-    if (POINTLIGHTCOUNT > 0 || AREALIGHTCOUNT > 0 || SPOTLIGHTCOUNT > 0 || DIRECTIONALLIGHTCOUNT > 0)
-    {
-        float r0 = randf(seed);
-        float r1 = randf(seed);
-        
-        vec3 lightColor;
-        float pickProb, lightPdf;
-
-        vec3 L = RandomPointOnLight(r0, r1, P, N, pickProb, lightPdf, lightColor) - P;
-        const float dist = length(L);
-        L *= 1.0f / dist;
-        const float NdotL = dot(L, N);
-        if (NdotL > 0.0 && lightPdf > 0.0)
-        {
-            // float shadowPdf = NdotL * (1.0f / 3.14159265359f);
-            // const vec3 sampledBSDF = EvaluateBSDF(shadingData, iN, T, B, D * -1.0f, L, shadowPdf);
-            // if (shadowPdf > 0.0)
-            // {
-                // calculate potential contribution
-                vec3 contribution = throughput * bsdf * lightColor * (NdotL / (lightPdf * pickProb));
-                // CLAMPINTENSITY(contribution, clampValue);
-                if (!any(isnan(contribution)))
-                {
-                    // Add fire-and-forget shadow ray to the connections buffer
-                    const uint shadowRayIdx = atomicAdd(camera.shadowId, 1);// compaction
-
-                    potContributions[shadowRayIdx].O = vec4(P + 1e-4f * gN, 0);
-                    potContributions[shadowRayIdx].D = vec4(L, dist - 1e-4f);
-                    potContributions[shadowRayIdx].E_pixelId = vec4(contribution, O.w);
-                }
-            // }
-        }
-    }
 
     // Get compacted index for extension ray
     const int ext_id = atomicAdd(camera.extensionId, 1) + int(nextBufferIndex * offset);
@@ -227,7 +179,7 @@ float PotentialAreaLightContribution(const int idx, const vec3 O, const vec3 N, 
     L = normalize(L);
     const float LNdotL = max(0.0f, -dot(LN, L));
     const float NdotL = max(0.0f, dot(N, L));
-    return areaLights[idx].area * LNdotL * NdotL * att;
+    return areaLights[idx].energy * LNdotL * NdotL * att;
 }
 
 float PotentialPointLightContribution(const int idx, const vec3 I, const vec3 N)
@@ -426,8 +378,8 @@ vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout fl
         const float sqDist = dot(L, L);
         L = normalize(L);
         const float LNdotL = dot(L, LN.xyz);
-        const float reciSolidAngle = sqDist / (light.energy * LNdotL);
-        lightPdf = (LNdotL > 0 && dot(L, N) < 0) ? (reciSolidAngle * (1.0f / light.area)) : 0;
+        const float reciSolidAngle = sqDist / (light.energy* LNdotL);
+        lightPdf = (LNdotL > 0 && dot(L, N) < 0) ? (reciSolidAngle * (1.0f / length(light.radiance.xyz))) : 0;
         return P;
     }
 

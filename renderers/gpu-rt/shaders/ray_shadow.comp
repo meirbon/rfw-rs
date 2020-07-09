@@ -1,0 +1,271 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "structs.glsl"
+#include "intersection.glsl"
+
+#define USE_MBVH 1
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
+layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
+layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
+layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
+layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
+layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
+layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
+layout(std140, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
+
+layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
+layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
+layout(std140, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
+
+layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
+layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
+layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
+
+bool intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, float t)
+{
+    uint hit_stack[64];
+    hit_stack[0] = 0;
+    int stack_ptr = 0;
+
+    const vec3 dir_inverse = 1.0 / direction;
+    while (stack_ptr >= 0) {
+        const uint node_index = hit_stack[stack_ptr] + bvh_offset;
+        stack_ptr = stack_ptr - 1;
+
+        const int count = bvh_nodes[node_index].count;
+        const int left_first = bvh_nodes[node_index].left_first;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++)
+            {
+                uint prim_id = triangle_offset + prim_indices[left_first + i + prim_offset];
+                if (intersect_occludes(rt_triangles[prim_id], origin, direction, t_min, t)) {
+                    return false;
+                }
+            }
+        } else if (left_first >= 0) { // Regular node
+            float _ltmin, _ltmax;
+            float _rtmin, _rtmax;
+            bool hit_left = intersect_node(bvh_nodes[left_first + bvh_offset], origin, dir_inverse, t, _rtmin, _rtmax);
+            bool hit_right = intersect_node(bvh_nodes[left_first + bvh_offset + 1], origin, dir_inverse, t, _rtmin, _rtmax);
+
+            if (hit_left && hit_right) {
+                if (_ltmin < _rtmin) {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                } else {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                }
+            } else if (hit_left) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first;
+            } else if (hit_right) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first + 1;
+            }
+        }
+    }
+
+    return true;
+}
+
+struct MBVHTraversal {
+    int left_first;
+    int count;
+};
+
+bool intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, float t)
+{
+    MBVHTraversal hit_stack[32];
+    int stack_ptr = -1;
+
+    const vec3 dir_inverse = 1.0 / direction;
+
+    bvec4 result;
+    vec4 index;
+
+    if (!intersect_mnode(mbvh_nodes[bvh_offset], origin, dir_inverse, t, index, result)) {
+        return true;
+    }
+
+    for (int i = 3; i >= 0; i--) {
+        const int idx = floatBitsToInt(index[i]) & 3;
+        if (result[idx] && mbvh_nodes[bvh_offset].children[idx] >= 0) {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset].children[idx];
+            hit_stack[stack_ptr].count = mbvh_nodes[bvh_offset].counts[idx];
+        }
+    }
+
+    while (stack_ptr >= 0) {
+        const int left_first = hit_stack[stack_ptr].left_first;
+        const int count = hit_stack[stack_ptr].count;
+        stack_ptr -= 1;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++) {
+                if (intersect_occludes(rt_triangles[triangle_offset + prim_indices[left_first + i + prim_offset]], origin, direction, t_min, t)) {
+                    return false;
+                }
+            }
+        } else {
+            if (!intersect_mnode(mbvh_nodes[bvh_offset + left_first], origin, dir_inverse, t, index, result))
+            continue;
+            for (int i = 3; i >= 0; i--) {
+                const int idx = floatBitsToInt(index[i]) & 3;
+                if (result[idx] && mbvh_nodes[bvh_offset + left_first].children[idx] >= 0) {
+                    stack_ptr = stack_ptr + 1;
+                    hit_stack[stack_ptr].left_first = mbvh_nodes[bvh_offset + left_first].children[idx];
+                    hit_stack[stack_ptr].count = mbvh_nodes[bvh_offset + left_first].counts[idx];
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+
+bool intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, float t)
+{
+    uint hit_stack[64];
+    hit_stack[0] = 0;
+    int stack_ptr = 0;
+    ivec2 hit = ivec2(-1);
+
+    const vec3 dir_inverse = 1.0 / direction;
+    while (stack_ptr >= 0) {
+        const uint node_index = hit_stack[stack_ptr];
+        stack_ptr = stack_ptr - 1;
+
+        const int count = top_bvh_nodes[node_index].count;
+        const int left_first = top_bvh_nodes[node_index].left_first;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++)
+            {
+                uint inst_id = instance_indices[left_first + i];
+                vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
+                vec3 inst_dir = (instances[inst_id].inverse * vec4(direction, 0)).xyz;
+                if (!intersect_bvh(inst_org, inst_dir, instances[inst_id].bvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t)) {
+                    return false;
+                }
+            }
+        } else if (left_first >= 0) { // Regular node
+            float _ltmin, _ltmax;
+            float _rtmin, _rtmax;
+            bool hit_left = intersect_node(top_bvh_nodes[left_first], origin, dir_inverse, t, _rtmin, _rtmax);
+            bool hit_right = intersect_node(top_bvh_nodes[left_first + 1], origin, dir_inverse, t, _rtmin, _rtmax);
+
+            if (hit_left && hit_right) {
+                if (_ltmin < _rtmin) {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                } else {
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first;
+                    stack_ptr += 1;
+                    hit_stack[stack_ptr] = left_first + 1;
+                }
+            } else if (hit_left) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first;
+            } else if (hit_right) {
+                stack_ptr += 1;
+                hit_stack[stack_ptr] = left_first + 1;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, float t)
+{
+    MBVHTraversal hit_stack[32];
+    int stack_ptr = -1;
+
+    const vec3 dir_inverse = 1.0 / direction;
+
+    bvec4 result;
+    vec4 index;
+
+    if (!intersect_mnode(top_mbvh_nodes[0], origin, dir_inverse, t, index, result)) {
+        return true;
+    }
+    for (int i = 3; i >= 0; i--) {
+        const int idx = floatBitsToInt(index[i]) & 3;
+        if (result[idx] && top_mbvh_nodes[0].children[idx] >= 0) {
+            stack_ptr = stack_ptr + 1;
+            hit_stack[stack_ptr].left_first = top_mbvh_nodes[0].children[idx];
+            hit_stack[stack_ptr].count = top_mbvh_nodes[0].counts[idx];
+        }
+    }
+
+    while (stack_ptr >= 0) {
+        const int left_first = hit_stack[stack_ptr].left_first;
+        const int count = hit_stack[stack_ptr].count;
+        stack_ptr -= 1;
+
+        if (count >= 0) { // Leaf node
+            for (int i = 0; i < count; i++) {
+                uint inst_id = instance_indices[left_first + i];
+                vec3 inst_org = (instances[inst_id].inverse * vec4(origin, 1)).xyz;
+                vec3 inst_dir = (instances[inst_id].inverse * vec4(direction, 0)).xyz;
+                if (!intersect_mbvh(inst_org, inst_dir, instances[inst_id].mbvh_offset, instances[inst_id].triangle_offset, instances[inst_id].prim_index_offset, t_min, t)) {
+                    return false;
+                }
+            }
+        } else {
+            if (!intersect_mnode(top_mbvh_nodes[left_first], origin, dir_inverse, t, index, result)) {
+                continue;
+            }
+            for (int i = 3; i >= 0; i--) {
+                const int idx = floatBitsToInt(index[i]) & 3;
+                if (result[idx] && top_mbvh_nodes[left_first].children[idx] >= 0) {
+                    stack_ptr = stack_ptr + 1;
+                    hit_stack[stack_ptr].left_first = top_mbvh_nodes[left_first].children[idx];
+                    hit_stack[stack_ptr].count = top_mbvh_nodes[left_first].counts[idx];
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+void main() {
+    uint job_id = gl_GlobalInvocationID.x;
+    if (job_id >= camera.shadowId) {
+        return;
+    }
+
+    const vec4 O = potContributions[job_id].O;
+    const vec4 D = potContributions[job_id].D;
+
+    #if USE_MBVH
+    const bool is_occluded = !intersect_top_mbvh(O.xyz, D.xyz, 1e-4f, D.w - 1e-4f);
+    #else
+    const bool is_occluded = !intersect_top_bvh(O.xyz, D.xyz, 1e-4f, D.w - 1e-4f);
+    #endif
+
+    if (is_occluded) {
+        return;
+    }
+
+    const vec4 E_pixel = potContributions[job_id].E_pixelId;
+    const uint pixelIdx = floatBitsToUint(E_pixel.w);
+    acPixels[pixelIdx] += vec4(E_pixel.xyz, 0.0);
+}
