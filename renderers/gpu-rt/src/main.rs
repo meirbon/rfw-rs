@@ -132,11 +132,6 @@ fn main() {
     instance.translate_z(10.0);
     instance.synchronize().unwrap();
 
-    // let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
-    // let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
-    // instance.scale([0.01; 3]);
-    // instance.synchronize();
-
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Reset;
 

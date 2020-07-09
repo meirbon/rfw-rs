@@ -5,6 +5,7 @@
 #include "utils.glsl"
 #include "random.glsl"
 #include "disney.glsl"
+//#include "lambert.glsl"
 
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -89,7 +90,9 @@ void main()
 
     if (INST_ID < 0) { // Did not hit anything
         const vec2 uv = vec2(0.5f * (1.0f + atan(D.x, -D.z) * (1.0f / 3.14159265359f)), 1.0f - acos(D.y) * (1.0f / 3.14159265359f));
-        acPixels[PATH_ID] += vec4(throughput * textureLod(sampler2D(skybox, matTexSampler), uv, camera.path_length).rgb * (1.0f / bsdfPdf), 0);
+        vec3 contribution = throughput * textureLod(sampler2D(skybox, matTexSampler), uv, camera.path_length).rgb * (1.0f / bsdfPdf);
+        CLAMPINTENSITY(contribution, camera.clamp_value);
+        acPixels[PATH_ID] += vec4(contribution, 0);
         return;
     }
 
@@ -115,13 +118,13 @@ void main()
     const vec3 P = O.xyz + T_VAL * D.xyz;
 
     float lambda, tu, tv;
-    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
+    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
     {
         lambda = sqrt(rt_triangles[TRI_ID].lod) + log2(camera.spread_angle * (1.0 / abs(dot(D.xyz, N.xyz))));
         tu = w * rt_triangles[TRI_ID].tu0 + u * rt_triangles[TRI_ID].tu1 + v * rt_triangles[TRI_ID].tu2;
         tv = w * rt_triangles[TRI_ID].tv0 + u * rt_triangles[TRI_ID].tv1 + v * rt_triangles[TRI_ID].tv2;
     }
-    
+
     // If material contains an emissive map, defer returning
     if (any(greaterThan(shadingData.color.xyz, vec3(1.0f))) && !HAS_EMISSIVE_MAP(flags)) { // Hit a light
         // Retrieve emissiveness first
@@ -149,13 +152,15 @@ void main()
 
                 contribution = throughput * shadingData.color.xyz * (1.0f / (bsdfPdf + lightPdf * pickProb));
             }
+
+            CLAMPINTENSITY(contribution, camera.clamp_value);
         }
 
         acPixels[PATH_ID] += vec4(contribution, 0);
         return;
     }
 
-    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
+    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
     {
         const float lambda = sqrt(rt_triangles[TRI_ID].lod) + log2(camera.spread_angle * (1.0 / abs(dot(D.xyz, N.xyz))));
         const float tu = w * rt_triangles[TRI_ID].tu0 + u * rt_triangles[TRI_ID].tu1 + v * rt_triangles[TRI_ID].tu2;
@@ -178,23 +183,23 @@ void main()
 
     throughput *= 1.0f / bsdfPdf;// Apply postponed bsdf pdf
 
-    const vec3 R = normalize(tangent_to_world(sample_hemisphere(randf(seed), randf(seed)), N.xyz, T.xyz, B.xyz));
-    const vec3 bsdf = shadingData.color.xyz * (1.0f / 3.14159265359f);
-    const float n_dot_r = abs(dot(N, R));
-    throughput = throughput * bsdf * n_dot_r / (1.0f * 3.14159265359f);
+    float newBsdfPdf;
+    bool specular = false;
+    vec3 R;
+    const vec3 bsdf = SampleBSDF(shadingData, N, gN, T.xyz, B, D.xyz * -1.0f, T_VAL, backFacing, randf(seed), randf(seed), R, newBsdfPdf, specular);
+    throughput = throughput * bsdf * abs(dot(N, R));
 
     // Prevent any nans
     throughput = max(throughput, vec3(0.0f));
-    const float newBsdfPdf = n_dot_r * (1.0f / 3.14159265359f);
-    if (bsdfPdf <= 0.0 || isnan(newBsdfPdf))
-        return;
+    if (newBsdfPdf <= 1e-4f || isnan(newBsdfPdf))
+    return;
 
     // Light sampling
     if (POINTLIGHTCOUNT > 0 || AREALIGHTCOUNT > 0 || SPOTLIGHTCOUNT > 0 || DIRECTIONALLIGHTCOUNT > 0)
     {
         float r0 = randf(seed);
         float r1 = randf(seed);
-        
+
         vec3 lightColor;
         float pickProb, lightPdf;
 
@@ -204,15 +209,17 @@ void main()
         const float NdotL = dot(L, N);
         if (NdotL > 0.0 && lightPdf > 0.0)
         {
-            float shadowPdf = NdotL * (1.0f / 3.14159265359f);
-            // const vec3 sampledBSDF = EvaluateBSDF(shadingData, iN, T, B, D * -1.0f, L, shadowPdf);
+            float shadowPdf;
+            const vec3 sampledBSDF = EvaluateBSDF(shadingData, N, T.xyz, B, D.xyz * -1.0f, L, shadowPdf);
             if (shadowPdf > 0.0)
             {
                 // calculate potential contribution
-                vec3 contribution = throughput * bsdf * lightColor * (NdotL / (lightPdf * pickProb));
+                vec3 contribution = throughput * sampledBSDF * lightColor * (NdotL / (lightPdf * pickProb));
                 // CLAMPINTENSITY(contribution, clampValue);
                 if (!any(isnan(contribution)))
                 {
+                    CLAMPINTENSITY(contribution, camera.clamp_value);
+
                     // Add fire-and-forget shadow ray to the connections buffer
                     const uint shadowRayIdx = atomicAdd(camera.shadowId, 1);// compaction
 
@@ -227,7 +234,7 @@ void main()
     // Get compacted index for extension ray
     const int ext_id = atomicAdd(camera.extensionId, 1) + int(nextBufferIndex * offset);
 
-    origins[ext_id] = vec4(P.xyz + R.xyz * 1e-4f, intBitsToFloat(PATH_ID));
+    origins[ext_id] = vec4(P.xyz + gN.xyz * 1e-4f, intBitsToFloat(PATH_ID));
     directions[ext_id] = vec4(R, uintBitsToFloat(PackNormal(N)));
     throughputs[ext_id] = vec4(throughput, newBsdfPdf);
 }
@@ -300,7 +307,7 @@ float LightPickProb(const int idx, const vec3 O, const vec3 N, const vec3 I)
 {
     const uint lightCount = (AREALIGHTCOUNT + POINTLIGHTCOUNT + SPOTLIGHTCOUNT + DIRECTIONALLIGHTCOUNT);
 
-#if ISLIGHTS
+    #if ISLIGHTS
     if (lightCount < MAXISLIGHTS)
     {
         // for implicit connections; calculates the chance that the light would have been explicitly selected
@@ -331,7 +338,7 @@ float LightPickProb(const int idx, const vec3 O, const vec3 N, const vec3 I)
         return 0;// no potential lights found
         return potential[idx] / sum;
     }
-#endif
+        #endif
     return 1.0f / (AREALIGHTCOUNT + POINTLIGHTCOUNT + SPOTLIGHTCOUNT + DIRECTIONALLIGHTCOUNT);
 }
 
@@ -384,7 +391,7 @@ vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout fl
     // predetermine the barycentrics for any area light we sample
     const vec3 bary = RandomBarycentrics(r0);
     int lightIdx = 0;
-#if ISLIGHTS
+    #if ISLIGHTS
     if (lightCount < MAXISLIGHTS)
     {
         // importance sampling of lights, pickProb is per-light probability
@@ -435,23 +442,23 @@ vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout fl
     }
     else
     {
-#else
+        #else
         // uniform random sampling of lights, pickProb is simply 1.0 / lightCount
         pickProb = 1.0f / lightCount;
         lightIdx = int(r0 * lightCount);
         r0 = (r0 - float(lightIdx) * (1.0f / float(lightCount))) * float(lightCount);
-#endif
-#if ISLIGHTS
+        #endif
+        #if ISLIGHTS
     }
-#endif
+        #endif
     lightIdx = clamp(lightIdx, 0, int(lightCount) - 1);
     if (lightIdx < AREALIGHTCOUNT)
     {
         // pick an area light
-        lightColor = areaLights[lightIdx].radiance.xyz; // radiance
-        const vec3 LN = areaLights[lightIdx].normal; // N
+        lightColor = areaLights[lightIdx].radiance.xyz;// radiance
+        const vec3 LN = areaLights[lightIdx].normal;// N
         const vec3 P = bary.x * areaLights[lightIdx].vertex0 + bary.y * areaLights[lightIdx].vertex1 + bary.z * areaLights[lightIdx].vertex2;
-        vec3 L = I - P; // reversed: from light to intersection point
+        vec3 L = I - P;// reversed: from light to intersection point
         const float sqDist = dot(L, L);
         L = normalize(L);
         const float LNdotL = dot(L, LN.xyz);

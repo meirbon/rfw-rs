@@ -2,22 +2,7 @@
 #define DISNEY_H
 
 #include "utils.glsl"
-
-struct InputValues
-{
-    float sheen;
-    float metallic;
-    float specular;
-    float clearcoat;
-    float clearcoat_gloss;
-    float roughness;
-    float anisotropic;
-    float subsurface;
-    float sheen_tint;
-    float specular_tint;
-    vec4 tint_color;
-    vec4 base_color__luminance;
-};
+#include "structs.glsl"
 
 #define BSDF_TYPE_REFLECTED 0
 #define BSDF_TYPE_TRANSMITTED 1
@@ -30,8 +15,10 @@ bool Refract(const vec3 wi, const vec3 n, const float eta, inout vec3 wt)
     const float cosThetaI = dot(n, wi);
     const float sin2ThetaI = max(0.0f, 1.0f - cosThetaI * cosThetaI);
     const float sin2ThetaT = eta * eta * sin2ThetaI;
-    if (sin2ThetaT >= 1)
-    return false;// TIR
+    if (sin2ThetaT >= 1) {
+        return false;// TIR
+    }
+
     float cosThetaT = sqrt(1.0f - sin2ThetaT);
     wt = eta * (wi * -1.0f) + (eta * cosThetaI - cosThetaT) * vec3(n);
     return true;
@@ -75,7 +62,7 @@ float SmithGGX(const float NDotv, const float alphaG)
 {
     const float a = alphaG * alphaG;
     const float b = NDotv * NDotv;
-    return 1 / (NDotv + sqrt(a + b - a * b));
+    return 1.0f / (NDotv + sqrt(a + b - a * b));
 }
 
 float Fr(const float VDotN, const float eio)
@@ -84,7 +71,6 @@ float Fr(const float VDotN, const float eio)
     if (SinThetaT2 > 1.0f)
     return 1.0f;// TIR
     const float LDotN = sqrt(1.0f - SinThetaT2);
-    // todo: reformulate to remove this division
     const float eta = 1.0f / eio;
     const float r1 = (VDotN - eta * LDotN) / (VDotN + eta * LDotN);
     const float r2 = (LDotN - eta * VDotN) / (LDotN + eta * VDotN);
@@ -208,8 +194,9 @@ vec3 BSDFEval(const ShadingData shadingData, const vec3 N, const vec3 wo, const 
 }
 
 // generate an importance sampled BSDF direction
-void BSDFSample(const ShadingData shadingData, const vec3 T, const vec3 B, const vec3 N, const vec3 wo, inout vec3 wi, inout float pdf, inout int type,
-const float t, const bool backfacing, const float r3, const float r4)
+void BSDFSample(const ShadingData shadingData, const vec3 T, const vec3 B, const vec3 N,
+                const vec3 wo, inout vec3 wi, inout float pdf, inout int type,
+                const float t, const bool backfacing, const float r3, const float r4)
 {
     if (r3 < shadingData.transmission)
     {
@@ -285,8 +272,10 @@ vec3 EvaluateBSDF(const ShadingData shadingData, const vec3 iN, const vec3 T, co
     return bsdf;
 }
 
-vec3 SampleBSDF(const ShadingData shadingData, vec3 iN, const vec3 N, const vec3 T, const vec3 B, const vec3 wo, const float t, const bool backfacing,
-const float r3, const float r4, inout vec3 wi, inout float pdf, inout bool specular)
+vec3 SampleBSDF(const ShadingData shadingData, vec3 iN, const vec3 N,
+                const vec3 T, const vec3 B, const vec3 wo, const float t,
+                const bool backfacing, const float r3, const float r4,
+                inout vec3 wi, inout float pdf, inout bool specular)
 {
     int type;
     BSDFSample(shadingData, T, B, iN, wo, wi, pdf, type, t, backfacing, r3, r4);

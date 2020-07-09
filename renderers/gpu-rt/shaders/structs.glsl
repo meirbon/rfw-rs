@@ -1,3 +1,6 @@
+#ifndef STRUCTS_H
+#define STRUCTS_H
+
 struct CameraView {
     vec3 position;
     int path_length;
@@ -202,7 +205,7 @@ struct ShadingData {
 #define CHAR2FLT(x, s) ((float( ((x >> s) & 255)) ) * (1.0f / 255.0f))
 
 #define HAS_DIFFUSE_MAP(flags) ((flags & (1 << 0)) > 0)
-#define HAS_NORMMAL_MAP(flags) ((flags & (1 << 1)) > 0)
+#define HAS_NORMAL_MAP(flags) ((flags & (1 << 1)) > 0)
 #define HAS_ROUGHNESS_MAP(flags) ((flags & (1 << 2)) > 0)
 #define HAS_METALLIC_MAP(flags) ((flags & (1 << 3)) > 0)
 #define HAS_EMISSIVE_MAP(flags) ((flags & (1 << 4)) > 0)
@@ -253,3 +256,4 @@ ShadingData extractParameters(const vec3 color, const vec3 absorption, const vec
     data.custom3 = CUSTOM3(parameters);
     return data;
 }
+#endif

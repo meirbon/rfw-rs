@@ -65,7 +65,7 @@ void main() {
     const uvec4 parameters = materials[MID].parameters;
     const uint flags = materials[MID].flags;
 
-    ShadingData params = extractParameters(albedo, vec3(1.0), parameters);
+    ShadingData params = extractParameters(albedo, vec3(1.0), materials[MID].specular.xyz, parameters);
 
     const vec3 D = normalize(cam_pos.xyz - V);
 

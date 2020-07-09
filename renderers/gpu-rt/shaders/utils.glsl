@@ -69,4 +69,14 @@ vec3 DiffuseReflectionCosWeighted(const float r0, const float r1)
     return vec3(c * term2, s * term2, sqrt(r1));
 }
 
+void CLAMPINTENSITY(inout vec3 contribution, const float clampValue)
+{
+    const float v = max(contribution.x, max(contribution.y, contribution.z));
+    if (v > clampValue)
+    {
+        const float m = clampValue / v;
+        contribution.xyz = contribution.xyz * m;
+    }
+}
+
     #endif

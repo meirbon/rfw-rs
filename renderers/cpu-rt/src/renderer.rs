@@ -51,6 +51,7 @@ pub struct RayTracer<'a> {
     spot_lights: Vec<SpotLight>,
     area_lights: Vec<AreaLight>,
     directional_lights: Vec<DirectionalLight>,
+    skybox: Option<Texture>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -263,6 +264,7 @@ impl Renderer for RayTracer<'_> {
             spot_lights: Vec::new(),
             area_lights: Vec::new(),
             directional_lights: Vec::new(),
+            skybox: None,
         }))
     }
 
@@ -663,6 +665,10 @@ impl Renderer for RayTracer<'_> {
 
     fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[scene::DirectionalLight]) {
         self.directional_lights = Vec::from(lights);
+    }
+
+    fn set_skybox(&mut self, skybox: Texture) {
+        self.skybox = Some(skybox);
     }
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {

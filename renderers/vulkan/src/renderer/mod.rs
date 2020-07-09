@@ -839,6 +839,10 @@ impl<'a> Renderer for VkRenderer<'a> {
     ) {
     }
 
+    fn set_skybox(&mut self, skybox: Texture) {
+        unimplemented!()
+    }
+
     fn get_settings(&self) -> Vec<Setting> {
         Vec::new()
     }

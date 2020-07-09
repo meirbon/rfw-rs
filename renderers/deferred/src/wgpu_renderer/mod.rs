@@ -2,7 +2,7 @@ use futures::executor::block_on;
 use glam::*;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance};
+use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, Texture};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -732,6 +732,10 @@ impl Renderer for Deferred<'_> {
         self.lights
             .set_directional_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
+    }
+
+    fn set_skybox(&mut self, skybox: Texture) {
+        unimplemented!()
     }
 
     fn get_settings(&self) -> Vec<Setting> {

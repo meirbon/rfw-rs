@@ -42,12 +42,12 @@ struct ShadingData {
 
 #define CHAR2FLT(x, s) ((float( ((x >> s) & 255)) ) * (1.0f / 255.0f))
 
-#define HAS_DIFFUSE_MAP(flags) ((flags & (1u << 0u)) != 0)
-#define HAS_NORMAL_MAP(flags) ((flags & (1u << 1u)) != 0)
-#define HAS_ROUGHNESS_MAP(flags) ((flags & (1u << 2u)) != 0)
-#define HAS_METALLIC_MAP(flags) ((flags & (1u << 3u)) != 0)
-#define HAS_EMISSIVE_MAP(flags) ((flags & (1u << 4u)) != 0)
-#define HAS_SHEEN_MAP(flags) ((flags & (1u << 5u)) != 0)
+#define HAS_DIFFUSE_MAP(flags) ((flags & (1 << 0)) > 0)
+#define HAS_NORMAL_MAP(flags) ((flags & (1 << 1)) > 0)
+#define HAS_ROUGHNESS_MAP(flags) ((flags & (1 << 2)) > 0)
+#define HAS_METALLIC_MAP(flags) ((flags & (1 << 3)) > 0)
+#define HAS_EMISSIVE_MAP(flags) ((flags & (1 << 4)) > 0)
+#define HAS_SHEEN_MAP(flags) ((flags & (1 << 5)) > 0)
 
 #define IS_EMISSIVE(color) (color.x > 1.0 || color.y > 1.0 || color.z > 1.0)
 
