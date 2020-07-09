@@ -43,6 +43,9 @@ layout(std430, set = 3, binding = 3) buffer readonly DirectionalLights { Directi
 #define HIT_U (float(floatBitsToUint(S.w) & 65535) * (1.0f / 65535.0f))
 #define HIT_V (float(floatBitsToUint(S.w) >> 16) * (1.0f / 65535.0f))
 #define MAT_ID rt_triangles[TRI_ID].mat_id
+#define T_AREA rt_triangles[TRI_ID].area
+#define T_LIGHT_ID rt_triangles[TRI_ID].light_id
+#define LAST_NORMAL UnpackNormal(floatBitsToUint(D.w))
 
 #define AREALIGHTCOUNT camera.area_light_count
 #define POINTLIGHTCOUNT camera.point_light_count
@@ -77,7 +80,10 @@ void main()
 
     const vec4 S = states[job_id];
     const vec4 O = origins[job_id];
-    vec3 throughput = camera.path_length == 0 ? vec3(1) : throughputs[job_id].xyz;
+    const vec4 D = directions[job_id];
+    const vec4 T4 = camera.path_length == 0 ? vec4(1) : throughputs[job_id];
+    vec3 throughput = T4.xyz;
+    const float bsdfPdf = T4.w;
 
     if (INST_ID < 0) { // Did not hit anything
         return;
@@ -85,19 +91,10 @@ void main()
 
     vec4 color = materials[MAT_ID].color;
     const uint flags = materials[MAT_ID].flags;
-    
-    // If material contains an emissive map, defer returning
-    if (any(greaterThan(color.xyz, vec3(1.0f))) && !HAS_EMISSIVE_MAP(flags)) { // Hit a light
-        if (camera.path_length == 0) {
-            acPixels[PATH_ID] += color;
-        }
-        return;
-    }
 
     const uint sampleId = PATH_ID / (offset) + camera.sample_count;
     uint seed = wang_hash(PATH_ID * 16789 + sampleId * 1791 + camera.path_length * 720898027);
 
-    const vec4 D = directions[job_id];
     const float u = HIT_U;
     const float v = HIT_V;
     const float w = 1.0 - u - v;
@@ -110,19 +107,54 @@ void main()
     N = normalize((instances[INST_ID].normal * vec4(N, 0.0)).xyz);
     T = vec4(normalize((instances[INST_ID].normal * vec4(T.xyz, 0.0)).xyz), T.w);
     const vec3 B = cross(N, T.xyz) * T.w;
+    const vec3 P = O.xyz + T_VAL * D.xyz;
+
+    float lambda, tu, tv;
+    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
+    {
+        lambda = sqrt(rt_triangles[TRI_ID].lod) + log2(camera.spread_angle * (1.0 / abs(dot(D.xyz, N.xyz))));
+        tu = w * rt_triangles[TRI_ID].tu0 + u * rt_triangles[TRI_ID].tu1 + v * rt_triangles[TRI_ID].tu2;
+        tv = w * rt_triangles[TRI_ID].tv0 + u * rt_triangles[TRI_ID].tv1 + v * rt_triangles[TRI_ID].tv2;
+    }
+    
+    // If material contains an emissive map, defer returning
+    if (any(greaterThan(color.xyz, vec3(1.0f))) && !HAS_EMISSIVE_MAP(flags)) { // Hit a light
+        // Retrieve emissiveness first
+        if (HAS_EMISSIVE_MAP(flags)) {
+            color = fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].emissive_map);
+        }
+
+        vec3 contribution = vec3(0);
+        const float DdotNL = -dot(D.xyz, N);
+        if (DdotNL > 0)
+        {
+            if (camera.path_length == 0 /*|| (FLAGS & S_VIASPECULAR) != 0*/)
+            {
+                contribution = throughput * color.xyz * (1.0f / bsdfPdf);
+            }
+            else
+            {
+                // Last vertex was not specular; apply MIS
+                const vec3 lastN = LAST_NORMAL;
+                const float lightPdf = CalculateLightPDF(D.xyz, T_VAL, T_AREA, N);
+                const float pickProb = LightPickProb(T_LIGHT_ID, O.xyz, lastN /* the normal at the previous vertex */, P);
+                if ((bsdfPdf + lightPdf * pickProb) <= 0) {
+                    return;
+                }
+
+                contribution = throughput * color.xyz * (1.0f / (bsdfPdf + lightPdf * pickProb));
+            }
+        }
+
+        acPixels[PATH_ID] += vec4(contribution, 0);
+        return;
+    }
 
     if (HAS_DIFFUSE_MAP(flags) || HAS_NORMMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
     {
         const float lambda = sqrt(rt_triangles[TRI_ID].lod) + log2(camera.spread_angle * (1.0 / abs(dot(D.xyz, N.xyz))));
         const float tu = w * rt_triangles[TRI_ID].tu0 + u * rt_triangles[TRI_ID].tu1 + v * rt_triangles[TRI_ID].tu2;
         const float tv = w * rt_triangles[TRI_ID].tv0 + u * rt_triangles[TRI_ID].tv1 + v * rt_triangles[TRI_ID].tv2;
-
-        // Retrieve emissiveness first
-        if (HAS_EMISSIVE_MAP(flags)) {
-            color = fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].emissive_map);
-            acPixels[PATH_ID] += vec4(color.xyz * throughput, 0);
-            return;
-        }
 
         if (HAS_DIFFUSE_MAP(flags)) {
             color *= fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].diffuse_map);
@@ -139,19 +171,18 @@ void main()
         gN = gN * -1.0f;
     }
 
-    const vec3 P = O.xyz + T_VAL * D.xyz;
+    throughput *= 1.0f / bsdfPdf;// Apply postponed bsdf pdf
+
     const vec3 R = normalize(tangent_to_world(sample_hemisphere(randf(seed), randf(seed)), N.xyz, T.xyz, B.xyz));
     const vec3 bsdf = color.xyz * (1.0f / 3.14159265359f);
-
     const float n_dot_r = abs(dot(N, R));
-    const float pdf = n_dot_r * (1.0f / 3.14159265359f);
-    throughput = throughput * bsdf / pdf * n_dot_r / (1.0f * 3.14159265359f);
-    if (any(lessThan(throughput, vec3(0.0f)))) {
-        return;
-    }
+    throughput = throughput * bsdf * n_dot_r / (1.0f * 3.14159265359f);
 
     // Prevent any nans
     throughput = max(throughput, vec3(0.0f));
+    float newBsdfPdf = n_dot_r * (1.0f / 3.14159265359f);
+    if (bsdfPdf <= 0.0 || isnan(newBsdfPdf))
+        return;
 
     // Light sampling
     if (POINTLIGHTCOUNT > 0 || AREALIGHTCOUNT > 0 || SPOTLIGHTCOUNT > 0 || DIRECTIONALLIGHTCOUNT > 0)
@@ -168,10 +199,10 @@ void main()
         const float NdotL = dot(L, N);
         if (NdotL > 0.0 && lightPdf > 0.0)
         {
-            // float shadowPdf = NdotL * (1.0f / 3.14159265359f);
+            float shadowPdf = NdotL * (1.0f / 3.14159265359f);
             // const vec3 sampledBSDF = EvaluateBSDF(shadingData, iN, T, B, D * -1.0f, L, shadowPdf);
-            // if (shadowPdf > 0.0)
-            // {
+            if (shadowPdf > 0.0)
+            {
                 // calculate potential contribution
                 vec3 contribution = throughput * bsdf * lightColor * (NdotL / (lightPdf * pickProb));
                 // CLAMPINTENSITY(contribution, clampValue);
@@ -184,7 +215,7 @@ void main()
                     potContributions[shadowRayIdx].D = vec4(L, dist - 1e-4f);
                     potContributions[shadowRayIdx].E_pixelId = vec4(contribution, O.w);
                 }
-            // }
+            }
         }
     }
 
@@ -192,8 +223,8 @@ void main()
     const int ext_id = atomicAdd(camera.extensionId, 1) + int(nextBufferIndex * offset);
 
     origins[ext_id] = vec4(P.xyz + R.xyz * 1e-4f, intBitsToFloat(PATH_ID));
-    directions[ext_id] = vec4(R, D.w);
-    throughputs[ext_id] = vec4(throughput, 0);
+    directions[ext_id] = vec4(R, uintBitsToFloat(PackNormal(N)));
+    throughputs[ext_id] = vec4(throughput, newBsdfPdf);
 }
 
 vec4 fetchTexel(const vec2 texCoord, const int textureId, const float LOD)

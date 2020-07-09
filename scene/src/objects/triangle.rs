@@ -43,7 +43,7 @@ pub struct RTTriangle {
     pub light_id: i32,
     pub mat_id: i32,
     pub lod: f32,
-    pub extra0: i32,
+    pub area: f32,
     // 176
 
     // GLSL structs' size are rounded up to the base alignment of vec4s
@@ -74,7 +74,7 @@ impl Default for RTTriangle {
             light_id: 0,
             mat_id: 0,
             lod: 0.0,
-            extra0: 0,
+            area: 0.0,
         }
     }
 }

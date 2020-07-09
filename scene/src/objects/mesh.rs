@@ -373,7 +373,7 @@ impl Mesh {
                 light_id: -1,
                 mat_id: material_ids[i] as i32,
                 lod,
-                ..Default::default()
+                area: RTTriangle::area(vertex0, vertex1, vertex2),
             };
         });
 

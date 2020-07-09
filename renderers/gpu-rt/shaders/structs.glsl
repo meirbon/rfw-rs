@@ -88,7 +88,7 @@ struct RTTriangle {
     int light_id;
     int mat_id;
     float lod;
-    int extra0;
+    float area;
     // 176
 };
 
