@@ -44,16 +44,18 @@ pub struct Texture {
     pub data: Vec<u32>,
     pub width: u32,
     pub height: u32,
+    pub mip_levels: u32,
 }
 
 impl Display for Texture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Texture {{ data: {} bytes, width: {}, height: {} }}",
+            "Texture {{ data: {} bytes, width: {}, height: {}, mip_levels: {} }}",
             self.data.len() * std::mem::size_of::<u32>(),
             self.width,
-            self.height
+            self.height,
+            self.mip_levels
         )
     }
 }
@@ -62,6 +64,11 @@ impl Texture {
     pub const MIP_LEVELS: usize = 5;
 
     pub fn generate_mipmaps(&mut self, levels: usize) {
+        if self.mip_levels == levels as u32 {
+            return;
+        }
+
+        self.mip_levels = levels as u32;
         self.data.resize(self.required_texel_count(levels), 0);
 
         let mut src_offset = 0;
@@ -194,7 +201,17 @@ impl Texture {
 
     /// Texel count
     pub fn len(&self) -> usize {
-        (self.width * self.height) as usize
+        self.data.len()
+    }
+
+    pub fn offset_for_level(&self, mip_level: usize) -> usize {
+        assert!(mip_level <= self.mip_levels as usize);
+        let mut offset = 0;
+        for i in 0..mip_level {
+            let (w, h) = self.mip_level_width_height(i);
+            offset += w * h;
+        }
+        offset
     }
 
     pub fn mip_level_width(&self, mip_level: usize) -> usize {
@@ -255,7 +272,45 @@ impl Texture {
             data,
             width: width as u32,
             height: height as u32,
+            mip_levels: 1,
         }
+    }
+
+    pub fn load<T: AsRef<Path>>(path: T) -> Result<Self, ()> {
+        // See if file exists
+        if !path.as_ref().exists() {
+            return Err(());
+        }
+
+        // Attempt to load image
+        let img = image::open(path);
+        if let Err(_) = img {
+            return Err(());
+        }
+
+        // Loading was successful
+        let img = img.unwrap().flipv();
+
+        let (width, height) = (img.width(), img.height());
+        let mut data = vec![0 as u32; (width * height) as usize];
+
+        let bgra_image = img.to_bgra();
+        data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(bgra_image.as_ptr() as *const u32, (width * height) as usize)
+        });
+
+        Ok(Texture {
+            width,
+            height,
+            data,
+            mip_levels: 1,
+        })
+    }
+}
+
+impl<T: AsRef<Path>> From<T> for Texture {
+    fn from(path: T) -> Self {
+        Self::load(path).unwrap()
     }
 }
 
@@ -284,6 +339,7 @@ impl MaterialList {
             width: 64,
             height: 64,
             data: vec![0; 4096],
+            mip_levels: 1,
         });
 
         let mut changed = BitVec::new();
@@ -450,45 +506,22 @@ impl MaterialList {
             return Ok((*id) as i32);
         }
 
-        // See if file exists
-        if !path.as_ref().exists() {
-            return Err(-1);
-        }
+        return match Texture::load(path) {
+            Ok(mut tex) => {
+                tex.generate_mipmaps(Texture::MIP_LEVELS);
 
-        // Attempt to load image
-        let img = image::open(path);
-        if let Err(_) = img {
-            return Err(-1);
-        }
+                self.changed_textures.push(true);
+                self.textures.push(tex);
+                let index = self.textures.len() - 1;
 
-        // Loading was successful
-        let img = img.unwrap().flipv();
+                // Add to mapping to prevent loading the same image multiple times
+                self.tex_path_mapping
+                    .insert(path.as_ref().to_path_buf(), index);
 
-        let (width, height) = (img.width(), img.height());
-        let mut data = vec![0 as u32; (width * height) as usize];
-
-        let bgra_image = img.to_bgra();
-        data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(bgra_image.as_ptr() as *const u32, (width * height) as usize)
-        });
-
-        let mut tex = Texture {
-            width,
-            height,
-            data,
+                Ok(index as i32)
+            }
+            Err(_) => Err(-1),
         };
-
-        tex.generate_mipmaps(Texture::MIP_LEVELS);
-
-        self.changed_textures.push(true);
-        self.textures.push(tex);
-        let index = self.textures.len() - 1;
-
-        // Add to mapping to prevent loading the same image multiple times
-        self.tex_path_mapping
-            .insert(path.as_ref().to_path_buf(), index);
-
-        Ok(index as i32)
     }
 
     pub fn get_default(&self) -> usize {

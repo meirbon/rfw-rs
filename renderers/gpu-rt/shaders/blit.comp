@@ -19,6 +19,5 @@ void main()
         return;
     }
 
-    const float sample_scale = 1.0f / (camera.sample_count + 1);
-    imageStore(OutputTex, pixel_id, sqrt(acPixels[pixel_id.x + pixel_id.y * camera.width] * sample_scale));
+    imageStore(OutputTex, pixel_id, sqrt(acPixels[pixel_id.x + pixel_id.y * camera.width] * 1.0f / (camera.sample_count + 1)));
 }

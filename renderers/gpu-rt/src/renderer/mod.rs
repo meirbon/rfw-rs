@@ -5,6 +5,7 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
+use scene::FrustrumResult::Intersect;
 use scene::{
     raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial,
     DirectionalLight, Instance, Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
@@ -26,6 +27,7 @@ enum IntersectionBindings {
     PathThroughputs = 5,
     AccumulationBuffer = 6,
     PotentialContributions = 7,
+    Skybox,
 }
 
 #[repr(u32)]
@@ -264,6 +266,7 @@ pub struct RayTracer<'a> {
     lights_bind_group_layout: wgpu::BindGroupLayout,
     lights_bind_group: wgpu::BindGroup,
     light_counts: [usize; 4],
+    skybox_texture: wgpu::Texture,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -327,6 +330,22 @@ impl Renderer for RayTracer<'_> {
 
         let output_texture = Self::create_output_texture(&device, width, height);
         let accumulation_texture = Self::create_output_texture(&device, width, height);
+
+        let skybox_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("skybox"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth: 1,
+            },
+            array_layer_count: 1,
+            mip_level_count: 5,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::TEXTURE_FORMAT,
+            usage: wgpu::TextureUsage::SAMPLED,
+        });
+        let skybox_texture_view = skybox_texture.create_default_view();
 
         let output_bind_group = bind_group::BindGroupBuilder::default()
             .with_binding(bind_group::BindGroupBinding {
@@ -569,8 +588,18 @@ impl Renderer for RayTracer<'_> {
                             as wgpu::BufferAddress,
                         usage: wgpu::BufferUsage::STORAGE,
                     }),
-                    0..((width * height * 12 * std::mem::size_of::<f32>())
-                        as wgpu::BufferAddress),
+                    0..((width * height * 12 * std::mem::size_of::<f32>()) as wgpu::BufferAddress),
+                ),
+            })
+            .unwrap()
+            .with_binding(bind_group::BindGroupBinding {
+                index: IntersectionBindings::Skybox as u32,
+                visibility: wgpu::ShaderStage::COMPUTE,
+                binding: bind_group::Binding::SampledTexture(
+                    skybox_texture_view,
+                    Self::TEXTURE_FORMAT,
+                    wgpu::TextureComponentType::Uint,
+                    wgpu::TextureViewDimension::D2,
                 ),
             })
             .unwrap()
@@ -920,6 +949,7 @@ impl Renderer for RayTracer<'_> {
             lights_bind_group_layout,
             lights_bind_group,
             light_counts: [0; 4],
+            skybox_texture,
         }))
     }
 
@@ -1533,6 +1563,85 @@ impl Renderer for RayTracer<'_> {
         self.light_counts[LightBindings::DirectionalLights as usize] = lights.len();
         self.directional_lights.resize(&self.device, lights.len());
         self.directional_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
+    }
+
+    fn set_skybox(&mut self, mut skybox: Texture) {
+        skybox.generate_mipmaps(5);
+
+        self.skybox_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("skybox"),
+            size: wgpu::Extent3d {
+                width: skybox.width,
+                height: skybox.height,
+                depth: 1,
+            },
+            array_layer_count: 1,
+            mip_level_count: 5,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::TEXTURE_FORMAT,
+            usage: wgpu::TextureUsage::COPY_DST | wgpu::TextureUsage::SAMPLED,
+        });
+
+        let texel_count = skybox.len();
+        let buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            label: Some("texture_array_staging_buufer"),
+            size: (texel_count * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
+
+        buffer.data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                skybox.data.as_ptr() as *const u8,
+                skybox.data.len() * std::mem::size_of::<u32>(),
+            )
+        });
+
+        let buffer = buffer.finish();
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("skybox_copy"),
+            });
+
+        let mut offset = 0;
+        for i in 0..skybox.mip_levels {
+            let (w, h) = skybox.mip_level_width_height(i as usize);
+            encoder.copy_buffer_to_texture(
+                wgpu::BufferCopyView {
+                    buffer: &buffer,
+                    offset: (offset * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+                    bytes_per_row: (w * std::mem::size_of::<u32>()) as u32,
+                    rows_per_image: 0,
+                },
+                wgpu::TextureCopyView {
+                    texture: &self.skybox_texture,
+                    mip_level: i,
+                    array_layer: 0,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                },
+                wgpu::Extent3d {
+                    width: w as u32,
+                    height: h as u32,
+                    depth: 1,
+                },
+            );
+
+            offset += w * h;
+        }
+
+        self.queue.submit(&[encoder.finish()]);
+
+        self.intersection_bind_group.bind(
+            IntersectionBindings::Skybox as u32,
+            bind_group::Binding::SampledTexture(
+                self.skybox_texture.create_default_view(),
+                Self::TEXTURE_FORMAT,
+                wgpu::TextureComponentType::Uint,
+                wgpu::TextureViewDimension::D2,
+            ),
+        );
     }
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {

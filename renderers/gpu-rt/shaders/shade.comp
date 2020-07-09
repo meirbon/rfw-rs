@@ -15,6 +15,7 @@ layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; 
 layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
 layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
 layout(std140, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
+layout(set = 0, binding = 8) uniform texture2D skybox;
 
 layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
 layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
@@ -86,6 +87,8 @@ void main()
     const float bsdfPdf = T4.w;
 
     if (INST_ID < 0) { // Did not hit anything
+        const vec2 uv = vec2(0.5f * (1.0f + atan(D.x, -D.z) * (1.0f / 3.14159265359f)), 1.0f - acos(D.y) * (1.0f / 3.14159265359f));
+        acPixels[PATH_ID] += vec4(throughput * textureLod(sampler2D(skybox, matTexSampler), uv, camera.path_length).rgb * (1.0f / bsdfPdf), 0);
         return;
     }
 
@@ -180,7 +183,7 @@ void main()
 
     // Prevent any nans
     throughput = max(throughput, vec3(0.0f));
-    float newBsdfPdf = n_dot_r * (1.0f / 3.14159265359f);
+    const float newBsdfPdf = n_dot_r * (1.0f / 3.14159265359f);
     if (bsdfPdf <= 0.0 || isnan(newBsdfPdf))
         return;
 
@@ -263,30 +266,27 @@ float PotentialAreaLightContribution(const int idx, const vec3 O, const vec3 N, 
 
 float PotentialPointLightContribution(const int idx, const vec3 I, const vec3 N)
 {
-    const PointLight light = pointLights[idx];
-    const vec3 L = light.position - I;
+    const vec3 L = pointLights[idx].position - I;
     const float NdotL = max(0.0f, dot(N, L));
     const float att = 1.0f / dot(L, L);
-    return light.energy * NdotL * att;
+    return pointLights[idx].energy * NdotL * att;
 }
 
 float PotentialSpotLightContribution(const int idx, const vec3 I, const vec3 N)
 {
-    const SpotLight light = spotLights[idx];
-    vec3 L = light.position - I;
+    vec3 L = spotLights[idx].position - I;
     const float att = 1.0f / dot(L, L);
     L = normalize(L);
-    const float d = (-dot(L, light.direction) - light.cos_outer) / (light.cos_inner - light.cos_outer);
+    const float d = (-dot(L, spotLights[idx].direction) - spotLights[idx].cos_outer) / (spotLights[idx].cos_inner - spotLights[idx].cos_outer);
     const float NdotL = max(0.0f, dot(N, L));
     const float LNdotL = clamp(d, 0.0f, 1.0f);
-    return light.energy * LNdotL * NdotL * att;
+    return spotLights[idx].energy * LNdotL * NdotL * att;
 }
 
 float PotentialDirectionalLightContribution(const int idx, const vec3 I, const vec3 N)
 {
-    const DirectionalLight light = directionalLights[idx];
-    const float LNdotL = -dot(light.direction, N);
-    return light.energy * LNdotL;
+    const float LNdotL = -dot(directionalLights[idx].direction, N);
+    return directionalLights[idx].energy * LNdotL;
 }
 
 float CalculateLightPDF(const vec3 D, const float t, const float lightArea, const vec3 lightNormal)
@@ -446,56 +446,48 @@ vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout fl
     if (lightIdx < AREALIGHTCOUNT)
     {
         // pick an area light
-        const AreaLight light = areaLights[lightIdx];
-        const vec3 V0 = light.vertex0;// vertex0
-        const vec3 V1 = light.vertex1;// vertex1
-        const vec3 V2 = light.vertex2;// vertex2
-        lightColor = light.radiance.xyz;// radiance
-        const vec3 LN = light.normal;// N
-        const vec3 P = bary.x * V0.xyz + bary.y * V1.xyz + bary.z * V2.xyz;
-        vec3 L = I - P;// reversed: from light to intersection point
+        lightColor = areaLights[lightIdx].radiance.xyz; // radiance
+        const vec3 LN = areaLights[lightIdx].normal; // N
+        const vec3 P = bary.x * areaLights[lightIdx].vertex0 + bary.y * areaLights[lightIdx].vertex1 + bary.z * areaLights[lightIdx].vertex2;
+        vec3 L = I - P; // reversed: from light to intersection point
         const float sqDist = dot(L, L);
         L = normalize(L);
         const float LNdotL = dot(L, LN.xyz);
-        const float reciSolidAngle = sqDist / (light.energy * LNdotL);
-        lightPdf = (LNdotL > 0 && dot(L, N) < 0) ? (reciSolidAngle * (1.0f / light.area)) : 0;
+        const float reciSolidAngle = sqDist / (areaLights[lightIdx].energy * LNdotL);
+        lightPdf = (LNdotL > 0 && dot(L, N) < 0) ? (reciSolidAngle * (1.0f / areaLights[lightIdx].area)) : 0;
         return P;
     }
 
     if (lightIdx < (AREALIGHTCOUNT + POINTLIGHTCOUNT))
     {
         // pick a pointlight
-        const PointLight light = pointLights[lightIdx - AREALIGHTCOUNT];
-        lightColor = light.radiance.xyz;// radiance
-        const vec3 L = I - light.position;// reversed
+        const int lightId = lightIdx - AREALIGHTCOUNT;
+        lightColor = pointLights[lightId].radiance.xyz;// radiance
+        const vec3 L = I - pointLights[lightId].position;// reversed
         const float sqDist = dot(L, L);
-        lightPdf = dot(L, N) < 0 ? (sqDist / light.energy) : 0;
-        return light.position;
+        lightPdf = dot(L, N) < 0 ? (sqDist / pointLights[lightId].energy) : 0;
+        return pointLights[lightId].position;
     }
 
     if (lightIdx < (AREALIGHTCOUNT + POINTLIGHTCOUNT + SPOTLIGHTCOUNT))
     {
         // pick a spotlight
-        const SpotLight light = spotLights[lightIdx - (AREALIGHTCOUNT + POINTLIGHTCOUNT)];
-        const vec3 P = light.position; // position + cos_inner
-        const vec3 E = light.radiance; // radiance + cos_outer
-        const vec3 D = light.direction; // direction
-        const vec3 pos = P.xyz;
-        vec3 L = I - P.xyz;
+        const int lightId = lightIdx - (AREALIGHTCOUNT + POINTLIGHTCOUNT);
+        vec3 L = I - spotLights[lightId].position;
         const float sqDist = dot(L, L);
         L = normalize(L);
-        const float d = max(0.0f, dot(L, D.xyz) - light.cos_outer) / (light.cos_inner - light.cos_outer);
+        const float d = max(0.0f, dot(L, spotLights[lightId].direction) - spotLights[lightId].cos_outer) / (spotLights[lightId].cos_inner - spotLights[lightId].cos_outer);
         const float LNdotL = min(1.0f, d);
-        lightPdf = (LNdotL > 0 && dot(L, N) < 0) ? (sqDist / (LNdotL * light.energy)) : 0;
-        lightColor = E.xyz;
-        return pos;
+        lightPdf = (LNdotL > 0 && dot(L, N) < 0) ? (sqDist / (LNdotL * spotLights[lightId].energy)) : 0;
+        lightColor = spotLights[lightId].radiance;
+        return spotLights[lightId].position;
     }
 
     // pick a directional light
-    const DirectionalLight light = directionalLights[lightIdx - (AREALIGHTCOUNT + POINTLIGHTCOUNT + SPOTLIGHTCOUNT)];
-    const vec3 L = light.direction;// direction
-    lightColor = light.radiance.xyz;// radiance
+    const int lightId = lightIdx - (AREALIGHTCOUNT + POINTLIGHTCOUNT + SPOTLIGHTCOUNT);
+    const vec3 L = directionalLights[lightId].direction;// direction
+    lightColor = directionalLights[lightId].radiance.xyz;// radiance
     const float NdotL = dot(L.xyz, N);
-    lightPdf = NdotL < 0 ? (1 * (1.0f / light.energy)) : 0;
+    lightPdf = NdotL < 0 ? (1 * (1.0f / directionalLights[lightId].energy)) : 0;
     return I - 1000.0f * L.xyz;
 }

@@ -15,6 +15,7 @@ pub enum SettingType {
     Int,
     Float,
 }
+
 #[derive(Debug, Clone)]
 pub enum SettingValue {
     String(String),
@@ -135,6 +136,8 @@ pub trait Renderer {
     fn set_area_lights(&mut self, changed: &BitVec, lights: &[AreaLight]);
     /// Updates directional lights, only lights with their 'changed' flag set to true have changed
     fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight]);
+    // Sets the scene skybox
+    fn set_skybox(&mut self, skybox: Texture);
 
     fn get_settings(&self) -> Vec<Setting>;
     fn set_setting(&mut self, setting: Setting);
