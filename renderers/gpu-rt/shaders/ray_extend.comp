@@ -5,7 +5,7 @@
 #include "intersection.glsl"
 
 #define USE_MBVH 1
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
 layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
@@ -204,7 +204,7 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
     vec4 index;
 
     if (!intersect_mnode(top_mbvh_nodes[0], origin, dir_inverse, t, index, result))
-        return hit;
+    return hit;
     for (int i = 3; i >= 0; i--) {
         const int idx = floatBitsToInt(index[i]) & 3;
         if (result[idx] && top_mbvh_nodes[0].children[idx] >= 0) {
@@ -231,7 +231,7 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
             }
         } else {
             if (!intersect_mnode(top_mbvh_nodes[left_first], origin, dir_inverse, t, index, result))
-                continue;
+            continue;
             for (int i = 3; i >= 0; i--) {
                 const int idx = floatBitsToInt(index[i]) & 3;
                 if (result[idx] && top_mbvh_nodes[left_first].children[idx] >= 0) {
@@ -247,36 +247,26 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
 }
 
 void main() {
-    const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
-    const ivec2 size = imageSize(OutputTex);
-    if (pixel_id.x >= size.x || pixel_id.y > size.y) {
+    uint job_id = gl_GlobalInvocationID.x;
+    if (job_id >= camera.path_count) {
         return;
     }
 
-    if (camera.sample_count == 0) {
-        acPixels[pixel_id.x + pixel_id.y * camera.width] = vec4(0);
-    }
+    const uint offset = camera.width * camera.height;
+    job_id = job_id + offset * (camera.path_length % 2);
 
-    const int path_id = pixel_id.x + pixel_id.y * size.x;
-
-    const float u = pixel_id.x * camera.inv_width;
-    const float v = pixel_id.y * camera.inv_height;
-
-    const vec3 point_on_pixel = camera.p1.xyz + u * camera.right.xyz + v * camera.up.xyz;
-    const vec3 origin = camera.position.xyz;
-    const vec3 direction = normalize(point_on_pixel - camera.position.xyz);
+    const vec4 O = origins[job_id];
+    const vec4 D = directions[job_id];
 
     float t = 1e26;
     vec2 uv = vec2(0.0);
 
-#if USE_MBVH
-    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t, uv);
-#else
-    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t, uv);
-#endif
+    #if USE_MBVH
+    const ivec2 hit = intersect_top_mbvh(O.xyz, D.xyz, 1e-4f, t, uv);
+    #else
+    const ivec2 hit = intersect_top_bvh(O.xyz, D.xyz, 1e-4f, t, uv);
+    #endif
 
     const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
-    origins[path_id] = vec4(origin, intBitsToFloat(path_id));
-    directions[path_id] = vec4(direction, 0.0);
-    states[path_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, uintBitsToFloat(bary));
+    states[job_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, uintBitsToFloat(bary));
 }

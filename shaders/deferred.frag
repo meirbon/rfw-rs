@@ -12,7 +12,7 @@ layout(location = 4) in vec2 TUV;
 layout(location = 5) in vec3 T;
 layout(location = 6) in vec3 B;
 
-layout(set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
+layout(std430, set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
 layout(set = 0, binding = 2) uniform sampler Sampler;
 
 layout(set = 2, binding = 0) uniform texture2D AlbedoT;

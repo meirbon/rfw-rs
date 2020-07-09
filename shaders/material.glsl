@@ -5,11 +5,17 @@ struct Material {
     vec4 color;
     vec4 specular;
     uvec4 parameters;
+
     uint flags;
-    uint _padding0;
-    uint _padding1;
-    uint _padding2;
-}; // 64 bytes
+    int diffuse_map;
+    int normal_map;
+    int roughness_map;
+
+    int emissive_map;
+    int sheen_map;
+    int _dummy0;
+    int _dummy1;
+};
 
 struct ShadingData {
     vec3 color;

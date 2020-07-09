@@ -18,7 +18,7 @@ layout(set = 0, binding = 0) uniform Locals {
     uvec4 light_count;
     vec4 cam_pos;
 };
-layout(set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
+layout(std430, set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
 
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image2D LightingTexture;
 layout(set = 1, binding = 1) uniform sampler Sampler;

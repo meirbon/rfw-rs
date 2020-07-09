@@ -1,5 +1,7 @@
 struct CameraView {
-    vec4 position;
+    vec3 position;
+    int path_length;
+
     vec4 right;
     vec4 up;
     vec4 p1;

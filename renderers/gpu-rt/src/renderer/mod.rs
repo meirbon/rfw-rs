@@ -23,7 +23,8 @@ enum IntersectionBindings {
     PathStates = 2,
     PathOrigins = 3,
     PathDirections = 4,
-    AccumulationBuffer = 5,
+    PathThroughputs = 5,
+    AccumulationBuffer = 6,
 }
 
 #[repr(u32)]
@@ -53,10 +54,17 @@ enum LightBindings {
     DirectionalLights = 3,
 }
 
+enum PassType {
+    Primary,
+    Secondary,
+    Shadow,
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 struct CameraData {
-    pub pos: Vec4,
+    pub pos: [f32; 3],
+    pub path_length: i32,
     pub right: Vec4,
     pub up: Vec4,
     pub p1: Vec4,
@@ -94,7 +102,8 @@ impl CameraData {
         dl_count: usize,
     ) -> Self {
         Self {
-            pos: view.pos.extend(1.0),
+            pos: view.pos.into(),
+            path_length: 0,
             right: view.right.extend(1.0),
             up: view.up.extend(1.0),
             p1: view.p1.extend(1.0),
@@ -197,6 +206,9 @@ pub struct RayTracer<'a> {
     intersection_bind_group: bind_group::BindGroup,
     intersection_pipeline_layout: wgpu::PipelineLayout,
     intersection_pipeline: wgpu::ComputePipeline,
+
+    extend_pipeline: wgpu::ComputePipeline,
+
     shade_pipeline: wgpu::ComputePipeline,
     blit_pipeline: wgpu::ComputePipeline,
 
@@ -457,14 +469,17 @@ impl Renderer for RayTracer<'_> {
             .with_binding(bind_group::BindGroupBinding {
                 index: IntersectionBindings::Camera as u32,
                 visibility: wgpu::ShaderStage::COMPUTE,
-                binding: bind_group::Binding::UniformBuffer(
+                binding: bind_group::Binding::WriteStorageBuffer(
                     device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("camera-view-buffer"),
                         size: std::mem::size_of::<CameraData>().next_power_of_two()
                             as wgpu::BufferAddress,
-                        usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::MAP_WRITE,
+                        usage: wgpu::BufferUsage::STORAGE
+                            | wgpu::BufferUsage::MAP_WRITE
+                            | wgpu::BufferUsage::MAP_READ,
                     }),
-                    0..std::mem::size_of::<CameraData>() as wgpu::BufferAddress,
+                    0..(std::mem::size_of::<CameraData>().next_power_of_two()
+                        as wgpu::BufferAddress),
                 ),
             })
             .unwrap()
@@ -475,10 +490,11 @@ impl Renderer for RayTracer<'_> {
                     device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("states-buffer"),
                         usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * std::mem::size_of::<[f32; 4]>())
+                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
                             as wgpu::BufferAddress,
                     }),
-                    0..(width * height * std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
+                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                        as wgpu::BufferAddress,
                 ),
             })
             .unwrap()
@@ -489,10 +505,11 @@ impl Renderer for RayTracer<'_> {
                     device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("states-buffer"),
                         usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * std::mem::size_of::<[f32; 4]>())
+                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
                             as wgpu::BufferAddress,
                     }),
-                    0..(width * height * std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
+                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                        as wgpu::BufferAddress,
                 ),
             })
             .unwrap()
@@ -503,21 +520,40 @@ impl Renderer for RayTracer<'_> {
                     device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("states-buffer"),
                         usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * std::mem::size_of::<[f32; 4]>())
+                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
                             as wgpu::BufferAddress,
                     }),
-                    0..(width * height * std::mem::size_of::<[f32; 4]>()) as wgpu::BufferAddress,
+                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                        as wgpu::BufferAddress,
+                ),
+            })
+            .unwrap()
+            .with_binding(bind_group::BindGroupBinding {
+                index: IntersectionBindings::PathThroughputs as u32,
+                visibility: wgpu::ShaderStage::COMPUTE,
+                binding: bind_group::Binding::WriteStorageBuffer(
+                    device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("states-buffer"),
+                        usage: wgpu::BufferUsage::STORAGE,
+                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                            as wgpu::BufferAddress,
+                    }),
+                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                        as wgpu::BufferAddress,
                 ),
             })
             .unwrap()
             .with_binding(bind_group::BindGroupBinding {
                 index: IntersectionBindings::AccumulationBuffer as u32,
                 visibility: wgpu::ShaderStage::COMPUTE,
-                binding: bind_group::Binding::WriteStorageTexture(
-                    accumulation_texture.create_default_view(),
-                    Self::OUTPUT_FORMAT,
-                    wgpu::TextureComponentType::Float,
-                    wgpu::TextureViewDimension::D2,
+                binding: bind_group::Binding::WriteStorageBuffer(
+                    device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("accumulation_buffer"),
+                        size: (width * height * 4 * std::mem::size_of::<f32>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsage::STORAGE,
+                    }),
+                    0..((width * height * 4 * std::mem::size_of::<f32>()) as wgpu::BufferAddress),
                 ),
             })
             .unwrap()
@@ -679,6 +715,21 @@ impl Renderer for RayTracer<'_> {
             });
 
         let compute_module = compiler
+            .compile_from_file(
+                "renderers/gpu-rt/shaders/ray_extend.comp",
+                ShaderKind::Compute,
+            )
+            .unwrap();
+        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            layout: &intersection_pipeline_layout,
+            compute_stage: wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &compute_module,
+            },
+        });
+
+        let compute_module = compiler
             .compile_from_file("renderers/gpu-rt/shaders/shade.comp", ShaderKind::Compute)
             .unwrap();
         let compute_module = device.create_shader_module(compute_module.as_slice());
@@ -788,6 +839,7 @@ impl Renderer for RayTracer<'_> {
             intersection_bind_group,
             intersection_pipeline_layout,
             intersection_pipeline,
+            extend_pipeline,
             shade_pipeline,
             blit_pipeline,
             mesh_bind_group,
@@ -834,7 +886,7 @@ impl Renderer for RayTracer<'_> {
             directional_lights,
             lights_bind_group_layout,
             lights_bind_group,
-            light_counts: [0; 4]
+            light_counts: [0; 4],
         }))
     }
 
@@ -1202,7 +1254,7 @@ impl Renderer for RayTracer<'_> {
         }
 
         let view = camera.get_view();
-        let camera_data = CameraData::new(
+        let mut camera_data = CameraData::new(
             view,
             self.width,
             self.height,
@@ -1213,7 +1265,30 @@ impl Renderer for RayTracer<'_> {
             self.light_counts[LightBindings::DirectionalLights as usize],
         );
 
-        self.write_camera_data(&camera_data);
+        let mut path_count = self.width * self.height;
+        let mut i = 0;
+        let mut shadow_rays = 0;
+        while path_count > 0 && i < 3 {
+            self.write_camera_data(&camera_data);
+
+            if i == 0 {
+                self.perform_pass(self.width, self.height, PassType::Primary);
+            } else {
+                self.perform_pass(path_count, 0, PassType::Secondary);
+            }
+            self.read_camera_data(&mut camera_data);
+
+            path_count = camera_data.extension_id as usize;
+            shadow_rays += camera_data.shadow_id as usize;
+
+            camera_data.path_length += 1;
+            camera_data.extension_id = 0;
+            camera_data.shadow_id = 0;
+            camera_data.path_count = path_count as i32;
+            i += 1;
+        }
+
+        self.sample_count += 1;
 
         let mut encoder = self
             .device
@@ -1222,30 +1297,8 @@ impl Renderer for RayTracer<'_> {
             });
 
         {
-            let bind_group = self.intersection_bind_group.as_bind_group(&self.device);
-            // Generate & Intersect
             let mut compute_pass = encoder.begin_compute_pass();
-            compute_pass.set_pipeline(&self.intersection_pipeline);
-            compute_pass.set_bind_group(0, bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
-            compute_pass.dispatch(
-                (self.width as f32 / 16.0).ceil() as u32,
-                (self.height as f32 / 16.0).ceil() as u32,
-                1,
-            );
-
-            // Shade
-            compute_pass.set_pipeline(&self.shade_pipeline);
-            compute_pass.set_bind_group(0, bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
-            compute_pass.dispatch(
-                ((self.width * self.height) as f32 / 16.0).ceil() as u32,
-                1,
-                1,
-            );
+            let bind_group = self.intersection_bind_group.as_bind_group(&self.device);
 
             // Blit
             compute_pass.set_pipeline(&self.blit_pipeline);
@@ -1283,8 +1336,6 @@ impl Renderer for RayTracer<'_> {
         } else {
             println!("Could not get next swap-chain texture.");
         }
-
-        self.sample_count += 1;
     }
 
     fn resize<T: HasRawWindowHandle>(&mut self, _window: &T, width: usize, height: usize) {
@@ -1297,10 +1348,10 @@ impl Renderer for RayTracer<'_> {
                         self.device.create_buffer(&wgpu::BufferDescriptor {
                             label: Some("states-buffer"),
                             usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * std::mem::size_of::<[f32; 4]>())
+                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
                                 as wgpu::BufferAddress,
                         }),
-                        0..(self.buffer_capacity * std::mem::size_of::<[f32; 4]>())
+                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
                             as wgpu::BufferAddress,
                     ),
                 )
@@ -1312,10 +1363,10 @@ impl Renderer for RayTracer<'_> {
                         self.device.create_buffer(&wgpu::BufferDescriptor {
                             label: Some("states-buffer"),
                             usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * std::mem::size_of::<[f32; 4]>())
+                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
                                 as wgpu::BufferAddress,
                         }),
-                        0..(self.buffer_capacity * std::mem::size_of::<[f32; 4]>())
+                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
                             as wgpu::BufferAddress,
                     ),
                 )
@@ -1327,10 +1378,25 @@ impl Renderer for RayTracer<'_> {
                         self.device.create_buffer(&wgpu::BufferDescriptor {
                             label: Some("states-buffer"),
                             usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * std::mem::size_of::<[f32; 4]>())
+                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
                                 as wgpu::BufferAddress,
                         }),
-                        0..(self.buffer_capacity * std::mem::size_of::<[f32; 4]>())
+                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
+                            as wgpu::BufferAddress,
+                    ),
+                )
+                .unwrap();
+            self.intersection_bind_group
+                .bind(
+                    IntersectionBindings::PathThroughputs as u32,
+                    bind_group::Binding::WriteStorageBuffer(
+                        self.device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("states-buffer"),
+                            usage: wgpu::BufferUsage::STORAGE,
+                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
+                                as wgpu::BufferAddress,
+                        }),
+                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
                             as wgpu::BufferAddress,
                     ),
                 )
@@ -1370,11 +1436,15 @@ impl Renderer for RayTracer<'_> {
         self.intersection_bind_group
             .bind(
                 IntersectionBindings::AccumulationBuffer as u32,
-                bind_group::Binding::WriteStorageTexture(
-                    self.accumulation_texture.create_default_view(),
-                    Self::OUTPUT_FORMAT,
-                    wgpu::TextureComponentType::Float,
-                    wgpu::TextureViewDimension::D2,
+                bind_group::Binding::WriteStorageBuffer(
+                    self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("accumulation_buffer"),
+                        size: (self.width * self.height * 4 * std::mem::size_of::<f32>())
+                            as wgpu::BufferAddress,
+                        usage: wgpu::BufferUsage::STORAGE,
+                    }),
+                    0..((self.width * self.height * 4 * std::mem::size_of::<f32>())
+                        as wgpu::BufferAddress),
                 ),
             )
             .unwrap();
@@ -1464,13 +1534,39 @@ impl<'a> RayTracer<'a> {
         })
     }
 
+    fn read_camera_data(&mut self, camera_data: &mut CameraData) {
+        if let Some(binding) = self
+            .intersection_bind_group
+            .get_mut(IntersectionBindings::Camera as u32)
+        {
+            match &mut binding.binding {
+                bind_group::Binding::WriteStorageBuffer(buffer, range) => {
+                    let mapping = buffer.map_read(range.start, range.end);
+                    self.device.poll(wgpu::Maintain::Wait);
+                    let mapping = futures::executor::block_on(mapping);
+                    if let Ok(mapping) = mapping {
+                        let data = unsafe {
+                            std::slice::from_raw_parts_mut(
+                                camera_data as *mut CameraData as *mut u8,
+                                std::mem::size_of::<CameraData>(),
+                            )
+                        };
+
+                        data.copy_from_slice(mapping.as_slice());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn write_camera_data(&mut self, camera_data: &CameraData) {
         if let Some(binding) = self
             .intersection_bind_group
             .get_mut(IntersectionBindings::Camera as u32)
         {
             match &mut binding.binding {
-                bind_group::Binding::UniformBuffer(buffer, range) => {
+                bind_group::Binding::WriteStorageBuffer(buffer, range) => {
                     let mapping = buffer.map_write(range.start, range.end);
                     self.device.poll(wgpu::Maintain::Wait);
                     let mapping = futures::executor::block_on(mapping);
@@ -1481,5 +1577,57 @@ impl<'a> RayTracer<'a> {
                 _ => {}
             }
         }
+    }
+
+    fn perform_pass(&mut self, width: usize, height: usize, pass_type: PassType) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("pass"),
+            });
+        {
+            let bind_group = self.intersection_bind_group.as_bind_group(&self.device);
+            let mut compute_pass = encoder.begin_compute_pass();
+
+            match pass_type {
+                PassType::Primary => {
+                    compute_pass.set_pipeline(&self.intersection_pipeline);
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.dispatch(
+                        (width as f32 / 16.0).ceil() as u32,
+                        (height as f32 / 16.0).ceil() as u32,
+                        1,
+                    );
+
+                    // Shade
+                    compute_pass.set_pipeline(&self.shade_pipeline);
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
+                    compute_pass.dispatch(((width * height) as f32 / 64.0).ceil() as u32, 1, 1);
+                }
+                PassType::Secondary => {
+                    compute_pass.set_pipeline(&self.extend_pipeline);
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.dispatch((width as f32 / 64.0).ceil() as u32, 1, 1);
+
+                    // Shade
+                    compute_pass.set_pipeline(&self.shade_pipeline);
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
+                    compute_pass.dispatch((width as f32 / 64.0).ceil() as u32, 1, 1);
+                }
+                PassType::Shadow => {}
+            }
+        }
+
+        self.queue.submit(&[encoder.finish()]);
     }
 }

@@ -5,19 +5,20 @@
 layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
-layout(set = 0, binding = 1) uniform Camera { CameraView camera; };
-layout(std430, set = 0, binding = 2) buffer writeonly pathStates { vec4 states[]; };
-layout(std430, set = 0, binding = 3) buffer writeonly pathOrigins { vec4 origins[]; };
-layout(std430, set = 0, binding = 4) buffer writeonly pathDirections { vec4 directions[]; };
-layout(set = 0, binding = 5, rgba32f) uniform image2D AccTex;
+layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
+layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
+layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
+layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
+layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
+layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
 
 void main()
 {
     const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
-    const ivec2 size = imageSize(AccTex);
-    if (pixel_id.x >= size.x || pixel_id.y > size.y) {
+    if (any(greaterThanEqual(pixel_id, ivec2(camera.width, camera.height)))) {
         return;
     }
 
-    imageStore(OutputTex, pixel_id, imageLoad(AccTex, pixel_id).rgba);
+    const float sample_scale = 1.0f / (camera.sample_count + 1);
+    imageStore(OutputTex, pixel_id, sqrt(acPixels[pixel_id.x + pixel_id.y * camera.width] * sample_scale));
 }
