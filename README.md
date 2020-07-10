@@ -5,22 +5,20 @@ This project is a playground for me ([@MeirBon](https://github.com/MeirBon)) to 
 It is heavily based on my similarly named C++ project [rendering-fw](https://github.com/meirbon/rendering-fw).
 
 ## Todo list
-- The scene crate in this project needs to automatically figure out which triangles are area lights.
+- Implement an ECS-like architecture that supports user-specified types of components.
 - Ability to generate various levels of lod meshes, this could be useful for shadow maps & ray traced shadows.
-- Implement gltf support including animation support
-- Port my Vulkan RTX renderer to this project
+- Implement gltf support including animation support.
+- Port my [Vulkan RTX renderer](https://github.com/meirbon/rendering-fw) to Rust.
 
 ## Features
-The project currently contains 2 working apps
-- CPU ray tracer
-- Deferred GPU renderer implemented using wgpu
+The project currently contains the following working apps
+- GPU path tracer
+- Deferred GPU renderer
+- Simple CPU path tracer
 
-This project contains 1 crate
-- scene
-
-### scene
-The scene library implements quads, triangle meshes, spheres and planes. Non-triangle objects
-can only (currently) be rendered by the CPU ray tracer. Scenes can be serialized and deserialized using [serde](https://serde.rs).
+### scene crate
+The scene library implements quads, triangle meshes, spheres and planes.
+Scenes can be serialized and deserialized using [serde](https://serde.rs).
 Components such as BVHs can be serialized as well allowing for quick startup times.
 
 ![gpu-rt](docs/gpu-rt.png)
