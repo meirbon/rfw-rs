@@ -120,6 +120,9 @@ fn main() {
     let renderer: RenderSystem<RayTracer> =
         RenderSystem::new(&window, render_width, render_height).unwrap();
     let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
+    camera.change_fov(50.0);
+    camera.focal_distance = 10.0;
+    camera.aperture = 0.001;
 
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
@@ -131,6 +134,21 @@ fn main() {
     instance.translate_y(-2.5);
     instance.translate_z(10.0);
     instance.synchronize().unwrap();
+
+    // let sibenik = renderer.load_mesh("models/sibenik/sibenik.obj").unwrap();
+    // let mut instance = renderer.add_instance(sibenik).unwrap();
+    // instance.synchronize().unwrap();
+
+    renderer.add_point_light(Vec3::zero(), Vec3::new(0.0, 2.0, 4.0));
+    renderer.add_point_light(Vec3::new(0.0, -4.0, 0.0), Vec3::splat(1.0));
+
+    renderer.add_spot_light(
+        Vec3::new(0.0, -2.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.0),
+        Vec3::splat(10.0) * Vec3::new(1.0, 1.0, 251.0 / 255.0),
+        15.0,
+        30.0,
+    );
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Reset;

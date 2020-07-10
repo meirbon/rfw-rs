@@ -120,7 +120,7 @@ fn main() {
     let renderer: RenderSystem<Deferred> =
         RenderSystem::new(&window, render_width, render_height).unwrap();
     let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
-    camera.change_fov(90.0);
+    camera.change_fov(60.0);
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;
@@ -139,13 +139,6 @@ fn main() {
     let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
     instance.scale(Vec3::splat(0.1));
     instance.synchronize().unwrap();
-
-    // let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    // let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-    // instance.rotate_y(180.0);
-    // instance.translate_y(-2.5);
-    // instance.translate_z(6.5);
-    // instance.synchronize().unwrap();
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 

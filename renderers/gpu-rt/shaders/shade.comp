@@ -18,6 +18,7 @@ layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]
 layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
 layout(std140, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
 layout(set = 0, binding = 8) uniform texture2D skybox;
+layout(std430, set = 0, binding = 9) buffer readonly BlueNoise { int blueNoise[]; };
 
 layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
 layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
@@ -63,7 +64,7 @@ float PotentialDirectionalLightContribution(const int idx, const vec3 I, const v
 float LightPickProb(const int idx, const vec3 O, const vec3 N, const vec3 I);
 float CalculateLightPDF(const vec3 D, const float t, const float lightArea, const vec3 lightNormal);
 vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout float pickProb, inout float lightPdf, inout vec3 lightColor);
-float blueNoiseSampler(int x, int y, int sampleIdx, int sampleDimension);
+float blueNoiseSampler(int x, int y, int sampleDimension);
 
 vec4 fetchTexel(const vec2 texCoord, const int texturdId, const float LOD);
 vec4 fetchTexelTrilinear(const float lambda, const vec2 texCoord, const int textureId);
@@ -170,7 +171,7 @@ void main()
             shadingData.color *= fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].diffuse_map).rgb;
         }
 
-        if (HAS_NORMMAL_MAP(flags)) {
+        if (HAS_NORMAL_MAP(flags)) {
             N = normalize(mat3(T.xyz, B.xyz, N.xyz) * ((fetchTexel(vec2(tu, tv), materials[MAT_ID].normal_map, int(lambda)).xyz - 0.5) * 2.0));
         }
     }
@@ -186,31 +187,58 @@ void main()
     float newBsdfPdf;
     bool specular = false;
     vec3 R;
-    const vec3 bsdf = SampleBSDF(shadingData, N, gN, T.xyz, B, D.xyz * -1.0f, T_VAL, backFacing, randf(seed), randf(seed), R, newBsdfPdf, specular);
+
+    float r1, r2;
+    if (camera.sample_count < 256)// Blue noise
+    {
+        const int x = int(PATH_ID % camera.width) & 127;
+        const int y = int(PATH_ID / camera.width) & 127;
+        r1 = blueNoiseSampler(x, y, int(4 + 4 * camera.path_length));
+        r2 = blueNoiseSampler(x, y, int(5 + 4 * camera.path_length));
+    }
+    else
+    {
+        r1 = randf(seed);
+        r2 = randf(seed);
+    }
+
+    const vec3 bsdf = SampleBSDF(shadingData, N, gN, T.xyz, B, D.xyz * -1.0f, T_VAL, backFacing, r1, r2, R, newBsdfPdf, specular);
     throughput = throughput * bsdf * abs(dot(N, R));
 
     // Prevent any nans
     throughput = max(throughput, vec3(0.0f));
-    if (newBsdfPdf <= 1e-4f || isnan(newBsdfPdf))
-    return;
+    if (newBsdfPdf <= 1e-4f || isnan(newBsdfPdf)) {
+        return;
+    }
 
     // Light sampling
     if (POINTLIGHTCOUNT > 0 || AREALIGHTCOUNT > 0 || SPOTLIGHTCOUNT > 0 || DIRECTIONALLIGHTCOUNT > 0)
     {
-        float r0 = randf(seed);
-        float r1 = randf(seed);
+        float r3, r4;
+        if (camera.sample_count < 256)
+        {
+            const int x = int(PATH_ID % camera.width);
+            const int y = int(PATH_ID / camera.width);
+            r3 = blueNoiseSampler(x, y, int(6 + 4 * camera.path_length));
+            r4 = blueNoiseSampler(x, y, int(7 + 4 * camera.path_length));
+        }
+        else
+        {
+            r3 = randf(seed);
+            r4 = randf(seed);
+        }
 
         vec3 lightColor;
         float pickProb, lightPdf;
 
-        vec3 L = RandomPointOnLight(r0, r1, P, N, pickProb, lightPdf, lightColor) - P;
+        vec3 L = RandomPointOnLight(r3, r4, P, N, pickProb, lightPdf, lightColor) - P;
         const float dist = length(L);
         L *= 1.0f / dist;
         const float NdotL = dot(L, N);
         if (NdotL > 0.0 && lightPdf > 0.0)
         {
             float shadowPdf;
-            const vec3 sampledBSDF = EvaluateBSDF(shadingData, N, T.xyz, B, D.xyz * -1.0f, L, shadowPdf);
+            const vec3 sampledBSDF = EvaluateBSDF(shadingData, gN, T.xyz, B, D.xyz * -1.0f, L, shadowPdf);
             if (shadowPdf > 0.0)
             {
                 // calculate potential contribution
@@ -223,7 +251,7 @@ void main()
                     // Add fire-and-forget shadow ray to the connections buffer
                     const uint shadowRayIdx = atomicAdd(camera.shadowId, 1);// compaction
 
-                    potContributions[shadowRayIdx].O = vec4(P + 1e-4f * gN, 0);
+                    potContributions[shadowRayIdx].O = vec4(safe_origin(P, L, gN, 1e-4f), O.w);
                     potContributions[shadowRayIdx].D = vec4(L, dist - 1e-4f);
                     potContributions[shadowRayIdx].E_pixelId = vec4(contribution, O.w);
                 }
@@ -234,7 +262,7 @@ void main()
     // Get compacted index for extension ray
     const int ext_id = atomicAdd(camera.extensionId, 1) + int(nextBufferIndex * offset);
 
-    origins[ext_id] = vec4(P.xyz + gN.xyz * 1e-4f, intBitsToFloat(PATH_ID));
+    origins[ext_id] = vec4(safe_origin(P, R, gN, 1e-4f), O.w);
     directions[ext_id] = vec4(R, uintBitsToFloat(PackNormal(N)));
     throughputs[ext_id] = vec4(throughput, newBsdfPdf);
 }
@@ -499,4 +527,25 @@ vec3 RandomPointOnLight(float r0, float r1, const vec3 I, const vec3 N, inout fl
     const float NdotL = dot(L.xyz, N);
     lightPdf = NdotL < 0 ? (1 * (1.0f / directionalLights[lightId].energy)) : 0;
     return I - 1000.0f * L.xyz;
+}
+
+float blueNoiseSampler(int x, int y, int sampleDimension)
+{
+    // wrap arguments
+    x &= 127;
+    y &= 127;
+    int sampleIdx = (camera.sample_count + 1) & 255;
+    sampleDimension &= 255;
+
+    // xor index based on optimized ranking
+    int rankedSampleIndex = sampleIdx ^ blueNoise[sampleDimension + (x + y * 128) * 8 + 65536 * 3];
+
+    // fetch value in sequence
+    int value = blueNoise[sampleDimension + rankedSampleIndex * 256];
+
+    // if the dimension is optimized, xor sequence value based on optimized scrambling
+    value ^= blueNoise[(sampleDimension & 7) + (x + y * 128) * 8 + 65536];
+
+    // convert to float and return
+    return (0.5f + value) * (1.0f / 256.0f);
 }

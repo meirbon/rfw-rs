@@ -21,4 +21,8 @@ This project contains 1 crate
 ### scene
 The scene library implements quads, triangle meshes, spheres and planes. Non-triangle objects
 can only (currently) be rendered by the CPU ray tracer. Scenes can be serialized and deserialized using [serde](https://serde.rs).
-Components such as BVHs can be serialized as well allowing for quick startup times. 
+Components such as BVHs can be serialized as well allowing for quick startup times.
+
+![gpu-rt](docs/gpu-rt.png)
+![deferred.png](docs/deferred.png)
+![cpu-rt](docs/cpu-rt.png) 

@@ -1,6 +1,11 @@
 #ifndef STRUCTS_H
 #define STRUCTS_H
 
+struct MBVHTraversal {
+    int left_first;
+    int count;
+};
+
 struct CameraView {
     vec3 position;
     int path_length;

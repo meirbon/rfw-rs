@@ -3,6 +3,7 @@
 
 #include "structs.glsl"
 #include "intersection.glsl"
+#include "random.glsl"
 
 #define USE_MBVH 1
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -14,6 +15,7 @@ layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
 layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
 layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
 layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
+layout(std430, set = 0, binding = 9) buffer readonly BlueNoise { int blueNoise[]; };
 
 layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
 layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
@@ -24,6 +26,124 @@ layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { Insta
 layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
 layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
 layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
+
+float blueNoiseSampler(int x, int y, int sampleDimension);
+
+int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv);
+int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv);
+ivec2 intersect_top_bvh(const vec3 origin, const vec3 direction, float t_min, inout float t, inout vec2 uv);
+ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, inout float t, inout vec2 uv);
+void generate_ray(inout vec3 O, inout vec3 D, const uint pixelIdx);
+void generate_eye_ray(inout vec3 O, inout vec3 D, const uint pixelIdx, inout uint seed);
+
+void main() {
+    const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 size = imageSize(OutputTex);
+    if (pixel_id.x >= size.x || pixel_id.y > size.y) {
+        return;
+    }
+
+    if (camera.sample_count == 0) {
+        acPixels[pixel_id.x + pixel_id.y * camera.width] = vec4(0);
+    }
+
+    const int path_id = pixel_id.x + pixel_id.y * size.x;
+
+    vec3 origin, direction;
+
+    uint seed = wang_hash(path_id * 16789 + camera.sample_count * 1791 + camera.path_length * 720898027);
+    generate_eye_ray(origin, direction, path_id, seed);
+
+    float t = 1e26;
+    vec2 uv = vec2(0.0);
+
+#if USE_MBVH
+    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-4f, t, uv);
+#else
+    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-4f, t, uv);
+#endif
+
+    const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
+    origins[path_id] = vec4(origin, intBitsToFloat(path_id));
+    directions[path_id] = vec4(direction, 0.0);
+    states[path_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, uintBitsToFloat(bary));
+}
+
+float blueNoiseSampler(int x, int y, int sampleDimension)
+{
+    // wrap arguments
+    x &= 127;
+    y &= 127;
+    int sampleIdx = (camera.sample_count + 1) & 255;
+    sampleDimension &= 255;
+
+    // xor index based on optimized ranking
+    int rankedSampleIndex = sampleIdx ^ blueNoise[sampleDimension + (x + y * 128) * 8 + 65536 * 3];
+
+    // fetch value in sequence
+    int value = blueNoise[sampleDimension + rankedSampleIndex * 256];
+
+    // if the dimension is optimized, xor sequence value based on optimized scrambling
+    value ^= blueNoise[(sampleDimension & 7) + (x + y * 128) * 8 + 65536];
+
+    // convert to float and return
+    return (0.5f + value) * (1.0f / 256.0f);
+}
+
+void generate_ray(inout vec3 O, inout vec3 D, const uint pixelIdx)
+{
+    const float u = float(int(pixelIdx) % camera.width) * camera.inv_width;
+    const float v = float(int(pixelIdx) / camera.width) * camera.inv_height;
+
+    const vec3 point_on_pixel = camera.p1.xyz + u * camera.right.xyz + v * camera.up.xyz;
+    O = camera.position.xyz;
+    D = normalize(point_on_pixel - camera.position.xyz);
+}
+
+void generate_eye_ray(inout vec3 O, inout vec3 D, const uint pixelIdx, inout uint seed)
+{
+    const int sx = int(pixelIdx) % camera.width;
+    const int sy = int(pixelIdx) / camera.width;
+
+    float r0, r1, r2, r3;
+    if (camera.sample_count < 256)
+    {
+        r0 = blueNoiseSampler(sx, sy, 0);
+        r1 = blueNoiseSampler(sx, sy, 1);
+        r2 = blueNoiseSampler(sx, sy, 2);
+        r3 = blueNoiseSampler(sx, sy, 3);
+    }
+    else
+    {
+        r0 = randf(seed);
+        r1 = randf(seed);
+        r2 = randf(seed);
+        r3 = randf(seed);
+    }
+
+    const float blade = int(r0 * 9);
+    r2 = (r2 - blade * (1.0f / 9.0f)) * 9.0f;
+    float x1, y1, x2, y2;
+    float piOver4point5 = 3.14159265359f / 4.5f;
+
+    x1 = cos(blade * piOver4point5);
+    y1 = sin(blade * piOver4point5);
+    x2 = cos((blade + 1.0f) * piOver4point5);
+    y2 = sin((blade + 1.0f) * piOver4point5);
+    if ((r2 + r3) > 1.0f)
+    {
+        r2 = 1.0f - r2;
+        r3 = 1.0f - r3;
+    }
+    const float xr = x1 * r2 + x2 * r3;
+    const float yr = y1 * r2 + y2 * r3;
+
+    O = vec3(camera.position.xyz) + camera.lens_size * (camera.right.xyz * xr + camera.up.xyz * yr);
+    const float u = (float(sx) + r0) * (1.0f / float(camera.width));
+    const float v = (float(sy) + r1) * (1.0f / float(camera.height));
+    const vec3 pointOnPixel = camera.p1.xyz + u * camera.right.xyz + v * camera.up.xyz;
+    D = normalize(pointOnPixel - O);
+}
 
 int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv)
 {
@@ -78,11 +198,6 @@ int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint
 
     return hit;
 }
-
-struct MBVHTraversal {
-    int left_first;
-    int count;
-};
 
 int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv)
 {
@@ -204,7 +319,7 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
     vec4 index;
 
     if (!intersect_mnode(top_mbvh_nodes[0], origin, dir_inverse, t, index, result))
-        return hit;
+    return hit;
     for (int i = 3; i >= 0; i--) {
         const int idx = floatBitsToInt(index[i]) & 3;
         if (result[idx] && top_mbvh_nodes[0].children[idx] >= 0) {
@@ -231,7 +346,7 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
             }
         } else {
             if (!intersect_mnode(top_mbvh_nodes[left_first], origin, dir_inverse, t, index, result))
-                continue;
+            continue;
             for (int i = 3; i >= 0; i--) {
                 const int idx = floatBitsToInt(index[i]) & 3;
                 if (result[idx] && top_mbvh_nodes[left_first].children[idx] >= 0) {
@@ -244,39 +359,4 @@ ivec2 intersect_top_mbvh(const vec3 origin, const vec3 direction, float t_min, i
     }
 
     return hit;
-}
-
-void main() {
-    const ivec2 pixel_id = ivec2(gl_GlobalInvocationID.xy);
-    const ivec2 size = imageSize(OutputTex);
-    if (pixel_id.x >= size.x || pixel_id.y > size.y) {
-        return;
-    }
-
-    if (camera.sample_count == 0) {
-        acPixels[pixel_id.x + pixel_id.y * camera.width] = vec4(0);
-    }
-
-    const int path_id = pixel_id.x + pixel_id.y * size.x;
-
-    const float u = pixel_id.x * camera.inv_width;
-    const float v = pixel_id.y * camera.inv_height;
-
-    const vec3 point_on_pixel = camera.p1.xyz + u * camera.right.xyz + v * camera.up.xyz;
-    const vec3 origin = camera.position.xyz;
-    const vec3 direction = normalize(point_on_pixel - camera.position.xyz);
-
-    float t = 1e26;
-    vec2 uv = vec2(0.0);
-
-#if USE_MBVH
-    const ivec2 hit = intersect_top_mbvh(origin, direction, 1e-5, t, uv);
-#else
-    const ivec2 hit = intersect_top_bvh(origin, direction, 1e-5, t, uv);
-#endif
-
-    const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
-    origins[path_id] = vec4(origin, intBitsToFloat(path_id));
-    directions[path_id] = vec4(direction, 0.0);
-    states[path_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, uintBitsToFloat(bary));
 }

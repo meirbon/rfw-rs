@@ -15,6 +15,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 mod bind_group;
+mod blue_noise;
 mod mem;
 
 #[repr(u32)]
@@ -27,7 +28,8 @@ enum IntersectionBindings {
     PathThroughputs = 5,
     AccumulationBuffer = 6,
     PotentialContributions = 7,
-    Skybox,
+    Skybox = 8,
+    Bluenoise = 9,
 }
 
 #[repr(u32)]
@@ -475,6 +477,37 @@ impl Renderer for RayTracer<'_> {
             alpha_to_coverage_enabled: false,
         });
 
+        let blue_noise = blue_noise::create_blue_noise_buffer();
+
+        let blue_noise_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("blue_noise"),
+            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::COPY_DST,
+            size: (blue_noise.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+        });
+        {
+            let staging_buffer = device.create_buffer_with_data(
+                unsafe {
+                    std::slice::from_raw_parts(
+                        blue_noise.as_ptr() as *const u8,
+                        blue_noise.len() * std::mem::size_of::<u32>(),
+                    )
+                },
+                wgpu::BufferUsage::COPY_SRC,
+            );
+
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("blue_noise_copy"),
+            });
+            encoder.copy_buffer_to_buffer(
+                &staging_buffer,
+                0,
+                &blue_noise_buffer,
+                0,
+                (blue_noise.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+            );
+            queue.submit(&[encoder.finish()]);
+        }
+
         let intersection_bind_group = bind_group::BindGroupBuilder::default()
             .with_binding(bind_group::BindGroupBinding {
                 index: IntersectionBindings::Output as u32,
@@ -600,6 +633,15 @@ impl Renderer for RayTracer<'_> {
                     Self::TEXTURE_FORMAT,
                     wgpu::TextureComponentType::Uint,
                     wgpu::TextureViewDimension::D2,
+                ),
+            })
+            .unwrap()
+            .with_binding(bind_group::BindGroupBinding {
+                index: IntersectionBindings::Bluenoise as u32,
+                visibility: wgpu::ShaderStage::COMPUTE,
+                binding: bind_group::Binding::ReadStorageBuffer(
+                    blue_noise_buffer,
+                    0..(blue_noise.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
                 ),
             })
             .unwrap()

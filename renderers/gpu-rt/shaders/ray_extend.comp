@@ -79,11 +79,6 @@ int intersect_bvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint
     return hit;
 }
 
-struct MBVHTraversal {
-    int left_first;
-    int count;
-};
-
 int intersect_mbvh(const vec3 origin, const vec3 direction, uint bvh_offset, uint triangle_offset, uint prim_offset, float t_min, inout float t, inout vec2 uv)
 {
     MBVHTraversal hit_stack[32];
@@ -259,12 +254,13 @@ void main() {
     const vec4 D = directions[job_id];
 
     float t = 1e26;
+    float t_min = 1e-4f;
     vec2 uv = vec2(0.0);
 
     #if USE_MBVH
-    const ivec2 hit = intersect_top_mbvh(O.xyz, D.xyz, 1e-4f, t, uv);
+    const ivec2 hit = intersect_top_mbvh(O.xyz, D.xyz, t_min, t, uv);
     #else
-    const ivec2 hit = intersect_top_bvh(O.xyz, D.xyz, 1e-4f, t, uv);
+    const ivec2 hit = intersect_top_bvh(O.xyz, D.xyz, t_min, t, uv);
     #endif
 
     const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
