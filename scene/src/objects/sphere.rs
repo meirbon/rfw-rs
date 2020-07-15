@@ -212,10 +212,22 @@ impl Intersect for Sphere {
         }
 
         let div_2a = glam::Vec4::one() / (2.0 * a);
+
+        #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
         let sqrt_d = unsafe {
             use std::arch::x86_64::_mm_sqrt_ps;
             glam::Vec4::from(_mm_sqrt_ps(d.into())).max(glam::Vec4::zero())
         };
+        #[cfg(any(
+            all(not(target_arch = "x86_64"), not(target_arch = "x86")),
+            target_arch = "wasm32-unknown-unknown"
+        ))]
+        let sqrt_d = glam::Vec4::new(
+            (d[0].sqrt()).max(0.0),
+            (d[1].sqrt()).max(0.0),
+            (d[2].sqrt()).max(0.0),
+            (d[3].sqrt()).max(0.0),
+        );
 
         let t1 = ((-b) + sqrt_d) * div_2a;
         let t2 = ((-b) - sqrt_d) * div_2a;
@@ -497,7 +509,7 @@ impl ToMesh for Sphere {
             normals.as_slice(),
             uvs.as_slice(),
             material_ids.as_slice(),
-            Some("sphere")
+            Some("sphere"),
         )
     }
 }

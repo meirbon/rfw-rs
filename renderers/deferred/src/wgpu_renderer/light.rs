@@ -47,7 +47,12 @@ impl DeferredLights {
         self.area_lights.set(changed, lights, scene_bounds);
     }
 
-    pub fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight], scene_bounds: &AABB) {
+    pub fn set_directional_lights(
+        &mut self,
+        changed: &BitVec,
+        lights: &[DirectionalLight],
+        scene_bounds: &AABB,
+    ) {
         self.directional_lights.set(changed, lights, scene_bounds);
     }
 
@@ -409,14 +414,17 @@ impl ShadowMapArray {
 
         let mut compiler = CompilerBuilder::new().build().unwrap();
         let vert_shader = compiler
-            .compile_from_file("shaders/shadow_single.vert", ShaderKind::Vertex)
+            .compile_from_file(
+                "renderers/deferred/shaders/shadow_single.vert",
+                ShaderKind::Vertex,
+            )
             .unwrap();
         let frag_shader = compiler
             .compile_from_file(
                 if linear {
-                    "shaders/shadow_single_linear.frag"
+                    "renderers/deferred/shaders/shadow_single_linear.frag"
                 } else {
-                    "shaders/shadow_single.frag"
+                    "renderers/deferred/shaders/shadow_single.frag"
                 },
                 ShaderKind::Fragment,
             )
@@ -527,10 +535,13 @@ impl ShadowMapArray {
             });
 
         let vert_shader = compiler
-            .compile_from_file("shaders/quad.vert", ShaderKind::Vertex)
+            .compile_from_file("renderers/deferred/shaders/quad.vert", ShaderKind::Vertex)
             .unwrap();
         let frag_shader = compiler
-            .compile_from_file("shaders/shadow_filter.frag", ShaderKind::Fragment)
+            .compile_from_file(
+                "renderers/deferred/shaders/shadow_filter.frag",
+                ShaderKind::Fragment,
+            )
             .unwrap();
         let vert_module = device.create_shader_module(vert_shader.as_slice());
         let frag_module = device.create_shader_module(frag_shader.as_slice());

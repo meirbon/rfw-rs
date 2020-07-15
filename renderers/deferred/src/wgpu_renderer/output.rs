@@ -173,10 +173,10 @@ impl DeferredOutput {
             });
 
         let vert_spirv = compiler
-            .compile_from_file("shaders/quad.vert", ShaderKind::Vertex)
+            .compile_from_file("renderers/deferred/shaders/quad.vert", ShaderKind::Vertex)
             .unwrap();
         let frag_spirv = compiler
-            .compile_from_file("shaders/quad.frag", ShaderKind::Fragment)
+            .compile_from_file("renderers/deferred/shaders/quad.frag", ShaderKind::Fragment)
             .unwrap();
 
         let vert_module = device.create_shader_module(vert_spirv.as_slice());

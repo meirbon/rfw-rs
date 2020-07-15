@@ -12,8 +12,18 @@ pub use frustrum::*;
 use serde::{Deserialize, Serialize};
 
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
-    use std::arch::x86_64::_mm_sqrt_ps;
-    unsafe { _mm_sqrt_ps(vec.into()).into() }
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    unsafe {
+        use std::arch::x86_64::_mm_sqrt_ps;
+        _mm_sqrt_ps(vec.into()).into()
+    }
+    #[cfg(any(
+        all(not(target_arch = "x86_64"), not(target_arch = "x86")),
+        target_arch = "wasm32-unknown-unknown"
+    ))]
+    {
+        Vec4::new(vec[0].sqrt(), vec[1].sqrt(), vec[2].sqrt(), vec[3].sqrt())
+    }
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]

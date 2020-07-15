@@ -430,8 +430,8 @@ impl Renderer for RayTracer<'_> {
                 bind_group_layouts: &[&output_bind_group.layout],
             });
 
-        let vert_shader_source = include_str!("../../../../shaders/quad.vert");
-        let frag_shader_source = include_str!("../../../../shaders/quad.frag");
+        let vert_shader_source = include_str!("../../shaders/quad.vert");
+        let frag_shader_source = include_str!("../../shaders/quad.frag");
 
         let vert_shader = compiler
             .compile_from_string(vert_shader_source, ShaderKind::Vertex)

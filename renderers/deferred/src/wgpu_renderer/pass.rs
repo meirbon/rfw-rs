@@ -41,10 +41,13 @@ impl BlitPass {
             bind_group_layouts: &[&bind_group_layout],
         });
         let vert_shader = compiler
-            .compile_from_file("shaders/quad.vert", ShaderKind::Vertex)
+            .compile_from_file("renderers/deferred/shaders/quad.vert", ShaderKind::Vertex)
             .unwrap();
         let frag_shader = compiler
-            .compile_from_file("shaders/deferred_blit.frag", ShaderKind::Fragment)
+            .compile_from_file(
+                "renderers/deferred/shaders/deferred_blit.frag",
+                ShaderKind::Fragment,
+            )
             .unwrap();
 
         let vert_module = device.create_shader_module(vert_shader.as_slice());
@@ -191,7 +194,7 @@ impl SSAOPass {
         });
 
         let shader = compiler
-            .compile_from_file("shaders/ssao.comp", ShaderKind::Compute)
+            .compile_from_file("renderers/deferred/shaders/ssao.comp", ShaderKind::Compute)
             .unwrap();
         let shader_module = device.create_shader_module(shader.as_slice());
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -309,7 +312,10 @@ impl SSAOPass {
                 bind_group_layouts: &[&filter_bind_group_layout],
             });
         let shader = compiler
-            .compile_from_file("shaders/ssao_filter.comp", ShaderKind::Compute)
+            .compile_from_file(
+                "renderers/deferred/shaders/ssao_filter.comp",
+                ShaderKind::Compute,
+            )
             .unwrap();
         let shader_module = device.create_shader_module(shader.as_slice());
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -647,8 +653,11 @@ impl RadiancePass {
         });
 
         let spirv = compiler
-            .compile_from_file("shaders/lighting.comp", ShaderKind::Compute)
-            .expect("shaders/lighting.comp");
+            .compile_from_file(
+                "renderers/deferred/shaders/lighting.comp",
+                ShaderKind::Compute,
+            )
+            .expect("renderers/deferred/shaders/lighting.comp");
         let module = device.create_shader_module(spirv.as_slice());
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {

@@ -16,11 +16,14 @@ impl RenderPipeline {
         compiler: &mut Compiler,
     ) -> Self {
         let vert_shader = compiler
-            .compile_from_file("shaders/mesh.vert", ShaderKind::Vertex)
-            .expect("shaders/mesh.vert");
+            .compile_from_file("renderers/deferred/shaders/mesh.vert", ShaderKind::Vertex)
+            .expect("renderers/deferred/shaders/mesh.vert");
         let frag_shader = compiler
-            .compile_from_file("shaders/deferred.frag", ShaderKind::Fragment)
-            .expect("shaders/mesh.frag");
+            .compile_from_file(
+                "renderers/deferred/shaders/deferred.frag",
+                ShaderKind::Fragment,
+            )
+            .expect("renderers/deferred/shaders/mesh.frag");
 
         let vert_module = device.create_shader_module(vert_shader.as_slice());
         let frag_module = device.create_shader_module(frag_shader.as_slice());

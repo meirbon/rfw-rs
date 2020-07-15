@@ -1,4 +1,4 @@
-use scene::{raw_window_handle, renderers::Renderer};
+use scene::{raw_window_handle, renderers::Renderer, Texture};
 
 use cocoa::{appkit::NSView, base::id as cocoa_id, foundation::NSRange};
 use core_graphics::geometry::CGSize;
@@ -185,6 +185,10 @@ impl Renderer for MetalRT {
         _changed: &scene::BitVec,
         _lights: &[scene::DirectionalLight],
     ) {
+    }
+
+    fn set_skybox(&mut self, skybox: Texture) {
+        unimplemented!()
     }
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {
