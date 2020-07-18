@@ -1,13 +1,13 @@
 use std::time::{Duration, Instant};
 
 pub struct Timer {
-    moment: Instant
+    moment: Instant,
 }
 
 impl Timer {
     pub fn new() -> Timer {
         Timer {
-            moment: Instant::now()
+            moment: Instant::now(),
         }
     }
 
@@ -65,9 +65,77 @@ impl<T: num::Float + num::FromPrimitive> Averager<T> {
     }
 
     pub fn get_average(&mut self) -> T {
-        let range = if self.has_looped { self.capacity } else { self.index };
+        let range = if self.has_looped {
+            self.capacity
+        } else {
+            self.index
+        };
         let mut avg = T::from(0.0).unwrap();
-        for i in 0..range { avg = avg + self.values[i]; }
+        for i in 0..range {
+            avg = avg + self.values[i];
+        }
         avg * (T::from_f32(1.0).unwrap() / T::from_usize(range).unwrap())
+    }
+}
+
+pub trait BytesConversion {
+    fn to_bytes(&self) -> &[u8];
+    fn to_quad_bytes(&self) -> &[u32];
+}
+
+impl<T: Sized, const N: usize> BytesConversion for &[T; N] {
+    fn to_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(self.as_ptr() as *const u8, N * std::mem::size_of::<T>())
+        }
+    }
+
+    fn to_quad_bytes(&self) -> &[u32] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.as_ptr() as *const u32,
+                N * std::mem::size_of::<T>() / 4,
+            )
+        }
+    }
+}
+
+impl<T: Sized> BytesConversion for &[T] {
+    fn to_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.as_ptr() as *const u8,
+                self.len() * std::mem::size_of::<T>(),
+            )
+        }
+    }
+
+    fn to_quad_bytes(&self) -> &[u32] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.as_ptr() as *const u32,
+                self.len() * std::mem::size_of::<T>() / 4,
+            )
+        }
+    }
+}
+
+impl<T: Sized> BytesConversion for Vec<T> {
+    fn to_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.as_ptr() as *const u8,
+                self.len() * std::mem::size_of::<T>(),
+            )
+        }
+    }
+
+    fn to_quad_bytes(&self) -> &[u32] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.as_ptr() as *const u32,
+                self.len() * std::mem::size_of::<T>() / 4,
+            )
+        }
     }
 }

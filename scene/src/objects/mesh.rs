@@ -5,11 +5,12 @@ use crate::objects::*;
 use crate::scene::{PrimID, USE_MBVH};
 use crate::MaterialList;
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
-use std::collections::HashMap;
 use std::fmt::Display;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "object_caching")]
+use std::collections::HashMap;
 
 pub trait ToMesh {
     fn into_mesh(self) -> Mesh;

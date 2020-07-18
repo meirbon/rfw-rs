@@ -1,3 +1,5 @@
+#![feature(const_generics)]
+
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -5,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::{cmp::Ordering, ffi::OsString, fmt::Display};
 
 pub mod utils;
+pub use utils::*;
 
 static mut INCLUDE_DIRS: Vec<PathBuf> = Vec::new();
 

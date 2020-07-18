@@ -105,12 +105,7 @@ impl DeferredOutput {
     pub const OUTPUT_TYPE: wgpu::TextureComponentType = wgpu::TextureComponentType::Uint;
     pub const STORAGE_TYPE: wgpu::TextureComponentType = wgpu::TextureComponentType::Float;
 
-    pub fn new(
-        device: &wgpu::Device,
-        width: usize,
-        height: usize,
-        compiler: &mut Compiler,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, width: usize, height: usize) -> Self {
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -172,15 +167,11 @@ impl DeferredOutput {
                 bind_group_layouts: &[&blit_debug_layout],
             });
 
-        let vert_spirv = compiler
-            .compile_from_file("renderers/deferred/shaders/quad.vert", ShaderKind::Vertex)
-            .unwrap();
-        let frag_spirv = compiler
-            .compile_from_file("renderers/deferred/shaders/quad.frag", ShaderKind::Fragment)
-            .unwrap();
+        let vert_spirv = include_bytes!("../../shaders/quad.vert.spv");
+        let frag_spirv = include_bytes!("../../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_spirv.as_slice());
-        let frag_module = device.create_shader_module(frag_spirv.as_slice());
+        let vert_module = device.create_shader_module(vert_spirv.to_quad_bytes());
+        let frag_module = device.create_shader_module(frag_spirv.to_quad_bytes());
 
         let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &blit_pipeline_layout,

@@ -197,7 +197,7 @@ impl Default for GPUInstanceData {
     }
 }
 
-pub struct RayTracer<'a> {
+pub struct RayTracer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     adapter: wgpu::Adapter,
@@ -227,7 +227,6 @@ pub struct RayTracer<'a> {
     top_mbvh_buffer: ManagedBuffer<MBVHNode>,
     top_indices: ManagedBuffer<u32>,
 
-    compiler: Compiler<'a>,
     output_bind_group: bind_group::BindGroup,
     output_texture: wgpu::Texture,
     output_pipeline_layout: wgpu::PipelineLayout,
@@ -284,7 +283,7 @@ impl Display for RayTracerError {
     }
 }
 
-impl RayTracer<'_> {
+impl RayTracer {
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
     const ACC_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
     const SWAPCHAIN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
@@ -295,7 +294,7 @@ impl RayTracer<'_> {
     const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 }
 
-impl Renderer for RayTracer<'_> {
+impl Renderer for RayTracer {
     fn init<T: HasRawWindowHandle>(
         window: &T,
         width: usize,
@@ -420,28 +419,16 @@ impl Renderer for RayTracer<'_> {
                 ],
             });
 
-        let mut compiler = CompilerBuilder::new()
-            // .with_opt_level(OptimizationLevel::Performance)
-            .build()
-            .unwrap();
-
         let output_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[&output_bind_group.layout],
             });
 
-        let vert_shader_source = include_str!("../../shaders/quad.vert");
-        let frag_shader_source = include_str!("../../shaders/quad.frag");
+        let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
+        let frag_shader = include_bytes!("../../shaders/quad.frag.spv");
 
-        let vert_shader = compiler
-            .compile_from_string(vert_shader_source, ShaderKind::Vertex)
-            .unwrap();
-        let frag_shader = compiler
-            .compile_from_string(frag_shader_source, ShaderKind::Fragment)
-            .unwrap();
-
-        let vert_module = device.create_shader_module(vert_shader.as_slice());
-        let frag_module = device.create_shader_module(frag_shader.as_slice());
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
         let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &output_pipeline_layout,
@@ -789,10 +776,8 @@ impl Renderer for RayTracer<'_> {
                 ],
             });
 
-        let compute_module = compiler
-            .compile_from_file("renderers/gpu-rt/shaders/ray_gen.comp", ShaderKind::Compute)
-            .unwrap();
-        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let compute_module = include_bytes!("../../shaders/ray_gen.comp.spv");
+        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
         let intersection_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 layout: &intersection_pipeline_layout,
@@ -802,13 +787,8 @@ impl Renderer for RayTracer<'_> {
                 },
             });
 
-        let compute_module = compiler
-            .compile_from_file(
-                "renderers/gpu-rt/shaders/ray_extend.comp",
-                ShaderKind::Compute,
-            )
-            .unwrap();
-        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let compute_module = include_bytes!("../../shaders/ray_extend.comp.spv",);
+        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
         let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -817,13 +797,8 @@ impl Renderer for RayTracer<'_> {
             },
         });
 
-        let compute_module = compiler
-            .compile_from_file(
-                "renderers/gpu-rt/shaders/ray_shadow.comp",
-                ShaderKind::Compute,
-            )
-            .unwrap();
-        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let compute_module = include_bytes!("../../shaders/ray_shadow.comp.spv");
+        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
         let shadow_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -832,10 +807,8 @@ impl Renderer for RayTracer<'_> {
             },
         });
 
-        let compute_module = compiler
-            .compile_from_file("renderers/gpu-rt/shaders/shade.comp", ShaderKind::Compute)
-            .unwrap();
-        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let compute_module = include_bytes!("../../shaders/shade.comp.spv");
+        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
         let shade_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -844,10 +817,8 @@ impl Renderer for RayTracer<'_> {
             },
         });
 
-        let compute_module = compiler
-            .compile_from_file("renderers/gpu-rt/shaders/blit.comp", ShaderKind::Compute)
-            .unwrap();
-        let compute_module = device.create_shader_module(compute_module.as_slice());
+        let compute_module = include_bytes!("../../shaders/blit.comp.spv");
+        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
         let blit_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -957,7 +928,6 @@ impl Renderer for RayTracer<'_> {
             height,
             sample_count: 0,
             buffer_capacity: width * height,
-            compiler,
             output_bind_group,
             output_texture,
             output_pipeline_layout,
@@ -1697,7 +1667,7 @@ impl Renderer for RayTracer<'_> {
     }
 }
 
-impl<'a> RayTracer<'a> {
+impl RayTracer {
     fn create_output_texture(device: &wgpu::Device, width: usize, height: usize) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("output-texture"),

@@ -412,25 +412,15 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let mut compiler = CompilerBuilder::new().build().unwrap();
-        let vert_shader = compiler
-            .compile_from_file(
-                "renderers/deferred/shaders/shadow_single.vert",
-                ShaderKind::Vertex,
-            )
-            .unwrap();
-        let frag_shader = compiler
-            .compile_from_file(
-                if linear {
-                    "renderers/deferred/shaders/shadow_single_linear.frag"
-                } else {
-                    "renderers/deferred/shaders/shadow_single.frag"
-                },
-                ShaderKind::Fragment,
-            )
-            .unwrap();
-        let vert_module = device.create_shader_module(vert_shader.as_slice());
-        let frag_module = device.create_shader_module(frag_shader.as_slice());
+        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
+        let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
+        let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
+
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let frag_module = device.create_shader_module(match linear {
+            true => linear_frag_shader.to_quad_bytes(),
+            false => regular_frag_shader.to_quad_bytes(),
+        });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &pipeline_layout,
@@ -534,17 +524,10 @@ impl ShadowMapArray {
                 bind_group_layouts: &[&filter_sampler_bind_group_layout, &filter_bind_group_layout],
             });
 
-        let vert_shader = compiler
-            .compile_from_file("renderers/deferred/shaders/quad.vert", ShaderKind::Vertex)
-            .unwrap();
-        let frag_shader = compiler
-            .compile_from_file(
-                "renderers/deferred/shaders/shadow_filter.frag",
-                ShaderKind::Fragment,
-            )
-            .unwrap();
-        let vert_module = device.create_shader_module(vert_shader.as_slice());
-        let frag_module = device.create_shader_module(frag_shader.as_slice());
+        let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
+        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv",);
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
         let filter_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &filter_pipeline_layout,

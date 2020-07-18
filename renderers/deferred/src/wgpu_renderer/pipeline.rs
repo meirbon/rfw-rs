@@ -13,20 +13,12 @@ impl RenderPipeline {
         uniform_layout: &wgpu::BindGroupLayout,
         instance_layout: &wgpu::BindGroupLayout,
         texture_layout: &wgpu::BindGroupLayout,
-        compiler: &mut Compiler,
     ) -> Self {
-        let vert_shader = compiler
-            .compile_from_file("renderers/deferred/shaders/mesh.vert", ShaderKind::Vertex)
-            .expect("renderers/deferred/shaders/mesh.vert");
-        let frag_shader = compiler
-            .compile_from_file(
-                "renderers/deferred/shaders/deferred.frag",
-                ShaderKind::Fragment,
-            )
-            .expect("renderers/deferred/shaders/mesh.frag");
+        let vert_shader = include_bytes!("../../shaders/mesh.vert.spv");
+        let frag_shader = include_bytes!("../../shaders/deferred.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.as_slice());
-        let frag_module = device.create_shader_module(frag_shader.as_slice());
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&uniform_layout, &instance_layout, &texture_layout],

@@ -99,7 +99,7 @@ void main()
     T = vec4(normalize((instances[INST_ID].normal * vec4(T.xyz, 0.0)).xyz), T.w);
     const vec3 B = cross(N, T.xyz) * T.w;
 
-    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
+    if (HAS_DIFFUSE_MAP(flags) || HAS_NORMAL_MAP(flags) || HAS_ROUGHNESS_MAP(flags) || HAS_METALLIC_MAP(flags) || HAS_EMISSIVE_MAP(flags) || HAS_SHEEN_MAP(flags))
     {
         const float lambda = sqrt(rt_triangles[TRI_ID].lod) + log2(camera.spread_angle * (1.0 / abs(dot(D.xyz, N.xyz))));
         const float tu = w * rt_triangles[TRI_ID].tu0 + u * rt_triangles[TRI_ID].tu1 + v * rt_triangles[TRI_ID].tu2;
@@ -116,7 +116,7 @@ void main()
             color *= fetchTexelTrilinear(lambda, vec2(tu, tv), materials[MAT_ID].diffuse_map);
         }
 
-        if (HAS_NORMMAL_MAP(flags)) {
+        if (HAS_NORMAL_MAP(flags)) {
             N = normalize(mat3(T.xyz, B.xyz, N.xyz) * ((fetchTexel(vec2(tu, tv), materials[MAT_ID].normal_map, int(lambda)).xyz - 0.5) * 2.0));
         }
     }

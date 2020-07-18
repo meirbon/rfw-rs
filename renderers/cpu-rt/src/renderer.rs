@@ -17,7 +17,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use wgpu::TextureCopyView;
 
-pub struct RayTracer<'a> {
+pub struct RayTracer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     adapter: wgpu::Adapter,
@@ -30,7 +30,6 @@ pub struct RayTracer<'a> {
     height: usize,
     sample_count: usize,
 
-    compiler: Compiler<'a>,
     output_sampler: wgpu::Sampler,
     output_texture: wgpu::Texture,
     output_texture_view: wgpu::TextureView,
@@ -67,13 +66,13 @@ impl Display for RayTracerError {
     }
 }
 
-impl RayTracer<'_> {
+impl RayTracer {
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
     const PACKET_WIDTH: usize = 4;
     const PACKET_HEIGHT: usize = 1;
 }
 
-impl Renderer for RayTracer<'_> {
+impl Renderer for RayTracer {
     fn init<T: HasRawWindowHandle>(
         window: &T,
         width: usize,
@@ -143,8 +142,6 @@ impl Renderer for RayTracer<'_> {
 
         let output_texture_view = output_texture.create_default_view();
 
-        let mut compiler = Compiler::new().unwrap();
-
         let output_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("output-bind-group-layout"),
@@ -186,18 +183,11 @@ impl Renderer for RayTracer<'_> {
             ],
         });
 
-        let vert_shader_source = include_str!("../shaders/quad.vert");
-        let frag_shader_source = include_str!("../shaders/quad.frag");
+        let vert_shader = include_bytes!("../shaders/quad.vert.spv");
+        let frag_shader = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_shader = compiler
-            .compile_from_string(vert_shader_source, ShaderKind::Vertex)
-            .unwrap();
-        let frag_shader = compiler
-            .compile_from_string(frag_shader_source, ShaderKind::Fragment)
-            .unwrap();
-
-        let vert_module = device.create_shader_module(vert_shader.as_slice());
-        let frag_module = device.create_shader_module(frag_shader.as_slice());
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
         let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &output_pipeline_layout,
@@ -245,7 +235,6 @@ impl Renderer for RayTracer<'_> {
             width,
             height,
             sample_count: 0,
-            compiler,
             output_sampler,
             output_texture,
             output_texture_view,
@@ -679,7 +668,7 @@ impl Renderer for RayTracer<'_> {
     }
 }
 
-impl<'a> RayTracer<'a> {
+impl RayTracer {
     fn create_tangent_space(normal: Vec3) -> (Vec3, Vec3) {
         // *w = v2;
         // *u = normalize(cross(fabs(v2.x) > fabs(v2.y) ? (float3)(0, 1, 0) : (float3)(1, 0, 0), *w));

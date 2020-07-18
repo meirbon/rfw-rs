@@ -124,11 +124,6 @@ impl CameraView {
         let pi_over_4dot5: Vec4 = Vec4::splat(PI / 4.5);
         let blade_param: Vec4 = blade * pi_over_4dot5;
 
-        // TODO: Create SIMD implementation of these cos, sin operations
-        // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        // {
-        // }
-
         // #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         let (x1, y1) = {
             let mut x = [0.0 as f32; 4];

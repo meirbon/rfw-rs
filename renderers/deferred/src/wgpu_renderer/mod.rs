@@ -33,7 +33,7 @@ impl<'a> CopyCommand<'a> {
     }
 }
 
-pub struct Deferred<'a> {
+pub struct Deferred {
     device: wgpu::Device,
     queue: wgpu::Queue,
     adapter: wgpu::Adapter,
@@ -57,7 +57,6 @@ pub struct Deferred<'a> {
     uniform_camera_buffer: wgpu::Buffer,
     camera_staging_buffer: wgpu::Buffer,
     output: output::DeferredOutput,
-    compiler: Compiler<'a>,
     pipeline: pipeline::RenderPipeline,
     scene_bounds: AABB,
 
@@ -84,7 +83,7 @@ impl Display for DeferredError {
     }
 }
 
-impl<'a> Deferred<'a> {
+impl Deferred {
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
     const UNIFORM_CAMERA_SIZE: wgpu::BufferAddress = (std::mem::size_of::<Mat4>()
         + std::mem::size_of::<Mat4>()
@@ -152,7 +151,7 @@ impl<'a> Deferred<'a> {
     }
 }
 
-impl Renderer for Deferred<'_> {
+impl Renderer for Deferred {
     fn init<T: HasRawWindowHandle>(
         window: &T,
         width: usize,
@@ -249,35 +248,22 @@ impl Renderer for Deferred<'_> {
             ],
         });
 
-        let mut compiler = CompilerBuilder::new().build().unwrap();
-        let output = output::DeferredOutput::new(&device, width, height, &mut compiler);
+        let output = output::DeferredOutput::new(&device, width, height);
 
         let pipeline = pipeline::RenderPipeline::new(
             &device,
             &uniform_bind_group_layout,
             &instances.bind_group_layout,
             &texture_bind_group_layout,
-            &mut compiler,
         );
 
         let material_buffer_size =
             std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10;
 
-        let ssao_pass = pass::SSAOPass::new(
-            &device,
-            &queue,
-            &mut compiler,
-            &uniform_bind_group_layout,
-            &output,
-        );
-        let radiance_pass = pass::RadiancePass::new(
-            &device,
-            &mut compiler,
-            &uniform_bind_group_layout,
-            &output,
-            &lights,
-        );
-        let blit_pass = pass::BlitPass::new(&device, &mut compiler, &output);
+        let ssao_pass = pass::SSAOPass::new(&device, &queue, &uniform_bind_group_layout, &output);
+        let radiance_pass =
+            pass::RadiancePass::new(&device, &uniform_bind_group_layout, &output, &lights);
+        let blit_pass = pass::BlitPass::new(&device, &output);
 
         Ok(Box::new(Self {
             device,
@@ -301,7 +287,6 @@ impl Renderer for Deferred<'_> {
             uniform_camera_buffer,
             camera_staging_buffer,
             output,
-            compiler,
             pipeline,
             ssao_pass,
             radiance_pass,

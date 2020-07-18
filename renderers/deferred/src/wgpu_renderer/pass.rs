@@ -12,7 +12,7 @@ pub struct BlitPass {
 }
 
 impl BlitPass {
-    pub fn new(device: &wgpu::Device, compiler: &mut Compiler, output: &DeferredOutput) -> Self {
+    pub fn new(device: &wgpu::Device, output: &DeferredOutput) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit-bind-group-layout"),
             bindings: &[
@@ -40,18 +40,11 @@ impl BlitPass {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&bind_group_layout],
         });
-        let vert_shader = compiler
-            .compile_from_file("renderers/deferred/shaders/quad.vert", ShaderKind::Vertex)
-            .unwrap();
-        let frag_shader = compiler
-            .compile_from_file(
-                "renderers/deferred/shaders/deferred_blit.frag",
-                ShaderKind::Fragment,
-            )
-            .unwrap();
+        let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
+        let frag_shader = include_bytes!("../../shaders/deferred_blit.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.as_slice());
-        let frag_module = device.create_shader_module(frag_shader.as_slice());
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             /// The layout of bind groups for this pipeline.
@@ -141,7 +134,6 @@ impl SSAOPass {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        compiler: &mut Compiler,
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
         output: &DeferredOutput,
     ) -> Self {
@@ -193,10 +185,8 @@ impl SSAOPass {
             bind_group_layouts: &[uniform_bind_group_layout, &bind_group_layout],
         });
 
-        let shader = compiler
-            .compile_from_file("renderers/deferred/shaders/ssao.comp", ShaderKind::Compute)
-            .unwrap();
-        let shader_module = device.create_shader_module(shader.as_slice());
+        let shader = include_bytes!("../../shaders/ssao.comp.spv");
+        let shader_module = device.create_shader_module(shader.to_quad_bytes());
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -311,13 +301,8 @@ impl SSAOPass {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[&filter_bind_group_layout],
             });
-        let shader = compiler
-            .compile_from_file(
-                "renderers/deferred/shaders/ssao_filter.comp",
-                ShaderKind::Compute,
-            )
-            .unwrap();
-        let shader_module = device.create_shader_module(shader.as_slice());
+        let shader = include_bytes!("../../shaders/ssao_filter.comp.spv");
+        let shader_module = device.create_shader_module(shader.to_quad_bytes());
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &filter_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -495,7 +480,6 @@ pub struct RadiancePass {
 impl RadiancePass {
     pub fn new(
         device: &wgpu::Device,
-        compiler: &mut Compiler,
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
         output: &DeferredOutput,
         lights: &DeferredLights,
@@ -652,13 +636,8 @@ impl RadiancePass {
             ],
         });
 
-        let spirv = compiler
-            .compile_from_file(
-                "renderers/deferred/shaders/lighting.comp",
-                ShaderKind::Compute,
-            )
-            .expect("renderers/deferred/shaders/lighting.comp");
-        let module = device.create_shader_module(spirv.as_slice());
+        let spirv = include_bytes!("../../shaders/lighting.comp.spv");
+        let module = device.create_shader_module(spirv.to_quad_bytes());
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &pipeline_layout,
