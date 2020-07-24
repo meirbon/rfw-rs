@@ -1,6 +1,9 @@
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "object_caching")]
+use std::io::BufReader;
+
 use crate::objects::*;
 use crate::{loaders, Mesh, *};
 
@@ -18,8 +21,6 @@ use std::{
     ffi::OsString,
     fmt,
     fs::File,
-    io::prelude::*,
-    io::BufReader,
     path::{Path, PathBuf},
 };
 use utils::Flags;
@@ -257,23 +258,32 @@ impl TriangleScene {
         }
 
         // Load obj files
+
         if extension == "obj" {
-            let mesh = {
-                // Load if cached object is not available
-                let obj = obj::Obj::new(path, self.materials.clone());
-                if obj.is_err() {
-                    return None;
-                }
-
-                let obj = obj.unwrap();
-                let mut mesh = obj.into_mesh();
-
-                // Serialize object for future use
-                #[cfg(feature = "object_caching")]
-                cache_mesh(&mut mesh, &cached_object);
-
-                mesh
+            // Load if cached object is not available
+            let obj = match obj::Obj::new(path, self.materials.clone()) {
+                Ok(obj) => obj,
+                _ => return None,
             };
+
+            let mut mesh = obj.into_mesh();
+
+            // Serialize object for future use
+            #[cfg(feature = "object_caching")]
+            cache_mesh(&mut mesh, &cached_object);
+
+            return self.add_object(mesh);
+        } else if extension == "gltf" || extension == "glb" {
+            let gltf = match loaders::gltf::gLTFObject::new(path, self.materials.clone()) {
+                Ok(gltf) => gltf,
+                _ => return None,
+            };
+
+            let mut mesh = gltf.into_mesh();
+
+            // Serialize object for future use
+            #[cfg(feature = "object_caching")]
+            cache_mesh(&mut mesh, &cached_object);
 
             return self.add_object(mesh);
         }

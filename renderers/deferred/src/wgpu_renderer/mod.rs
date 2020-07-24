@@ -183,7 +183,7 @@ impl Renderer for Deferred {
                 height: height as u32,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
-                present_mode: wgpu::PresentMode::Mailbox,
+                present_mode: wgpu::PresentMode::Immediate,
             },
         );
 
@@ -682,7 +682,7 @@ impl Renderer for Deferred {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Mailbox,
+                present_mode: wgpu::PresentMode::Immediate,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },

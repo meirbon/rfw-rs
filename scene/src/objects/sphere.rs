@@ -509,7 +509,7 @@ impl ToMesh for Sphere {
             normals.as_slice(),
             uvs.as_slice(),
             material_ids.as_slice(),
-            Some("sphere"),
+            Some(String::from("sphere")),
         )
     }
 }

@@ -920,9 +920,10 @@ impl ShadowMapArray {
                     render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
                     for j in 0..mesh.sub_meshes.len() {
-                        let bounds = &bounds.mesh_bounds[i];
-                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
-                            continue;
+                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                            if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                                continue;
+                            }
                         }
 
                         let sub_mesh = &mesh.sub_meshes[j];

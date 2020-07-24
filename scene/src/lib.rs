@@ -568,7 +568,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn set_skybox<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
-        if let Ok(texture) = Texture::load(path) {
+        if let Ok(texture) = Texture::load(path, Flip::FlipV) {
             if let Ok(mut renderer) = self.renderer.try_lock() {
                 renderer.set_skybox(texture);
                 return Ok(());

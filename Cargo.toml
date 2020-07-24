@@ -8,3 +8,7 @@ members = [
     "renderers/vulkan",
     "scene"
 ]
+
+[profile.dev]
+opt-level = 2
+debug = 2

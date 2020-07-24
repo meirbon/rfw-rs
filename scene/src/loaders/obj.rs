@@ -127,12 +127,36 @@ impl Obj {
                     roughness,
                     specular,
                     opacity,
-                    d_path,
-                    n_path,
-                    roughness_map,
-                    metallic_map,
-                    emissive_map,
-                    sheen_map,
+                    if let Some(path) = d_path {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = n_path {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = roughness_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = metallic_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = emissive_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = sheen_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
                 );
                 mat_manager.get_mut(mat_index, |m| {
                     if let Some(mat) = m {

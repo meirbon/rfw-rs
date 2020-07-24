@@ -114,13 +114,13 @@ impl Default for Mesh {
 }
 
 impl Mesh {
-    pub fn new_indexed<T: AsRef<str>>(
+    pub fn new_indexed(
         indices: &[[u32; 3]],
         original_vertices: &[Vec3],
         original_normals: &[Vec3],
         original_uvs: &[Vec2],
         material_ids: &[u32],
-        name: Option<T>,
+        name: Option<String>,
     ) -> Mesh {
         let mut vertices = Vec::with_capacity(indices.len() * 3);
         let mut normals = Vec::with_capacity(indices.len() * 3);

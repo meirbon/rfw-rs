@@ -2,7 +2,7 @@ use crate::{material::Material, DeviceMaterial};
 
 use bitvec::prelude::*;
 use glam::*;
-use image::GenericImageView;
+use image::{DynamicImage, GenericImageView, ImageError};
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -23,6 +23,26 @@ pub struct MaterialList {
     textures: Vec<Texture>,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Flip {
+    None,
+    FlipU,
+    FlipV,
+    FlipUV,
+}
+
+impl Default for Flip {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TextureSource {
+    Loaded(Texture),
+    Filesystem(PathBuf, Flip),
+}
+
 impl Display for MaterialList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -35,6 +55,20 @@ impl Display for MaterialList {
             self.textures.len()
         )
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TextureFormat {
+    R,
+    RG,
+    RGB,
+    RGBA,
+    BGR,
+    BGRA,
+    R16,
+    RG16,
+    RGB16,
+    RGBA16,
 }
 
 // TODO: Support other formats than BGRA8
@@ -276,20 +310,25 @@ impl Texture {
         }
     }
 
-    pub fn load<T: AsRef<Path>>(path: T) -> Result<Self, ()> {
+    pub fn load<T: AsRef<Path>>(path: T, flip: Flip) -> Result<Self, ()> {
         // See if file exists
         if !path.as_ref().exists() {
             return Err(());
         }
 
         // Attempt to load image
-        let img = image::open(path);
-        if let Err(_) = img {
-            return Err(());
-        }
+        let img = match image::open(path) {
+            Ok(img) => img,
+            Err(_) => return Err(()),
+        };
 
         // Loading was successful
-        let img = img.unwrap().flipv();
+        let img = match flip {
+            Flip::None => img,
+            Flip::FlipU => img.fliph(),
+            Flip::FlipV => img.flipv(),
+            Flip::FlipUV => img.fliph().flipv(),
+        };
 
         let (width, height) = (img.width(), img.height());
         let mut data = vec![0 as u32; (width * height) as usize];
@@ -306,11 +345,105 @@ impl Texture {
             mip_levels: 1,
         })
     }
+
+    /// Parses texture from bytes. Stride is size of texel in bytes
+    pub fn from_bytes(
+        bytes: &[u8],
+        width: u32,
+        height: u32,
+        format: TextureFormat,
+        stride: usize,
+    ) -> Self {
+        if format == TextureFormat::BGRA && stride == 4 {
+            // Same format as internal format
+            return Texture {
+                data: unsafe {
+                    std::slice::from_raw_parts(
+                        bytes.as_ptr() as *mut u32,
+                        (width * height) as usize,
+                    )
+                }
+                .to_vec(),
+                width,
+                height,
+                mip_levels: 1,
+            };
+        }
+
+        let mut data = vec![0 as u32; (width * height) as usize];
+        for y in 0..height {
+            for x in 0..width {
+                let index = (x + y * width) as usize;
+                let orig_index = index * stride;
+                let (r, g, b, a) = match format {
+                    TextureFormat::R => (bytes[orig_index] as u32, 0, 0, 0),
+                    TextureFormat::RG => (bytes[orig_index] as u32, 0, 0, 0),
+                    TextureFormat::BGR => (
+                        bytes[orig_index + 2] as u32,
+                        bytes[orig_index + 1] as u32,
+                        bytes[orig_index] as u32,
+                        0,
+                    ),
+                    TextureFormat::RGB => (
+                        bytes[orig_index] as u32,
+                        bytes[orig_index + 1] as u32,
+                        bytes[orig_index + 2] as u32,
+                        0,
+                    ),
+                    TextureFormat::RGBA => (
+                        bytes[orig_index] as u32,
+                        bytes[orig_index + 1] as u32,
+                        bytes[orig_index + 2] as u32,
+                        bytes[orig_index + 3] as u32,
+                    ),
+                    TextureFormat::BGRA => (
+                        bytes[orig_index + 2] as u32,
+                        bytes[orig_index + 1] as u32,
+                        bytes[orig_index] as u32,
+                        bytes[orig_index + 3] as u32,
+                    ),
+                    TextureFormat::R16 => (
+                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        0,
+                        0,
+                        0,
+                    ),
+                    TextureFormat::RG16 => (
+                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
+                        0,
+                        0,
+                    ),
+                    TextureFormat::RGB16 => (
+                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
+                        (bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
+                        0,
+                    ),
+                    TextureFormat::RGBA16 => (
+                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
+                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
+                        (bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
+                        (bytes[orig_index + 6] as u32) + ((bytes[orig_index + 7] as u32) << 16),
+                    ),
+                };
+
+                data[index] = (a << 24) + (r << 16) + (g << 8) + b;
+            }
+        }
+
+        Texture {
+            data,
+            width,
+            height,
+            mip_levels: 1,
+        }
+    }
 }
 
 impl<T: AsRef<Path>> From<T> for Texture {
     fn from(path: T) -> Self {
-        Self::load(path).unwrap()
+        Self::load(path, Flip::default()).unwrap()
     }
 }
 
@@ -383,12 +516,12 @@ impl MaterialList {
         roughness: f32,
         specular: Vec3,
         transmission: f32,
-        albedo: Option<PathBuf>,
-        normal: Option<PathBuf>,
-        roughness_map: Option<PathBuf>,
-        metallic_map: Option<PathBuf>,
-        emissive_map: Option<PathBuf>,
-        sheen_map: Option<PathBuf>,
+        albedo: Option<TextureSource>,
+        normal: Option<TextureSource>,
+        roughness_map: Option<TextureSource>,
+        metallic_map: Option<TextureSource>,
+        emissive_map: Option<TextureSource>,
+        sheen_map: Option<TextureSource>,
     ) -> usize {
         let mut material = Material::default();
         material.color = color.extend(1.0).into();
@@ -397,38 +530,67 @@ impl MaterialList {
         material.transmission = transmission;
 
         let diffuse_tex = if let Some(albedo) = albedo {
-            self.get_texture_index(&albedo).unwrap_or_else(|_| -1)
+            match albedo {
+                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
+                TextureSource::Filesystem(path, flip) => {
+                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
+                }
+            }
         } else {
             -1
         };
 
         let normal_tex = if let Some(normal) = normal {
-            self.get_texture_index(&normal).unwrap_or_else(|_| -1)
+            match normal {
+                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
+                TextureSource::Filesystem(path, flip) => {
+                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
+                }
+            }
         } else {
             -1
         };
 
         let roughness_tex = if let Some(roughness_map) = roughness_map {
-            self.get_texture_index(&roughness_map)
-                .unwrap_or_else(|_| -1)
+            match roughness_map {
+                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
+                TextureSource::Filesystem(path, flip) => {
+                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
+                }
+            }
         } else {
             -1
         };
 
         let metallic_tex = if let Some(metallic_map) = metallic_map {
-            self.get_texture_index(&metallic_map).unwrap_or_else(|_| -1)
+            match metallic_map {
+                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
+                TextureSource::Filesystem(path, flip) => {
+                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
+                }
+            }
         } else {
             -1
         };
 
         let emissive_tex = if let Some(emissive_map) = emissive_map {
-            self.get_texture_index(&emissive_map).unwrap_or_else(|_| -1)
+            match emissive_map {
+                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
+                TextureSource::Filesystem(path, flip) => {
+                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
+                }
+            }
         } else {
             -1
         };
 
         let sheen_tex = if let Some(sheen_map) = sheen_map {
-            self.get_texture_index(&sheen_map).unwrap_or_else(|_| -1)
+            match sheen_map {
+                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
+                TextureSource::Filesystem(path, flip) => {
+                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
+                }
+            }
         } else {
             -1
         };
@@ -500,13 +662,17 @@ impl MaterialList {
         self.textures.get_mut(index)
     }
 
-    pub fn get_texture_index<T: AsRef<Path> + Copy>(&mut self, path: T) -> Result<i32, i32> {
+    pub fn get_texture_index<T: AsRef<Path> + Copy>(
+        &mut self,
+        path: T,
+        flip: Flip,
+    ) -> Result<i32, i32> {
         // First see if we have already loaded the texture before
         if let Some(id) = self.tex_path_mapping.get(path.as_ref()) {
             return Ok((*id) as i32);
         }
 
-        return match Texture::load(path) {
+        return match Texture::load(path, flip) {
             Ok(mut tex) => {
                 tex.generate_mipmaps(Texture::MIP_LEVELS);
 
