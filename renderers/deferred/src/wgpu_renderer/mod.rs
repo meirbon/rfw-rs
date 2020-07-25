@@ -3,7 +3,6 @@ use glam::*;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
 use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, Texture};
-use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -719,7 +718,7 @@ impl Renderer for Deferred {
         self.lights_changed = true;
     }
 
-    fn set_skybox(&mut self, skybox: Texture) {
+    fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()
     }
 
