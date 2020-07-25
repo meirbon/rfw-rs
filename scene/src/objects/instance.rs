@@ -3,7 +3,6 @@ use crate::objects::*;
 use rtbvh::aabb::Bounds;
 use rtbvh::{Ray, RayPacket4, AABB};
 
-use crate::MaterialList;
 use std::fmt::Display;
 
 #[cfg(feature = "object_caching")]
@@ -309,7 +308,7 @@ impl<'a> SerializableObject<'a, Instance> for Instance {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
         path: S,
-        _: &MaterialList,
+        _: &crate::MaterialList,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use std::io::Write;
         let encoded: Vec<u8> = bincode::serialize(self)?;
@@ -320,7 +319,7 @@ impl<'a> SerializableObject<'a, Instance> for Instance {
 
     fn deserialize_object<S: AsRef<std::path::Path>>(
         path: S,
-        _: &mut MaterialList,
+        _: &mut crate::MaterialList,
     ) -> Result<Instance, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);

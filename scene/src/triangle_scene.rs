@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "object_caching")]
-use std::io::BufReader;
+use std::{cmp::Ordering, error::Error, ffi::OsString, fmt, fs::File, io::BufReader};
 
 use crate::objects::*;
 use crate::{loaders, Mesh, *};
@@ -14,13 +14,8 @@ use bitvec::prelude::*;
 use loaders::obj;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::{
-    cmp::Ordering,
     collections::HashSet,
     error,
-    error::Error,
-    ffi::OsString,
-    fmt,
-    fs::File,
     path::{Path, PathBuf},
 };
 use utils::Flags;
@@ -44,8 +39,8 @@ impl Into<u8> for SceneFlags {
     }
 }
 
-impl fmt::Display for SceneError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for SceneError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = match self {
             Self::InvalidObjectIndex(idx) => format!("invalid object index {}", idx),
             Self::InvalidInstanceIndex(idx) => format!("invalid instances index {}", idx),
@@ -200,7 +195,7 @@ impl TriangleScene {
     pub async fn load_mesh<S: AsRef<Path>>(&self, path: S) -> Option<usize> {
         let path = path.as_ref();
         let extension = path.extension();
-        let build_bvh = self
+        let _build_bvh = self
             .settings
             .lock()
             .unwrap()
@@ -266,6 +261,7 @@ impl TriangleScene {
                 _ => return None,
             };
 
+            #[allow(unused_mut)]
             let mut mesh = obj.into_mesh();
 
             // Serialize object for future use
@@ -274,11 +270,12 @@ impl TriangleScene {
 
             return self.add_object(mesh);
         } else if extension == "gltf" || extension == "glb" {
-            let gltf = match loaders::gltf::gLTFObject::new(path, self.materials.clone()) {
+            let gltf = match loaders::gltf::GltfObject::new(path, self.materials.clone()) {
                 Ok(gltf) => gltf,
                 _ => return None,
             };
 
+            #[allow(unused_mut)]
             let mut mesh = gltf.into_mesh();
 
             // Serialize object for future use

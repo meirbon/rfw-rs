@@ -1,7 +1,7 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
 
-use crate::{MaterialList, Texture, Material};
+use crate::{Material, Texture};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};
 
 #[cfg(feature = "object_caching")]
@@ -211,7 +211,7 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
         path: S,
-        materials: &MaterialList,
+        materials: &crate::MaterialList,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let material = materials.get(self.mat_id as usize).unwrap();
         let mut d_tex: Option<Texture> = None;
@@ -251,7 +251,7 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
 
     fn deserialize_object<S: AsRef<std::path::Path>>(
         path: S,
-        materials: &mut MaterialList,
+        materials: &mut crate::MaterialList,
     ) -> Result<Plane, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);

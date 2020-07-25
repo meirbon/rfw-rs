@@ -247,10 +247,10 @@ impl Obj {
 impl ToMesh for Obj {
     fn into_mesh(self) -> Mesh {
         Mesh::new(
-            self.vertices.as_slice(),
-            self.normals.as_slice(),
-            self.uvs.as_slice(),
-            self.material_ids.as_slice(),
+            self.vertices,
+            self.normals,
+            self.uvs,
+            self.material_ids,
             Some(self.name),
         )
     }

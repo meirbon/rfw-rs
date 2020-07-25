@@ -9,10 +9,10 @@ use std::{
 };
 
 use crate::{material::Texture, TextureSource};
-use gltf::material::NormalTexture;
 use gltf::mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights};
 
-pub struct gLTFObject {
+#[allow(dead_code)]
+pub struct GltfObject {
     vertices: Vec<Vec3>,
     normals: Vec<Vec3>,
     indices: Vec<[u32; 3]>,
@@ -22,7 +22,7 @@ pub struct gLTFObject {
     tex_coords: Vec<Vec2>,
 }
 
-impl gLTFObject {
+impl GltfObject {
     pub fn new<T: AsRef<Path>>(
         path: T,
         mat_manager: Arc<Mutex<MaterialList>>,
@@ -106,8 +106,8 @@ impl gLTFObject {
                         None => None,
                     },
                     // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
-                    /// The metalness values are sampled from the B channel.
-                    /// The roughness values are sampled from the G channel.
+                    // The metalness values are sampled from the B channel.
+                    // The roughness values are sampled from the G channel.
                     match pbr.metallic_roughness_texture() {
                         Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
@@ -311,24 +311,16 @@ impl gLTFObject {
             tex_coords,
         })
     }
-
-    fn get_value<T: Sized>(ptr: &mut *const u8, stride: usize) -> T {
-        unsafe {
-            let value = ((*ptr) as *const T).read();
-            *ptr = ptr.add(stride);
-            value
-        }
-    }
 }
 
-impl ToMesh for gLTFObject {
+impl ToMesh for GltfObject {
     fn into_mesh(self) -> Mesh {
         Mesh::new_indexed(
-            self.indices.as_slice(),
-            self.vertices.as_slice(),
-            self.normals.as_slice(),
-            self.tex_coords.as_slice(),
-            self.material_ids.as_slice(),
+            self.indices,
+            self.vertices,
+            self.normals,
+            self.tex_coords,
+            self.material_ids,
             None,
         )
     }

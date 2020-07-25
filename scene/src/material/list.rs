@@ -2,7 +2,7 @@ use crate::{material::Material, DeviceMaterial};
 
 use bitvec::prelude::*;
 use glam::*;
-use image::{DynamicImage, GenericImageView, ImageError};
+use image::GenericImageView;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Display;

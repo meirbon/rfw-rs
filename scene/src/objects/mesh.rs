@@ -115,11 +115,11 @@ impl Default for Mesh {
 
 impl Mesh {
     pub fn new_indexed(
-        indices: &[[u32; 3]],
-        original_vertices: &[Vec3],
-        original_normals: &[Vec3],
-        original_uvs: &[Vec2],
-        material_ids: &[u32],
+        indices: Vec<[u32; 3]>,
+        original_vertices: Vec<Vec3>,
+        original_normals: Vec<Vec3>,
+        original_uvs: Vec<Vec2>,
+        material_ids: Vec<u32>,
         name: Option<String>,
     ) -> Mesh {
         let mut vertices = Vec::with_capacity(indices.len() * 3);
@@ -151,20 +151,14 @@ impl Mesh {
         debug_assert_eq!(uvs.len(), material_ids.len() * 3);
         debug_assert_eq!(vertices.len() % 3, 0);
 
-        Mesh::new(
-            vertices.as_slice(),
-            normals.as_slice(),
-            uvs.as_slice(),
-            material_indices.as_slice(),
-            name,
-        )
+        Mesh::new(vertices, normals, uvs, material_indices, name)
     }
 
     pub fn new<T: AsRef<str>>(
-        vertices: &[Vec3],
-        normals: &[Vec3],
-        uvs: &[Vec2],
-        material_ids: &[u32],
+        vertices: Vec<Vec3>,
+        normals: Vec<Vec3>,
+        uvs: Vec<Vec2>,
+        material_ids: Vec<u32>,
         name: Option<T>,
     ) -> Mesh {
         debug_assert_eq!(vertices.len(), normals.len());
