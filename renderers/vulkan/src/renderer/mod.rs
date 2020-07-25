@@ -839,7 +839,7 @@ impl<'a> Renderer for VkRenderer<'a> {
     ) {
     }
 
-    fn set_skybox(&mut self, skybox: Texture) {
+    fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()
     }
 

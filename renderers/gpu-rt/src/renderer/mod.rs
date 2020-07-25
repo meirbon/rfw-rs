@@ -5,7 +5,6 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::FrustrumResult::Intersect;
 use scene::{
     raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial,
     DirectionalLight, Instance, Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
