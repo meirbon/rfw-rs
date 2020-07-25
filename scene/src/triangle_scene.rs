@@ -261,28 +261,32 @@ impl TriangleScene {
                 _ => return None,
             };
 
-            #[allow(unused_mut)]
-            let mut mesh = obj.into_mesh();
-
-            // Serialize object for future use
-            #[cfg(feature = "object_caching")]
-            cache_mesh(&mut mesh, &cached_object);
-
-            return self.add_object(mesh);
+            match obj.into_mesh() {
+                #[allow(unused_mut)]
+                MeshResult::Static(mut mesh) => {
+                    // Serialize object for future use
+                    #[cfg(feature = "object_caching")]
+                        cache_mesh(&mut mesh, &cached_object);
+                    return self.add_object(mesh);
+                },
+                MeshResult::Animated(_) => unimplemented!(),
+            }
         } else if extension == "gltf" || extension == "glb" {
             let gltf = match loaders::gltf::GltfObject::new(path, self.materials.clone()) {
                 Ok(gltf) => gltf,
                 _ => return None,
             };
 
-            #[allow(unused_mut)]
-            let mut mesh = gltf.into_mesh();
-
-            // Serialize object for future use
-            #[cfg(feature = "object_caching")]
-            cache_mesh(&mut mesh, &cached_object);
-
-            return self.add_object(mesh);
+            match gltf.into_mesh() {
+                #[allow(unused_mut)]
+                MeshResult::Static(mut mesh) => {
+                    // Serialize object for future use
+                    #[cfg(feature = "object_caching")]
+                        cache_mesh(&mut mesh, &cached_object);
+                    return self.add_object(mesh);
+                },
+                MeshResult::Animated(_) => unimplemented!(),
+            }
         }
 
         None
@@ -455,6 +459,8 @@ impl TriangleScene {
 
     #[cfg(feature = "object_caching")]
     pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
+        use std::io::prelude::*;
+
         let ser_object = SerializableScene::from(self);
         let encoded: Vec<u8> = bincode::serialize(&ser_object)?;
 

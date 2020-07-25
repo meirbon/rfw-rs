@@ -12,8 +12,16 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "object_caching")]
 use std::collections::HashMap;
 
+pub mod animated;
+pub use animated::*;
+
+pub enum MeshResult {
+    Static(Mesh),
+    Animated(animated::AnimatedMesh),
+}
+
 pub trait ToMesh {
-    fn into_mesh(self) -> Mesh;
+    fn into_mesh(self) -> MeshResult;
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
@@ -342,7 +350,7 @@ impl Mesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
@@ -1056,11 +1064,5 @@ impl<'a> SerializableObject<'a, Mesh> for Mesh {
         });
 
         Ok(mesh)
-    }
-}
-
-impl<T: ToMesh> From<T> for Mesh {
-    fn from(v: T) -> Self {
-        v.into_mesh()
     }
 }

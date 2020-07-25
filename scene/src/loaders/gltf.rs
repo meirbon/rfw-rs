@@ -1,6 +1,4 @@
-use crate::{
-    triangle_scene::SceneError, Flip, Material, MaterialList, Mesh, TextureFormat, ToMesh,
-};
+use crate::{triangle_scene::SceneError, Flip, Material, MaterialList, Mesh, TextureFormat, ToMesh, MeshResult};
 use glam::*;
 use std::{
     collections::HashMap,
@@ -314,14 +312,14 @@ impl GltfObject {
 }
 
 impl ToMesh for GltfObject {
-    fn into_mesh(self) -> Mesh {
-        Mesh::new_indexed(
+    fn into_mesh(self) -> MeshResult {
+        MeshResult::Static(Mesh::new_indexed(
             self.indices,
             self.vertices,
             self.normals,
             self.tex_coords,
             self.material_ids,
             None,
-        )
+        ))
     }
 }

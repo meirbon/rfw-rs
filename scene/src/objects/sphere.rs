@@ -362,7 +362,7 @@ impl<'a> SerializableObject<'a, Sphere> for Sphere {
 }
 
 impl ToMesh for Sphere {
-    fn into_mesh(self) -> Mesh {
+    fn into_mesh(self) -> MeshResult {
         use std::f32::consts::PI;
 
         let mut faces: Vec<[u32; 3]> = Vec::with_capacity(20);
@@ -503,13 +503,13 @@ impl ToMesh for Sphere {
             *v = origin + (*v) * radius;
         });
 
-        Mesh::new_indexed(
+        MeshResult::Static(Mesh::new_indexed(
             faces,
             vertices,
             normals,
             uvs,
             material_ids,
             Some(String::from("sphere")),
-        )
+        ))
     }
 }
