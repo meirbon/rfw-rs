@@ -1,6 +1,6 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
 use rtbvh::AABB;
-use scene::{lights::*, BitVec, FrustrumG, FrustrumResult, VertexData};
+use scene::{lights::*, BitVec, FrustrumG, FrustrumResult, VertexData, ObjectRef};
 use shared::*;
 use std::ops::Range;
 
@@ -412,7 +412,7 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
+        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv", );
         let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
         let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
 
@@ -525,7 +525,7 @@ impl ShadowMapArray {
             });
 
         let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv",);
+        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv", );
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
@@ -915,7 +915,12 @@ impl ShadowMapArray {
                         continue;
                     }
 
-                    let mesh: &super::mesh::DeferredMesh = &meshes[instance.get_hit_id()];
+                    let mesh = match instance.object_id {
+                        ObjectRef::None => panic!("Invalid"),
+                        ObjectRef::Static(mesh_id) => &meshes[mesh_id as usize],
+                        ObjectRef::Animated(_) => unimplemented!(),
+                    };
+
                     render_pass.set_vertex_buffer(0, &mesh.buffer, 0, mesh.buffer_size);
                     render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 

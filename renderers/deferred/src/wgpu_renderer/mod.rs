@@ -2,7 +2,7 @@ use futures::executor::block_on;
 use glam::*;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, Texture};
+use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, Texture, ObjectRef};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -311,12 +311,18 @@ impl Renderer for Deferred {
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
-        self.instances.set(
-            &self.device,
-            id,
-            instance.clone(),
-            &self.meshes[instance.get_hit_id()],
-        );
+        match instance.object_id {
+            ObjectRef::None => panic!("Invalid"),
+            ObjectRef::Static(mesh_id) => {
+                self.instances.set(
+                    &self.device,
+                    id,
+                    instance.clone(),
+                    &self.meshes[mesh_id as usize],
+                );
+            },
+            ObjectRef::Animated(_mesh_id) => unimplemented!(),
+        }
 
         self.scene_bounds.grow_bb(
             &instance
@@ -590,7 +596,12 @@ impl Renderer for Deferred {
                     continue;
                 }
 
-                let mesh: &mesh::DeferredMesh = &self.meshes[instance.get_hit_id()];
+                let mesh = match instance.object_id {
+                    ObjectRef::None => panic!("Invalid"),
+                    ObjectRef::Static(mesh_id) => &self.meshes[mesh_id as usize],
+                    ObjectRef::Animated(_) => unimplemented!(),
+                };
+
                 render_pass.set_vertex_buffer(0, &mesh.buffer, 0, mesh.buffer_size);
                 render_pass.set_vertex_buffer(1, &mesh.buffer, 0, mesh.buffer_size);
                 render_pass.set_vertex_buffer(2, &mesh.buffer, 0, mesh.buffer_size);

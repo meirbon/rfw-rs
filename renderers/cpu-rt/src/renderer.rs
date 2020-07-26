@@ -311,6 +311,7 @@ impl Renderer for RayTracer {
 
         let intersector = TIntersector::new(
             self.meshes.as_slice(),
+            &[], // TODO
             self.instances.as_slice(),
             &self.bvh,
             &self.mbvh,

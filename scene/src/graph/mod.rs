@@ -16,20 +16,49 @@ impl Into<u8> for NodeFlags {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum NodeMeshType {
+    Static,
+    Animated,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct NodeMesh {
+    pub mesh_type: NodeMeshType,
+    pub object_id: u32,
+}
+
+impl std::fmt::Display for NodeMeshType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            NodeMeshType::Static => "Static",
+            NodeMeshType::Animated => "Animated",
+        })
+    }
+}
+
+impl std::fmt::Display for NodeMesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NodeMesh {{ mesh_type: {}, object_id: {} }}", self.mesh_type, self.object_id)
+    }
+}
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
     translation: Vec3,
     rotation: Quat,
     scale: Vec3,
     matrix: Mat4,
-    combined_matrix: Mat4,
-    weights: Vec<f32>,
-
-    object_id: Option<usize>,
-    target_meshes: Vec<u32>,
-    target_skins: Vec<u32>,
-    child_nodes: Vec<u32>,
-    flags: Flags,
+    local_matrix: Mat4,
+    pub combined_matrix: Mat4,
+    pub weights: Vec<f32>,
+    pub instance_id: Option<u32>,
+    pub object_id: Option<NodeMesh>,
+    pub target_meshes: Vec<u32>,
+    pub target_skins: Vec<u32>,
+    pub child_nodes: Vec<u32>,
+    pub flags: Flags,
 }
 
 impl Default for Node {
@@ -42,9 +71,10 @@ impl Default for Node {
             rotation: Quat::identity(),
             scale: Vec3::splat(1.0),
             matrix: Mat4::identity(),
+            local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
             weights: Vec::new(),
-
+            instance_id: None,
             object_id: None,
             target_meshes: Vec::new(),
             target_skins: Vec::new(),
@@ -72,6 +102,21 @@ impl Node {
     pub fn set_scale(&mut self, s: Vec3) {
         self.scale = s;
         self.flags.set_flag(NodeFlags::Transformed);
+    }
+
+    pub fn set_matrix(&mut self, matrix: Mat4) {
+        self.matrix = matrix;
+        self.flags.set_flag(NodeFlags::Transformed);
+    }
+
+    pub fn update_matrix(&mut self) {
+        if self.flags.has_flag(NodeFlags::Transformed) {
+            return;
+        }
+
+        let trs = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
+        self.local_matrix = trs * self.matrix;
+        self.flags.unset_flag(NodeFlags::Transformed);
     }
 }
 
@@ -110,5 +155,47 @@ impl NodeGraph {
 
         // Return whether this node or its children changed
         changed
+    }
+}
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+pub struct Skin {
+    pub name: String,
+    pub joint_nodes: Vec<u32>,
+    pub inverse_bind_matrices: Vec<Mat4>,
+    pub joint_matrices: Vec<Mat4>,
+}
+
+impl Default for Skin {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            joint_nodes: Vec::new(),
+            inverse_bind_matrices: Vec::new(),
+            joint_matrices: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Bone {
+    pub name: String,
+    pub node_index: u32,
+
+    pub vertex_ids: Vec<u16>,
+    pub vertex_weights: Vec<f32>,
+    pub offset_matrix: Mat4,
+}
+
+impl Default for Bone {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            node_index: 0,
+            vertex_ids: Vec::new(),
+            vertex_weights: Vec::new(),
+            offset_matrix: Mat4::identity(),
+        }
     }
 }

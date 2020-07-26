@@ -82,11 +82,11 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef,
 };
 use shared::utils;
+use std::error::Error;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>>{
     let mut width = 1024;
     let mut height = 640;
 
@@ -135,12 +135,15 @@ fn main() {
     // instance.scale(Vec3::splat(1.0));
     // instance.synchronize().unwrap();
 
-    let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-    instance.rotate_y(180.0);
-    instance.translate_y(-2.5);
-    instance.translate_z(10.0);
-    instance.synchronize().unwrap();
+    let cbox = renderer.load_mesh("models/cbox.obj")?.unwrap();
+    let instance = renderer.add_instance(cbox).unwrap();
+    renderer.get_instance_mut(instance, |instance| {
+        if let Some(instance) = instance {
+            instance.rotate_y(180.0);
+            instance.translate_y(-2.5);
+            instance.translate_z(10.0);
+        }
+    });
 
     // let sibenik = renderer.load_mesh("models/sibenik/sibenik.obj").unwrap();
     // let mut instance = renderer.add_instance(sibenik).unwrap();
@@ -269,9 +272,12 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instance.rotate_y(elapsed / 10.0);
-                    instance.synchronize().unwrap();
-                    mode = RenderMode::Reset;
+                    renderer.get_instance_mut(instance, |instance| {
+                        if let Some(instance) = instance {
+                            instance.rotate_y(elapsed / 10.0);
+                            mode = RenderMode::Reset;
+                        }
+                    });
                 }
 
                 timer.reset();

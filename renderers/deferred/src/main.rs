@@ -82,8 +82,9 @@ use crate::utils::Timer;
 use glam::*;
 use scene::renderers::{RenderMode, Setting, SettingValue};
 use shared::utils;
+use std::error::Error;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
     let mut height = 720;
 
@@ -132,17 +133,14 @@ fn main() {
         )
         .unwrap();
     renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
-    let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
-    let mut instance = renderer.add_instance(sponza).unwrap();
-    instance.scale(Vec3::splat(0.1));
-    instance.synchronize().unwrap();
+    let sponza = renderer.load_mesh("models/sponza/sponza.obj")?.unwrap();
+    let instance = renderer.add_instance(sponza).unwrap();
 
-    // let cesium_man = renderer
-    //     .load_mesh("models/CesiumMan/CesiumMan.gltf")
-    //     .unwrap();
-    // let mut instance = renderer.add_instance(cesium_man).unwrap();
-    // instance.scale(Vec3::splat(1.0));
-    // instance.synchronize().unwrap();
+    renderer.get_instance_mut(instance, |instance| {
+        if let Some(instance) = instance {
+            instance.set_scale(Vec3::splat(0.1));
+        }
+    });
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 
@@ -253,8 +251,11 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instance.rotate_y(elapsed / 10.0);
-                    instance.synchronize().unwrap();
+                    renderer.get_instance_mut(instance, |instance| {
+                        if let Some(instance) = instance {
+                            instance.rotate_y(elapsed / 10.0);
+                        }
+                    });
                 }
 
                 timer.reset();

@@ -83,11 +83,11 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef,
 };
 use shared::utils;
+use std::error::Error;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 512;
     let mut height = 512;
 
@@ -125,17 +125,17 @@ fn main() {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let mut instances = Vec::new();
-
-    let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
+    let cbox = renderer.load_mesh("models/cbox.obj")?.unwrap();
     for i in 0..=10 {
-        let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-        instance.rotate_y(180.0);
-        instance.translate_y(-2.5);
-        instance.translate_x(((i - 5) * 8) as f32);
-        instance.translate_z(10.0);
-        instance.synchronize().unwrap();
-        instances.push(instance);
+        let instance = renderer.add_instance(cbox).unwrap();
+        renderer.get_instance_mut(instance, |instance| {
+            if let Some(instance) = instance {
+                instance.rotate_y(180.0);
+                instance.translate_y(-2.5);
+                instance.translate_x(((i - 5) * 8) as f32);
+                instance.translate_z(10.0);
+            }
+        });
     }
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
@@ -248,10 +248,12 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instances.iter_mut().for_each(|instance| {
-                        instance.rotate_y(elapsed / 10.0);
-                        instance.synchronize().unwrap();
+                    renderer.iter_instances_mut(|instances| {
+                        instances.for_each(|instance| {
+                            instance.rotate_y(elapsed / 10.0);
+                        });
                     });
+
                     mode = RenderMode::Reset;
                 }
 

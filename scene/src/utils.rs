@@ -44,15 +44,7 @@ impl Default for Flags {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FlaggedStorage<T: Default + Clone> {
-    storage: Vec<T>,
-    active: BitVec,
-    storage_ptr: usize,
-    empty_slots: Vec<u32>,
-}
-
-impl<T: Default + Clone> Default for FlaggedStorage<T> {
+impl<T: Default + Clone + std::fmt::Debug> Default for FlaggedStorage<T> {
     fn default() -> Self {
         Self {
             storage: Vec::new(),
@@ -63,8 +55,17 @@ impl<T: Default + Clone> Default for FlaggedStorage<T> {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+pub struct FlaggedStorage<T: Default + std::fmt::Debug + Clone> {
+    storage: Vec<T>,
+    active: BitVec,
+    storage_ptr: usize,
+    empty_slots: Vec<u32>,
+}
+
 #[allow(dead_code)]
-impl<T: Default + Clone> FlaggedStorage<T> {
+impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -184,14 +185,14 @@ impl<T: Default + Clone> FlaggedStorage<T> {
     }
 }
 
-pub struct FlaggedIterator<'a, T: Default + Clone> {
+pub struct FlaggedIterator<'a, T: Default + Clone + std::fmt::Debug> {
     storage: &'a [T],
     flags: &'a BitVec,
     length: usize,
     current: usize,
 }
 
-impl<'a, T: Default + Clone> Iterator for FlaggedIterator<'a, T> {
+impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for FlaggedIterator<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -203,7 +204,7 @@ impl<'a, T: Default + Clone> Iterator for FlaggedIterator<'a, T> {
                         let reference = ptr.add(self.current).as_ref().unwrap();
                         self.current += 1;
                         reference
-                    })
+                    });
                 }
                 false => {
                     self.current += 1;
@@ -215,14 +216,14 @@ impl<'a, T: Default + Clone> Iterator for FlaggedIterator<'a, T> {
     }
 }
 
-pub struct FlaggedIteratorMut<'a, T: Default + Clone> {
+pub struct FlaggedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
     storage: &'a mut [T],
     flags: &'a BitVec,
     length: usize,
     current: usize,
 }
 
-impl<'a, T: Default + Clone> Iterator for FlaggedIteratorMut<'a, T> {
+impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for FlaggedIteratorMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -234,7 +235,7 @@ impl<'a, T: Default + Clone> Iterator for FlaggedIteratorMut<'a, T> {
                         let reference = ptr.add(self.current).as_mut().unwrap();
                         self.current += 1;
                         reference
-                    })
+                    });
                 }
                 false => {
                     self.current += 1;
@@ -246,23 +247,215 @@ impl<'a, T: Default + Clone> Iterator for FlaggedIteratorMut<'a, T> {
     }
 }
 
-impl<T: Default + Clone> Index<usize> for FlaggedStorage<T> {
+impl<T: Default + Clone + std::fmt::Debug> Index<usize> for FlaggedStorage<T> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
-        match unsafe {*self.active.get_unchecked(index) } {
+        match unsafe { *self.active.get_unchecked(index) } {
             true => unsafe { self.get_unchecked(index) },
             false => panic!(format!("index {} was not active", index))
         }
     }
 }
 
-impl<T: Default + Clone> IndexMut<usize> for FlaggedStorage<T> {
+impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        match unsafe {*self.active.get_unchecked(index) } {
+        match unsafe { *self.active.get_unchecked(index) } {
             true => unsafe { self.get_unchecked_mut(index) },
             false => panic!(format!("index {} was not active", index))
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
+    storage: FlaggedStorage<T>,
+    changed: BitVec,
+}
+
+impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
+    fn default() -> Self {
+        Self {
+            storage: FlaggedStorage::default(),
+            changed: BitVec::new()
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.storage.len()
+    }
+
+    pub fn allocate(&mut self) -> usize {
+        let index = self.storage.allocate();
+        self.changed.resize(self.changed.len().max(index + 1), false);
+        self.changed.set(index, true);
+        index
+    }
+
+    /// Releases index and resets memory at index
+    pub fn erase(&mut self, index: usize) -> Result<(), ()> {
+        match self.storage.erase(index) {
+            Ok(_) => {
+                self.changed.set(index, true);
+                Ok(())
+            }
+            Err(_) => Err(()),
+        }
+    }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        self.storage.get(index)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        self.changed.set(index, true);
+        self.storage.get_mut(index)
+    }
+
+    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        &self.storage[index]
+    }
+
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        &mut self.storage[index]
+    }
+
+    pub fn push(&mut self, val: T) -> usize {
+        let index = self.allocate();
+        self.storage[index] = val;
+        self.changed.set(index, true);
+        index
+    }
+
+    pub fn iter(&self) -> FlaggedIterator<'_, T> {
+        FlaggedIterator {
+            storage: self.storage.as_slice(),
+            flags: &self.storage.active,
+            length: self.storage.storage_ptr,
+            current: 0,
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> FlaggedIteratorMut<'_, T> {
+        FlaggedIteratorMut {
+            storage: self.storage.storage.as_mut_slice(),
+            flags: &self.storage.active,
+            length: self.storage.storage_ptr,
+            current: 0,
+        }
+    }
+
+    pub fn iter_changed(&self) -> ChangedIterator<'_, T> {
+        ChangedIterator {
+            storage: self.storage.storage.as_slice(),
+            flags: &self.storage.active,
+            changed: &self.changed,
+            length: self.storage.storage_ptr,
+            current: 0,
+        }
+    }
+
+    pub fn iter_changed_mut(&mut self) -> ChangedIteratorMut<'_, T> {
+        ChangedIteratorMut {
+            storage: self.storage.storage.as_mut_slice(),
+            flags: &self.storage.active,
+            changed: &mut self.changed,
+            length: self.storage.storage_ptr,
+            current: 0,
+        }
+    }
+
+    pub fn reset_changed(&mut self) {
+        self.changed.set_all(false);
+    }
+}
+
+pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
+    storage: &'a [T],
+    flags: &'a BitVec,
+    changed: &'a BitVec,
+    length: usize,
+    current: usize,
+}
+
+impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIterator<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.current < self.length {
+            match unsafe { (self.flags.get_unchecked(self.current), self.changed.get_unchecked(self.current)) } {
+                (true, true) => {
+                    return Some(unsafe {
+                        let ptr = self.storage.as_ptr();
+                        let reference = ptr.add(self.current).as_ref().unwrap();
+                        self.current += 1;
+                        reference
+                    });
+                }
+                _ => {
+                    self.current += 1;
+                    continue;
+                }
+            }
+        }
+
+        None
+    }
+}
+
+pub struct ChangedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
+    storage: &'a mut [T],
+    flags: &'a BitVec,
+    changed: &'a BitVec,
+    length: usize,
+    current: usize,
+}
+
+impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIteratorMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.current < self.length {
+            match unsafe { (self.flags.get_unchecked(self.current), self.changed.get_unchecked(self.current)) } {
+                (true, true) => {
+                    return Some(unsafe {
+                        let ptr = self.storage.as_mut_ptr();
+                        let reference = ptr.add(self.current).as_mut().unwrap();
+                        self.current += 1;
+                        reference
+                    });
+                }
+                _ => {
+                    self.current += 1;
+                    continue;
+                }
+            }
+        }
+
+        None
+    }
+}
+
+impl<T: Default + Clone + std::fmt::Debug> Index<usize> for TrackedStorage<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.storage[index]
+    }
+}
+
+impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for TrackedStorage<T> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        let reference = &mut self.storage[index];
+        self.changed.set(index, true);
+        reference
     }
 }
 

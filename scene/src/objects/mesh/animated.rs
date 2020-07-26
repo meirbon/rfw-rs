@@ -2,13 +2,11 @@ use glam::*;
 use rayon::prelude::*;
 
 use crate::objects::*;
-use crate::scene::{PrimID, USE_MBVH};
+use crate::{PrimID, USE_MBVH};
 use crate::objects::mesh::*;
 use crate::MaterialList;
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use std::fmt::Display;
-
-use crate::graph::animation::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};

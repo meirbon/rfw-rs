@@ -2,7 +2,7 @@ use glam::*;
 use rayon::prelude::*;
 
 use crate::objects::*;
-use crate::scene::{PrimID, USE_MBVH};
+use crate::{PrimID, USE_MBVH};
 use crate::MaterialList;
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use std::fmt::Display;

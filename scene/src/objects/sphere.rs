@@ -1,5 +1,5 @@
 use crate::objects::*;
-use crate::scene::PrimID;
+use crate::PrimID;
 
 use crate::{Material, Mesh, Texture, ToMesh};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};

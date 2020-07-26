@@ -2,7 +2,7 @@ use super::mesh::DeferredMesh;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
-use scene::{BitVec, Instance};
+use scene::{BitVec, Instance, ObjectRef};
 
 pub struct DeviceInstance {
     pub device_matrices: wgpu::Buffer,
@@ -163,7 +163,13 @@ impl InstanceList {
             .map(|i| {
                 let instance = &self.instances[i];
                 let root_bounds = instance.bounds();
-                let mesh: &DeferredMesh = &meshes[instance.get_hit_id()];
+
+                let mesh = match instance.object_id {
+                    ObjectRef::None => panic!("Invalid"),
+                    ObjectRef::Static(mesh_id) => &meshes[mesh_id as usize],
+                    ObjectRef::Animated(_) => unimplemented!(),
+                };
+
                 let transform = instance.get_transform();
                 let mesh_bounds = mesh
                     .sub_meshes

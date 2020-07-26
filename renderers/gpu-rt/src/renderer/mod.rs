@@ -5,10 +5,7 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial,
-    DirectionalLight, Instance, Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
-};
+use scene::{raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, PointLight, RTTriangle, SpotLight, Texture, ObjectRef};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -1249,14 +1246,20 @@ impl Renderer for RayTracer {
             .iter_mut()
             .enumerate()
             .for_each(|(i, inst)| {
-                let mesh_data = &mesh_data[instances[i].get_hit_id()];
-                inst.prim_index_offset = mesh_data.prim_index_offset;
-                inst.triangle_offset = mesh_data.triangle_offset;
-                inst.bvh_offset = mesh_data.bvh_offset;
-                inst.mbvh_offset = mesh_data.mbvh_offset;
-                inst.matrix = instances[i].get_transform();
-                inst.inverse = instances[i].get_inverse_transform();
-                inst.normal = instances[i].get_normal_transform();
+                match instances[i].object_id {
+                    ObjectRef::None => {},
+                    ObjectRef::Static(mesh_id) => {
+                        let mesh_data = &mesh_data[mesh_id as usize];
+                        inst.prim_index_offset = mesh_data.prim_index_offset;
+                        inst.triangle_offset = mesh_data.triangle_offset;
+                        inst.bvh_offset = mesh_data.bvh_offset;
+                        inst.mbvh_offset = mesh_data.mbvh_offset;
+                        inst.matrix = instances[i].get_transform();
+                        inst.inverse = instances[i].get_inverse_transform();
+                        inst.normal = instances[i].get_normal_transform();
+                    },
+                    ObjectRef::Animated(_) => unimplemented!(),
+                }
             });
 
         self.top_bvh_buffer

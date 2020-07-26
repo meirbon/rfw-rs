@@ -7,7 +7,7 @@ pub mod quad;
 pub mod sphere;
 pub mod triangle;
 
-use crate::scene::PrimID;
+use crate::PrimID;
 use rtbvh::{Bounds, Ray, RayPacket4};
 pub use instance::*;
 pub use mesh::*;

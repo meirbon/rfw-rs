@@ -91,7 +91,7 @@ pub struct Scene {
     objects: Vec<Box<dyn Intersect>>,
     object_references: Vec<HashSet<usize>>,
     instances: Vec<Instance>,
-    instance_references: Vec<usize>,
+    instance_references: Vec<ObjectRef>,
     bvh: BVH,
     mbvh: MBVH,
     flags: Flags,
@@ -186,16 +186,12 @@ impl Scene {
         Ok(())
     }
 
-    pub fn add_instance(&mut self, index: usize) -> Result<usize, SceneError> {
+    pub fn add_instance(&mut self, index: ObjectRef) -> Result<usize, SceneError> {
         let instance_index = {
-            if self.objects.get(index).is_none() || self.object_references.get(index).is_none() {
-                return Err(SceneError::IndexOutOfBounds(index, self.objects.len()));
-            }
-
             if !self.empty_instance_slots.is_empty() {
                 let new_index = self.empty_instance_slots.pop().unwrap();
                 self.instances[new_index] = Instance::new(
-                    index as isize,
+                    index,
                     &self.objects[index].bounds(),
                     Mat4::identity(),
                 );
@@ -204,7 +200,7 @@ impl Scene {
             }
 
             self.instances.push(Instance::new(
-                index as isize,
+                index,
                 &self.objects[index].bounds(),
                 Mat4::identity(),
             ));
@@ -222,18 +218,12 @@ impl Scene {
     pub fn set_instance_object(
         &mut self,
         instance: usize,
-        obj_index: usize,
+        obj_index: ObjectRef,
     ) -> Result<(), SceneError> {
-        if self.objects.get(obj_index).is_none() {
-            return Err(SceneError::IndexOutOfBounds(obj_index, self.objects.len()));
-        } else if self.instances.get(instance).is_none() {
-            return Err(SceneError::IndexOutOfBounds(instance, self.instances.len()));
-        }
-
         let old_obj_index = self.instance_references[instance];
         self.object_references[old_obj_index].remove(&instance);
         self.instances[instance] = Instance::new(
-            obj_index as isize,
+            obj_index,
             &self.objects[obj_index].bounds(),
             self.instances[instance].get_transform(),
         );
@@ -255,11 +245,11 @@ impl Scene {
         }
 
         self.instances[index] = Instance::new(
-            -1,
+            ObjectRef::None,
             &self.objects[index].bounds(),
             self.instances[index].get_transform(),
         );
-        self.instance_references[index] = std::usize::MAX;
+        self.instance_references[index] = ObjectRef::None;
         self.empty_instance_slots.push(index);
         self.flags.set_flag(SceneFlags::Dirty);
         Ok(())

@@ -1,3 +1,8 @@
+static mut USE_MBVH: bool = true;
+
+pub type PrimID = i32;
+pub type InstanceID = i32;
+
 pub mod camera;
 pub mod constants;
 pub mod graph;
@@ -7,7 +12,6 @@ pub mod loaders;
 pub mod material;
 pub mod objects;
 pub mod renderers;
-pub mod scene;
 pub mod triangle_scene;
 
 mod utils;
@@ -18,10 +22,9 @@ pub use lights::*;
 pub use loaders::*;
 pub use material::*;
 pub use objects::*;
-pub use scene::*;
 
 use renderers::{RenderMode, Renderer, Setting};
-use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+use std::sync::{Arc, Mutex};
 
 pub use bitvec::prelude::*;
 pub use raw_window_handle;
@@ -30,129 +33,7 @@ pub use triangle_scene::*;
 use glam::*;
 use std::error::Error;
 use std::path::Path;
-
-pub struct InstanceRef {
-    id: usize,
-    objects: Arc<Mutex<InstancedObjects>>,
-    translation: Vec3,
-    scaling: Vec3,
-    rotation_x: f32,
-    rotation_y: f32,
-    rotation_z: f32,
-}
-
-#[allow(dead_code)]
-impl InstanceRef {
-    fn new(id: usize, objects: Arc<Mutex<InstancedObjects>>) -> InstanceRef {
-        Self {
-            id,
-            objects,
-            translation: Vec3::zero(),
-            scaling: Vec3::one(),
-            rotation_x: 0.0,
-            rotation_y: 0.0,
-            rotation_z: 0.0,
-        }
-    }
-
-    pub fn translate_x(&mut self, offset: f32) {
-        self.translation += Vec3::new(offset, 0.0, 0.0);
-    }
-
-    pub fn translate_y(&mut self, offset: f32) {
-        self.translation += Vec3::new(0.0, offset, 0.0);
-    }
-
-    pub fn translate_z(&mut self, offset: f32) {
-        self.translation += Vec3::new(0.0, 0.0, offset);
-    }
-
-    pub fn rotate_x(&mut self, degrees: f32) {
-        self.rotation_x = (self.rotation_x + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
-    }
-
-    pub fn rotate_y(&mut self, degrees: f32) {
-        self.rotation_y = (self.rotation_y + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
-    }
-
-    pub fn rotate_z(&mut self, degrees: f32) {
-        self.rotation_z = (self.rotation_z + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
-    }
-
-    pub fn scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
-        let scale: [f32; 3] = scale.into();
-        let scale: Vec3 = Vec3::from(scale).max(Vec3::splat(0.001));
-        self.scaling *= scale;
-    }
-
-    pub fn scale_x(&mut self, scale: f32) {
-        let scale = scale.max(0.001);
-        self.scaling[0] *= scale;
-    }
-
-    pub fn scale_y(&mut self, scale: f32) {
-        let scale = scale.max(0.001);
-        self.scaling[1] *= scale;
-    }
-
-    pub fn scale_z(&mut self, scale: f32) {
-        let scale = scale.max(0.001);
-        self.scaling[2] *= scale;
-    }
-
-    /// Returns translation in [x, y, z]
-    pub fn get_translation(&self) -> [f32; 3] {
-        self.translation.into()
-    }
-
-    /// Returns scale in [x, y, z]
-    pub fn get_scale(&self) -> [f32; 3] {
-        self.scaling.into()
-    }
-
-    /// Returns rotation as quaternion in [x, y, z, w]
-    pub fn get_rotation(&self) -> [f32; 4] {
-        let mut quat = Quat::identity();
-        if self.rotation_x.abs() > 0.0001 {
-            quat *= Quat::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), self.rotation_x);
-        }
-        if self.rotation_y.abs() > 0.0001 {
-            quat *= Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), self.rotation_y);
-        }
-        if self.rotation_z.abs() > 0.0001 {
-            quat *= Quat::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), self.rotation_z);
-        }
-
-        quat.into()
-    }
-
-    /// Returns rotation as radian euler angles in [x, y, z]
-    pub fn get_euler_angles(&self) -> [f32; 3] {
-        [self.rotation_x, self.rotation_y, self.rotation_z]
-    }
-
-    /// Updates instance in scene
-    pub fn synchronize(&self) -> Result<(), TryLockError<MutexGuard<InstancedObjects>>> {
-        match self.objects.try_lock() {
-            Ok(mut o) => {
-                if let Some(instance) = o.instances.get_mut(self.id) {
-                    let rotation_x = Quat::from_axis_angle(Vec3::unit_x(), self.rotation_x);
-                    let rotation_y = Quat::from_axis_angle(Vec3::unit_y(), self.rotation_y);
-                    let rotation_z = Quat::from_axis_angle(Vec3::unit_z(), self.rotation_z);
-                    instance.set_transform(Mat4::from_scale_rotation_translation(
-                        self.scaling.into(),
-                        rotation_x * rotation_y * rotation_z,
-                        self.translation.into(),
-                    ));
-                }
-
-                o.instances_changed.set(self.id, true);
-                Ok(())
-            }
-            Err(e) => Err(e),
-        }
-    }
-}
+use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
 
 #[derive(Debug, Clone)]
 pub enum SceneLight {
@@ -307,6 +188,34 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         })
     }
 
+    pub fn iter_instances<C>(&self, cb: C)
+        where C: FnOnce(FlaggedIterator<'_, Instance>)
+    {
+        let lock = self.scene.objects.instances.lock().unwrap();
+        cb(lock.iter());
+    }
+
+    pub fn iter_instances_mut<C>(&self, cb: C)
+        where C: FnOnce(FlaggedIteratorMut<'_, Instance>)
+    {
+        let mut lock = self.scene.objects.instances.lock().unwrap();
+        cb(lock.iter_mut());
+    }
+
+    pub fn get_instance<C>(&self, index: usize, cb: C)
+        where C: FnOnce(Option<&Instance>)
+    {
+        let mut lock = self.scene.objects.instances.lock().unwrap();
+        cb(lock.get(index))
+    }
+
+    pub fn get_instance_mut<C>(&self, index: usize, cb: C)
+        where C: FnOnce(Option<&mut Instance>)
+    {
+        let mut lock = self.scene.objects.instances.lock().unwrap();
+        cb(lock.get_mut(index))
+    }
+
     pub fn resize<B: raw_window_handle::HasRawWindowHandle>(
         &self,
         window: &B,
@@ -322,7 +231,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn load_mesh<B: AsRef<Path>>(&self, path: B) -> Option<usize> {
+    pub fn load_mesh<B: AsRef<Path>>(&self, path: B) -> Result<Option<ObjectRef>, triangle_scene::SceneError> {
         futures::executor::block_on(self.scene.load_mesh(path))
     }
 
@@ -340,15 +249,12 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn add_object<B: Into<Mesh>>(&self, object: B) -> Option<usize> {
+    pub fn add_object<B: Into<Mesh>>(&self, object: B) -> Result<usize, triangle_scene::SceneError> {
         self.scene.add_object(object.into())
     }
 
-    pub fn add_instance(&self, object: usize) -> Result<InstanceRef, triangle_scene::SceneError> {
-        let id = self.scene.add_instance(object, Mat4::identity())?;
-
-        let reference = InstanceRef::new(id, self.scene.get_scene());
-        Ok(reference)
+    pub fn add_instance(&self, object: ObjectRef) -> Result<usize, triangle_scene::SceneError> {
+        self.scene.add_instance(object)
     }
 
     /// Will return a reference to the point light if the scene is not locked
@@ -438,59 +344,64 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         if let Ok(mut renderer) = self.renderer.try_lock() {
             let mut changed = false;
             let mut update_lights = false;
-            if let Ok(mut objects) = self.scene.objects_lock() {
-                if objects.objects_changed.any() {
-                    for i in 0..objects.objects.len() {
-                        if !objects.objects_changed.get(i).unwrap() {
-                            continue;
+            let mut found_light = false;
+
+            if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) =
+            (self.scene.objects.meshes.lock(), self.scene.objects.animated_meshes.lock(), self.scene.objects.instances.lock()) {
+                meshes.iter_changed().enumerate().for_each(|(i, m)| {
+                    renderer.set_mesh(i, m);
+                    changed = true;
+                });
+
+                if let Ok(materials) = self.scene.materials_lock() {
+                    let light_flags = materials.light_flags();
+                    instances.iter_changed_mut().enumerate().for_each(|(i, instance)| {
+                        instance.update_transform();
+                        renderer.set_instance(i, instance);
+                        changed = true;
+
+                        if found_light {
+                            return;
                         }
 
-                        let mesh = &objects.objects[i];
-                        renderer.set_mesh(i, mesh);
-                    }
-                    objects.objects_changed.set_all(false);
-                    changed = true;
-                }
-
-                if objects.instances_changed.any() {
-                    if let Ok(materials) = self.scene.materials_lock() {
-                        let mut found_light = false;
-                        let light_flags = materials.light_flags();
-                        for i in 0..objects.instances.len() {
-                            let object_id = objects.instances[i].get_hit_id();
-                            for j in 0..objects.objects[object_id].meshes.len() {
-                                if let Some(flag) = light_flags
-                                    .get(objects.objects[object_id].meshes[j].mat_id as usize)
-                                {
-                                    if *flag {
-                                        found_light = true;
-                                        break;
+                        match instance.object_id {
+                            ObjectRef::None => {
+                                return;
+                            }
+                            ObjectRef::Static(object_id) => {
+                                let object_id = object_id as usize;
+                                for j in 0..meshes[object_id].meshes.len() {
+                                    match light_flags.get(meshes[object_id].meshes[j].mat_id as usize) {
+                                        None => {}
+                                        Some(flag) => if *flag {
+                                            found_light = true;
+                                            break;
+                                        },
                                     }
                                 }
                             }
-
-                            if found_light {
-                                break;
+                            ObjectRef::Animated(object_id) => {
+                                let object_id = object_id as usize;
+                                for j in 0..anim_meshes[object_id].meshes.len() {
+                                    match light_flags.get(meshes[object_id].meshes[j].mat_id as usize) {
+                                        None => {}
+                                        Some(flag) => if *flag {
+                                            found_light = true;
+                                            break;
+                                        },
+                                    }
+                                }
                             }
                         }
-
-                        update_lights = update_lights || found_light;
-                    }
+                    });
                 }
 
-                if objects.instances_changed.any() {
-                    for i in 0..objects.instances.len() {
-                        if !objects.instances_changed.get(i).unwrap() {
-                            continue;
-                        }
-
-                        let instance = &objects.instances[i];
-                        renderer.set_instance(i, instance);
-                    }
-                    objects.instances_changed.set_all(false);
-                    changed = true;
-                }
+                meshes.reset_changed();
+                anim_meshes.reset_changed();
+                instances.reset_changed();
             }
+
+            update_lights |= found_light;
 
             if let Ok(mut materials) = self.scene.materials_lock() {
                 let mut mat_changed = false;
