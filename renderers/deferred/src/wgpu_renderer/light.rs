@@ -427,7 +427,7 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
+        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv", );
         let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
         let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
 
@@ -590,7 +590,7 @@ impl ShadowMapArray {
             });
 
         let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv",);
+        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv", );
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
@@ -973,13 +973,16 @@ impl ShadowMapArray {
                     &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
                 );
 
-                for i in 0..instances.len() {
+                (0..instances.len()).into_iter().filter(|i| match instances.instances.get(*i) {
+                    None => false,
+                    Some(_) => true,
+                }).for_each(|i| {
                     let instance = &instances.instances[i];
                     let device_instance = &instances.device_instances[i];
                     let bounds = &instances.bounds[i];
 
                     if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside {
-                        continue;
+                        return;
                     }
 
                     match instance.object_id {
@@ -1028,7 +1031,7 @@ impl ShadowMapArray {
                             }
                         }
                     };
-                }
+                });
             }
 
             {

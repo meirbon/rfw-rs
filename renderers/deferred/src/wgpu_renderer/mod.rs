@@ -303,11 +303,13 @@ impl Renderer for Deferred {
     }
 
     fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
-        self.meshes.overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
+        self.meshes
+            .overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
     }
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        self.anim_meshes.overwrite(id, mesh::DeferredAnimMesh::new(&self.device, mesh));
+        self.anim_meshes
+            .overwrite(id, mesh::DeferredAnimMesh::new(&self.device, mesh));
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
@@ -320,7 +322,10 @@ impl Renderer for Deferred {
                     instance.clone(),
                     &self.meshes[mesh_id as usize],
                 );
-                assert_eq!(self.instances.bounds[id].mesh_bounds.len(), self.meshes[mesh_id as usize].sub_meshes.len());
+                assert_eq!(
+                    self.instances.bounds[id].mesh_bounds.len(),
+                    self.meshes[mesh_id as usize].sub_meshes.len()
+                );
             }
             ObjectRef::Animated(mesh_id) => {
                 self.instances.set_animated(
@@ -329,7 +334,10 @@ impl Renderer for Deferred {
                     instance.clone(),
                     &self.anim_meshes[mesh_id as usize],
                 );
-                assert_eq!(self.instances.bounds[id].mesh_bounds.len(), self.anim_meshes[mesh_id as usize].sub_meshes.len());
+                assert_eq!(
+                    self.instances.bounds[id].mesh_bounds.len(),
+                    self.anim_meshes[mesh_id as usize].sub_meshes.len()
+                );
             }
         }
 
@@ -599,82 +607,86 @@ impl Renderer for Deferred {
             let matrix = camera.get_rh_matrix();
             let frustrum = scene::FrustrumG::from_matrix(matrix);
 
-            for i in 0..self.instances.len() {
-                let instance = &self.instances.instances[i];
-                let device_instance = &self.instances.device_instances[i];
-                let bounds = &self.instances.bounds[i];
+            (0..self.instances.len())
+                .into_iter()
+                .filter(|i| self.instances.instances.get(*i).is_some())
+                .for_each(|i| {
+                    let instance = &self.instances.instances[i];
+                    let device_instance = &self.instances.device_instances[i];
+                    let bounds = &self.instances.bounds[i];
 
-                if !frustrum
-                    .aabb_in_frustrum(&bounds.root_bounds)
-                    .should_render()
-                {
-                    continue;
-                }
+                    if !frustrum
+                        .aabb_in_frustrum(&bounds.root_bounds)
+                        .should_render()
+                    {
+                        return;
+                    }
 
-                match instance.object_id {
-                    ObjectRef::None => panic!("Invalid"),
-                    ObjectRef::Static(mesh_id) => {
-                        let mesh = &self.meshes[mesh_id as usize];
-                        if let Some(buffer) = mesh.buffer.as_ref() {
-                            render_pass.set_pipeline(&self.pipeline.pipeline);
-                            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                    match instance.object_id {
+                        ObjectRef::None => panic!("Invalid"),
+                        ObjectRef::Static(mesh_id) => {
+                            let mesh = &self.meshes[mesh_id as usize];
+                            if let Some(buffer) = mesh.buffer.as_ref() {
+                                render_pass.set_pipeline(&self.pipeline.pipeline);
+                                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
 
-                            for j in 0..mesh.sub_meshes.len() {
-                                if !frustrum
-                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                    .should_render()
-                                {
-                                    continue;
+
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if !frustrum
+                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                        .should_render()
+                                    {
+                                        continue;
+                                    }
+
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    let bind_group =
+                                        &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                    render_pass.set_bind_group(2, bind_group, &[]);
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
+                            }
+                        }
+                        ObjectRef::Animated(mesh_id) => {
+                            let mesh = &self.anim_meshes[mesh_id as usize];
+                            if let Some(buffer) = mesh.buffer.as_ref() {
+                                render_pass.set_pipeline(&self.pipeline.anim_pipeline);
+                                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                                let sub_mesh = &mesh.sub_meshes[j];
-                                let bind_group =
-                                    &self.material_bind_groups[sub_mesh.mat_id as usize];
-                                render_pass.set_bind_group(2, bind_group, &[]);
-                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                                // render_pass.set_vertex_buffer(5, buffer, 0, mesh.buffer_size);
+                                // render_pass.set_vertex_buffer(6, buffer, 0, mesh.buffer_size);
+
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if !frustrum
+                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                        .should_render()
+                                    {
+                                        continue;
+                                    }
+
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    let bind_group =
+                                        &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                    render_pass.set_bind_group(2, bind_group, &[]);
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                }
                             }
                         }
                     }
-                    ObjectRef::Animated(mesh_id) => {
-                        let mesh = &self.anim_meshes[mesh_id as usize];
-                        if let Some(buffer) = mesh.buffer.as_ref() {
-                            render_pass.set_pipeline(&self.pipeline.anim_pipeline);
-                            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(5, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(6, buffer, 0, mesh.buffer_size);
-
-                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
-
-                            for j in 0..mesh.sub_meshes.len() {
-                                if !frustrum
-                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                    .should_render()
-                                {
-                                    continue;
-                                }
-
-                                let sub_mesh = &mesh.sub_meshes[j];
-                                let bind_group =
-                                    &self.material_bind_groups[sub_mesh.mat_id as usize];
-                                render_pass.set_bind_group(2, bind_group, &[]);
-                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                            }
-                        }
-                    }
-                }
-            }
+                });
         }
 
         self.ssao_pass.launch(

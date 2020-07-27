@@ -3,7 +3,7 @@ use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
-use scene::{BitVec, Instance, ObjectRef, TrackedStorage};
+use scene::{Instance, ObjectRef, TrackedStorage};
 
 pub struct DeviceInstance {
     pub device_matrices: wgpu::Buffer,
@@ -145,27 +145,30 @@ impl InstanceList {
 
         let device_instances = &self.device_instances;
 
-        self.instances
-            .iter_changed()
-            .enumerate()
-            .for_each(|(i, instance)| {
-                let data = [instance.get_transform(), instance.get_normal_transform()];
-                let staging_buffer = device.create_buffer_with_data(
-                    unsafe {
-                        std::slice::from_raw_parts(
-                            data.as_ptr() as *const u8,
-                            std::mem::size_of::<Mat4>() * 2,
-                        )
-                    },
-                    wgpu::BufferUsage::COPY_SRC,
-                );
+        (0..self.instances.len()).into_iter().filter(|i| {
+            match self.instances.get(*i) {
+                None => false,
+                Some(_) => self.instances.get_changed(*i),
+            }
+        }).for_each(|i| {
+            let instance = &self.instances[i];
+            let data = [instance.get_transform(), instance.get_normal_transform()];
+            let staging_buffer = device.create_buffer_with_data(
+                unsafe {
+                    std::slice::from_raw_parts(
+                        data.as_ptr() as *const u8,
+                        std::mem::size_of::<Mat4>() * 2,
+                    )
+                },
+                wgpu::BufferUsage::COPY_SRC,
+            );
 
-                commands.push(super::CopyCommand {
-                    destination_buffer: &device_instances[i].device_matrices,
-                    copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
-                    staging_buffer,
-                });
+            commands.push(super::CopyCommand {
+                destination_buffer: &device_instances[i].device_matrices,
+                copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
+                staging_buffer,
             });
+        });
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
 
@@ -191,6 +194,7 @@ impl InstanceList {
     ) -> Vec<InstanceBounds> {
         (0..self.instances.len())
             .into_iter()
+            .filter(|i| self.instances.get(*i).is_some())
             .par_bridge()
             .map(|i| {
                 let instance = &self.instances[i];

@@ -84,6 +84,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
             let new_len = (index + 1) * 2;
             self.active.resize(new_len, false);
             self.storage.resize((index + 1) * 2, T::default());
+            self.storage_ptr = new_len;
 
             for i in last_len..new_len {
                 self.empty_slots.push(i as u32);

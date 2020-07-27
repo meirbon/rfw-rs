@@ -243,24 +243,24 @@ impl RenderPipeline {
                             shader_location: 4,
                         }],
                     },
-                    wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
-                        step_mode: wgpu::InputStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttributeDescriptor {
-                            offset: 56,
-                            format: wgpu::VertexFormat::Ushort4,
-                            shader_location: 5,
-                        }],
-                    },
-                    wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
-                        step_mode: wgpu::InputStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttributeDescriptor {
-                            offset: 64,
-                            format: wgpu::VertexFormat::Float4,
-                            shader_location: 6,
-                        }],
-                    },
+                    // wgpu::VertexBufferDescriptor {
+                    //     stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                    //     step_mode: wgpu::InputStepMode::Vertex,
+                    //     attributes: &[wgpu::VertexAttributeDescriptor {
+                    //         offset: 56,
+                    //         format: wgpu::VertexFormat::Ushort4,
+                    //         shader_location: 5,
+                    //     }],
+                    // },
+                    // wgpu::VertexBufferDescriptor {
+                    //     stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                    //     step_mode: wgpu::InputStepMode::Vertex,
+                    //     attributes: &[wgpu::VertexAttributeDescriptor {
+                    //         offset: 64,
+                    //         format: wgpu::VertexFormat::Float4,
+                    //         shader_location: 6,
+                    //     }],
+                    // },
                 ],
                 index_format: wgpu::IndexFormat::Uint32,
             },

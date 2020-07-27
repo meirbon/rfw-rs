@@ -133,12 +133,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .unwrap();
     renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
-    // let _ = renderer
-    //     .load_mesh("models/CesiumMan/CesiumMan.gltf")
-    //     .unwrap();
-    // let result = renderer.find_mesh_by_name(String::from("Cesium_Man"));
-    // assert_eq!(result.len(), 1);
-    // let instance = renderer.add_instance(result[0])?;
+    let _ = renderer
+        .load_mesh("models/CesiumMan/CesiumMan.gltf")
+        .unwrap();
+    let result = renderer.find_mesh_by_name(String::from("Cesium_Man"));
+    assert_eq!(result.len(), 1);
+    let _ = renderer.add_instance(result[0])?;
 
     let sponza = renderer.load_mesh("models/sponza/sponza.obj")?.unwrap();
     let instance = renderer.add_instance(sponza).unwrap();
