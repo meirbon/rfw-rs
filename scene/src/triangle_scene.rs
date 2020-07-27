@@ -154,7 +154,7 @@ impl Default for TriangleScene {
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct SerializableScene {
     pub meshes: TrackedStorage<Mesh>,
     pub animated_meshes: TrackedStorage<AnimatedMesh>,
@@ -232,7 +232,10 @@ impl TriangleScene {
     }
 
     /// Returns an id if a single mesh was loaded, otherwise it was a scene
-    pub async fn load_mesh<S: AsRef<Path>>(&self, path: S) -> Result<Option<ObjectRef>, SceneError> {
+    pub async fn load_mesh<S: AsRef<Path>>(
+        &self,
+        path: S,
+    ) -> Result<Option<ObjectRef>, SceneError> {
         let path = path.as_ref();
         let extension = path.extension();
         let _build_bvh = self

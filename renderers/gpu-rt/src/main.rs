@@ -80,13 +80,11 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use scene::{
-    renderers::{RenderMode, Setting, SettingValue},
-};
+use scene::renderers::{RenderMode, Setting, SettingValue};
 use shared::utils;
 use std::error::Error;
 
-fn main() -> Result<(), Box<dyn Error>>{
+fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1024;
     let mut height = 640;
 

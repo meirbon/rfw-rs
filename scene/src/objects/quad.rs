@@ -1,4 +1,4 @@
-use crate::{Mesh, ToMesh, MeshResult};
+use crate::{Mesh, MeshResult, ToMesh};
 use glam::*;
 
 pub struct Quad {

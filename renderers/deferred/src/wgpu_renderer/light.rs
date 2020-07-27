@@ -1,8 +1,9 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
 use rtbvh::AABB;
-use scene::{lights::*, BitVec, FrustrumG, FrustrumResult, VertexData, ObjectRef};
+use scene::{lights::*, BitVec, FrustrumG, FrustrumResult, ObjectRef, VertexData, TrackedStorage, AnimVertexData};
 use shared::*;
 use std::ops::Range;
+use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,
@@ -68,11 +69,12 @@ impl DeferredLights {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         instances: &InstanceList,
-        meshes: &[DeferredMesh],
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
     ) {
-        self.area_lights.render(encoder, instances, meshes);
-        self.spot_lights.render(encoder, instances, meshes);
-        self.directional_lights.render(encoder, instances, meshes);
+        self.area_lights.render(encoder, instances, meshes, anim_meshes);
+        self.spot_lights.render(encoder, instances, meshes, anim_meshes);
+        self.directional_lights.render(encoder, instances, meshes, anim_meshes);
     }
 }
 
@@ -205,11 +207,12 @@ impl<T: Sized + Light + Clone> LightShadows<T> {
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         instances: &InstanceList,
-        meshes: &[DeferredMesh],
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
     ) {
         if instances.changed() {
             self.shadow_maps
-                .render(0..self.lights.len() as u32, encoder, instances, meshes);
+                .render(0..self.lights.len() as u32, encoder, instances, meshes, anim_meshes);
         } else {
             if !self.changed.any() {
                 return;
@@ -222,7 +225,7 @@ impl<T: Sized + Light + Clone> LightShadows<T> {
 
                 let i = i as u32;
                 self.shadow_maps
-                    .render(i..(i + 1), encoder, instances, meshes);
+                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes);
             }
         }
 
@@ -247,6 +250,7 @@ pub struct ShadowMapArray {
     bind_group: wgpu::BindGroup,
     pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
+    anim_pipeline: wgpu::RenderPipeline,
 
     filter_bind_group_layout: wgpu::BindGroupLayout,
     filter_bind_groups: Vec<wgpu::BindGroup>,
@@ -412,7 +416,7 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv", );
+        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
         let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
         let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
 
@@ -459,6 +463,56 @@ impl ShadowMapArray {
                 index_format: wgpu::IndexFormat::Uint32,
                 vertex_buffers: &[wgpu::VertexBufferDescriptor {
                     stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                    step_mode: wgpu::InputStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttributeDescriptor {
+                        offset: 0,
+                        format: wgpu::VertexFormat::Float4,
+                        shader_location: 0,
+                    }],
+                }],
+            },
+            sample_count: 1,
+            sample_mask: !0,
+            alpha_to_coverage_enabled: false,
+        });
+
+        let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            layout: &pipeline_layout,
+            vertex_stage: wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &vert_module,
+            },
+            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &frag_module,
+            }),
+            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::None,
+                depth_bias: 0,
+                depth_bias_slope_scale: 0.0,
+                depth_bias_clamp: 0.0,
+            }),
+            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
+            color_states: &[wgpu::ColorStateDescriptor {
+                format: Self::FORMAT,
+                alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                color_blend: wgpu::BlendDescriptor::REPLACE,
+                write_mask: wgpu::ColorWrite::ALL,
+            }],
+            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                format: Self::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
+                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
+                stencil_read_mask: 0,
+                stencil_write_mask: 0,
+            }),
+            vertex_state: wgpu::VertexStateDescriptor {
+                index_format: wgpu::IndexFormat::Uint32,
+                vertex_buffers: &[wgpu::VertexBufferDescriptor {
+                    stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
                     step_mode: wgpu::InputStepMode::Vertex,
                     attributes: &[wgpu::VertexAttributeDescriptor {
                         offset: 0,
@@ -525,7 +579,7 @@ impl ShadowMapArray {
             });
 
         let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv", );
+        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv",);
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
@@ -577,6 +631,7 @@ impl ShadowMapArray {
             bind_group,
             pipeline_layout,
             pipeline,
+            anim_pipeline,
             filter_bind_group_layout,
             filter_bind_groups,
             filter_pipeline_layout,
@@ -872,8 +927,10 @@ impl ShadowMapArray {
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
         instances: &super::instance::InstanceList,
-        meshes: &[super::mesh::DeferredMesh],
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
     ) {
+        // TODO: Use anim meshes
         assert!(range.end as usize <= self.views.len());
         for v in range {
             {
@@ -899,7 +956,6 @@ impl ShadowMapArray {
                     ),
                 });
 
-                render_pass.set_pipeline(&self.pipeline);
                 render_pass.set_bind_group(
                     0,
                     &self.bind_group,
@@ -915,25 +971,48 @@ impl ShadowMapArray {
                         continue;
                     }
 
-                    let mesh = match instance.object_id {
+                    match instance.object_id {
                         ObjectRef::None => panic!("Invalid"),
-                        ObjectRef::Static(mesh_id) => &meshes[mesh_id as usize],
-                        ObjectRef::Animated(_) => unimplemented!(),
-                    };
+                        ObjectRef::Static(mesh_id) => {
+                            let mesh = &meshes[mesh_id as usize];
 
-                    render_pass.set_vertex_buffer(0, &mesh.buffer, 0, mesh.buffer_size);
-                    render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                            render_pass.set_pipeline(&self.pipeline);
+                            if let Some(buffer) = mesh.buffer.as_ref() {
+                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                    for j in 0..mesh.sub_meshes.len() {
-                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                            if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
-                                continue;
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                                            continue;
+                                        }
+                                    }
+
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                }
                             }
-                        }
+                        },
+                        ObjectRef::Animated(mesh_id) => {
+                            let mesh = &anim_meshes[mesh_id as usize];
+                            render_pass.set_pipeline(&self.pipeline);
+                            if let Some(buffer) = mesh.buffer.as_ref() {
+                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                        let sub_mesh = &mesh.sub_meshes[j];
-                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                    }
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                                            continue;
+                                        }
+                                    }
+
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                }
+                            }
+                        },
+                    };
                 }
             }
 

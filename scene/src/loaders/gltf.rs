@@ -1,15 +1,15 @@
-use crate::{triangle_scene::SceneError, Flip, Material, MaterialList, Mesh, TextureFormat, AnimatedMesh, ObjectLoader, Instance, ObjectRef};
-use glam::*;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::Mutex,
+use crate::{
+    triangle_scene::SceneError, AnimatedMesh, Flip, Instance, Material, MaterialList, Mesh,
+    ObjectLoader, ObjectRef, TextureFormat,
 };
+use glam::*;
+use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
+use crate::graph::{Node, NodeMesh, Skin};
+use crate::utils::{FlaggedStorage, TrackedStorage};
 use crate::{material::Texture, TextureSource};
 use gltf::mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights};
-use crate::utils::{FlaggedStorage, TrackedStorage};
-use crate::graph::{Node, NodeMesh, NodeMeshType, Skin};
+use rtbvh::AABB;
 
 #[derive(Debug, Copy, Clone)]
 pub struct GltfLoader {}
@@ -24,6 +24,18 @@ impl Default for GltfLoader {
     fn default() -> Self {
         Self {}
     }
+}
+
+#[derive(Debug, Clone)]
+enum LoadedMesh {
+    Static(Mesh),
+    Animated(AnimatedMesh),
+}
+
+#[derive(Debug, Clone)]
+enum LoadedMeshID {
+    Static(usize, AABB),
+    Animated(usize, AABB),
 }
 
 impl ObjectLoader for GltfLoader {
@@ -155,10 +167,12 @@ impl ObjectLoader for GltfLoader {
             let reader = s.reader(|buffer| Some(&buffers[buffer.index()]));
             if let Some(ibm) = reader.read_inverse_bind_matrices() {
                 ibm.for_each(|m| {
-                    skin.inverse_bind_matrices.push(Mat4::from_cols_array_2d(&m));
+                    skin.inverse_bind_matrices
+                        .push(Mat4::from_cols_array_2d(&m));
                 });
 
-                skin.joint_matrices.resize(skin.inverse_bind_matrices.len(), Mat4::identity());
+                skin.joint_matrices
+                    .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
             }
 
             let mut skin_storage = skin_storage.lock().unwrap();
@@ -172,7 +186,8 @@ impl ObjectLoader for GltfLoader {
             document.scenes().into_iter().for_each(|scene| {
                 scene.nodes().into_iter().enumerate().for_each(|(i, node)| {
                     let node_id = node_storage.allocate();
-                    if i == 0 { // Root node
+                    if i == 0 {
+                        // Root node
                         root_nodes.push(node_id);
                     }
                     node_mapping.insert(node.index(), node_id);
@@ -182,203 +197,280 @@ impl ObjectLoader for GltfLoader {
 
         let mut tmp_indices = Vec::new();
 
+        let mut meshes: Vec<LoadedMesh> = Vec::new();
+        document.meshes().for_each(|mesh| {
+            let mut vertices: Vec<Vec3> = Vec::new();
+            let mut normals: Vec<Vec3> = Vec::new();
+            let mut indices: Vec<[u32; 3]> = Vec::new();
+            let mut joints: Vec<Vec<[u16; 4]>> = Vec::new();
+            let mut weights: Vec<Vec<Vec4>> = Vec::new();
+            let mut material_ids: Vec<u32> = Vec::new();
+            let mut tex_coords: Vec<Vec2> = Vec::new();
+
+            mesh.primitives().for_each(|prim| {
+                let reader = prim.reader(|buffer| Some(&buffers[buffer.index()]));
+                if let Some(iter) = reader.read_positions() {
+                    for pos in iter {
+                        vertices.push(Vec3::from(pos));
+                    }
+                }
+
+                if let Some(iter) = reader.read_normals() {
+                    for n in iter {
+                        normals.push(Vec3::from(n));
+                    }
+                }
+
+                if let Some(iter) = reader.read_tex_coords(0) {
+                    // TODO: Check whether we need to scale non-float types
+                    match iter {
+                        ReadTexCoords::U8(iter) => {
+                            for uv in iter {
+                                tex_coords.push(Vec2::new(uv[0] as f32, uv[1] as f32));
+                            }
+                        }
+                        ReadTexCoords::U16(iter) => {
+                            for uv in iter {
+                                tex_coords.push(Vec2::new(uv[0] as f32, uv[1] as f32));
+                            }
+                        }
+                        ReadTexCoords::F32(iter) => {
+                            for uv in iter {
+                                tex_coords.push(Vec2::from(uv));
+                            }
+                        }
+                    }
+                }
+
+                let mut set = 0;
+                loop {
+                    let mut stop = true;
+
+                    if let Some(iter) = reader.read_weights(set) {
+                        stop = false;
+                        weights.push(Vec::new());
+                        match iter {
+                            ReadWeights::U8(iter) => {
+                                for w in iter {
+                                    weights[set as usize].push(Vec4::new(
+                                        w[0] as f32,
+                                        w[1] as f32,
+                                        w[2] as f32,
+                                        w[3] as f32,
+                                    ));
+                                }
+                            }
+                            ReadWeights::U16(iter) => {
+                                for w in iter {
+                                    weights[set as usize].push(Vec4::new(
+                                        w[0] as f32,
+                                        w[1] as f32,
+                                        w[2] as f32,
+                                        w[3] as f32,
+                                    ));
+                                }
+                            }
+                            ReadWeights::F32(iter) => {
+                                for w in iter {
+                                    weights[set as usize].push(Vec4::from(w));
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(iter) = reader.read_joints(set) {
+                        stop = false;
+                        joints.push(Vec::new());
+                        match iter {
+                            ReadJoints::U8(iter) => {
+                                for j in iter {
+                                    joints[set as usize].push([
+                                        j[0] as u16,
+                                        j[1] as u16,
+                                        j[2] as u16,
+                                        j[3] as u16,
+                                    ]);
+                                }
+                            }
+                            ReadJoints::U16(iter) => {
+                                for j in iter {
+                                    joints[set as usize].push(j);
+                                }
+                            }
+                        }
+                    }
+
+                    if stop {
+                        break;
+                    }
+
+                    set += 1;
+                }
+
+                tmp_indices.clear();
+                if let Some(iter) = reader.read_indices() {
+                    match iter {
+                        ReadIndices::U8(iter) => {
+                            for idx in iter {
+                                tmp_indices.push(idx as u32);
+                            }
+                        }
+                        ReadIndices::U16(iter) => {
+                            for idx in iter {
+                                tmp_indices.push(idx as u32);
+                            }
+                        }
+                        ReadIndices::U32(iter) => {
+                            for idx in iter {
+                                tmp_indices.push(idx);
+                            }
+                        }
+                    }
+                }
+
+                match prim.mode() {
+                    gltf::mesh::Mode::Points => unimplemented!(),
+                    gltf::mesh::Mode::Lines => unimplemented!(),
+                    gltf::mesh::Mode::LineLoop => unimplemented!(),
+                    gltf::mesh::Mode::LineStrip => unimplemented!(),
+                    gltf::mesh::Mode::Triangles => {
+                        // Nothing to do
+                    }
+                    gltf::mesh::Mode::TriangleStrip => {
+                        let strip = tmp_indices.clone();
+                        tmp_indices.clear();
+                        for p in 2..strip.len() {
+                            tmp_indices.push(strip[p - 2]);
+                            tmp_indices.push(strip[p - 1]);
+                            tmp_indices.push(strip[p]);
+                        }
+                    }
+                    gltf::mesh::Mode::TriangleFan => {
+                        let fan = tmp_indices.clone();
+                        tmp_indices.clear();
+                        for p in 2..fan.len() {
+                            tmp_indices.push(fan[0]);
+                            tmp_indices.push(fan[p - 1]);
+                            tmp_indices.push(fan[p]);
+                        }
+                    }
+                }
+
+                let mat_id = *mat_mapping
+                    .get(&prim.material().index().unwrap_or(0))
+                    .unwrap_or(&0) as u32;
+
+                let iter = tmp_indices.chunks(3);
+                let length = iter.len();
+                for ids in iter {
+                    indices.push([
+                        ids[0],
+                        ids[1.min(ids.len() - 1)],
+                        ids[2.min(ids.len() - 1)],
+                    ]);
+                }
+
+                material_ids.resize(material_ids.len() + length, mat_id);
+            });
+
+            if !joints.is_empty() || !weights.is_empty() {
+                meshes.push(LoadedMesh::Animated(
+                    AnimatedMesh::new_indexed(
+                        indices,
+                        vertices,
+                        normals,
+                        joints,
+                        weights,
+                        tex_coords,
+                        material_ids,
+                        if let Some(name) = mesh.name() {
+                            Some(String::from(name))
+                        } else {
+                            None
+                        },
+                    )));
+            } else {
+                meshes.push(LoadedMesh::Static(Mesh::new_indexed(
+                    indices,
+                    vertices,
+                    normals,
+                    tex_coords,
+                    material_ids,
+                    if let Some(name) = mesh.name() {
+                        Some(String::from(name))
+                    } else {
+                        None
+                    },
+                )));
+            };
+        });
+
+        let mut meshes = meshes.iter().map(|m| {
+            match m {
+                LoadedMesh::Static(m) => {
+                    let mut mesh_storage = mesh_storage.lock().unwrap();
+                    let mesh_id = mesh_storage.allocate();
+                    mesh_storage[mesh_id] = m.clone();
+                    LoadedMeshID::Static(mesh_id, m.bounds.clone())
+                }
+                LoadedMesh::Animated(m) => {
+                    let mut animated_mesh_storage = animated_mesh_storage.lock().unwrap();
+                    let mesh_id = animated_mesh_storage.allocate();
+                    animated_mesh_storage[mesh_id] = m.clone();
+                    LoadedMeshID::Animated(mesh_id, m.bounds.clone())
+                }
+            }
+        }).collect::<Vec<LoadedMeshID>>();
+
         document.scenes().into_iter().for_each(|scene| {
-            scene.nodes().into_iter().enumerate().for_each(|(i, node)| {
+            scene.nodes().into_iter().for_each(|node| {
                 let node_id = node_mapping.get(&node.index()).unwrap();
                 let mut new_node = Node::default();
 
                 if let Some(mesh) = node.mesh() {
-                    let mut vertices: Vec<Vec3> = Vec::new();
-                    let mut normals: Vec<Vec3> = Vec::new();
-                    let mut indices: Vec<[u32; 3]> = Vec::new();
-                    let mut joints: Vec<Vec<[u16; 4]>> = Vec::new();
-                    let mut weights: Vec<Vec<Vec4>> = Vec::new();
-                    let mut material_ids: Vec<u32> = Vec::new();
-                    let mut tex_coords: Vec<Vec2> = Vec::new();
+                    let mesh = &meshes[mesh.index()];
+                    let mut instance_storage = instances.lock().unwrap();
 
-                    mesh.primitives().for_each(|prim| {
-                        let reader = prim.reader(|buffer| Some(&buffers[buffer.index()]));
-                        if let Some(iter) = reader.read_positions() {
-                            for pos in iter {
-                                vertices.push(Vec3::from(pos));
-                            }
+                    match mesh {
+                        LoadedMeshID::Static(id, bounds) => {
+                            let instance_id = instance_storage.allocate();
+                            instance_storage[instance_id] = Instance::new(
+                                ObjectRef::Static(*id as u32),
+                                bounds,
+                            );
+
+                            new_node.meshes.push(NodeMesh {
+                                object_id: ObjectRef::Static(*id as u32),
+                                skin_id: None,
+                                instance_id: instance_id as u32,
+                            });
                         }
+                        LoadedMeshID::Animated(id, bounds) => {
+                            let instance_id = instance_storage.allocate();
+                            instance_storage[instance_id] = Instance::new(
+                                ObjectRef::Animated(*id as u32),
+                                bounds,
+                            );
 
-                        if let Some(iter) = reader.read_normals() {
-                            for n in iter {
-                                normals.push(Vec3::from(n));
-                            }
+                            let skin = if let Some(skin) = node.skin() {
+                                Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)
+                            } else {
+                                None
+                            };
+
+                            new_node.meshes.push(NodeMesh {
+                                object_id: ObjectRef::Animated(*id as u32),
+                                skin_id: skin,
+                                instance_id: instance_id as u32,
+                            });
                         }
-
-                        if let Some(iter) = reader.read_tex_coords(0) {
-                            // TODO: Check whether we need to scale non-float types
-                            match iter {
-                                ReadTexCoords::U8(iter) => {
-                                    for uv in iter {
-                                        tex_coords.push(Vec2::new(uv[0] as f32, uv[1] as f32));
-                                    }
-                                }
-                                ReadTexCoords::U16(iter) => {
-                                    for uv in iter {
-                                        tex_coords.push(Vec2::new(uv[0] as f32, uv[1] as f32));
-                                    }
-                                }
-                                ReadTexCoords::F32(iter) => {
-                                    for uv in iter {
-                                        tex_coords.push(Vec2::from(uv));
-                                    }
-                                }
-                            }
-                        }
-
-                        let mut set = 0;
-                        loop {
-                            let mut stop = true;
-
-                            if let Some(iter) = reader.read_weights(set) {
-                                stop = false;
-                                weights.push(Vec::new());
-                                match iter {
-                                    ReadWeights::U8(iter) => {
-                                        for w in iter {
-                                            weights[set as usize].push(Vec4::new(
-                                                w[0] as f32,
-                                                w[1] as f32,
-                                                w[2] as f32,
-                                                w[3] as f32,
-                                            ));
-                                        }
-                                    }
-                                    ReadWeights::U16(iter) => {
-                                        for w in iter {
-                                            weights[set as usize].push(Vec4::new(
-                                                w[0] as f32,
-                                                w[1] as f32,
-                                                w[2] as f32,
-                                                w[3] as f32,
-                                            ));
-                                        }
-                                    }
-                                    ReadWeights::F32(iter) => {
-                                        for w in iter {
-                                            weights[set as usize].push(Vec4::from(w));
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(iter) = reader.read_joints(set) {
-                                stop = false;
-                                joints.push(Vec::new());
-                                match iter {
-                                    ReadJoints::U8(iter) => {
-                                        for j in iter {
-                                            joints[set as usize].push([
-                                                j[0] as u16,
-                                                j[1] as u16,
-                                                j[2] as u16,
-                                                j[3] as u16,
-                                            ]);
-                                        }
-                                    }
-                                    ReadJoints::U16(iter) => {
-                                        for j in iter {
-                                            joints[set as usize].push(j);
-                                        }
-                                    }
-                                }
-                            }
-
-                            if stop {
-                                break;
-                            }
-
-                            set += 1;
-                        }
-
-                        tmp_indices.clear();
-                        if let Some(iter) = reader.read_indices() {
-                            match iter {
-                                ReadIndices::U8(iter) => {
-                                    for idx in iter {
-                                        tmp_indices.push(idx as u32);
-                                    }
-                                }
-                                ReadIndices::U16(iter) => {
-                                    for idx in iter {
-                                        tmp_indices.push(idx as u32);
-                                    }
-                                }
-                                ReadIndices::U32(iter) => {
-                                    for idx in iter {
-                                        tmp_indices.push(idx);
-                                    }
-                                }
-                            }
-                        }
-
-                        match prim.mode() {
-                            gltf::mesh::Mode::Points => unimplemented!(),
-                            gltf::mesh::Mode::Lines => unimplemented!(),
-                            gltf::mesh::Mode::LineLoop => unimplemented!(),
-                            gltf::mesh::Mode::LineStrip => unimplemented!(),
-                            gltf::mesh::Mode::Triangles => {
-                                // Nothing to do
-                            }
-                            gltf::mesh::Mode::TriangleStrip => {
-                                let strip = tmp_indices.clone();
-                                tmp_indices.clear();
-                                for p in 2..strip.len() {
-                                    tmp_indices.push(strip[p - 2]);
-                                    tmp_indices.push(strip[p - 1]);
-                                    tmp_indices.push(strip[p]);
-                                }
-                            }
-                            gltf::mesh::Mode::TriangleFan => {
-                                let fan = tmp_indices.clone();
-                                tmp_indices.clear();
-                                for p in 2..fan.len() {
-                                    tmp_indices.push(fan[0]);
-                                    tmp_indices.push(fan[p - 1]);
-                                    tmp_indices.push(fan[p]);
-                                }
-                            }
-                        }
-
-                        let mat_id = *mat_mapping
-                            .get(&prim.material().index().unwrap_or(0))
-                            .unwrap_or(&0) as u32;
-
-                        let iter = tmp_indices.chunks(3);
-                        let length = iter.len();
-                        for ids in iter {
-                            indices.push([ids[0], ids[1.min(ids.len() - 1)], ids[2.min(ids.len() - 1)]]);
-                        }
-
-                        material_ids.resize(material_ids.len() + length, mat_id);
-                    });
-
-                    let node_mesh = if !joints.is_empty() || !weights.is_empty() {
-                        let mesh_id = animated_mesh_storage.lock().unwrap().allocate();
-                        NodeMesh {
-                            mesh_type: NodeMeshType::Animated,
-                            object_id: mesh_id as u32,
-                        }
-                    } else {
-                        let mesh_id = mesh_storage.lock().unwrap().allocate();
-                        NodeMesh {
-                            mesh_type: NodeMeshType::Static,
-                            object_id: mesh_id as u32,
-                        }
-                    };
-
-                    if let Some(skin) = node.skin() {
-                        new_node.target_skins.push(*skin_mapping.get(&skin.index()).unwrap() as u32);
                     }
 
                     new_node.child_nodes.reserve(node.children().len());
                     for child_id in node.children() {
-                        new_node.child_nodes.push(*node_mapping.get(&(child_id.index() as usize)).unwrap() as u32);
+                        new_node
+                            .child_nodes
+                            .push(*node_mapping.get(&(child_id.index() as usize)).unwrap() as u32);
                     }
 
                     new_node.set_matrix(Mat4::from_cols_array_2d(&node.transform().matrix()));

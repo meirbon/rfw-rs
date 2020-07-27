@@ -1,7 +1,7 @@
 use crate::objects::*;
 
+use crate::{InstanceID, PrimID, USE_MBVH};
 use glam::*;
-use crate::{PrimID, InstanceID, USE_MBVH};
 use rtbvh::{Ray, RayPacket4, ShadowPacket4, BVH, MBVH};
 
 pub struct TIntersector<'a> {
@@ -223,7 +223,9 @@ impl<'a> TIntersector<'a> {
             match instance.object_id {
                 ObjectRef::None => {}
                 ObjectRef::Static(hit_id) => {
-                    if let Some(hit) = self.meshes[hit_id as usize].intersect4(&mut new_packet, &t_min) {
+                    if let Some(hit) =
+                        self.meshes[hit_id as usize].intersect4(&mut new_packet, &t_min)
+                    {
                         for i in 0..4 {
                             if hit[i] >= 0 {
                                 instance_ids[i] = instance_id as i32;
@@ -234,7 +236,9 @@ impl<'a> TIntersector<'a> {
                     }
                 }
                 ObjectRef::Animated(hit_id) => {
-                    if let Some(hit) = self.anim_meshes[hit_id as usize].intersect4(&mut new_packet, &t_min) {
+                    if let Some(hit) =
+                        self.anim_meshes[hit_id as usize].intersect4(&mut new_packet, &t_min)
+                    {
                         for i in 0..4 {
                             if hit[i] >= 0 {
                                 instance_ids[i] = instance_id as i32;
@@ -262,7 +266,9 @@ impl<'a> TIntersector<'a> {
         match instance.object_id {
             ObjectRef::None => std::usize::MAX,
             ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].get_mat_id(prim_id) as usize,
-            ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].get_mat_id(prim_id) as usize,
+            ObjectRef::Animated(hit_id) => {
+                self.anim_meshes[hit_id as usize].get_mat_id(prim_id) as usize
+            }
         }
     }
 
@@ -280,8 +286,11 @@ impl<'a> TIntersector<'a> {
         let ray = instance.transform_ray(ray);
         match instance.object_id {
             ObjectRef::None => HitRecord::default(),
-            ObjectRef::Static(hit_id) => instance.transform_hit(self.meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32)),
-            ObjectRef::Animated(hit_id) => instance.transform_hit(self.anim_meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32)),
+            ObjectRef::Static(hit_id) => instance
+                .transform_hit(self.meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32)),
+            ObjectRef::Animated(hit_id) => instance.transform_hit(
+                self.anim_meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32),
+            ),
         }
     }
 

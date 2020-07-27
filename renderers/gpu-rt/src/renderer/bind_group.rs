@@ -8,10 +8,30 @@ pub enum Binding {
     DynamicStorageBuffer(wgpu::Buffer, std::ops::Range<wgpu::BufferAddress>),
     UniformBuffer(wgpu::Buffer, std::ops::Range<wgpu::BufferAddress>),
     DynamicUniformBuffer(wgpu::Buffer, std::ops::Range<wgpu::BufferAddress>),
-    SampledTexture(wgpu::TextureView, wgpu::TextureFormat, wgpu::TextureComponentType, wgpu::TextureViewDimension),
-    MultiSampledTexture(wgpu::TextureView, wgpu::TextureFormat, wgpu::TextureComponentType, wgpu::TextureViewDimension),
-    ReadStorageTexture(wgpu::TextureView, wgpu::TextureFormat, wgpu::TextureComponentType, wgpu::TextureViewDimension),
-    WriteStorageTexture(wgpu::TextureView, wgpu::TextureFormat, wgpu::TextureComponentType, wgpu::TextureViewDimension),
+    SampledTexture(
+        wgpu::TextureView,
+        wgpu::TextureFormat,
+        wgpu::TextureComponentType,
+        wgpu::TextureViewDimension,
+    ),
+    MultiSampledTexture(
+        wgpu::TextureView,
+        wgpu::TextureFormat,
+        wgpu::TextureComponentType,
+        wgpu::TextureViewDimension,
+    ),
+    ReadStorageTexture(
+        wgpu::TextureView,
+        wgpu::TextureFormat,
+        wgpu::TextureComponentType,
+        wgpu::TextureViewDimension,
+    ),
+    WriteStorageTexture(
+        wgpu::TextureView,
+        wgpu::TextureFormat,
+        wgpu::TextureComponentType,
+        wgpu::TextureViewDimension,
+    ),
     Sampler(wgpu::Sampler),
     ComparisonSampler(wgpu::Sampler),
 }
@@ -86,40 +106,42 @@ impl Binding {
                 dynamic: true,
                 readonly: false,
             },
-            Binding::UniformBuffer(_, _) => wgpu::BindingType::UniformBuffer {
-                dynamic: false,
-            },
-            Binding::DynamicUniformBuffer(_, _) => wgpu::BindingType::UniformBuffer {
-                dynamic: true,
-            },
-            Binding::SampledTexture(_, _, component_type, view_dim) => wgpu::BindingType::SampledTexture {
-                component_type: *component_type,
-                dimension: *view_dim,
-                multisampled: false,
-            },
-            Binding::MultiSampledTexture(_, _, component_type, view_dim) => wgpu::BindingType::SampledTexture {
-                component_type: *component_type,
-                dimension: *view_dim,
-                multisampled: true,
-            },
-            Binding::ReadStorageTexture(_, format, component_type, view_dim) => wgpu::BindingType::StorageTexture {
-                dimension: *view_dim,
-                component_type: *component_type,
-                readonly: true,
-                format: *format,
-            },
-            Binding::WriteStorageTexture(_, format, component_type, view_dim) => wgpu::BindingType::StorageTexture {
-                dimension: *view_dim,
-                component_type: *component_type,
-                readonly: false,
-                format: *format,
-            },
-            Binding::Sampler(_) => wgpu::BindingType::Sampler {
-                comparison: false,
-            },
-            Binding::ComparisonSampler(_) => wgpu::BindingType::Sampler {
-                comparison: true
+            Binding::UniformBuffer(_, _) => wgpu::BindingType::UniformBuffer { dynamic: false },
+            Binding::DynamicUniformBuffer(_, _) => {
+                wgpu::BindingType::UniformBuffer { dynamic: true }
             }
+            Binding::SampledTexture(_, _, component_type, view_dim) => {
+                wgpu::BindingType::SampledTexture {
+                    component_type: *component_type,
+                    dimension: *view_dim,
+                    multisampled: false,
+                }
+            }
+            Binding::MultiSampledTexture(_, _, component_type, view_dim) => {
+                wgpu::BindingType::SampledTexture {
+                    component_type: *component_type,
+                    dimension: *view_dim,
+                    multisampled: true,
+                }
+            }
+            Binding::ReadStorageTexture(_, format, component_type, view_dim) => {
+                wgpu::BindingType::StorageTexture {
+                    dimension: *view_dim,
+                    component_type: *component_type,
+                    readonly: true,
+                    format: *format,
+                }
+            }
+            Binding::WriteStorageTexture(_, format, component_type, view_dim) => {
+                wgpu::BindingType::StorageTexture {
+                    dimension: *view_dim,
+                    component_type: *component_type,
+                    readonly: false,
+                    format: *format,
+                }
+            }
+            Binding::Sampler(_) => wgpu::BindingType::Sampler { comparison: false },
+            Binding::ComparisonSampler(_) => wgpu::BindingType::Sampler { comparison: true },
         }
     }
 
@@ -165,8 +187,10 @@ pub struct BindGroupBinding {
 impl Display for BindGroupBinding {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let has_vertex = (self.visibility & wgpu::ShaderStage::VERTEX) == wgpu::ShaderStage::VERTEX;
-        let has_fragment = (self.visibility & wgpu::ShaderStage::FRAGMENT) == wgpu::ShaderStage::FRAGMENT;
-        let has_compute = (self.visibility & wgpu::ShaderStage::COMPUTE) == wgpu::ShaderStage::COMPUTE;
+        let has_fragment =
+            (self.visibility & wgpu::ShaderStage::FRAGMENT) == wgpu::ShaderStage::FRAGMENT;
+        let has_compute =
+            (self.visibility & wgpu::ShaderStage::COMPUTE) == wgpu::ShaderStage::COMPUTE;
 
         let mut stage_string = String::new();
         if has_vertex {
@@ -226,7 +250,10 @@ impl BindGroupBuilder {
 
     pub fn with_binding(mut self, binding: BindGroupBinding) -> Result<Self, String> {
         if let Some(b) = self.bindings.get(&binding.index) {
-            Err(format!("Binding ({}) already has a binding of type: {}", binding.index, b.binding))
+            Err(format!(
+                "Binding ({}) already has a binding of type: {}",
+                binding.index, b.binding
+            ))
         } else {
             self.bindings.insert(binding.index, binding);
             Ok(self)
@@ -234,21 +261,31 @@ impl BindGroupBuilder {
     }
 
     pub fn build(self, device: &wgpu::Device) -> BindGroup {
-        let bindings_entries: Vec<wgpu::BindGroupLayoutEntry> = self.bindings.iter().map(|(_, binding)| {
-            binding.as_layout_entry()
-        }).collect();
+        let bindings_entries: Vec<wgpu::BindGroupLayoutEntry> = self
+            .bindings
+            .iter()
+            .map(|(_, binding)| binding.as_layout_entry())
+            .collect();
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: bindings_entries.as_slice(),
             label: None,
         });
 
-        let bindings: Vec<wgpu::Binding> = self.bindings.iter().map(|(_, binding)| binding.as_binding()).collect();
+        let bindings: Vec<wgpu::Binding> = self
+            .bindings
+            .iter()
+            .map(|(_, binding)| binding.as_binding())
+            .collect();
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             bindings: bindings.as_slice(),
-            label: if let Some(label) = self.label.as_ref() { Some(label.as_str()) } else { None },
+            label: if let Some(label) = self.label.as_ref() {
+                Some(label.as_str())
+            } else {
+                None
+            },
         });
 
         BindGroup {
@@ -328,11 +365,19 @@ impl BindGroup {
     }
 
     fn update_bind_group(&mut self, device: &wgpu::Device) {
-        let bindings: Vec<wgpu::Binding> = self.bindings.iter().map(|(_, binding)| binding.as_binding()).collect();
+        let bindings: Vec<wgpu::Binding> = self
+            .bindings
+            .iter()
+            .map(|(_, binding)| binding.as_binding())
+            .collect();
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.layout,
             bindings: bindings.as_slice(),
-            label: if let Some(label) = self.label.as_ref() { Some(label.as_str()) } else { None },
+            label: if let Some(label) = self.label.as_ref() {
+                Some(label.as_str())
+            } else {
+                None
+            },
         });
         self.dirty = false;
     }

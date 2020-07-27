@@ -34,6 +34,10 @@ impl Flags {
     pub fn any(&self) -> bool {
         self.bits.any()
     }
+
+    pub fn clear(&mut self) {
+        self.bits.set_all(false);
+    }
 }
 
 impl Default for Flags {
@@ -253,7 +257,7 @@ impl<T: Default + Clone + std::fmt::Debug> Index<usize> for FlaggedStorage<T> {
     fn index(&self, index: usize) -> &Self::Output {
         match unsafe { *self.active.get_unchecked(index) } {
             true => unsafe { self.get_unchecked(index) },
-            false => panic!(format!("index {} was not active", index))
+            false => panic!(format!("index {} was not active", index)),
         }
     }
 }
@@ -262,7 +266,7 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         match unsafe { *self.active.get_unchecked(index) } {
             true => unsafe { self.get_unchecked_mut(index) },
-            false => panic!(format!("index {} was not active", index))
+            false => panic!(format!("index {} was not active", index)),
         }
     }
 }
@@ -277,7 +281,7 @@ impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
     fn default() -> Self {
         Self {
             storage: FlaggedStorage::default(),
-            changed: BitVec::new()
+            changed: BitVec::new(),
         }
     }
 }
@@ -294,7 +298,8 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
 
     pub fn allocate(&mut self) -> usize {
         let index = self.storage.allocate();
-        self.changed.resize(self.changed.len().max(index + 1), false);
+        self.changed
+            .resize(self.changed.len().max(index + 1), false);
         self.changed.set(index, true);
         index
     }
@@ -317,6 +322,17 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.changed.set(index, true);
         self.storage.get_mut(index)
+    }
+
+    pub fn any_changed(&self) -> bool {
+        self.changed.any()
+    }
+
+    pub fn get_changed(&self, index: usize) -> bool {
+        match self.changed.get(index) {
+            None => false,
+            Some(changed) => *changed,
+        }
     }
 
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
@@ -390,7 +406,12 @@ impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIterator<'a, 
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.length {
-            match unsafe { (self.flags.get_unchecked(self.current), self.changed.get_unchecked(self.current)) } {
+            match unsafe {
+                (
+                    self.flags.get_unchecked(self.current),
+                    self.changed.get_unchecked(self.current),
+                )
+            } {
                 (true, true) => {
                     return Some(unsafe {
                         let ptr = self.storage.as_ptr();
@@ -423,7 +444,12 @@ impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIteratorMut<'
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.length {
-            match unsafe { (self.flags.get_unchecked(self.current), self.changed.get_unchecked(self.current)) } {
+            match unsafe {
+                (
+                    self.flags.get_unchecked(self.current),
+                    self.changed.get_unchecked(self.current),
+                )
+            } {
                 (true, true) => {
                     return Some(unsafe {
                         let ptr = self.storage.as_mut_ptr();
@@ -508,7 +534,7 @@ mod tests {
         let release = storage.release(1);
         assert!(release.is_err());
 
-        let release = storage.erase((0));
+        let release = storage.erase(0);
         assert!(release.is_err());
 
         assert_eq!(storage.allocate(), 0);

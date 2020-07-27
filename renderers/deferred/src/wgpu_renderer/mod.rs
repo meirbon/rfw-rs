@@ -2,7 +2,7 @@ use futures::executor::block_on;
 use glam::*;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, Texture, ObjectRef};
+use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, ObjectRef, Texture, AnimatedMesh, TrackedStorage};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -38,8 +38,8 @@ pub struct Deferred {
     adapter: wgpu::Adapter,
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
-    meshes: Vec<mesh::DeferredMesh>,
-    mesh_changed: BitVec,
+    meshes: TrackedStorage<mesh::DeferredMesh>,
+    anim_meshes: TrackedStorage<mesh::DeferredAnimMesh>,
     instances: instance::InstanceList,
     material_buffer: wgpu::Buffer,
     material_buffer_size: wgpu::BufferAddress,
@@ -164,7 +164,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-        .unwrap();
+            .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -270,8 +270,8 @@ impl Renderer for Deferred {
             adapter,
             surface,
             swap_chain,
-            meshes: Vec::new(),
-            mesh_changed: BitVec::new(),
+            meshes: TrackedStorage::new(),
+            anim_meshes: TrackedStorage::new(),
             instances,
             material_buffer,
             material_buffer_size,
@@ -301,12 +301,17 @@ impl Renderer for Deferred {
 
     fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
         if id >= self.meshes.len() {
-            self.meshes
-                .push(mesh::DeferredMesh::new(&self.device, mesh));
-            self.mesh_changed.push(true);
+            self.meshes.push(mesh::DeferredMesh::new(&self.device, mesh));
         } else {
             self.meshes[id] = mesh::DeferredMesh::new(&self.device, mesh);
-            self.mesh_changed.set(id, true);
+        }
+    }
+
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
+        if id >= self.anim_meshes.len() {
+            self.anim_meshes.push(mesh::DeferredAnimMesh::new(&self.device, mesh));
+        } else {
+            self.anim_meshes[id] = mesh::DeferredAnimMesh::new(&self.device, mesh);
         }
     }
 
@@ -320,7 +325,7 @@ impl Renderer for Deferred {
                     instance.clone(),
                     &self.meshes[mesh_id as usize],
                 );
-            },
+            }
             ObjectRef::Animated(_mesh_id) => unimplemented!(),
         }
 
@@ -511,14 +516,15 @@ impl Renderer for Deferred {
             });
 
         let mut commands = Vec::with_capacity(self.meshes.len() + self.instances.len());
-        for i in 0..self.meshes.len() {
-            if !self.mesh_changed.get(i).unwrap() {
-                continue;
-            }
-            commands.push(self.meshes[i].get_copy_command(&self.device));
-        }
+        self.meshes.iter_changed().for_each(|m| {
+            commands.push(m.get_copy_command(&self.device));
+        });
 
-        for command in self.instances.update(&self.device, self.meshes.as_slice()) {
+        self.anim_meshes.iter_changed().for_each(|m| {
+            commands.push(m.get_copy_command(&self.device));
+        });
+
+        for command in self.instances.update(&self.device, &self.meshes, &self.anim_meshes) {
             commands.push(command);
         }
 
@@ -533,7 +539,8 @@ impl Renderer for Deferred {
                 .update_bind_groups(&self.device, &self.output, &self.lights);
         }
 
-        self.mesh_changed.set_all(false);
+        self.meshes.reset_changed();
+        self.anim_meshes.reset_changed();
     }
 
     fn render(&mut self, camera: &scene::Camera, _mode: RenderMode) {
@@ -562,10 +569,10 @@ impl Renderer for Deferred {
         let output = output.unwrap();
         use output::*;
 
-        if self.lights_changed || self.instances.changed() {
-            self.lights
-                .render(&mut rasterize_pass, &self.instances, self.meshes.as_slice());
-        }
+        // if self.lights_changed || self.instances.changed() {
+        //     self.lights
+        //         .render(&mut rasterize_pass, &self.instances, &self.meshes, &self.anim_meshes);
+        // }
 
         {
             let mut render_pass = rasterize_pass.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -581,9 +588,6 @@ impl Renderer for Deferred {
             let matrix = camera.get_rh_matrix();
             let frustrum = scene::FrustrumG::from_matrix(matrix);
 
-            render_pass.set_pipeline(&self.pipeline.pipeline);
-            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-
             for i in 0..self.instances.len() {
                 let instance = &self.instances.instances[i];
                 let device_instance = &self.instances.device_instances[i];
@@ -596,32 +600,64 @@ impl Renderer for Deferred {
                     continue;
                 }
 
-                let mesh = match instance.object_id {
+                match instance.object_id {
                     ObjectRef::None => panic!("Invalid"),
-                    ObjectRef::Static(mesh_id) => &self.meshes[mesh_id as usize],
-                    ObjectRef::Animated(_) => unimplemented!(),
-                };
+                    ObjectRef::Static(mesh_id) => {
+                        let mesh = &self.meshes[mesh_id as usize];
+                        if let Some(buffer) = mesh.buffer.as_ref() {
+                            render_pass.set_pipeline(&self.pipeline.pipeline);
+                            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
 
-                render_pass.set_vertex_buffer(0, &mesh.buffer, 0, mesh.buffer_size);
-                render_pass.set_vertex_buffer(1, &mesh.buffer, 0, mesh.buffer_size);
-                render_pass.set_vertex_buffer(2, &mesh.buffer, 0, mesh.buffer_size);
-                render_pass.set_vertex_buffer(3, &mesh.buffer, 0, mesh.buffer_size);
-                render_pass.set_vertex_buffer(4, &mesh.buffer, 0, mesh.buffer_size);
+                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                            for j in 0..mesh.sub_meshes.len() {
+                                if !frustrum
+                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                    .should_render()
+                                {
+                                    continue;
+                                }
 
-                for j in 0..mesh.sub_meshes.len() {
-                    if !frustrum
-                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                        .should_render()
-                    {
-                        continue;
+                                let sub_mesh = &mesh.sub_meshes[j];
+                                let bind_group = &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                render_pass.set_bind_group(2, bind_group, &[]);
+                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                            }
+                        }
                     }
+                    ObjectRef::Animated(mesh_id) => {
+                        let mesh = &self.anim_meshes[mesh_id as usize];
+                        if let Some(buffer) = mesh.buffer.as_ref() {
+                            render_pass.set_pipeline(&self.pipeline.anim_pipeline);
+                            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
 
-                    let sub_mesh = &mesh.sub_meshes[j];
-                    let bind_group = &self.material_bind_groups[sub_mesh.mat_id as usize];
-                    render_pass.set_bind_group(2, bind_group, &[]);
-                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+
+                            for j in 0..mesh.sub_meshes.len() {
+                                if !frustrum
+                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                    .should_render()
+                                {
+                                    continue;
+                                }
+
+                                let sub_mesh = &mesh.sub_meshes[j];
+                                let bind_group = &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                render_pass.set_bind_group(2, bind_group, &[]);
+                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                            }
+                        }
+                    }
                 }
             }
         }

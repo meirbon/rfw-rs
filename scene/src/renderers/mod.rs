@@ -1,11 +1,8 @@
-pub mod deferred;
-
 use crate::{
-    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, PointLight,
-    SpotLight, Texture,
+    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, AnimatedMesh,
+    PointLight, SpotLight, Texture,
 };
 use bitvec::prelude::BitVec;
-pub use deferred::*;
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;
 
@@ -115,6 +112,8 @@ pub trait Renderer {
     ) -> Result<Box<Self>, Box<dyn Error>>;
     /// Updates a mesh at the given index
     fn set_mesh(&mut self, id: usize, mesh: &Mesh);
+    /// Updates an animated mesh at the given index
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh);
     /// Sets an instance with a 4x4 transformation matrix in column-major format
     fn set_instance(&mut self, id: usize, instance: &Instance);
     /// Updates materials

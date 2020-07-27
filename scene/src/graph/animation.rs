@@ -1,5 +1,5 @@
-use glam::*;
 use crate::graph::{Node, NodeFlags};
+use glam::*;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Method {
@@ -26,9 +26,7 @@ impl Sampler {
             self.vec_frames[0]
         } else {
             match self.method {
-                Method::Linear => {
-                    (1.0 - f) * self.vec_frames[k] + f * self.vec_frames[k + 1]
-                },
+                Method::Linear => (1.0 - f) * self.vec_frames[k] + f * self.vec_frames[k + 1],
                 Method::Spline => {
                     let t = f;
                     let t2 = t * t;
@@ -37,11 +35,12 @@ impl Sampler {
                     let m0 = (t1 - t0) * self.vec_frames[k * 3 + 2];
                     let p1 = self.vec_frames[(k + 1) * 3 + 1];
                     let m1 = (t1 - t0) * self.vec_frames[(k + 1) * 3];
-                    m0 * (t3 - 2.0 * t2 + t) + p0 * (2.0 * t3 - 3.0 * t2 + 1.0) + p1 * (-2.0 * t3 + 3.0 * t2) + m1 * (t3 - t2)
-                },
-                Method::Step => {
-                    self.vec_frames[k]
-                },
+                    m0 * (t3 - 2.0 * t2 + t)
+                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                        + p1 * (-2.0 * t3 + 3.0 * t2)
+                        + m1 * (t3 - t2)
+                }
+                Method::Step => self.vec_frames[k],
             }
         }
     }
@@ -56,8 +55,9 @@ impl Sampler {
         } else {
             match self.method {
                 Method::Linear => {
-                    (1.0 - f) * self.float_frames[k * count + i] + f * self.float_frames[(k + 1) * count + i]
-                },
+                    (1.0 - f) * self.float_frames[k * count + i]
+                        + f * self.float_frames[(k + 1) * count + i]
+                }
                 Method::Spline => {
                     let t = f;
                     let t2 = t * t;
@@ -66,11 +66,12 @@ impl Sampler {
                     let m0 = (t1 - t0) * self.float_frames[(k * count + i) * 3 + 2];
                     let p1 = self.float_frames[((k + 1) * count + i) * 3 + 1];
                     let m1 = (t1 - t0) * self.float_frames[((k + 1) * count + i) * 3];
-                    m0 * (t3 - 2.0 * t2 + t) + p0 * (2.0 * t3 - 3.0 * t2 + 1.0) + p1 * (-2.0 * t3 + 3.0 * t2) + m1 * (t3 - t2)
-                },
-                Method::Step => {
-                    self.float_frames[k]
-                },
+                    m0 * (t3 - 2.0 * t2 + t)
+                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                        + p1 * (-2.0 * t3 + 3.0 * t2)
+                        + m1 * (t3 - t2)
+                }
+                Method::Step => self.float_frames[k],
             }
         }
     }
@@ -84,23 +85,27 @@ impl Sampler {
             self.rot_frames[0]
         } else {
             match self.method {
-                Method::Linear => {
-                    Quat::from((Vec4::from(self.rot_frames[k]) * (1.0 - f)) + (Vec4::from(self.rot_frames[k + 1]) * f))
-                },
+                Method::Linear => Quat::from(
+                    (Vec4::from(self.rot_frames[k]) * (1.0 - f))
+                        + (Vec4::from(self.rot_frames[k + 1]) * f),
+                ),
                 Method::Spline => {
                     let t = f;
                     let t2 = t * t;
                     let t3 = t2 * t;
 
-                    let p0 = Vec4::from(self.rot_frames[k * 3 + 1] );
+                    let p0 = Vec4::from(self.rot_frames[k * 3 + 1]);
                     let m0 = Vec4::from(self.rot_frames[k * 3 + 2]) * (t1 - t0);
                     let p1 = Vec4::from(self.rot_frames[(k + 1) * 3 + 1]);
                     let m1 = Vec4::from(self.rot_frames[(k + 1) * 3]) * (t1 - t0);
-                    Quat::from(m0 * (t3 - 2.0 * t2 + t) + p0 * (2.0 * t3 - 3.0 * t2 + 1.0) + p1 * (-2.0 * t3 + 3.0 * t2) + m1 * (t3 - t2))
-                },
-                Method::Step => {
-                    self.rot_frames[k]
-                },
+                    Quat::from(
+                        m0 * (t3 - 2.0 * t2 + t)
+                            + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                            + p1 * (-2.0 * t3 + 3.0 * t2)
+                            + m1 * (t3 - t2),
+                    )
+                }
+                Method::Step => self.rot_frames[k],
             }
         }
     }
@@ -185,20 +190,20 @@ impl Animation {
                 match target {
                     Target::Translation => {
                         node.set_translation(sampler.sample_vec3(c.time, key));
-                    },
+                    }
                     Target::Rotation => {
                         node.set_rotation(sampler.sample_rotation(c.time, key));
-                    },
+                    }
                     Target::Scale => {
                         node.set_scale(sampler.sample_vec3(c.time, key));
-                    },
+                    }
                     Target::Weights => {
                         let weights = node.weights.len();
                         for i in 0..weights {
                             node.weights[i] = sampler.sample_float(time, key, i, weights);
                         }
                         node.flags.set_flag(NodeFlags::Morphed);
-                    },
+                    }
                 }
             }
         });

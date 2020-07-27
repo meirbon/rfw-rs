@@ -11,10 +11,10 @@ pub mod lights;
 pub mod loaders;
 pub mod material;
 pub mod objects;
-pub mod renderers;
 pub mod triangle_scene;
+pub mod renderers;
 
-mod utils;
+pub mod utils;
 
 pub use camera::*;
 pub use intersector::*;
@@ -22,6 +22,8 @@ pub use lights::*;
 pub use loaders::*;
 pub use material::*;
 pub use objects::*;
+pub use utils::*;
+pub use renderers::*;
 
 use renderers::{RenderMode, Renderer, Setting};
 use std::sync::{Arc, Mutex};
@@ -30,10 +32,10 @@ pub use bitvec::prelude::*;
 pub use raw_window_handle;
 pub use triangle_scene::*;
 
+use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
 use glam::*;
 use std::error::Error;
 use std::path::Path;
-use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
 
 #[derive(Debug, Clone)]
 pub enum SceneLight {
@@ -189,28 +191,32 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-        where C: FnOnce(FlaggedIterator<'_, Instance>)
+    where
+        C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-        where C: FnOnce(FlaggedIteratorMut<'_, Instance>)
+    where
+        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-        where C: FnOnce(Option<&Instance>)
+    where
+        C: FnOnce(Option<&Instance>),
     {
-        let mut lock = self.scene.objects.instances.lock().unwrap();
+        let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-        where C: FnOnce(Option<&mut Instance>)
+    where
+        C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
@@ -231,7 +237,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn load_mesh<B: AsRef<Path>>(&self, path: B) -> Result<Option<ObjectRef>, triangle_scene::SceneError> {
+    pub fn load_mesh<B: AsRef<Path>>(
+        &self,
+        path: B,
+    ) -> Result<Option<ObjectRef>, triangle_scene::SceneError> {
         futures::executor::block_on(self.scene.load_mesh(path))
     }
 
@@ -249,7 +258,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn add_object<B: Into<Mesh>>(&self, object: B) -> Result<usize, triangle_scene::SceneError> {
+    pub fn add_object<B: Into<Mesh>>(
+        &self,
+        object: B,
+    ) -> Result<usize, triangle_scene::SceneError> {
         self.scene.add_object(object.into())
     }
 
@@ -346,54 +358,73 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let mut update_lights = false;
             let mut found_light = false;
 
-            if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) =
-            (self.scene.objects.meshes.lock(), self.scene.objects.animated_meshes.lock(), self.scene.objects.instances.lock()) {
+            if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
+                self.scene.objects.meshes.lock(),
+                self.scene.objects.animated_meshes.lock(),
+                self.scene.objects.instances.lock(),
+            ) {
                 meshes.iter_changed().enumerate().for_each(|(i, m)| {
                     renderer.set_mesh(i, m);
                     changed = true;
                 });
 
+                anim_meshes.iter_changed().enumerate().for_each(|(i, m)| {
+                    renderer.set_animated_mesh(i, m);
+                    changed = true;
+                });
+
                 if let Ok(materials) = self.scene.materials_lock() {
                     let light_flags = materials.light_flags();
-                    instances.iter_changed_mut().enumerate().for_each(|(i, instance)| {
-                        instance.update_transform();
-                        renderer.set_instance(i, instance);
-                        changed = true;
+                    instances
+                        .iter_changed_mut()
+                        .enumerate()
+                        .for_each(|(i, instance)| {
+                            instance.update_transform();
+                            renderer.set_instance(i, instance);
+                            changed = true;
 
-                        if found_light {
-                            return;
-                        }
-
-                        match instance.object_id {
-                            ObjectRef::None => {
+                            if found_light {
                                 return;
                             }
-                            ObjectRef::Static(object_id) => {
-                                let object_id = object_id as usize;
-                                for j in 0..meshes[object_id].meshes.len() {
-                                    match light_flags.get(meshes[object_id].meshes[j].mat_id as usize) {
-                                        None => {}
-                                        Some(flag) => if *flag {
-                                            found_light = true;
-                                            break;
-                                        },
+
+                            match instance.object_id {
+                                ObjectRef::None => {
+                                    return;
+                                }
+                                ObjectRef::Static(object_id) => {
+                                    let object_id = object_id as usize;
+                                    for j in 0..meshes[object_id].meshes.len() {
+                                        match light_flags
+                                            .get(meshes[object_id].meshes[j].mat_id as usize)
+                                        {
+                                            None => {}
+                                            Some(flag) => {
+                                                if *flag {
+                                                    found_light = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                ObjectRef::Animated(object_id) => {
+                                    let object_id = object_id as usize;
+                                    for j in 0..anim_meshes[object_id].meshes.len() {
+                                        match light_flags
+                                            .get(meshes[object_id].meshes[j].mat_id as usize)
+                                        {
+                                            None => {}
+                                            Some(flag) => {
+                                                if *flag {
+                                                    found_light = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            ObjectRef::Animated(object_id) => {
-                                let object_id = object_id as usize;
-                                for j in 0..anim_meshes[object_id].meshes.len() {
-                                    match light_flags.get(meshes[object_id].meshes[j].mat_id as usize) {
-                                        None => {}
-                                        Some(flag) => if *flag {
-                                            found_light = true;
-                                            break;
-                                        },
-                                    }
-                                }
-                            }
-                        }
-                    });
+                        });
                 }
 
                 meshes.reset_changed();

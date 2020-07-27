@@ -1,13 +1,13 @@
-use std::path::PathBuf;
-use crate::utils::{TrackedStorage, FlaggedStorage};
-use crate::{Mesh, AnimatedMesh, MaterialList, Instance, ObjectRef};
-use std::sync::Mutex;
 use crate::graph::{Node, Skin};
+use crate::utils::{FlaggedStorage, TrackedStorage};
+use crate::{AnimatedMesh, Instance, MaterialList, Mesh, ObjectRef};
+use std::path::PathBuf;
+use std::sync::Mutex;
 
-pub mod obj;
 pub mod gltf;
+pub mod obj;
 
-pub trait ObjectLoader : std::fmt::Display + std::fmt::Debug {
+pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
     fn load(
         &self,
         path: PathBuf,

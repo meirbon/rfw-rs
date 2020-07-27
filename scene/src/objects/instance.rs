@@ -5,9 +5,9 @@ use rtbvh::{Ray, RayPacket4, AABB};
 
 use std::fmt::Display;
 
+use glam::f32::Vec3;
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
-use glam::f32::Vec3;
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -19,11 +19,15 @@ pub enum ObjectRef {
 
 impl std::fmt::Display for ObjectRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ObjectRef({})", match self {
-            ObjectRef::None => String::from("None"),
-            ObjectRef::Static(hit_id) => format!("Static({})", hit_id),
-            ObjectRef::Animated(hit_id) => format!("Animated({})", hit_id),
-        })
+        write!(
+            f,
+            "ObjectRef({})",
+            match self {
+                ObjectRef::None => String::from("None"),
+                ObjectRef::Static(hit_id) => format!("Static({})", hit_id),
+                ObjectRef::Animated(hit_id) => format!("Animated({})", hit_id),
+            }
+        )
     }
 }
 

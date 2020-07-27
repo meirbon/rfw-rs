@@ -1,4 +1,5 @@
 use crate::utils::*;
+use crate::{Instance, ObjectRef};
 use glam::*;
 
 pub mod animation;
@@ -17,29 +18,25 @@ impl Into<u8> for NodeFlags {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum NodeMeshType {
-    Static,
-    Animated,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NodeMesh {
-    pub mesh_type: NodeMeshType,
-    pub object_id: u32,
-}
-
-impl std::fmt::Display for NodeMeshType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            NodeMeshType::Static => "Static",
-            NodeMeshType::Animated => "Animated",
-        })
-    }
+    pub object_id: ObjectRef,
+    pub skin_id: Option<u32>,
+    pub instance_id: u32,
 }
 
 impl std::fmt::Display for NodeMesh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "NodeMesh {{ mesh_type: {}, object_id: {} }}", self.mesh_type, self.object_id)
+        write!(
+            f,
+            "NodeMesh {{ object_id: {}, skin_id: {}, instance_id: {} }}",
+            self.object_id,
+            if let Some(skin) = self.skin_id {
+                format!("Some({})", skin)
+            } else {
+                String::from("None")
+            },
+            self.object_id
+        )
     }
 }
 
@@ -53,10 +50,7 @@ pub struct Node {
     local_matrix: Mat4,
     pub combined_matrix: Mat4,
     pub weights: Vec<f32>,
-    pub instance_id: Option<u32>,
-    pub object_id: Option<NodeMesh>,
-    pub target_meshes: Vec<u32>,
-    pub target_skins: Vec<u32>,
+    pub meshes: Vec<NodeMesh>,
     pub child_nodes: Vec<u32>,
     pub flags: Flags,
 }
@@ -74,10 +68,7 @@ impl Default for Node {
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
             weights: Vec::new(),
-            instance_id: None,
-            object_id: None,
-            target_meshes: Vec::new(),
-            target_skins: Vec::new(),
+            meshes: Vec::new(),
             child_nodes: Vec::new(),
             flags,
         }
@@ -114,7 +105,8 @@ impl Node {
             return;
         }
 
-        let trs = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
+        let trs =
+            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
         self.local_matrix = trs * self.matrix;
         self.flags.unset_flag(NodeFlags::Transformed);
     }
@@ -126,21 +118,32 @@ pub struct NodeGraph {
 }
 
 impl NodeGraph {
-    pub fn update(&mut self) -> bool {
+    pub fn update(&mut self, instances: &mut [Instance]) -> bool {
         let mut changed = false;
         for root_node in self.root_nodes.iter() {
             changed |= Self::traverse_children(
                 (*root_node) as usize,
                 Mat4::identity(),
                 self.nodes.as_mut_slice(),
+                instances,
             );
         }
 
         changed
     }
 
-    fn traverse_children(current_index: usize, matrix: Mat4, nodes: &mut [Node]) -> bool {
+    fn traverse_children(
+        current_index: usize,
+        matrix: Mat4,
+        nodes: &mut [Node],
+        instances: &mut [Instance],
+    ) -> bool {
         let mut changed = false;
+
+        if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
+            nodes[current_index].update_matrix();
+            changed = true;
+        }
 
         // Update matrix
         let combined_matrix = matrix * nodes[current_index].matrix;
@@ -150,9 +153,20 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.into_iter() {
             let c_id = c_id as usize;
-            changed |= Self::traverse_children(c_id, combined_matrix, nodes);
+            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances);
         }
 
+        nodes[current_index].meshes.iter().for_each(|m| {
+            instances[m.instance_id as usize].set_transform(nodes[current_index].combined_matrix);
+
+            // TODO: Morphed
+            // TODO:
+            // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
+            // }
+            // TODO: Skins
+        });
+
+        nodes[current_index].flags.clear();
         // Return whether this node or its children changed
         changed
     }

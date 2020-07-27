@@ -1,14 +1,11 @@
 use glam::*;
-use std::{
-    path::PathBuf,
-    sync::Mutex,
-};
+use std::{path::PathBuf, sync::Mutex};
 
+use crate::graph::{Node, Skin};
 use crate::material::*;
 use crate::triangle_scene::SceneError;
 use crate::utils::*;
-use crate::{Mesh, ObjectLoader, AnimatedMesh, Instance, ObjectRef};
-use crate::graph::{Node, Skin};
+use crate::{AnimatedMesh, Instance, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {
     HasNormals = 1,
@@ -242,7 +239,13 @@ impl ObjectLoader for ObjLoader {
 
         let mut mesh_storage = mesh_storage.lock().unwrap();
         let mesh_id = mesh_storage.allocate();
-        mesh_storage[mesh_id] = Mesh::new(vertices, normals, uvs, material_ids, Some(String::from(path.to_str().unwrap())));
+        mesh_storage[mesh_id] = Mesh::new(
+            vertices,
+            normals,
+            uvs,
+            material_ids,
+            Some(String::from(path.to_str().unwrap())),
+        );
         Ok(Some(ObjectRef::Static(mesh_id as u32)))
     }
 }

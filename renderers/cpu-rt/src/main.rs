@@ -81,9 +81,7 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use scene::{
-    renderers::{RenderMode, Setting, SettingValue},
-};
+use scene::renderers::{RenderMode, Setting, SettingValue};
 use shared::utils;
 use std::error::Error;
 

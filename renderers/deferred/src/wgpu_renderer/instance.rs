@@ -2,7 +2,8 @@ use super::mesh::DeferredMesh;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
-use scene::{BitVec, Instance, ObjectRef};
+use scene::{BitVec, Instance, ObjectRef, TrackedStorage};
+use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 
 pub struct DeviceInstance {
     pub device_matrices: wgpu::Buffer,
@@ -62,9 +63,8 @@ impl DeviceInstance {
 pub struct InstanceList {
     pub device_instances: Vec<DeviceInstance>,
     pub bind_group_layout: wgpu::BindGroupLayout,
-    pub instances: Vec<Instance>,
+    pub instances: TrackedStorage<Instance>,
     pub bounds: Vec<InstanceBounds>,
-    pub changed: BitVec,
 }
 
 impl InstanceList {
@@ -82,8 +82,7 @@ impl InstanceList {
         Self {
             device_instances: Vec::new(),
             bind_group_layout,
-            instances: Vec::new(),
-            changed: BitVec::new(),
+            instances: TrackedStorage::new(),
             bounds: Vec::new(),
         }
     }
@@ -100,27 +99,23 @@ impl InstanceList {
             self.instances.push(instance);
             self.device_instances
                 .push(DeviceInstance::new(device, &self.bind_group_layout));
-            self.changed.push(true);
         } else {
             self.bounds[id] = InstanceBounds::new(&instance, mesh);
             self.instances[id] = instance;
-            self.changed.set(id, true);
         }
     }
 
     pub fn update(
         &mut self,
         device: &wgpu::Device,
-        meshes: &[DeferredMesh],
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
     ) -> Vec<super::CopyCommand> {
         let mut commands = Vec::with_capacity(self.instances.len());
 
-        for i in 0..self.instances.len() {
-            if !self.changed.get(i).unwrap() {
-                continue;
-            }
+        let device_instances = &self.device_instances;
 
-            let instance = &self.instances[i];
+        self.instances.iter_changed().enumerate().for_each(|(i, instance)| {
             let data = [instance.get_transform(), instance.get_normal_transform()];
             let staging_buffer = device.create_buffer_with_data(
                 unsafe {
@@ -133,19 +128,19 @@ impl InstanceList {
             );
 
             commands.push(super::CopyCommand {
-                destination_buffer: &self.device_instances[i].device_matrices,
+                destination_buffer: &device_instances[i].device_matrices,
                 copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
                 staging_buffer,
             });
-        }
+        });
 
-        self.bounds = self.get_bounds(meshes);
+        self.bounds = self.get_bounds(meshes, anim_meshes);
 
         commands
     }
 
     pub fn reset_changed(&mut self) {
-        self.changed.set_all(false);
+        self.instances.reset_changed();
     }
 
     pub fn len(&self) -> usize {
@@ -153,34 +148,42 @@ impl InstanceList {
     }
 
     pub fn changed(&self) -> bool {
-        self.changed.any()
+        self.instances.any_changed()
     }
 
-    fn get_bounds(&self, meshes: &[DeferredMesh]) -> Vec<InstanceBounds> {
+    fn get_bounds(&self, meshes: &TrackedStorage<DeferredMesh>, anim_meshes: &TrackedStorage<DeferredAnimMesh>) -> Vec<InstanceBounds> {
         (0..self.instances.len())
             .into_iter()
             .par_bridge()
             .map(|i| {
                 let instance = &self.instances[i];
                 let root_bounds = instance.bounds();
-
-                let mesh = match instance.object_id {
+                let mesh_bounds = match instance.object_id {
                     ObjectRef::None => panic!("Invalid"),
-                    ObjectRef::Static(mesh_id) => &meshes[mesh_id as usize],
-                    ObjectRef::Animated(_) => unimplemented!(),
+                    ObjectRef::Static(mesh_id) => {
+                        let mesh = &meshes[mesh_id as usize];
+                        let transform = instance.get_transform();
+                        mesh
+                            .sub_meshes
+                            .iter()
+                            .map(|m| m.bounds.transformed(transform))
+                            .collect()
+                    }
+                    ObjectRef::Animated(mesh_id) => {
+                        let mesh = &anim_meshes[mesh_id as usize];
+                        let transform = instance.get_transform();
+                        mesh
+                            .sub_meshes
+                            .iter()
+                            .map(|m| m.bounds.transformed(transform))
+                            .collect()
+                    }
                 };
-
-                let transform = instance.get_transform();
-                let mesh_bounds = mesh
-                    .sub_meshes
-                    .iter()
-                    .map(|m| m.bounds.transformed(transform))
-                    .collect();
 
                 InstanceBounds {
                     root_bounds,
                     mesh_bounds,
-                    changed: *self.changed.get(i).unwrap(),
+                    changed: self.instances.get_changed(i),
                 }
             })
             .collect()
