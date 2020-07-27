@@ -13,7 +13,8 @@ pub struct VertexBuffer {
 #[derive(Debug)]
 pub struct DeferredAnimMesh {
     pub sub_meshes: Vec<VertexMesh>,
-    pub vertex_data: Vec<AnimVertexData>,
+    pub vertex_data: Vec<VertexData>,
+    // pub anim_vertex_data: Vec<AnimVertexData>, TODO
     pub buffer: Option<wgpu::Buffer>,
     pub buffer_size: wgpu::BufferAddress,
 }

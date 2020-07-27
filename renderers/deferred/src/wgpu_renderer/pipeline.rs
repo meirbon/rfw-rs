@@ -4,8 +4,9 @@ use shared::*;
 
 pub struct RenderPipeline {
     pub pipeline: wgpu::RenderPipeline,
-    pub anim_pipeline: wgpu::RenderPipeline,
     pub layout: wgpu::PipelineLayout,
+    pub anim_layout: wgpu::PipelineLayout,
+    pub anim_pipeline: wgpu::RenderPipeline,
 }
 
 impl RenderPipeline {
@@ -136,11 +137,14 @@ impl RenderPipeline {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../../shaders/mesh_anim.vert.spv");
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        // let vert_shader = include_bytes!("../../shaders/mesh_anim.vert.spv");
+        // let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
+        let anim_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            bind_group_layouts: &[&uniform_layout, &instance_layout, &texture_layout],
+        });
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            layout: &anim_layout,
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -199,7 +203,7 @@ impl RenderPipeline {
             vertex_state: wgpu::VertexStateDescriptor {
                 vertex_buffers: &[
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 0,
@@ -208,7 +212,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 16,
@@ -217,7 +221,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 28,
@@ -226,7 +230,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 32,
@@ -235,7 +239,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 40,
@@ -248,7 +252,7 @@ impl RenderPipeline {
                     //     step_mode: wgpu::InputStepMode::Vertex,
                     //     attributes: &[wgpu::VertexAttributeDescriptor {
                     //         offset: 56,
-                    //         format: wgpu::VertexFormat::Ushort4,
+                    //         format: wgpu::VertexFormat::Uint4,
                     //         shader_location: 5,
                     //     }],
                     // },
@@ -256,7 +260,7 @@ impl RenderPipeline {
                     //     stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
                     //     step_mode: wgpu::InputStepMode::Vertex,
                     //     attributes: &[wgpu::VertexAttributeDescriptor {
-                    //         offset: 64,
+                    //         offset: 72,
                     //         format: wgpu::VertexFormat::Float4,
                     //         shader_location: 6,
                     //     }],
@@ -271,8 +275,9 @@ impl RenderPipeline {
 
         Self {
             pipeline,
-            anim_pipeline,
             layout: pipeline_layout,
+            anim_pipeline,
+            anim_layout,
         }
     }
 }

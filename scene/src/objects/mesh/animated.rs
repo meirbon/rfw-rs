@@ -12,49 +12,15 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "object_caching")]
 use std::collections::HashMap;
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
-#[repr(C)]
 pub struct AnimVertexData {
-    pub vertex: [f32; 4],
-    // 16
-    pub normal: [f32; 3],
-    // 28
-    pub mat_id: u32,
-    // 32
-    pub uv: [f32; 2],
-    // 40
-    pub tangent: [f32; 4],
-    // 56
-    pub joints: [u16; 4],
-    // 64
+    pub joints: [u32; 4],
     pub weights: [f32; 4],
-    // 80
-}
-
-impl Display for AnimVertexData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use glam::*;
-        write!(
-            f,
-            "AnimVertexData {{ vertex: {}, normal: {}, mat_id: {}, uv: {}, tangent: {} }}",
-            Vec4::from(self.vertex),
-            Vec3::from(self.normal),
-            self.mat_id,
-            Vec2::from(self.uv),
-            Vec4::from(self.tangent)
-        )
-    }
 }
 
 impl AnimVertexData {
     pub fn zero() -> Self {
         Self {
-            vertex: [0.0, 0.0, 0.0, 1.0],
-            normal: [0.0; 3],
-            mat_id: 0,
-            uv: [0.0; 2],
-            tangent: [0.0; 4],
             joints: [0; 4],
             weights: [0.0; 4],
         }
@@ -65,7 +31,8 @@ impl AnimVertexData {
 #[derive(Debug, Clone)]
 pub struct AnimatedMesh {
     pub triangles: Vec<RTTriangle>,
-    pub vertices: Vec<AnimVertexData>,
+    pub vertices: Vec<VertexData>,
+    pub anim_vertex_data: Vec<AnimVertexData>,
     pub joints: Vec<Vec<[u16; 4]>>,
     pub weights: Vec<Vec<Vec4>>,
     pub materials: Vec<u32>,
@@ -188,7 +155,8 @@ impl AnimatedMesh {
         debug_assert_eq!(vertices.len() % 3, 0);
 
         let mut bounds = AABB::new();
-        let mut vertex_data = vec![AnimVertexData::zero(); vertices.len()];
+        let mut vertex_data = vec![VertexData::zero(); vertices.len()];
+        let mut anim_vertex_data = vec![AnimVertexData::zero(); vertices.len()];
 
         let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
             let mut normals = vec![Vec3::zero(); vertices.len()];
@@ -278,13 +246,32 @@ impl AnimatedMesh {
             tangents[i] = tangent.normalize().extend(w);
         }
 
+
         vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
             let vertex: [f32; 3] = vertices[i].into();
             let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
             let normal = normals[i].into();
-            let joints: [u16; 4] = if let Some(j) = joints.get(0) {
+
+            *v = VertexData {
+                vertex,
+                normal,
+                mat_id: material_ids[i / 3],
+                uv: uvs[i].into(),
+                tangent: tangents[i].into(),
+                // joints,
+                // weights,
+            };
+        });
+
+        anim_vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
+            let joints: [u32; 4] = if let Some(j) = joints.get(0) {
                 if let Some(joints) = j.get(i) {
-                    *joints
+                    [
+                        joints[0] as u32,
+                        joints[1] as u32,
+                        joints[2] as u32,
+                        joints[3] as u32,
+                    ]
                 } else {
                     [0; 4]
                 }
@@ -302,14 +289,9 @@ impl AnimatedMesh {
             };
 
             *v = AnimVertexData {
-                vertex,
-                normal,
-                mat_id: material_ids[i / 3],
-                uv: uvs[i].into(),
-                tangent: tangents[i].into(),
                 joints,
                 weights,
-            };
+            }
         });
 
         let mut last_id = material_ids[0];
@@ -383,7 +365,7 @@ impl AnimatedMesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
@@ -416,6 +398,7 @@ impl AnimatedMesh {
         Self {
             triangles,
             vertices: vertex_data,
+            anim_vertex_data,
             joints,
             weights,
             materials: Vec::from(material_ids),
@@ -479,6 +462,7 @@ impl AnimatedMesh {
         AnimatedMesh {
             triangles: Vec::new(),
             vertices: Vec::new(),
+            anim_vertex_data: Vec::new(),
             joints: Vec::new(),
             weights: Vec::new(),
             materials: Vec::new(),
@@ -491,10 +475,10 @@ impl AnimatedMesh {
     }
 
     pub fn buffer_size(&self) -> usize {
-        self.vertices.len() * std::mem::size_of::<AnimVertexData>()
+        self.vertices.len() * std::mem::size_of::<VertexData>()
     }
 
-    pub fn as_slice(&self) -> &[AnimVertexData] {
+    pub fn as_slice(&self) -> &[VertexData] {
         self.vertices.as_slice()
     }
 

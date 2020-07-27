@@ -1,7 +1,6 @@
 use super::mesh::DeferredMesh;
 use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use glam::*;
-use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
 use scene::{Instance, ObjectRef, TrackedStorage};
 
@@ -195,7 +194,6 @@ impl InstanceList {
         (0..self.instances.len())
             .into_iter()
             .filter(|i| self.instances.get(*i).is_some())
-            .par_bridge()
             .map(|i| {
                 let instance = &self.instances[i];
                 let root_bounds = instance.bounds();
