@@ -1,5 +1,5 @@
 use super::output::*;
-use scene::{VertexData, AnimVertexData};
+use scene::{AnimVertexData, VertexData};
 use shared::*;
 
 pub struct RenderPipeline {
@@ -260,7 +260,7 @@ impl RenderPipeline {
                             format: wgpu::VertexFormat::Float4,
                             shader_location: 6,
                         }],
-                    }
+                    },
                 ],
                 index_format: wgpu::IndexFormat::Uint32,
             },

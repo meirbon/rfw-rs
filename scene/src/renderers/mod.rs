@@ -1,5 +1,5 @@
 use crate::{
-    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, AnimatedMesh,
+    AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh,
     PointLight, SpotLight, Texture,
 };
 use bitvec::prelude::BitVec;

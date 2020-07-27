@@ -11,8 +11,8 @@ pub mod lights;
 pub mod loaders;
 pub mod material;
 pub mod objects;
-pub mod triangle_scene;
 pub mod renderers;
+pub mod triangle_scene;
 
 pub mod utils;
 
@@ -22,8 +22,8 @@ pub use lights::*;
 pub use loaders::*;
 pub use material::*;
 pub use objects::*;
-pub use utils::*;
 pub use renderers::*;
+pub use utils::*;
 
 use renderers::{RenderMode, Renderer, Setting};
 use std::sync::{Arc, Mutex};
@@ -220,6 +220,32 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
+    }
+
+    pub fn find_mesh_by_name(&self, name: String) -> Vec<ObjectRef> {
+        let mut result = Vec::new();
+        if let (Ok(meshes), Ok(anim_meshes)) = (
+            self.scene.objects.meshes.lock(),
+            self.scene.objects.animated_meshes.lock(),
+        ) {
+            for m_id in 0..meshes.len() {
+                if let Some(m) = meshes.get(m_id) {
+                    if m.name == name {
+                        result.push(ObjectRef::Static(m_id as u32));
+                    }
+                }
+            }
+
+            for m_id in 0..anim_meshes.len() {
+                if let Some(m) = anim_meshes.get(m_id) {
+                    if m.name == name {
+                        result.push(ObjectRef::Animated(m_id as u32));
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     pub fn resize<B: raw_window_handle::HasRawWindowHandle>(

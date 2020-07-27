@@ -1,9 +1,9 @@
 use super::mesh::DeferredMesh;
+use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use glam::*;
 use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
 use scene::{BitVec, Instance, ObjectRef, TrackedStorage};
-use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 
 pub struct DeviceInstance {
     pub device_matrices: wgpu::Buffer,
@@ -18,6 +18,22 @@ pub struct InstanceBounds {
 
 impl InstanceBounds {
     pub fn new(instance: &Instance, mesh: &DeferredMesh) -> Self {
+        let transform = instance.get_transform();
+        let root_bounds = instance.bounds();
+        let mesh_bounds = mesh
+            .sub_meshes
+            .iter()
+            .map(|m| m.bounds.transformed(transform))
+            .collect();
+
+        InstanceBounds {
+            root_bounds,
+            mesh_bounds,
+            changed: true,
+        }
+    }
+
+    pub fn new_animated(instance: &Instance, mesh: &DeferredAnimMesh) -> Self {
         let transform = instance.get_transform();
         let root_bounds = instance.bounds();
         let mesh_bounds = mesh
@@ -105,6 +121,25 @@ impl InstanceList {
         }
     }
 
+    pub fn set_animated(
+        &mut self,
+        device: &wgpu::Device,
+        id: usize,
+        instance: Instance,
+        mesh: &DeferredAnimMesh,
+    ) {
+        if id >= self.instances.len() {
+            self.bounds
+                .push(InstanceBounds::new_animated(&instance, mesh));
+            self.instances.push(instance);
+            self.device_instances
+                .push(DeviceInstance::new(device, &self.bind_group_layout));
+        } else {
+            self.bounds[id] = InstanceBounds::new_animated(&instance, mesh);
+            self.instances[id] = instance;
+        }
+    }
+
     pub fn update(
         &mut self,
         device: &wgpu::Device,
@@ -115,24 +150,27 @@ impl InstanceList {
 
         let device_instances = &self.device_instances;
 
-        self.instances.iter_changed().enumerate().for_each(|(i, instance)| {
-            let data = [instance.get_transform(), instance.get_normal_transform()];
-            let staging_buffer = device.create_buffer_with_data(
-                unsafe {
-                    std::slice::from_raw_parts(
-                        data.as_ptr() as *const u8,
-                        std::mem::size_of::<Mat4>() * 2,
-                    )
-                },
-                wgpu::BufferUsage::COPY_SRC,
-            );
+        self.instances
+            .iter_changed()
+            .enumerate()
+            .for_each(|(i, instance)| {
+                let data = [instance.get_transform(), instance.get_normal_transform()];
+                let staging_buffer = device.create_buffer_with_data(
+                    unsafe {
+                        std::slice::from_raw_parts(
+                            data.as_ptr() as *const u8,
+                            std::mem::size_of::<Mat4>() * 2,
+                        )
+                    },
+                    wgpu::BufferUsage::COPY_SRC,
+                );
 
-            commands.push(super::CopyCommand {
-                destination_buffer: &device_instances[i].device_matrices,
-                copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
-                staging_buffer,
+                commands.push(super::CopyCommand {
+                    destination_buffer: &device_instances[i].device_matrices,
+                    copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
+                    staging_buffer,
+                });
             });
-        });
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
 
@@ -151,7 +189,11 @@ impl InstanceList {
         self.instances.any_changed()
     }
 
-    fn get_bounds(&self, meshes: &TrackedStorage<DeferredMesh>, anim_meshes: &TrackedStorage<DeferredAnimMesh>) -> Vec<InstanceBounds> {
+    fn get_bounds(
+        &self,
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+    ) -> Vec<InstanceBounds> {
         (0..self.instances.len())
             .into_iter()
             .par_bridge()
@@ -163,8 +205,7 @@ impl InstanceList {
                     ObjectRef::Static(mesh_id) => {
                         let mesh = &meshes[mesh_id as usize];
                         let transform = instance.get_transform();
-                        mesh
-                            .sub_meshes
+                        mesh.sub_meshes
                             .iter()
                             .map(|m| m.bounds.transformed(transform))
                             .collect()
@@ -172,8 +213,7 @@ impl InstanceList {
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
                         let transform = instance.get_transform();
-                        mesh
-                            .sub_meshes
+                        mesh.sub_meshes
                             .iter()
                             .map(|m| m.bounds.transformed(transform))
                             .collect()

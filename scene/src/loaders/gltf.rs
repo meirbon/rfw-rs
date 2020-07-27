@@ -363,32 +363,27 @@ impl ObjectLoader for GltfLoader {
                 let iter = tmp_indices.chunks(3);
                 let length = iter.len();
                 for ids in iter {
-                    indices.push([
-                        ids[0],
-                        ids[1.min(ids.len() - 1)],
-                        ids[2.min(ids.len() - 1)],
-                    ]);
+                    indices.push([ids[0], ids[1.min(ids.len() - 1)], ids[2.min(ids.len() - 1)]]);
                 }
 
                 material_ids.resize(material_ids.len() + length, mat_id);
             });
 
             if !joints.is_empty() || !weights.is_empty() {
-                meshes.push(LoadedMesh::Animated(
-                    AnimatedMesh::new_indexed(
-                        indices,
-                        vertices,
-                        normals,
-                        joints,
-                        weights,
-                        tex_coords,
-                        material_ids,
-                        if let Some(name) = mesh.name() {
-                            Some(String::from(name))
-                        } else {
-                            None
-                        },
-                    )));
+                meshes.push(LoadedMesh::Animated(AnimatedMesh::new_indexed(
+                    indices,
+                    vertices,
+                    normals,
+                    joints,
+                    weights,
+                    tex_coords,
+                    material_ids,
+                    if let Some(name) = mesh.name() {
+                        Some(String::from(name))
+                    } else {
+                        None
+                    },
+                )));
             } else {
                 meshes.push(LoadedMesh::Static(Mesh::new_indexed(
                     indices,
@@ -405,8 +400,9 @@ impl ObjectLoader for GltfLoader {
             };
         });
 
-        let mut meshes = meshes.iter().map(|m| {
-            match m {
+        let mut meshes = meshes
+            .iter()
+            .map(|m| match m {
                 LoadedMesh::Static(m) => {
                     let mut mesh_storage = mesh_storage.lock().unwrap();
                     let mesh_id = mesh_storage.allocate();
@@ -419,8 +415,8 @@ impl ObjectLoader for GltfLoader {
                     animated_mesh_storage[mesh_id] = m.clone();
                     LoadedMeshID::Animated(mesh_id, m.bounds.clone())
                 }
-            }
-        }).collect::<Vec<LoadedMeshID>>();
+            })
+            .collect::<Vec<LoadedMeshID>>();
 
         document.scenes().into_iter().for_each(|scene| {
             scene.nodes().into_iter().for_each(|node| {
@@ -434,10 +430,8 @@ impl ObjectLoader for GltfLoader {
                     match mesh {
                         LoadedMeshID::Static(id, bounds) => {
                             let instance_id = instance_storage.allocate();
-                            instance_storage[instance_id] = Instance::new(
-                                ObjectRef::Static(*id as u32),
-                                bounds,
-                            );
+                            instance_storage[instance_id] =
+                                Instance::new(ObjectRef::Static(*id as u32), bounds);
 
                             new_node.meshes.push(NodeMesh {
                                 object_id: ObjectRef::Static(*id as u32),
@@ -447,10 +441,8 @@ impl ObjectLoader for GltfLoader {
                         }
                         LoadedMeshID::Animated(id, bounds) => {
                             let instance_id = instance_storage.allocate();
-                            instance_storage[instance_id] = Instance::new(
-                                ObjectRef::Animated(*id as u32),
-                                bounds,
-                            );
+                            instance_storage[instance_id] =
+                                Instance::new(ObjectRef::Animated(*id as u32), bounds);
 
                             let skin = if let Some(skin) = node.skin() {
                                 Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)

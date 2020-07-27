@@ -1,6 +1,6 @@
 use super::CopyCommand;
 use rtbvh::AABB;
-use scene::{Mesh, VertexData, VertexMesh, AnimVertexData, AnimatedMesh};
+use scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
 
 pub struct VertexBuffer {
     pub count: usize,
@@ -113,7 +113,6 @@ impl DeferredMesh {
         }
     }
 }
-
 
 impl DeferredAnimMesh {
     pub fn new(device: &wgpu::Device, mesh: &AnimatedMesh) -> Self {

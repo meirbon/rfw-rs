@@ -1,9 +1,12 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
+use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use rtbvh::AABB;
-use scene::{lights::*, BitVec, FrustrumG, FrustrumResult, ObjectRef, VertexData, TrackedStorage, AnimVertexData};
+use scene::{
+    lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
+    VertexData,
+};
 use shared::*;
 use std::ops::Range;
-use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,
@@ -72,9 +75,12 @@ impl DeferredLights {
         meshes: &TrackedStorage<DeferredMesh>,
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
     ) {
-        self.area_lights.render(encoder, instances, meshes, anim_meshes);
-        self.spot_lights.render(encoder, instances, meshes, anim_meshes);
-        self.directional_lights.render(encoder, instances, meshes, anim_meshes);
+        self.area_lights
+            .render(encoder, instances, meshes, anim_meshes);
+        self.spot_lights
+            .render(encoder, instances, meshes, anim_meshes);
+        self.directional_lights
+            .render(encoder, instances, meshes, anim_meshes);
     }
 }
 
@@ -211,8 +217,13 @@ impl<T: Sized + Light + Clone> LightShadows<T> {
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
     ) {
         if instances.changed() {
-            self.shadow_maps
-                .render(0..self.lights.len() as u32, encoder, instances, meshes, anim_meshes);
+            self.shadow_maps.render(
+                0..self.lights.len() as u32,
+                encoder,
+                instances,
+                meshes,
+                anim_meshes,
+            );
         } else {
             if !self.changed.any() {
                 return;
@@ -983,7 +994,9 @@ impl ShadowMapArray {
 
                                 for j in 0..mesh.sub_meshes.len() {
                                     if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                                        if frustrum.aabb_in_frustrum(bounds)
+                                            == FrustrumResult::Outside
+                                        {
                                             continue;
                                         }
                                     }
@@ -992,7 +1005,7 @@ impl ShadowMapArray {
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
                             }
-                        },
+                        }
                         ObjectRef::Animated(mesh_id) => {
                             let mesh = &anim_meshes[mesh_id as usize];
                             render_pass.set_pipeline(&self.pipeline);
@@ -1002,7 +1015,9 @@ impl ShadowMapArray {
 
                                 for j in 0..mesh.sub_meshes.len() {
                                     if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                                        if frustrum.aabb_in_frustrum(bounds)
+                                            == FrustrumResult::Outside
+                                        {
                                             continue;
                                         }
                                     }
@@ -1011,7 +1026,7 @@ impl ShadowMapArray {
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
                             }
-                        },
+                        }
                     };
                 }
             }

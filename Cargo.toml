@@ -10,5 +10,9 @@ members = [
 ]
 
 [profile.dev]
-opt-level = 2
+opt-level = 1
+debug = 2
+
+[profile.dev.package."*"]
+opt-level = "z"
 debug = 2

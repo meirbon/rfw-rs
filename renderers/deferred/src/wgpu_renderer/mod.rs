@@ -2,7 +2,10 @@ use futures::executor::block_on;
 use glam::*;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{raw_window_handle::HasRawWindowHandle, BitVec, DeviceMaterial, Instance, ObjectRef, Texture, AnimatedMesh, TrackedStorage};
+use scene::{
+    raw_window_handle::HasRawWindowHandle, AnimatedMesh, BitVec, DeviceMaterial, Instance,
+    ObjectRef, Texture, TrackedStorage,
+};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -164,7 +167,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-            .unwrap();
+        .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -301,7 +304,8 @@ impl Renderer for Deferred {
 
     fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
         if id >= self.meshes.len() {
-            self.meshes.push(mesh::DeferredMesh::new(&self.device, mesh));
+            self.meshes
+                .push(mesh::DeferredMesh::new(&self.device, mesh));
         } else {
             self.meshes[id] = mesh::DeferredMesh::new(&self.device, mesh);
         }
@@ -309,7 +313,8 @@ impl Renderer for Deferred {
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
         if id >= self.anim_meshes.len() {
-            self.anim_meshes.push(mesh::DeferredAnimMesh::new(&self.device, mesh));
+            self.anim_meshes
+                .push(mesh::DeferredAnimMesh::new(&self.device, mesh));
         } else {
             self.anim_meshes[id] = mesh::DeferredAnimMesh::new(&self.device, mesh);
         }
@@ -318,15 +323,18 @@ impl Renderer for Deferred {
     fn set_instance(&mut self, id: usize, instance: &Instance) {
         match instance.object_id {
             ObjectRef::None => panic!("Invalid"),
-            ObjectRef::Static(mesh_id) => {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &self.meshes[mesh_id as usize],
-                );
-            }
-            ObjectRef::Animated(_mesh_id) => unimplemented!(),
+            ObjectRef::Static(mesh_id) => self.instances.set(
+                &self.device,
+                id,
+                instance.clone(),
+                &self.meshes[mesh_id as usize],
+            ),
+            ObjectRef::Animated(mesh_id) => self.instances.set_animated(
+                &self.device,
+                id,
+                instance.clone(),
+                &self.anim_meshes[mesh_id as usize],
+            ),
         }
 
         self.scene_bounds.grow_bb(
@@ -524,7 +532,10 @@ impl Renderer for Deferred {
             commands.push(m.get_copy_command(&self.device));
         });
 
-        for command in self.instances.update(&self.device, &self.meshes, &self.anim_meshes) {
+        for command in self
+            .instances
+            .update(&self.device, &self.meshes, &self.anim_meshes)
+        {
             commands.push(command);
         }
 
@@ -569,10 +580,14 @@ impl Renderer for Deferred {
         let output = output.unwrap();
         use output::*;
 
-        // if self.lights_changed || self.instances.changed() {
-        //     self.lights
-        //         .render(&mut rasterize_pass, &self.instances, &self.meshes, &self.anim_meshes);
-        // }
+        if self.lights_changed || self.instances.changed() {
+            self.lights.render(
+                &mut rasterize_pass,
+                &self.instances,
+                &self.meshes,
+                &self.anim_meshes,
+            );
+        }
 
         {
             let mut render_pass = rasterize_pass.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -624,7 +639,8 @@ impl Renderer for Deferred {
                                 }
 
                                 let sub_mesh = &mesh.sub_meshes[j];
-                                let bind_group = &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                let bind_group =
+                                    &self.material_bind_groups[sub_mesh.mat_id as usize];
                                 render_pass.set_bind_group(2, bind_group, &[]);
                                 render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                             }
@@ -640,6 +656,8 @@ impl Renderer for Deferred {
                             render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
                             render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
                             render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(5, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(6, buffer, 0, mesh.buffer_size);
 
                             render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
@@ -652,7 +670,8 @@ impl Renderer for Deferred {
                                 }
 
                                 let sub_mesh = &mesh.sub_meshes[j];
-                                let bind_group = &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                let bind_group =
+                                    &self.material_bind_groups[sub_mesh.mat_id as usize];
                                 render_pass.set_bind_group(2, bind_group, &[]);
                                 render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                             }
