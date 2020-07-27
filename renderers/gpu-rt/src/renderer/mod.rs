@@ -5,11 +5,7 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial,
-    DirectionalLight, Instance, Material, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight,
-    Texture,
-};
+use scene::{raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, AnimatedMesh};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -973,6 +969,10 @@ impl Renderer for RayTracer {
 
         self.meshes[id] = mesh.clone();
         self.meshes_changed.set(id, true);
+    }
+
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
+        unimplemented!()
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {

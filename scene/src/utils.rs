@@ -78,20 +78,36 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         self.storage_ptr
     }
 
-    pub fn allocate(&mut self) -> usize {
-        let index = if let Some(index) = self.empty_slots.pop() {
-            index as usize
-        } else {
-            let index = self.storage_ptr;
-            self.storage_ptr += 1;
+    pub fn overwrite(&mut self, index: usize) {
+        if index <= self.len() {
+            let last_len = self.len();
+            let new_len = (index + 1) * 2;
+            self.active.resize(new_len, false);
+            self.storage.resize((index + 1) * 2, T::default());
 
-            if self.storage.len() <= self.storage_ptr {
-                let new_size = self.storage_ptr * 2;
-                self.storage.resize(new_size, T::default());
-                self.active.resize(new_size, false);
+            for i in last_len..new_len {
+                self.empty_slots.push(i as u32);
             }
-            index
-        };
+        }
+
+        self.active.set(index, true);
+    }
+
+    pub fn allocate(&mut self) -> usize {
+        while let Some(index) = self.empty_slots.pop() {
+            if !self.active.get(index as usize).unwrap() {
+                return index as usize;
+            }
+        }
+
+        let index = self.storage_ptr;
+        self.storage_ptr += 1;
+
+        if self.storage.len() <= self.storage_ptr {
+            let new_size = self.storage_ptr * 2;
+            self.storage.resize(new_size, T::default());
+            self.active.resize(new_size, false);
+        }
 
         self.active.set(index, true);
         index
@@ -341,6 +357,17 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
 
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
         &mut self.storage[index]
+    }
+
+    pub fn overwrite(&mut self, index: usize, val: T) {
+        if index <= self.len() {
+            let new_len = (index + 1) * 2;
+            self.changed.resize(new_len, false);
+        }
+
+        self.storage.overwrite(index);
+        self.storage[index] = val;
+        self.changed.set(index, true);
     }
 
     pub fn push(&mut self, val: T) -> usize {

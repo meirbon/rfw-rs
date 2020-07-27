@@ -167,7 +167,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-        .unwrap();
+            .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -303,38 +303,34 @@ impl Renderer for Deferred {
     }
 
     fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
-        if id >= self.meshes.len() {
-            self.meshes
-                .push(mesh::DeferredMesh::new(&self.device, mesh));
-        } else {
-            self.meshes[id] = mesh::DeferredMesh::new(&self.device, mesh);
-        }
+        self.meshes.overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
     }
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        if id >= self.anim_meshes.len() {
-            self.anim_meshes
-                .push(mesh::DeferredAnimMesh::new(&self.device, mesh));
-        } else {
-            self.anim_meshes[id] = mesh::DeferredAnimMesh::new(&self.device, mesh);
-        }
+        self.anim_meshes.overwrite(id, mesh::DeferredAnimMesh::new(&self.device, mesh));
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
         match instance.object_id {
             ObjectRef::None => panic!("Invalid"),
-            ObjectRef::Static(mesh_id) => self.instances.set(
-                &self.device,
-                id,
-                instance.clone(),
-                &self.meshes[mesh_id as usize],
-            ),
-            ObjectRef::Animated(mesh_id) => self.instances.set_animated(
-                &self.device,
-                id,
-                instance.clone(),
-                &self.anim_meshes[mesh_id as usize],
-            ),
+            ObjectRef::Static(mesh_id) => {
+                self.instances.set(
+                    &self.device,
+                    id,
+                    instance.clone(),
+                    &self.meshes[mesh_id as usize],
+                );
+                assert_eq!(self.instances.bounds[id].mesh_bounds.len(), self.meshes[mesh_id as usize].sub_meshes.len());
+            }
+            ObjectRef::Animated(mesh_id) => {
+                self.instances.set_animated(
+                    &self.device,
+                    id,
+                    instance.clone(),
+                    &self.anim_meshes[mesh_id as usize],
+                );
+                assert_eq!(self.instances.bounds[id].mesh_bounds.len(), self.anim_meshes[mesh_id as usize].sub_meshes.len());
+            }
         }
 
         self.scene_bounds.grow_bb(

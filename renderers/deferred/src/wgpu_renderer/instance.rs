@@ -20,11 +20,13 @@ impl InstanceBounds {
     pub fn new(instance: &Instance, mesh: &DeferredMesh) -> Self {
         let transform = instance.get_transform();
         let root_bounds = instance.bounds();
-        let mesh_bounds = mesh
+        let mesh_bounds: Vec<AABB> = mesh
             .sub_meshes
             .iter()
             .map(|m| m.bounds.transformed(transform))
             .collect();
+
+        assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
 
         InstanceBounds {
             root_bounds,
@@ -36,11 +38,13 @@ impl InstanceBounds {
     pub fn new_animated(instance: &Instance, mesh: &DeferredAnimMesh) -> Self {
         let transform = instance.get_transform();
         let root_bounds = instance.bounds();
-        let mesh_bounds = mesh
+        let mesh_bounds: Vec<AABB> = mesh
             .sub_meshes
             .iter()
             .map(|m| m.bounds.transformed(transform))
             .collect();
+
+        assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
 
         InstanceBounds {
             root_bounds,
@@ -110,15 +114,11 @@ impl InstanceList {
         instance: Instance,
         mesh: &DeferredMesh,
     ) {
-        if id >= self.instances.len() {
-            self.bounds.push(InstanceBounds::new(&instance, mesh));
-            self.instances.push(instance);
-            self.device_instances
-                .push(DeviceInstance::new(device, &self.bind_group_layout));
-        } else {
-            self.bounds[id] = InstanceBounds::new(&instance, mesh);
-            self.instances[id] = instance;
-        }
+        self.bounds
+            .push(InstanceBounds::new(&instance, mesh));
+        self.instances.overwrite(id, instance);
+        self.device_instances
+            .push(DeviceInstance::new(device, &self.bind_group_layout));
     }
 
     pub fn set_animated(
@@ -128,16 +128,11 @@ impl InstanceList {
         instance: Instance,
         mesh: &DeferredAnimMesh,
     ) {
-        if id >= self.instances.len() {
-            self.bounds
-                .push(InstanceBounds::new_animated(&instance, mesh));
-            self.instances.push(instance);
-            self.device_instances
-                .push(DeviceInstance::new(device, &self.bind_group_layout));
-        } else {
-            self.bounds[id] = InstanceBounds::new_animated(&instance, mesh);
-            self.instances[id] = instance;
-        }
+        self.bounds
+            .push(InstanceBounds::new_animated(&instance, mesh));
+        self.instances.overwrite(id, instance);
+        self.device_instances
+            .push(DeviceInstance::new(device, &self.bind_group_layout));
     }
 
     pub fn update(

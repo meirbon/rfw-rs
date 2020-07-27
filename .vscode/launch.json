@@ -22,8 +22,7 @@
             },
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -44,8 +43,7 @@
             "cwd": "${workspaceFolder}",
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -65,8 +63,7 @@
             },
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -87,8 +84,7 @@
             "cwd": "${workspaceFolder}",
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -108,8 +104,7 @@
             "cwd": "${workspaceFolder}",
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -130,8 +125,7 @@
             },
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -151,8 +145,7 @@
             },
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
         {
             "type": "lldb",
@@ -173,8 +166,7 @@
             },
             "sourceLanguages": [
                 "rust"
-            ],
-            "terminal": "console"
+            ]
         },
     ]
 }

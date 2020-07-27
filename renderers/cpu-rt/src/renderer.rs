@@ -7,11 +7,7 @@ use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::{
-    constants, raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, DeviceMaterial,
-    DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight, TIntersector,
-    Texture,
-};
+use scene::{constants, raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, DeviceMaterial, DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight, TIntersector, Texture, AnimatedMesh};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -84,7 +80,7 @@ impl Renderer for RayTracer {
                 power_preference: wgpu::PowerPreference::Default,
                 compatible_surface: Some(&surface),
             },
-            wgpu::BackendBit::PRIMARY,
+            wgpu::BackendBit::DX12,
         ))
         .unwrap();
 
@@ -263,6 +259,10 @@ impl Renderer for RayTracer {
         }
 
         self.meshes[id] = mesh.clone();
+    }
+
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
+        unimplemented!()
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
