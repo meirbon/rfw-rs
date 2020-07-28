@@ -36,6 +36,7 @@ use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
 use glam::*;
 use std::error::Error;
 use std::path::Path;
+use graph::Node;
 
 #[derive(Debug, Clone)]
 pub enum SceneLight {
@@ -219,6 +220,22 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
+        cb(lock.get_mut(index))
+    }
+
+    pub fn get_node<C>(&self, index: usize, cb: C)
+    where
+        C: FnOnce(Option<&Node>),
+    {
+        let lock = self.scene.objects.nodes.lock().unwrap();
+        cb(lock.get(index))
+    }
+
+    pub fn get_node_mut<C>(&self, index: usize, cb: C)
+    where
+        C: FnOnce(Option<&mut Node>),
+    {
+        let mut lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get_mut(index))
     }
 

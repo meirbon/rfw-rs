@@ -141,12 +141,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // assert_eq!(renderer.load("models/pica/scene.gltf")?, LoadResult::Scene);
 
     match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
-        LoadResult::Scene => {}
+        LoadResult::Scene(_root_nodes) => {}
         LoadResult::Object(reference) => panic!("Gltf files should be loaded as scenes"),
     };
 
     let sponza = match renderer.load("models/sponza/sponza.obj")? {
-        LoadResult::Scene => panic!("Obj files are not supposed to be loaded as scenes"),
+        LoadResult::Scene(_root_nodes) => panic!("Obj files are not supposed to be loaded as scenes"),
         LoadResult::Object(reference) => reference,
     };
     let instance = renderer.add_instance(sponza).unwrap();

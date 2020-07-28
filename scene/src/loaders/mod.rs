@@ -7,10 +7,12 @@ use std::sync::Mutex;
 pub mod gltf;
 pub mod obj;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum LoadResult {
+    /// Reference to single mesh
     Object(ObjectRef),
-    Scene,
+    /// Indices of root nodes of scene
+    Scene(Vec<u32>),
 }
 
 pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {

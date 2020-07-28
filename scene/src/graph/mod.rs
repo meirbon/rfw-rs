@@ -157,6 +157,22 @@ impl NodeGraph {
         changed
     }
 
+    pub fn get(&self, index: usize) -> Option<&Node> {
+        self.nodes.get(index)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Node> {
+        self.nodes.get_mut(index)
+    }
+
+    pub unsafe fn get_unchecked(&self, index: usize) -> &Node {
+        self.nodes.get_unchecked(index)
+    }
+
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut Node {
+        self.nodes.get_unchecked_mut(index)
+    }
+
     pub fn as_slice(&self) -> &[Node] {
         self.nodes.as_slice()
     }

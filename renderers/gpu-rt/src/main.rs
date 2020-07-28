@@ -149,9 +149,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     }
     // });
 
-    assert_eq!(renderer.load("models/pica/scene.gltf")?, LoadResult::Scene);
+    match renderer.load("models/pica/scene.gltf")? {
+        LoadResult::Scene(_) => {}
+        LoadResult::Object(_) => panic!("Gltf files should not be loaded as scenes"),
+    }
 
-    // let sibenik = renderer.load_mesh("models/sibenik/sibenik.obj").unwrap();
+    // let sibenik = renderer.load("models/sibenik/sibenik.obj").unwrap();
     // let mut instance = renderer.add_instance(sibenik).unwrap();
     // instance.synchronize().unwrap();
 

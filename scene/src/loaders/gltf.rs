@@ -179,6 +179,8 @@ impl ObjectLoader for GltfLoader {
             skin_mapping.insert(s.index(), skin_id);
         });
 
+        let mut root_nodes = Vec::new();
+
         // Create a mapping of all nodes
         {
             let mut node_storage = node_storage.lock().unwrap();
@@ -186,7 +188,10 @@ impl ObjectLoader for GltfLoader {
             document.scenes().into_iter().for_each(|scene| {
                 scene.nodes().for_each(|node| {
                     match Self::traverse_tree(&node, &mut node_storage, &mut node_mapping) {
-                        Some(id) => node_storage.add_root_node(id),
+                        Some(id) => {
+                            node_storage.add_root_node(id);
+                            root_nodes.push(id as u32);
+                        }
                         None => panic!("Root node was not allocated, was it added twice?"),
                     }
                 });
@@ -490,7 +495,7 @@ impl ObjectLoader for GltfLoader {
             });
         });
 
-        Ok(LoadResult::Scene)
+        Ok(LoadResult::Scene(root_nodes))
     }
 }
 

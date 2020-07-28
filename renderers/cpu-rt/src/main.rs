@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut resized = false;
 
     let cbox = match renderer.load("models/cbox.obj")? {
-        scene::LoadResult::Scene => panic!("Object is not supposed to be a scene"),
+        scene::LoadResult::Scene(_) => panic!("Object is not supposed to be a scene"),
         scene::LoadResult::Object(reference) => reference,
     };
     for i in 0..=10 {
