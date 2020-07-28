@@ -263,12 +263,20 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn load_mesh<B: AsRef<Path>>(
+    pub fn load<B: AsRef<Path>>(
         &self,
         path: B,
-    ) -> Result<Option<ObjectRef>, triangle_scene::SceneError> {
-        futures::executor::block_on(self.scene.load_mesh(path))
+    ) -> Result<LoadResult, triangle_scene::SceneError> {
+        futures::executor::block_on(self.scene.load(path))
     }
+
+    // TODO:
+    // pub async fn load_async<B: AsRef<Path>>(
+    //     &self,
+    //     path: B,
+    // ) -> Result<LoadResult, triangle_scene::SceneError> {
+    //     self.scene.load(path)
+    // }
 
     pub fn add_material<B: Into<[f32; 3]>>(
         &self,
@@ -384,73 +392,78 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let mut update_lights = false;
             let mut found_light = false;
 
+            if let (Ok(mut nodes), Ok(mut skins), Ok(mut instances)) = (
+                self.scene.objects.nodes.lock(),
+                self.scene.objects.skins.lock(),
+                self.scene.objects.instances.lock(),
+            ) {
+                nodes.update(&mut instances, &mut skins);
+            }
+
             if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
                 self.scene.objects.meshes.lock(),
                 self.scene.objects.animated_meshes.lock(),
                 self.scene.objects.instances.lock(),
             ) {
-                meshes.iter_changed().enumerate().for_each(|(i, m)| {
+                meshes.iter_changed().for_each(|(i, m)| {
                     renderer.set_mesh(i, m);
                     changed = true;
                 });
 
-                anim_meshes.iter_changed().enumerate().for_each(|(i, m)| {
+                anim_meshes.iter_changed().for_each(|(i, m)| {
                     renderer.set_animated_mesh(i, m);
                     changed = true;
                 });
 
                 if let Ok(materials) = self.scene.materials_lock() {
                     let light_flags = materials.light_flags();
-                    instances
-                        .iter_changed_mut()
-                        .enumerate()
-                        .for_each(|(i, instance)| {
-                            instance.update_transform();
-                            renderer.set_instance(i, instance);
-                            changed = true;
+                    instances.iter_changed_mut().for_each(|(i, instance)| {
+                        instance.update_transform();
+                        renderer.set_instance(i, instance);
+                        changed = true;
 
-                            if found_light {
+                        if found_light {
+                            return;
+                        }
+
+                        match instance.object_id {
+                            ObjectRef::None => {
                                 return;
                             }
-
-                            match instance.object_id {
-                                ObjectRef::None => {
-                                    return;
-                                }
-                                ObjectRef::Static(object_id) => {
-                                    let object_id = object_id as usize;
-                                    for j in 0..meshes[object_id].meshes.len() {
-                                        match light_flags
-                                            .get(meshes[object_id].meshes[j].mat_id as usize)
-                                        {
-                                            None => {}
-                                            Some(flag) => {
-                                                if *flag {
-                                                    found_light = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                ObjectRef::Animated(object_id) => {
-                                    let object_id = object_id as usize;
-                                    for j in 0..anim_meshes[object_id].meshes.len() {
-                                        match light_flags
-                                            .get(meshes[object_id].meshes[j].mat_id as usize)
-                                        {
-                                            None => {}
-                                            Some(flag) => {
-                                                if *flag {
-                                                    found_light = true;
-                                                    break;
-                                                }
+                            ObjectRef::Static(object_id) => {
+                                let object_id = object_id as usize;
+                                for j in 0..meshes[object_id].meshes.len() {
+                                    match light_flags
+                                        .get(meshes[object_id].meshes[j].mat_id as usize)
+                                    {
+                                        None => {}
+                                        Some(flag) => {
+                                            if *flag {
+                                                found_light = true;
+                                                break;
                                             }
                                         }
                                     }
                                 }
                             }
-                        });
+                            ObjectRef::Animated(object_id) => {
+                                let object_id = object_id as usize;
+                                for j in 0..anim_meshes[object_id].meshes.len() {
+                                    match light_flags
+                                        .get(meshes[object_id].meshes[j].mat_id as usize)
+                                    {
+                                        None => {}
+                                        Some(flag) => {
+                                            if *flag {
+                                                found_light = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
 
                 meshes.reset_changed();

@@ -1,5 +1,6 @@
 use futures::executor::block_on;
 use glam::*;
+use mesh::DeferredMesh;
 use rtbvh::AABB;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
 use scene::{
@@ -167,7 +168,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-            .unwrap();
+        .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -185,7 +186,7 @@ impl Renderer for Deferred {
                 height: height as u32,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
             },
         );
 
@@ -314,17 +315,16 @@ impl Renderer for Deferred {
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
         match instance.object_id {
-            ObjectRef::None => panic!("Invalid"),
+            ObjectRef::None => {
+                self.instances
+                    .set(&self.device, id, instance.clone(), &DeferredMesh::default());
+            }
             ObjectRef::Static(mesh_id) => {
                 self.instances.set(
                     &self.device,
                     id,
                     instance.clone(),
                     &self.meshes[mesh_id as usize],
-                );
-                assert_eq!(
-                    self.instances.bounds[id].mesh_bounds.len(),
-                    self.meshes[mesh_id as usize].sub_meshes.len()
                 );
             }
             ObjectRef::Animated(mesh_id) => {
@@ -333,10 +333,6 @@ impl Renderer for Deferred {
                     id,
                     instance.clone(),
                     &self.anim_meshes[mesh_id as usize],
-                );
-                assert_eq!(
-                    self.instances.bounds[id].mesh_bounds.len(),
-                    self.anim_meshes[mesh_id as usize].sub_meshes.len()
                 );
             }
         }
@@ -528,12 +524,14 @@ impl Renderer for Deferred {
             });
 
         let mut commands = Vec::with_capacity(self.meshes.len() + self.instances.len());
-        self.meshes.iter_changed().for_each(|m| {
+        self.meshes.iter_changed().for_each(|(_, m)| {
             commands.push(m.get_copy_command(&self.device));
         });
 
-        self.anim_meshes.iter_changed().for_each(|m| {
-            commands.push(m.get_copy_command(&self.device));
+        self.anim_meshes.iter_changed().for_each(|(_, m)| {
+            let (command1, command2) = m.get_copy_command(&self.device);
+            commands.push(command1);
+            commands.push(command2);
         });
 
         for command in self
@@ -637,7 +635,6 @@ impl Renderer for Deferred {
                                 render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
                                 render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
 
-
                                 for j in 0..mesh.sub_meshes.len() {
                                     if !frustrum
                                         .aabb_in_frustrum(&bounds.mesh_bounds[j])
@@ -656,7 +653,9 @@ impl Renderer for Deferred {
                         }
                         ObjectRef::Animated(mesh_id) => {
                             let mesh = &self.anim_meshes[mesh_id as usize];
-                            if let Some(buffer) = mesh.buffer.as_ref() {
+                            if let (Some(buffer), Some(anim_buffer)) =
+                                (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                            {
                                 render_pass.set_pipeline(&self.pipeline.anim_pipeline);
                                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                                 render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
@@ -666,8 +665,18 @@ impl Renderer for Deferred {
                                 render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
                                 render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
                                 render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
-                                // render_pass.set_vertex_buffer(5, buffer, 0, mesh.buffer_size);
-                                // render_pass.set_vertex_buffer(6, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(
+                                    5,
+                                    anim_buffer,
+                                    0,
+                                    mesh.anim_buffer_size,
+                                );
+                                render_pass.set_vertex_buffer(
+                                    6,
+                                    anim_buffer,
+                                    0,
+                                    mesh.anim_buffer_size,
+                                );
 
                                 for j in 0..mesh.sub_meshes.len() {
                                     if !frustrum
@@ -755,7 +764,7 @@ impl Renderer for Deferred {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },

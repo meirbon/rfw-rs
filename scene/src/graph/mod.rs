@@ -20,7 +20,6 @@ impl Into<u8> for NodeFlags {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NodeMesh {
     pub object_id: ObjectRef,
-    pub skin_id: Option<u32>,
     pub instance_id: u32,
 }
 
@@ -28,14 +27,8 @@ impl std::fmt::Display for NodeMesh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "NodeMesh {{ object_id: {}, skin_id: {}, instance_id: {} }}",
-            self.object_id,
-            if let Some(skin) = self.skin_id {
-                format!("Some({})", skin)
-            } else {
-                String::from("None")
-            },
-            self.object_id
+            "NodeMesh {{ object_id: {}, instance_id: {} }}",
+            self.object_id, self.object_id
         )
     }
 }
@@ -49,10 +42,12 @@ pub struct Node {
     matrix: Mat4,
     local_matrix: Mat4,
     pub combined_matrix: Mat4,
+    pub skin: Option<u32>,
     pub weights: Vec<f32>,
     pub meshes: Vec<NodeMesh>,
     pub child_nodes: Vec<u32>,
     pub flags: Flags,
+    pub name: String,
 }
 
 impl Default for Node {
@@ -67,10 +62,12 @@ impl Default for Node {
             matrix: Mat4::identity(),
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
+            skin: None,
             weights: Vec::new(),
             meshes: Vec::new(),
             child_nodes: Vec::new(),
             flags,
+            name: String::new(),
         }
     }
 }
@@ -112,31 +109,76 @@ impl Node {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct NodeGraph {
     nodes: FlaggedStorage<Node>,
     root_nodes: FlaggedStorage<u32>,
 }
 
+impl Default for NodeGraph {
+    fn default() -> Self {
+        Self {
+            nodes: FlaggedStorage::new(),
+            root_nodes: FlaggedStorage::new(),
+        }
+    }
+}
+
 impl NodeGraph {
-    pub fn update(&mut self, instances: &mut [Instance]) -> bool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn allocate(&mut self) -> usize {
+        self.nodes.allocate()
+    }
+
+    pub fn add_root_node(&mut self, id: usize) {
+        assert!(self.nodes.get(id).is_some());
+        self.root_nodes.push(id as u32);
+    }
+
+    pub fn update(
+        &mut self,
+        instances: &mut TrackedStorage<Instance>,
+        skins: &mut TrackedStorage<Skin>,
+    ) -> bool {
         let mut changed = false;
-        for root_node in self.root_nodes.iter() {
+        for (_, root_node) in self.root_nodes.iter() {
             changed |= Self::traverse_children(
                 (*root_node) as usize,
                 Mat4::identity(),
                 self.nodes.as_mut_slice(),
                 instances,
+                skins,
             );
         }
 
         changed
     }
 
+    pub fn as_slice(&self) -> &[Node] {
+        self.nodes.as_slice()
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [Node] {
+        self.nodes.as_mut_slice()
+    }
+
+    pub unsafe fn as_ptr(&self) -> *const Node {
+        self.nodes.as_ptr()
+    }
+
+    pub unsafe fn as_mut_ptr(&mut self) -> *mut Node {
+        self.nodes.as_mut_ptr()
+    }
+
     fn traverse_children(
         current_index: usize,
         matrix: Mat4,
         nodes: &mut [Node],
-        instances: &mut [Instance],
+        instances: &mut TrackedStorage<Instance>,
+        skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let mut changed = false;
 
@@ -149,26 +191,55 @@ impl NodeGraph {
         let combined_matrix = matrix * nodes[current_index].matrix;
         nodes[current_index].combined_matrix = combined_matrix;
 
-        let child_nodes = nodes[current_index].child_nodes.clone();
+        // Use an unsafe slice to prevent having to copy the vec
+        let child_nodes = unsafe {
+            std::slice::from_raw_parts(
+                nodes[current_index].child_nodes.as_ptr(),
+                nodes[current_index].child_nodes.len(),
+            )
+        };
+
         // Update children
-        for c_id in child_nodes.into_iter() {
-            let c_id = c_id as usize;
-            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances);
+        for c_id in child_nodes.iter() {
+            let c_id = *c_id as usize;
+            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances, skins);
         }
 
         nodes[current_index].meshes.iter().for_each(|m| {
-            instances[m.instance_id as usize].set_transform(nodes[current_index].combined_matrix);
+            if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
+                instances[m.instance_id as usize].set_transform(combined_matrix);
+            }
 
             // TODO: Morphed
             // TODO:
             // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
             // }
-            // TODO: Skins
         });
+
+        if let Some(_skin) = nodes[current_index].skin {
+            // TODO
+        }
 
         nodes[current_index].flags.clear();
         // Return whether this node or its children changed
         changed
+    }
+
+    pub fn iter_root_nodes(&self) -> FlaggedIterator<'_, u32> {
+        self.root_nodes.iter()
+    }
+}
+
+impl std::ops::Index<usize> for NodeGraph {
+    type Output = Node;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.nodes[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for NodeGraph {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.nodes[index]
     }
 }
 

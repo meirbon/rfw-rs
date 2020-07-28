@@ -137,8 +137,8 @@ impl RenderPipeline {
             alpha_to_coverage_enabled: false,
         });
 
-        // let vert_shader = include_bytes!("../../shaders/mesh_anim.vert.spv");
-        // let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let vert_shader = include_bytes!("../../shaders/mesh_anim.vert.spv");
+        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
         let anim_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&uniform_layout, &instance_layout, &texture_layout],
@@ -247,24 +247,24 @@ impl RenderPipeline {
                             shader_location: 4,
                         }],
                     },
-                    // wgpu::VertexBufferDescriptor {
-                    //     stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
-                    //     step_mode: wgpu::InputStepMode::Vertex,
-                    //     attributes: &[wgpu::VertexAttributeDescriptor {
-                    //         offset: 56,
-                    //         format: wgpu::VertexFormat::Uint4,
-                    //         shader_location: 5,
-                    //     }],
-                    // },
-                    // wgpu::VertexBufferDescriptor {
-                    //     stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
-                    //     step_mode: wgpu::InputStepMode::Vertex,
-                    //     attributes: &[wgpu::VertexAttributeDescriptor {
-                    //         offset: 72,
-                    //         format: wgpu::VertexFormat::Float4,
-                    //         shader_location: 6,
-                    //     }],
-                    // },
+                    wgpu::VertexBufferDescriptor {
+                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttributeDescriptor {
+                            offset: 0,
+                            format: wgpu::VertexFormat::Uint4,
+                            shader_location: 5,
+                        }],
+                    },
+                    wgpu::VertexBufferDescriptor {
+                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttributeDescriptor {
+                            offset: 16,
+                            format: wgpu::VertexFormat::Float4,
+                            shader_location: 6,
+                        }],
+                    },
                 ],
                 index_format: wgpu::IndexFormat::Uint32,
             },

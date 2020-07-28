@@ -80,7 +80,10 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use scene::renderers::{RenderMode, Setting, SettingValue};
+use scene::{
+    renderers::{RenderMode, Setting, SettingValue},
+    LoadResult,
+};
 use shared::utils;
 use std::error::Error;
 
@@ -133,15 +136,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     // instance.scale(Vec3::splat(1.0));
     // instance.synchronize().unwrap();
 
-    let cbox = renderer.load_mesh("models/cbox.obj")?.unwrap();
-    let instance = renderer.add_instance(cbox).unwrap();
-    renderer.get_instance_mut(instance, |instance| {
-        if let Some(instance) = instance {
-            instance.rotate_y(180.0);
-            instance.translate_y(-2.5);
-            instance.translate_z(10.0);
-        }
-    });
+    // let cbox = match renderer.load("models/cbox.obj")? {
+    //     LoadResult::Scene => panic!("This object should not be a scene"),
+    //     LoadResult::Object(reference) => reference,
+    // };
+    // let instance = renderer.add_instance(cbox).unwrap();
+    // renderer.get_instance_mut(instance, |instance| {
+    //     if let Some(instance) = instance {
+    //         instance.rotate_y(180.0);
+    //         instance.translate_y(-2.5);
+    //         instance.translate_z(10.0);
+    //     }
+    // });
+
+    assert_eq!(renderer.load("models/pica/scene.gltf")?, LoadResult::Scene);
 
     // let sibenik = renderer.load_mesh("models/sibenik/sibenik.obj").unwrap();
     // let mut instance = renderer.add_instance(sibenik).unwrap();
@@ -270,12 +278,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    renderer.get_instance_mut(instance, |instance| {
-                        if let Some(instance) = instance {
-                            instance.rotate_y(elapsed / 10.0);
-                            mode = RenderMode::Reset;
-                        }
-                    });
+                    // renderer.get_instance_mut(instance, |instance| {
+                    //     if let Some(instance) = instance {
+                    //         instance.rotate_y(elapsed / 10.0);
+                    //         mode = RenderMode::Reset;
+                    //     }
+                    // });
                 }
 
                 timer.reset();

@@ -31,6 +31,13 @@ impl std::fmt::Display for ObjectRef {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum InstanceUpdate {
+    None,
+    Transformed,
+    Matrix,
+}
+
 /// Instance
 /// Takes in a bounding box and transform and transforms to and from object local space.
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
@@ -47,6 +54,7 @@ pub struct Instance {
     rotation_y: f32,
     rotation_z: f32,
     pub object_id: ObjectRef,
+    updated: InstanceUpdate,
 }
 
 impl Display for Instance {
@@ -71,6 +79,7 @@ impl Default for Instance {
             rotation_y: 0.0,
             rotation_z: 0.0,
             object_id: ObjectRef::None,
+            updated: InstanceUpdate::None,
         }
     }
 }
@@ -122,6 +131,7 @@ impl Instance {
         self.inverse = inverse.to_cols_array();
         self.normal_transform = inverse.transpose().to_cols_array();
         self.bounds = self.original_bounds.transformed(transform);
+        self.updated = InstanceUpdate::Matrix;
     }
 
     #[inline(always)]
@@ -333,18 +343,22 @@ impl Instance {
 
     pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
         self.translation = Vec3::from(t.into());
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_x(&mut self, offset: f32) {
         self.translation += Vec3::new(offset, 0.0, 0.0);
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_y(&mut self, offset: f32) {
         self.translation += Vec3::new(0.0, offset, 0.0);
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_z(&mut self, offset: f32) {
         self.translation += Vec3::new(0.0, 0.0, offset);
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn set_rotation<T: Into<[f32; 3]>>(&mut self, r: T) {
@@ -352,43 +366,52 @@ impl Instance {
         self.rotation_x = r[0];
         self.rotation_y = r[1];
         self.rotation_z = r[2];
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_x(&mut self, degrees: f32) {
         self.rotation_x = (self.rotation_x + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_y(&mut self, degrees: f32) {
         self.rotation_y = (self.rotation_y + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_z(&mut self, degrees: f32) {
         self.rotation_z = (self.rotation_z + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn set_scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
         self.scaling = Vec3::from(scale.into());
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
         let scale: [f32; 3] = scale.into();
         let scale: Vec3 = Vec3::from(scale).max(Vec3::splat(0.001));
         self.scaling *= scale;
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn scale_x(&mut self, scale: f32) {
         let scale = scale.max(0.001);
         self.scaling[0] *= scale;
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn scale_y(&mut self, scale: f32) {
         let scale = scale.max(0.001);
         self.scaling[1] *= scale;
+        self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn scale_z(&mut self, scale: f32) {
         let scale = scale.max(0.001);
         self.scaling[2] *= scale;
+        self.updated = InstanceUpdate::Transformed;
     }
 
     /// Returns translation in [x, y, z]
@@ -423,6 +446,10 @@ impl Instance {
     }
 
     pub fn update_transform(&mut self) {
+        if self.updated != InstanceUpdate::Transformed {
+            return;
+        }
+
         let rotation_x = glam::Quat::from_axis_angle(Vec3::unit_x(), self.rotation_x);
         let rotation_y = glam::Quat::from_axis_angle(Vec3::unit_y(), self.rotation_y);
         let rotation_z = glam::Quat::from_axis_angle(Vec3::unit_z(), self.rotation_z);

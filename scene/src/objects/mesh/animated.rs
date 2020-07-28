@@ -246,7 +246,6 @@ impl AnimatedMesh {
             tangents[i] = tangent.normalize().extend(w);
         }
 
-
         vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
             let vertex: [f32; 3] = vertices[i].into();
             let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
@@ -263,36 +262,36 @@ impl AnimatedMesh {
             };
         });
 
-        anim_vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
-            let joints: [u32; 4] = if let Some(j) = joints.get(0) {
-                if let Some(joints) = j.get(i) {
-                    [
-                        joints[0] as u32,
-                        joints[1] as u32,
-                        joints[2] as u32,
-                        joints[3] as u32,
-                    ]
+        anim_vertex_data
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, v)| {
+                let joints: [u32; 4] = if let Some(j) = joints.get(0) {
+                    if let Some(joints) = j.get(i) {
+                        [
+                            joints[0] as u32,
+                            joints[1] as u32,
+                            joints[2] as u32,
+                            joints[3] as u32,
+                        ]
+                    } else {
+                        [0; 4]
+                    }
                 } else {
                     [0; 4]
-                }
-            } else {
-                [0; 4]
-            };
-            let weights: [f32; 4] = if let Some(w) = weights.get(0) {
-                if let Some(weights) = w.get(i) {
-                    *weights.as_ref()
+                };
+                let weights: [f32; 4] = if let Some(w) = weights.get(0) {
+                    if let Some(weights) = w.get(i) {
+                        *weights.as_ref()
+                    } else {
+                        [0.0; 4]
+                    }
                 } else {
                     [0.0; 4]
-                }
-            } else {
-                [0.0; 4]
-            };
+                };
 
-            *v = AnimVertexData {
-                joints,
-                weights,
-            }
-        });
+                *v = AnimVertexData { joints, weights }
+            });
 
         let mut last_id = material_ids[0];
         let mut start = 0;
@@ -365,7 +364,7 @@ impl AnimatedMesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
@@ -476,6 +475,10 @@ impl AnimatedMesh {
 
     pub fn buffer_size(&self) -> usize {
         self.vertices.len() * std::mem::size_of::<VertexData>()
+    }
+
+    pub fn anim_buffer_size(&self) -> usize {
+        self.anim_vertex_data.len() * std::mem::size_of::<AnimVertexData>()
     }
 
     pub fn as_slice(&self) -> &[VertexData] {

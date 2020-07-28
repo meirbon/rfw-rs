@@ -5,9 +5,9 @@ use crate::{
 use glam::*;
 use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
-use crate::graph::{Node, NodeMesh, Skin};
-use crate::utils::{FlaggedStorage, TrackedStorage};
-use crate::{material::Texture, TextureSource};
+use crate::graph::{Node, NodeGraph, NodeMesh, Skin};
+use crate::utils::TrackedStorage;
+use crate::{material::Texture, LoadResult, TextureSource};
 use gltf::mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights};
 use rtbvh::AABB;
 
@@ -45,10 +45,10 @@ impl ObjectLoader for GltfLoader {
         mat_manager: &Mutex<MaterialList>,
         mesh_storage: &Mutex<TrackedStorage<Mesh>>,
         animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
-        node_storage: &Mutex<TrackedStorage<Node>>,
-        skin_storage: &Mutex<FlaggedStorage<Skin>>,
-        instances: &Mutex<TrackedStorage<Instance>>,
-    ) -> Result<Option<ObjectRef>, SceneError> {
+        node_storage: &Mutex<NodeGraph>,
+        skin_storage: &Mutex<TrackedStorage<Skin>>,
+        instances_storage: &Mutex<TrackedStorage<Instance>>,
+    ) -> Result<LoadResult, SceneError> {
         let (document, buffers, images) = match gltf::import(&path) {
             Ok((doc, buf, img)) => (doc, buf, img),
             Err(_) => return Err(SceneError::LoadError(path)),
@@ -149,7 +149,6 @@ impl ObjectLoader for GltfLoader {
             });
         }
 
-        let mut root_nodes = Vec::new();
         let mut skin_mapping: HashMap<usize, usize> = HashMap::new();
         let mut node_mapping: HashMap<usize, usize> = HashMap::new();
 
@@ -183,14 +182,13 @@ impl ObjectLoader for GltfLoader {
         // Create a mapping of all nodes
         {
             let mut node_storage = node_storage.lock().unwrap();
+
             document.scenes().into_iter().for_each(|scene| {
-                scene.nodes().into_iter().enumerate().for_each(|(i, node)| {
-                    let node_id = node_storage.allocate();
-                    if i == 0 {
-                        // Root node
-                        root_nodes.push(node_id);
+                scene.nodes().for_each(|node| {
+                    match Self::traverse_tree(&node, &mut node_storage, &mut node_mapping) {
+                        Some(id) => node_storage.add_root_node(id),
+                        None => panic!("Root node was not allocated, was it added twice?"),
                     }
-                    node_mapping.insert(node.index(), node_id);
                 });
             });
         }
@@ -400,7 +398,7 @@ impl ObjectLoader for GltfLoader {
             };
         });
 
-        let mut meshes = meshes
+        let meshes = meshes
             .iter()
             .map(|m| match m {
                 LoadedMesh::Static(m) => {
@@ -420,64 +418,110 @@ impl ObjectLoader for GltfLoader {
 
         document.scenes().into_iter().for_each(|scene| {
             scene.nodes().into_iter().for_each(|node| {
-                let node_id = node_mapping.get(&node.index()).unwrap();
-                let mut new_node = Node::default();
+                Self::traverse_tree_callback(&node, |node: &gltf::Node| {
+                    let node_id = match node_mapping.get(&node.index()) {
+                        Some(id) => *id,
+                        None => panic!("Node was not in mapping"),
+                    };
 
-                if let Some(mesh) = node.mesh() {
-                    let mesh = &meshes[mesh.index()];
-                    let mut instance_storage = instances.lock().unwrap();
-
-                    match mesh {
-                        LoadedMeshID::Static(id, bounds) => {
-                            let instance_id = instance_storage.allocate();
-                            instance_storage[instance_id] =
-                                Instance::new(ObjectRef::Static(*id as u32), bounds);
-
-                            new_node.meshes.push(NodeMesh {
-                                object_id: ObjectRef::Static(*id as u32),
-                                skin_id: None,
-                                instance_id: instance_id as u32,
-                            });
-                        }
-                        LoadedMeshID::Animated(id, bounds) => {
-                            let instance_id = instance_storage.allocate();
-                            instance_storage[instance_id] =
-                                Instance::new(ObjectRef::Animated(*id as u32), bounds);
-
-                            let skin = if let Some(skin) = node.skin() {
-                                Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)
-                            } else {
-                                None
-                            };
-
-                            new_node.meshes.push(NodeMesh {
-                                object_id: ObjectRef::Animated(*id as u32),
-                                skin_id: skin,
-                                instance_id: instance_id as u32,
-                            });
-                        }
-                    }
-
-                    new_node.child_nodes.reserve(node.children().len());
-                    for child_id in node.children() {
-                        new_node
-                            .child_nodes
-                            .push(*node_mapping.get(&(child_id.index() as usize)).unwrap() as u32);
-                    }
-
+                    let mut new_node = Node::default();
                     new_node.set_matrix(Mat4::from_cols_array_2d(&node.transform().matrix()));
                     if let Some(weights) = node.weights() {
                         new_node.weights = weights.to_vec();
                     }
 
+                    if let Some(mesh) = node.mesh() {
+                        let mesh = &meshes[mesh.index()];
+                        let mut instance_storage = instances_storage.lock().unwrap();
+
+                        match mesh {
+                            LoadedMeshID::Static(id, bounds) => {
+                                let instance_id = instance_storage.allocate();
+                                instance_storage[instance_id] =
+                                    Instance::new(ObjectRef::Static(*id as u32), bounds);
+
+                                new_node.meshes.push(NodeMesh {
+                                    object_id: ObjectRef::Static(*id as u32),
+                                    instance_id: instance_id as u32,
+                                });
+                            }
+                            LoadedMeshID::Animated(id, bounds) => {
+                                let instance_id = instance_storage.allocate();
+                                instance_storage[instance_id] =
+                                    Instance::new(ObjectRef::Animated(*id as u32), bounds);
+
+                                new_node.meshes.push(NodeMesh {
+                                    object_id: ObjectRef::Animated(*id as u32),
+                                    instance_id: instance_id as u32,
+                                });
+                            }
+                        }
+                    }
+
+                    if node.children().len() != 0 {
+                        new_node.child_nodes.reserve(node.children().len());
+                        for child in node.children() {
+                            new_node.child_nodes.push(
+                                match node_mapping.get(&(child.index() as usize)) {
+                                    Some(val) => *val as u32,
+                                    None => {
+                                        panic!("Node with id {} was not in mapping", child.index())
+                                    }
+                                },
+                            );
+                        }
+                    }
+
+                    new_node.skin = if let Some(skin) = node.skin() {
+                        Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)
+                    } else {
+                        None
+                    };
+
+                    if let Some(name) = node.name() {
+                        new_node.name = String::from(name);
+                    }
+
                     // TODO: Implement camera as well
                     // node.camera().unwrap();
 
-                    node_storage.lock().unwrap()[*node_id] = new_node;
-                }
+                    node_storage.lock().unwrap()[node_id] = new_node;
+                });
             });
         });
 
-        Ok(None)
+        Ok(LoadResult::Scene)
+    }
+}
+
+impl GltfLoader {
+    fn traverse_tree_callback<T>(node: &gltf::Node, mut cb: T)
+    where
+        T: FnMut(&gltf::Node) + Clone,
+    {
+        cb(node);
+        node.children().for_each(|child| {
+            Self::traverse_tree_callback(&child, cb.clone());
+        });
+    }
+
+    fn traverse_tree(
+        node: &gltf::Node,
+        storage: &mut NodeGraph,
+        mapping: &mut HashMap<usize, usize>,
+    ) -> Option<usize> {
+        let id = if !mapping.contains_key(&node.index()) {
+            let node_id = storage.allocate();
+            mapping.insert(node.index(), node_id);
+            Some(node_id)
+        } else {
+            None
+        };
+
+        node.children().for_each(|child| {
+            Self::traverse_tree(&child, storage, mapping);
+        });
+
+        id
     }
 }

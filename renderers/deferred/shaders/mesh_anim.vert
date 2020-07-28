@@ -5,8 +5,8 @@ layout(location = 1) in vec3 Normal;
 layout(location = 2) in uint MatID;
 layout(location = 3) in vec2 UV;
 layout(location = 4) in vec4 Tangent;
-//layout(location = 5) in uvec4 Joints;
-//layout(location = 6) in vec4 Weights;
+layout(location = 5) in uvec4 Joints;
+layout(location = 6) in vec4 Weights;
 
 layout(set = 0, binding = 0) uniform Locals {
     mat4 View;

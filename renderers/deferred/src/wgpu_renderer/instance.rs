@@ -113,11 +113,15 @@ impl InstanceList {
         instance: Instance,
         mesh: &DeferredMesh,
     ) {
-        self.bounds
-            .push(InstanceBounds::new(&instance, mesh));
         self.instances.overwrite(id, instance);
-        self.device_instances
-            .push(DeviceInstance::new(device, &self.bind_group_layout));
+        if id <= self.bounds.len() {
+            self.bounds.push(InstanceBounds::new(&instance, mesh));
+            self.device_instances
+                .push(DeviceInstance::new(device, &self.bind_group_layout));
+        } else {
+            self.bounds[id] = InstanceBounds::new(&instance, mesh);
+            self.device_instances[id] = DeviceInstance::new(device, &self.bind_group_layout);
+        }
     }
 
     pub fn set_animated(
@@ -127,11 +131,16 @@ impl InstanceList {
         instance: Instance,
         mesh: &DeferredAnimMesh,
     ) {
-        self.bounds
-            .push(InstanceBounds::new_animated(&instance, mesh));
         self.instances.overwrite(id, instance);
-        self.device_instances
-            .push(DeviceInstance::new(device, &self.bind_group_layout));
+        if id <= self.bounds.len() {
+            self.bounds
+                .push(InstanceBounds::new_animated(&instance, mesh));
+            self.device_instances
+                .push(DeviceInstance::new(device, &self.bind_group_layout));
+        } else {
+            self.bounds[id] = InstanceBounds::new_animated(&instance, mesh);
+            self.device_instances[id] = DeviceInstance::new(device, &self.bind_group_layout);
+        }
     }
 
     pub fn update(
@@ -144,30 +153,31 @@ impl InstanceList {
 
         let device_instances = &self.device_instances;
 
-        (0..self.instances.len()).into_iter().filter(|i| {
-            match self.instances.get(*i) {
+        (0..self.instances.len())
+            .into_iter()
+            .filter(|i| match self.instances.get(*i) {
                 None => false,
                 Some(_) => self.instances.get_changed(*i),
-            }
-        }).for_each(|i| {
-            let instance = &self.instances[i];
-            let data = [instance.get_transform(), instance.get_normal_transform()];
-            let staging_buffer = device.create_buffer_with_data(
-                unsafe {
-                    std::slice::from_raw_parts(
-                        data.as_ptr() as *const u8,
-                        std::mem::size_of::<Mat4>() * 2,
-                    )
-                },
-                wgpu::BufferUsage::COPY_SRC,
-            );
+            })
+            .for_each(|i| {
+                let instance = &self.instances[i];
+                let data = [instance.get_transform(), instance.get_normal_transform()];
+                let staging_buffer = device.create_buffer_with_data(
+                    unsafe {
+                        std::slice::from_raw_parts(
+                            data.as_ptr() as *const u8,
+                            std::mem::size_of::<Mat4>() * 2,
+                        )
+                    },
+                    wgpu::BufferUsage::COPY_SRC,
+                );
 
-            commands.push(super::CopyCommand {
-                destination_buffer: &device_instances[i].device_matrices,
-                copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
-                staging_buffer,
+                commands.push(super::CopyCommand {
+                    destination_buffer: &device_instances[i].device_matrices,
+                    copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
+                    staging_buffer,
+                });
             });
-        });
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
 
@@ -224,5 +234,109 @@ impl InstanceList {
                 }
             })
             .collect()
+    }
+
+    pub fn iter(&self) -> InstanceIterator<'_> {
+        let length = self.instances.len();
+
+        InstanceIterator {
+            instances: &self.instances,
+            device_instances: self.device_instances.as_slice(),
+            bounds: self.bounds.as_slice(),
+            current: 0,
+            length,
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> InstanceIteratorMut<'_> {
+        let length = self.instances.len();
+        InstanceIteratorMut {
+            instances: &mut self.instances,
+            device_instances: self.device_instances.as_mut_slice(),
+            bounds: self.bounds.as_mut_slice(),
+            current: 0,
+            length,
+        }
+    }
+}
+
+pub struct InstanceIterator<'a> {
+    instances: &'a TrackedStorage<Instance>,
+    device_instances: &'a [DeviceInstance],
+    bounds: &'a [InstanceBounds],
+    current: usize,
+    length: usize,
+}
+
+impl<'a> Iterator for InstanceIterator<'a> {
+    type Item = (usize, &'a Instance, &'a DeviceInstance, &'a InstanceBounds);
+    fn next(&mut self) -> Option<Self::Item> {
+        let (instances, device_instances, bounds) = unsafe {
+            (
+                self.instances.as_ptr(),
+                self.device_instances.as_ptr(),
+                self.bounds.as_ptr(),
+            )
+        };
+
+        while self.current < self.length {
+            if let Some(_) = self.instances.get(self.current) {
+                let value = unsafe {
+                    (
+                        self.current,
+                        instances.add(self.current).as_ref().unwrap(),
+                        device_instances.add(self.current).as_ref().unwrap(),
+                        bounds.add(self.current).as_ref().unwrap(),
+                    )
+                };
+                self.current += 1;
+                return Some(value);
+            }
+        }
+
+        None
+    }
+}
+
+pub struct InstanceIteratorMut<'a> {
+    instances: &'a mut TrackedStorage<Instance>,
+    device_instances: &'a mut [DeviceInstance],
+    bounds: &'a mut [InstanceBounds],
+    current: usize,
+    length: usize,
+}
+
+impl<'a> Iterator for InstanceIteratorMut<'a> {
+    type Item = (
+        usize,
+        &'a mut Instance,
+        &'a mut DeviceInstance,
+        &'a mut InstanceBounds,
+    );
+    fn next(&mut self) -> Option<Self::Item> {
+        let (instances, device_instances, bounds) = unsafe {
+            (
+                self.instances.as_mut_ptr(),
+                self.device_instances.as_mut_ptr(),
+                self.bounds.as_mut_ptr(),
+            )
+        };
+
+        while self.current < self.length {
+            if let Some(_) = self.instances.get(self.current) {
+                let value = unsafe {
+                    (
+                        self.current,
+                        instances.add(self.current).as_mut().unwrap(),
+                        device_instances.add(self.current).as_mut().unwrap(),
+                        bounds.add(self.current).as_mut().unwrap(),
+                    )
+                };
+                self.current += 1;
+                return Some(value);
+            }
+        }
+
+        None
     }
 }

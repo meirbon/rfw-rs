@@ -128,6 +128,7 @@ pub struct Channel {
     pub time: f32,
 }
 
+#[allow(dead_code)]
 pub struct Animation {
     samplers: Vec<Sampler>,
     channels: Vec<Channel>,
@@ -150,6 +151,7 @@ impl Default for Animation {
     }
 }
 
+#[allow(dead_code)]
 impl Animation {
     pub fn new() -> Self {
         Self::default()
