@@ -138,28 +138,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
     renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
 
-    assert_eq!(renderer.load("models/pica/scene.gltf")?, LoadResult::Scene);
+    // assert_eq!(renderer.load("models/pica/scene.gltf")?, LoadResult::Scene);
 
-    // let _ = renderer
-    //     .load_mesh("models/CesiumMan/CesiumMan.gltf")?;
-    // let result = renderer.find_mesh_by_name(String::from("Cesium_Man"));
-    // assert_eq!(result.len(), 1);
-    // renderer.get_instance_mut(renderer.add_instance(result[0])?, |instance| {
-    //     if let Some(instance) = instance {
-    //         instance.rotate_x(-90.0);
-    //         instance.rotate_z(90.0);
-    //         instance.scale(Vec3::splat(4.0));
-    //         instance.translate_z(10.0);
-    //     }
-    // });
+    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
+        LoadResult::Scene => {}
+        LoadResult::Object(reference) => panic!("Gltf files should be loaded as scenes"),
+    };
 
-    // let sponza = renderer.load_mesh("models/sponza/sponza.obj")?.unwrap();
-    // let instance = renderer.add_instance(sponza).unwrap();
-    // renderer.get_instance_mut(instance, |instance| {
-    //     if let Some(instance) = instance {
-    //         instance.set_scale(Vec3::splat(0.1));
-    //     }
-    // });
+    let sponza = match renderer.load("models/sponza/sponza.obj")? {
+        LoadResult::Scene => panic!("Obj files are not supposed to be loaded as scenes"),
+        LoadResult::Object(reference) => reference,
+    };
+    let instance = renderer.add_instance(sponza).unwrap();
+    renderer.get_instance_mut(instance, |instance| {
+        if let Some(instance) = instance {
+            instance.set_scale(Vec3::splat(0.1));
+        }
+    });
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 
@@ -278,11 +273,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    // renderer.get_instance_mut(instance, |inst| {
-                    //     if let Some(instance) = inst {
-                    //         instance.rotate_y(elapsed / 10.0);
-                    //     }
-                    // });
+                    renderer.get_instance_mut(instance, |inst| {
+                        if let Some(instance) = inst {
+                            instance.rotate_y(elapsed / 10.0);
+                        }
+                    });
                 }
 
                 timer.reset();

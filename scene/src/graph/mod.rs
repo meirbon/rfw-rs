@@ -216,11 +216,28 @@ impl NodeGraph {
             // }
         });
 
-        if let Some(_skin) = nodes[current_index].skin {
-            // TODO
+        // Update skin
+        if let Some(skin) = nodes[current_index].skin {
+            if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
+                let skin = &mut skins[skin as usize];
+                let inverse_transform = combined_matrix.inverse();
+                let inverse_bind_matrices = &skin.inverse_bind_matrices;
+                let joint_matrices = &mut skin.joint_matrices;
+                skin.joint_nodes
+                    .iter()
+                    .enumerate()
+                    .for_each(|(i, node_id)| {
+                        let node_id = *node_id as usize;
+                        let joint_node: &Node = &nodes[node_id];
+                        joint_matrices[i] = inverse_transform
+                            * joint_node.combined_matrix
+                            * inverse_bind_matrices[i];
+                    });
+            }
         }
 
         nodes[current_index].flags.clear();
+
         // Return whether this node or its children changed
         changed
     }
