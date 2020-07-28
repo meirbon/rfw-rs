@@ -1,5 +1,4 @@
 use scene::graph::Skin;
-use glam::*;
 use crate::wgpu_renderer::CopyCommand;
 use shared::BytesConversion;
 
@@ -35,7 +34,7 @@ impl Default for DeferredSkin {
 
 impl DeferredSkin {
     pub fn new(device: &wgpu::Device, skin: Skin) -> Self {
-        let joint_matrices_buffer_size = (skin.joint_matrices.len().max(1) * std::mem::size_of::<Mat4>()) as wgpu::BufferAddress;
+        let joint_matrices_buffer_size = skin.joint_matrices.to_bytes().len() as wgpu::BufferAddress;
         let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("joint-matrices"),
             size: joint_matrices_buffer_size,

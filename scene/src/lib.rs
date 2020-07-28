@@ -406,7 +406,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn set_animation_time(&self, time: f32) {
         if let (Ok(mut nodes), Ok(mut animations)) = (self.scene.objects.nodes.lock(), self.scene.objects.animations.lock()) {
             animations.iter_mut().for_each(|(_, anim)| {
-                anim.set_time(0.0, &mut nodes);
+                anim.set_time(time, &mut nodes);
             });
         }
     }
@@ -416,12 +416,6 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let mut changed = false;
             let mut update_lights = false;
             let mut found_light = false;
-
-            if let (Ok(mut nodes), Ok(mut animations)) = (self.scene.objects.nodes.lock(), self.scene.objects.animations.lock()) {
-                animations.iter_mut().for_each(|(_, anim)| {
-                    anim.set_time(0.0, &mut nodes);
-                });
-            }
 
             if let (Ok(mut nodes), Ok(mut skins), Ok(mut instances)) = (
                 self.scene.objects.nodes.lock(),

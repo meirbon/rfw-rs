@@ -1,7 +1,9 @@
+use crate::wgpu_renderer::skin::DeferredSkin;
 use futures::executor::block_on;
 use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
+use scene::graph::Skin;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
 use scene::{
     raw_window_handle::HasRawWindowHandle, AnimatedMesh, BitVec, DeviceMaterial, Instance,
@@ -9,8 +11,6 @@ use scene::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use scene::graph::Skin;
-use crate::wgpu_renderer::skin::DeferredSkin;
 
 mod instance;
 mod light;
@@ -174,7 +174,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-            .unwrap();
+        .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -535,7 +535,8 @@ impl Renderer for Deferred {
                 label: Some("synchronize-command"),
             });
 
-        let mut commands = Vec::with_capacity(self.meshes.len() + self.instances.len() + self.skins.len());
+        let mut commands =
+            Vec::with_capacity(self.meshes.len() + self.instances.len() + self.skins.len());
         self.meshes.iter_changed().for_each(|(_, m)| {
             commands.push(m.get_copy_command(&self.device));
         });
@@ -671,7 +672,7 @@ impl Renderer for Deferred {
                         ObjectRef::Animated(mesh_id) => {
                             let mesh = &self.anim_meshes[mesh_id as usize];
                             if let (Some(buffer), Some(anim_buffer)) =
-                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                                (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                             {
                                 if let Some(skin_id) = instance.skin_id {
                                     render_pass.set_pipeline(&self.pipeline.anim_pipeline);
@@ -708,10 +709,17 @@ impl Renderer for Deferred {
                                         let bind_group =
                                             &self.material_bind_groups[sub_mesh.mat_id as usize];
                                         render_pass.set_bind_group(2, bind_group, &[]);
-                                        render_pass.set_bind_group(3, match self.skins[skin_id as usize].bind_group.as_ref() {
-                                            None => panic!("Skin {} does not have a bind group (yet)", skin_id),
-                                            Some(b) => b,
-                                        }, &[]);
+                                        render_pass.set_bind_group(
+                                            3,
+                                            match self.skins[skin_id as usize].bind_group.as_ref() {
+                                                None => panic!(
+                                                    "Skin {} does not have a bind group (yet)",
+                                                    skin_id
+                                                ),
+                                                Some(b) => b,
+                                            },
+                                            &[],
+                                        );
                                         render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                     }
                                 } else {
@@ -854,7 +862,8 @@ impl Renderer for Deferred {
     }
 
     fn set_skin(&mut self, id: usize, skin: &Skin) {
-        self.skins.overwrite(id, DeferredSkin::new(&self.device, skin.clone()));
+        self.skins
+            .overwrite(id, DeferredSkin::new(&self.device, skin.clone()));
         self.skins[id].create_bind_group(&self.device, &self.skin_bind_group_layout);
     }
 

@@ -349,7 +349,7 @@ impl Animation {
                         for i in 0..weights {
                             node.weights[i] = c.sample_weight(current_time, key, i, weights);
                         }
-                        node.flags.set_flag(NodeFlags::Morphed);
+                        node.morhped = true;
                     }
                 }
             });

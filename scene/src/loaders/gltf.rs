@@ -495,6 +495,7 @@ impl ObjectLoader for GltfLoader {
                     // TODO: Implement camera as well
                     // node.camera().unwrap();
 
+                    new_node.update_matrix();
                     node_storage.lock().unwrap()[node_id] = new_node;
                 });
             });

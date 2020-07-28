@@ -393,6 +393,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        self.changed.set(index, true);
         &mut self.storage[index]
     }
 
@@ -424,6 +425,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub fn iter_mut(&mut self) -> FlaggedIteratorMut<'_, T> {
+        self.changed.set_all(true);
         FlaggedIteratorMut {
             storage: self.storage.storage.as_mut_slice(),
             flags: &self.storage.active,

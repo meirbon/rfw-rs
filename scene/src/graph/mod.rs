@@ -7,8 +7,9 @@ pub mod animation;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
 pub enum NodeFlags {
-    Transformed = 0,
-    Morphed = 1,
+    First = 0,
+    Transformed = 1,
+    Morphed = 2,
 }
 
 impl Into<u8> for NodeFlags {
@@ -46,15 +47,14 @@ pub struct Node {
     pub weights: Vec<f32>,
     pub meshes: Vec<NodeMesh>,
     pub child_nodes: Vec<u32>,
-    pub flags: Flags,
+    pub changed: bool,
+    pub first: bool,
+    pub morhped: bool,
     pub name: String,
 }
 
 impl Default for Node {
     fn default() -> Self {
-        let mut flags = Flags::new();
-        flags.set_flag(NodeFlags::Transformed);
-
         Self {
             translation: Vec3::zero(),
             rotation: Quat::identity(),
@@ -66,7 +66,9 @@ impl Default for Node {
             weights: Vec::new(),
             meshes: Vec::new(),
             child_nodes: Vec::new(),
-            flags,
+            changed: true,
+            morhped: false,
+            first: true,
             name: String::new(),
         }
     }
@@ -79,46 +81,41 @@ impl Node {
 
     pub fn set_translation(&mut self, t: Vec3) {
         self.translation = t;
-        self.flags.set_flag(NodeFlags::Transformed);
+        self.changed = true;
     }
 
     pub fn set_rotation(&mut self, r: Quat) {
         self.rotation = r;
-        self.flags.set_flag(NodeFlags::Transformed);
+        self.changed = true;
     }
 
     pub fn set_scale(&mut self, s: Vec3) {
         self.scale = s;
-        self.flags.set_flag(NodeFlags::Transformed);
+        self.changed = true;
     }
 
     pub fn set_matrix(&mut self, matrix: Mat4) {
         self.matrix = matrix;
-        self.flags.set_flag(NodeFlags::Transformed);
+        self.changed = true;
     }
 
     pub fn update_matrix(&mut self) {
-        if !self.flags.has_flag(NodeFlags::Transformed) {
-            return;
-        }
-
-        let trs =
-            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
+        let trs = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
         self.local_matrix = trs * self.matrix;
-        self.flags.unset_flag(NodeFlags::Transformed);
+        self.changed = false;
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct NodeGraph {
-    nodes: FlaggedStorage<Node>,
+    nodes: TrackedStorage<Node>,
     root_nodes: FlaggedStorage<u32>,
 }
 
 impl Default for NodeGraph {
     fn default() -> Self {
         Self {
-            nodes: FlaggedStorage::new(),
+            nodes: TrackedStorage::new(),
             root_nodes: FlaggedStorage::new(),
         }
     }
@@ -148,10 +145,10 @@ impl NodeGraph {
             changed |= Self::traverse_children(
                 (*root_node) as usize,
                 Mat4::identity(),
-                self.nodes.as_mut_slice(),
+                &mut self.nodes,
                 instances,
                 skins,
-                changed,
+                false,
             );
         }
 
@@ -174,14 +171,6 @@ impl NodeGraph {
         self.nodes.get_unchecked_mut(index)
     }
 
-    pub fn as_slice(&self) -> &[Node] {
-        self.nodes.as_slice()
-    }
-
-    pub fn as_mut_slice(&mut self) -> &mut [Node] {
-        self.nodes.as_mut_slice()
-    }
-
     pub unsafe fn as_ptr(&self) -> *const Node {
         self.nodes.as_ptr()
     }
@@ -192,21 +181,18 @@ impl NodeGraph {
 
     fn traverse_children(
         current_index: usize,
-        matrix: Mat4,
-        nodes: &mut [Node],
+        accumulated_matrix: Mat4,
+        nodes: &mut TrackedStorage<Node>,
         instances: &mut TrackedStorage<Instance>,
         skins: &mut TrackedStorage<Skin>,
-        changed: bool,
+        mut changed: bool,
     ) -> bool {
-        let mut changed = false;
-
-        if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
+        changed |= nodes[current_index].changed;
+        if changed {
             nodes[current_index].update_matrix();
-            changed = true;
         }
 
-        // Update matrix
-        let combined_matrix = matrix * nodes[current_index].matrix;
+        let combined_matrix = accumulated_matrix * nodes[current_index].local_matrix;
         nodes[current_index].combined_matrix = combined_matrix;
 
         // Use an unsafe slice to prevent having to copy the vec
@@ -220,43 +206,43 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.iter() {
             let c_id = *c_id as usize;
-            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances, skins, changed);
+            changed |= Self::traverse_children(c_id, nodes[current_index].combined_matrix, nodes, instances, skins, changed);
         }
 
-        nodes[current_index].meshes.iter().for_each(|m| {
-            if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
-                instances[m.instance_id as usize].set_transform(combined_matrix);
-                instances[m.instance_id as usize].skin_id = nodes[current_index].skin;
-                // }
+        if !changed && !nodes[current_index].first {
+            return false;
+        }
 
-                // TODO: Morphed
-                // TODO:
-                // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
-            }
+        let first = nodes[current_index].first;
+        let meshes = &nodes[current_index].meshes;
+        let skin = nodes[current_index].skin;
+        meshes.iter().for_each(|m| {
+            instances[m.instance_id as usize].skin_id = skin;
+            instances[m.instance_id as usize].set_transform(combined_matrix);
+
+            // TODO: Morphed
+            // TODO:
+            // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
+            // }
         });
 
         // Update skin
         if let Some(skin) = nodes[current_index].skin {
-            if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
-                let skin = &mut skins[skin as usize];
-                let inverse_transform = combined_matrix.inverse();
-                let inverse_bind_matrices = &skin.inverse_bind_matrices;
-                let joint_matrices = &mut skin.joint_matrices;
+            let skin = &mut skins[skin as usize];
+            let inverse_transform = nodes[current_index].combined_matrix.inverse();
+            let inverse_bind_matrices = &skin.inverse_bind_matrices;
+            let joint_matrices = &mut skin.joint_matrices;
 
-                skin.joint_nodes
-                    .iter()
-                    .enumerate()
-                    .for_each(|(i, node_id)| {
-                        let node_id = *node_id as usize;
-                        let joint_node: &Node = &nodes[node_id];
-                        joint_matrices[i] = inverse_transform
-                            * joint_node.combined_matrix
-                            * inverse_bind_matrices[i];
-                    });
-            }
+            skin.joint_nodes
+                .iter()
+                .enumerate()
+                .for_each(|(i, node_id)| {
+                    let node_id = *node_id as usize;
+                    joint_matrices[i] = inverse_transform * nodes[node_id].combined_matrix * inverse_bind_matrices[i];
+                });
         }
 
-        nodes[current_index].flags.clear();
+        nodes[current_index].changed = false;
 
         // Return whether this node or its children changed
         changed

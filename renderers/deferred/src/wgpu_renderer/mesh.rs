@@ -1,6 +1,7 @@
 use super::CopyCommand;
 use rtbvh::AABB;
 use scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
+use shared::BytesConversion;
 
 pub struct VertexBuffer {
     pub count: usize,
@@ -125,7 +126,7 @@ impl DeferredMesh {
 
 impl DeferredAnimMesh {
     pub fn new(device: &wgpu::Device, mesh: &AnimatedMesh) -> Self {
-        let buffer_size = mesh.buffer_size() as wgpu::BufferAddress;
+        let buffer_size = mesh.vertices.to_bytes().len() as wgpu::BufferAddress;
         assert!(buffer_size > 0);
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -134,7 +135,7 @@ impl DeferredAnimMesh {
             usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
         });
 
-        let anim_buffer_size = mesh.anim_buffer_size() as wgpu::BufferAddress;
+        let anim_buffer_size = mesh.anim_vertex_data.to_bytes().len() as wgpu::BufferAddress;
         assert!(anim_buffer_size > 0);
         let anim_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(mesh.name.as_str()),
@@ -144,11 +145,12 @@ impl DeferredAnimMesh {
 
         let sub_meshes = mesh.meshes.clone();
         let vertex_data = mesh.vertices.clone();
+        let anim_vertex_data = mesh.anim_vertex_data.clone();
 
         Self {
             sub_meshes,
             vertex_data,
-            anim_vertex_data: mesh.anim_vertex_data.clone(),
+            anim_vertex_data,
             buffer: Some(buffer),
             buffer_size,
             anim_buffer: Some(anim_buffer),
@@ -161,14 +163,7 @@ impl DeferredAnimMesh {
     }
 
     pub fn get_copy_command(&self, device: &wgpu::Device) -> (CopyCommand, CopyCommand) {
-        let data = unsafe {
-            std::slice::from_raw_parts(
-                self.vertex_data.as_ptr() as *const u8,
-                self.vertex_data.len() * std::mem::size_of::<VertexData>(),
-            )
-        };
-
-        let staging_buffer = device.create_buffer_with_data(data, wgpu::BufferUsage::COPY_SRC);
+        let staging_buffer = device.create_buffer_with_data(self.vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
 
         let command1 = CopyCommand {
             destination_buffer: self.buffer.as_ref().unwrap(),
@@ -176,14 +171,7 @@ impl DeferredAnimMesh {
             staging_buffer,
         };
 
-        let data = unsafe {
-            std::slice::from_raw_parts(
-                self.anim_vertex_data.as_ptr() as *const u8,
-                self.anim_vertex_data.len() * std::mem::size_of::<AnimVertexData>(),
-            )
-        };
-
-        let staging_buffer = device.create_buffer_with_data(data, wgpu::BufferUsage::COPY_SRC);
+        let staging_buffer = device.create_buffer_with_data(self.anim_vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
 
         let command2 = CopyCommand {
             destination_buffer: self.anim_buffer.as_ref().unwrap(),
