@@ -10,6 +10,9 @@ use crate::utils::TrackedStorage;
 use crate::{material::Texture, LoadResult, TextureSource};
 use gltf::mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights};
 use rtbvh::AABB;
+use crate::graph::animation::{Channel, Animation, Method, Target};
+use gltf::json::animation::{Interpolation, Property};
+use gltf::animation::util::{ReadOutputs, Rotations, MorphTargetWeights};
 
 #[derive(Debug, Copy, Clone)]
 pub struct GltfLoader {}
@@ -44,6 +47,7 @@ impl ObjectLoader for GltfLoader {
         path: PathBuf,
         mat_manager: &Mutex<MaterialList>,
         mesh_storage: &Mutex<TrackedStorage<Mesh>>,
+        animation_storage: &Mutex<TrackedStorage<Animation>>,
         animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
         node_storage: &Mutex<NodeGraph>,
         skin_storage: &Mutex<TrackedStorage<Skin>>,
@@ -148,6 +152,7 @@ impl ObjectLoader for GltfLoader {
                 mat_mapping.insert(m.index().unwrap_or(i), index);
             });
         }
+
 
         let mut skin_mapping: HashMap<usize, usize> = HashMap::new();
         let mut node_mapping: HashMap<usize, usize> = HashMap::new();
@@ -495,14 +500,157 @@ impl ObjectLoader for GltfLoader {
             });
         });
 
+        document.animations().for_each(|anim| {
+            let channels = anim.channels().map(|c| {
+                let mut channel = Channel::default();
+                let reader = c.reader(|buffer| Some(&buffers[buffer.index()]));
+
+                channel.sampler = match c.sampler().interpolation() {
+                    Interpolation::Linear => Method::Linear,
+                    Interpolation::Step => Method::Step,
+                    Interpolation::CubicSpline => Method::Spline,
+                };
+
+                let target = c.target();
+                let target_node = *node_mapping.get(&target.node().index()).unwrap() as u32;
+                channel.targets.push(match target.property() {
+                    Property::Translation => Target::Translation(target_node),
+                    Property::Rotation => Target::Rotation(target_node),
+                    Property::Scale => Target::Scale(target_node),
+                    Property::MorphTargetWeights => Target::MorphWeights(target_node),
+                });
+
+                if let Some(inputs) = reader.read_inputs() {
+                    inputs.for_each(|input| {
+                        channel.key_frames.push(input);
+                    });
+                }
+
+                if let Some(outputs) = reader.read_outputs() {
+                    match outputs {
+                        ReadOutputs::Translations(t) => {
+                            t.for_each(|t| {
+                                channel.vec3s.push(Vec3::from(t));
+                            });
+                        }
+                        ReadOutputs::Rotations(r) => {
+                            match r {
+                                Rotations::I8(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::i8::MAX) as f32,
+                                            r[1] as f32 / (std::i8::MAX) as f32,
+                                            r[2] as f32 / (std::i8::MAX) as f32,
+                                            r[3] as f32 / (std::i8::MAX) as f32,
+                                        ];
+                                        channel.rotations.push(Quat::from(r));
+                                    });
+                                }
+                                Rotations::U8(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::u8::MAX) as f32,
+                                            r[1] as f32 / (std::u8::MAX) as f32,
+                                            r[2] as f32 / (std::u8::MAX) as f32,
+                                            r[3] as f32 / (std::u8::MAX) as f32,
+                                        ];
+                                        channel.rotations.push(Quat::from(r))
+                                    });
+                                }
+                                Rotations::I16(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::i16::MAX) as f32,
+                                            r[1] as f32 / (std::i16::MAX) as f32,
+                                            r[2] as f32 / (std::i16::MAX) as f32,
+                                            r[3] as f32 / (std::i16::MAX) as f32,
+                                        ];
+                                        channel.rotations.push(Quat::from(r))
+                                    });
+                                }
+                                Rotations::U16(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::u16::MAX) as f32,
+                                            r[1] as f32 / (std::u16::MAX) as f32,
+                                            r[2] as f32 / (std::u16::MAX) as f32,
+                                            r[3] as f32 / (std::u16::MAX) as f32,
+                                        ];
+                                        channel.rotations.push(Quat::from(r))
+                                    });
+                                }
+                                Rotations::F32(r) => {
+                                    r.for_each(|r| {
+                                        channel.rotations.push(Quat::from(r))
+                                    });
+                                }
+                            }
+                        }
+                        ReadOutputs::Scales(s) => {
+                            s.for_each(|s| {
+                                channel.vec3s.push(Vec3::from(s));
+                            });
+                        }
+                        ReadOutputs::MorphTargetWeights(m) => {
+                            match m {
+                                MorphTargetWeights::I8(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::i8::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::U8(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::u8::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::I16(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::i16::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::U16(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::u16::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::F32(m) => {
+                                    m.for_each(|m| {
+                                        channel.weights.push(m);
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                channel.duration = *channel.key_frames.last().unwrap();
+
+                channel
+            }).collect::<Vec<Channel>>();
+
+            let mut animations = animation_storage.lock().unwrap();
+            let mut animation = Animation {
+                name: anim.name().unwrap_or("").to_string(),
+                channels,
+                time: 0.0,
+            };
+
+            // animation.set_time(0.0, &mut node_storage.lock().unwrap());
+            animations.push(animation);
+        });
+
         Ok(LoadResult::Scene(root_nodes))
     }
 }
 
 impl GltfLoader {
     fn traverse_tree_callback<T>(node: &gltf::Node, mut cb: T)
-    where
-        T: FnMut(&gltf::Node) + Clone,
+        where
+            T: FnMut(&gltf::Node) + Clone,
     {
         cb(node);
         node.children().for_each(|child| {

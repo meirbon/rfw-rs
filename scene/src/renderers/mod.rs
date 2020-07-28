@@ -5,6 +5,7 @@ use crate::{
 use bitvec::prelude::BitVec;
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;
+use crate::graph::Skin;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SettingType {
@@ -137,7 +138,10 @@ pub trait Renderer {
     fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight]);
     // Sets the scene skybox
     fn set_skybox(&mut self, skybox: Texture);
+    // Sets a skin
+    fn set_skin(&mut self, id: usize, skin: &Skin);
 
     fn get_settings(&self) -> Vec<Setting>;
+
     fn set_setting(&mut self, setting: Setting);
 }

@@ -192,48 +192,48 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIterator<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Instance>),
+        where
+            C: FnOnce(Option<&Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&mut Instance>),
+        where
+            C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
     }
 
     pub fn get_node<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Node>),
+        where
+            C: FnOnce(Option<&Node>),
     {
         let lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_node_mut<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&mut Node>),
+        where
+            C: FnOnce(Option<&mut Node>),
     {
         let mut lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get_mut(index))
@@ -403,11 +403,25 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
+    pub fn set_animation_time(&self, time: f32) {
+        if let (Ok(mut nodes), Ok(mut animations)) = (self.scene.objects.nodes.lock(), self.scene.objects.animations.lock()) {
+            animations.iter_mut().for_each(|(_, anim)| {
+                anim.set_time(0.0, &mut nodes);
+            });
+        }
+    }
+
     pub fn synchronize(&self) {
         if let Ok(mut renderer) = self.renderer.try_lock() {
             let mut changed = false;
             let mut update_lights = false;
             let mut found_light = false;
+
+            if let (Ok(mut nodes), Ok(mut animations)) = (self.scene.objects.nodes.lock(), self.scene.objects.animations.lock()) {
+                animations.iter_mut().for_each(|(_, anim)| {
+                    anim.set_time(0.0, &mut nodes);
+                });
+            }
 
             if let (Ok(mut nodes), Ok(mut skins), Ok(mut instances)) = (
                 self.scene.objects.nodes.lock(),
@@ -415,6 +429,8 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 self.scene.objects.instances.lock(),
             ) {
                 nodes.update(&mut instances, &mut skins);
+                skins.iter_changed().for_each(|(id, skin)| renderer.set_skin(id, skin));
+                skins.reset_changed();
             }
 
             if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
@@ -467,7 +483,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                                 let object_id = object_id as usize;
                                 for j in 0..anim_meshes[object_id].meshes.len() {
                                     match light_flags
-                                        .get(meshes[object_id].meshes[j].mat_id as usize)
+                                        .get(anim_meshes[object_id].meshes[j].mat_id as usize)
                                     {
                                         None => {}
                                         Some(flag) => {

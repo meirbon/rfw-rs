@@ -98,7 +98,7 @@ impl Node {
     }
 
     pub fn update_matrix(&mut self) {
-        if self.flags.has_flag(NodeFlags::Transformed) {
+        if !self.flags.has_flag(NodeFlags::Transformed) {
             return;
         }
 
@@ -151,6 +151,7 @@ impl NodeGraph {
                 self.nodes.as_mut_slice(),
                 instances,
                 skins,
+                changed,
             );
         }
 
@@ -195,6 +196,7 @@ impl NodeGraph {
         nodes: &mut [Node],
         instances: &mut TrackedStorage<Instance>,
         skins: &mut TrackedStorage<Skin>,
+        changed: bool,
     ) -> bool {
         let mut changed = false;
 
@@ -218,18 +220,19 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.iter() {
             let c_id = *c_id as usize;
-            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances, skins);
+            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances, skins, changed);
         }
 
         nodes[current_index].meshes.iter().for_each(|m| {
             if nodes[current_index].flags.has_flag(NodeFlags::Transformed) {
                 instances[m.instance_id as usize].set_transform(combined_matrix);
-            }
+                instances[m.instance_id as usize].skin_id = nodes[current_index].skin;
+                // }
 
-            // TODO: Morphed
-            // TODO:
-            // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
-            // }
+                // TODO: Morphed
+                // TODO:
+                // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
+            }
         });
 
         // Update skin
@@ -239,6 +242,7 @@ impl NodeGraph {
                 let inverse_transform = combined_matrix.inverse();
                 let inverse_bind_matrices = &skin.inverse_bind_matrices;
                 let joint_matrices = &mut skin.joint_matrices;
+
                 skin.joint_nodes
                     .iter()
                     .enumerate()

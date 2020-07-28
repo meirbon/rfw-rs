@@ -22,6 +22,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use utils::Flags;
+use crate::graph::animation::Animation;
 
 #[derive(Debug, Clone)]
 pub enum SceneError {
@@ -70,6 +71,7 @@ impl error::Error for SceneError {}
 #[derive(Debug, Clone)]
 pub struct Objects {
     pub meshes: Arc<Mutex<TrackedStorage<Mesh>>>,
+    pub animations: Arc<Mutex<TrackedStorage<Animation>>>,
     pub animated_meshes: Arc<Mutex<TrackedStorage<AnimatedMesh>>>,
     pub nodes: Arc<Mutex<NodeGraph>>,
     pub skins: Arc<Mutex<TrackedStorage<Skin>>>,
@@ -80,6 +82,7 @@ impl Default for Objects {
     fn default() -> Self {
         Self {
             meshes: Arc::new(Mutex::new(TrackedStorage::new())),
+            animations: Arc::new(Mutex::new(TrackedStorage::new())),
             animated_meshes: Arc::new(Mutex::new(TrackedStorage::new())),
             nodes: Arc::new(Mutex::new(NodeGraph::new())),
             skins: Arc::new(Mutex::new(TrackedStorage::new())),
@@ -301,6 +304,7 @@ impl TriangleScene {
                 path.to_path_buf(),
                 self.materials.as_ref(),
                 self.objects.meshes.as_ref(),
+                self.objects.animations.as_ref(),
                 self.objects.animated_meshes.as_ref(),
                 self.objects.nodes.as_ref(),
                 self.objects.skins.as_ref(),

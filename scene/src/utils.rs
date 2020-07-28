@@ -17,11 +17,13 @@ impl Flags {
     }
 
     pub fn set_flag<T: Into<u8>>(&mut self, flag: T) {
-        self.bits.set(flag.into() as u8 as usize, true);
+        let i = flag.into() as u8 as usize;
+        self.bits.set(i, true);
     }
 
     pub fn unset_flag<T: Into<u8>>(&mut self, flag: T) {
-        self.bits.set(flag.into() as u8 as usize, false);
+        let i = flag.into() as u8 as usize;
+        self.bits.set(i, false);
     }
 
     pub fn has_flag<T: Into<u8>>(&self, flag: T) -> bool {
@@ -84,7 +86,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
             let new_len = (index + 1) * 2;
             self.active.resize(new_len, false);
             self.storage.resize((index + 1) * 2, T::default());
-            self.storage_ptr = new_len;
+            self.storage_ptr = index + 1;
 
             for i in last_len..new_len {
                 self.empty_slots.push(i as u32);
@@ -448,6 +450,10 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
             length: self.storage.storage_ptr,
             current: 0,
         }
+    }
+
+    pub fn trigger_changed(&mut self, index: usize) {
+        self.changed.set(index, true);
     }
 
     pub fn reset_changed(&mut self) {

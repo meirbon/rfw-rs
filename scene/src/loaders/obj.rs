@@ -6,6 +6,7 @@ use crate::material::*;
 use crate::triangle_scene::SceneError;
 use crate::utils::*;
 use crate::{AnimatedMesh, Instance, Mesh, ObjectLoader, ObjectRef, LoadResult};
+use crate::graph::animation::Animation;
 
 enum ObjFlags {
     HasNormals = 1,
@@ -39,6 +40,7 @@ impl ObjectLoader for ObjLoader {
         path: PathBuf,
         mat_manager: &Mutex<MaterialList>,
         mesh_storage: &Mutex<TrackedStorage<Mesh>>,
+        _animation_storage: &Mutex<TrackedStorage<Animation>>,
         _animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
         _node_storage: &Mutex<NodeGraph>,
         _skin_storage: &Mutex<TrackedStorage<Skin>>,

@@ -54,6 +54,7 @@ pub struct Instance {
     rotation_y: f32,
     rotation_z: f32,
     pub object_id: ObjectRef,
+    pub skin_id: Option<u32>,
     updated: InstanceUpdate,
 }
 
@@ -79,6 +80,7 @@ impl Default for Instance {
             rotation_y: 0.0,
             rotation_z: 0.0,
             object_id: ObjectRef::None,
+            skin_id: None,
             updated: InstanceUpdate::None,
         }
     }

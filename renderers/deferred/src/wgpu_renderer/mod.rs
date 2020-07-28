@@ -9,6 +9,8 @@ use scene::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use scene::graph::Skin;
+use crate::wgpu_renderer::skin::DeferredSkin;
 
 mod instance;
 mod light;
@@ -16,6 +18,7 @@ mod mesh;
 mod output;
 mod pass;
 mod pipeline;
+mod skin;
 
 pub struct CopyCommand<'a> {
     destination_buffer: &'a wgpu::Buffer,
@@ -66,6 +69,9 @@ pub struct Deferred {
     ssao_pass: pass::SSAOPass,
     radiance_pass: pass::RadiancePass,
     blit_pass: pass::BlitPass,
+
+    skins: TrackedStorage<DeferredSkin>,
+    skin_bind_group_layout: wgpu::BindGroupLayout,
 
     debug_view: output::DeferredView,
     debug_enabled: bool,
@@ -168,7 +174,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-        .unwrap();
+            .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -252,12 +258,14 @@ impl Renderer for Deferred {
         });
 
         let output = output::DeferredOutput::new(&device, width, height);
+        let skin_bind_group_layout = DeferredSkin::create_bind_group_layout(&device);
 
         let pipeline = pipeline::RenderPipeline::new(
             &device,
             &uniform_bind_group_layout,
             &instances.bind_group_layout,
             &texture_bind_group_layout,
+            &skin_bind_group_layout,
         );
 
         let material_buffer_size =
@@ -295,6 +303,9 @@ impl Renderer for Deferred {
             radiance_pass,
             blit_pass,
             scene_bounds: AABB::new(),
+
+            skins: TrackedStorage::new(),
+            skin_bind_group_layout,
 
             debug_view: output::DeferredView::Output,
             debug_enabled: false,
@@ -517,26 +528,31 @@ impl Renderer for Deferred {
     }
 
     fn synchronize(&mut self) {
+        let device = &self.device;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("synchronize-command"),
             });
 
-        let mut commands = Vec::with_capacity(self.meshes.len() + self.instances.len());
+        let mut commands = Vec::with_capacity(self.meshes.len() + self.instances.len() + self.skins.len());
         self.meshes.iter_changed().for_each(|(_, m)| {
             commands.push(m.get_copy_command(&self.device));
         });
 
         self.anim_meshes.iter_changed().for_each(|(_, m)| {
-            let (command1, command2) = m.get_copy_command(&self.device);
+            let (command1, command2) = m.get_copy_command(device);
             commands.push(command1);
             commands.push(command2);
         });
 
+        self.skins.iter_changed().for_each(|(_, s)| {
+            commands.push(s.get_copy_command(device));
+        });
+
         for command in self
             .instances
-            .update(&self.device, &self.meshes, &self.anim_meshes)
+            .update(device, &self.meshes, &self.anim_meshes)
         {
             commands.push(command);
         }
@@ -546,12 +562,13 @@ impl Renderer for Deferred {
         }
 
         self.queue.submit(&[encoder.finish()]);
-        self.lights_changed |= self.lights.synchronize(&self.device, &self.queue);
+        self.lights_changed |= self.lights.synchronize(device, &self.queue);
         if self.lights_changed {
             self.radiance_pass
-                .update_bind_groups(&self.device, &self.output, &self.lights);
+                .update_bind_groups(device, &self.output, &self.lights);
         }
 
+        self.skins.reset_changed();
         self.meshes.reset_changed();
         self.anim_meshes.reset_changed();
     }
@@ -654,43 +671,74 @@ impl Renderer for Deferred {
                         ObjectRef::Animated(mesh_id) => {
                             let mesh = &self.anim_meshes[mesh_id as usize];
                             if let (Some(buffer), Some(anim_buffer)) =
-                                (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                             {
-                                render_pass.set_pipeline(&self.pipeline.anim_pipeline);
-                                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                                if let Some(skin_id) = instance.skin_id {
+                                    render_pass.set_pipeline(&self.pipeline.anim_pipeline);
+                                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                                    render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(
-                                    5,
-                                    anim_buffer,
-                                    0,
-                                    mesh.anim_buffer_size,
-                                );
-                                render_pass.set_vertex_buffer(
-                                    6,
-                                    anim_buffer,
-                                    0,
-                                    mesh.anim_buffer_size,
-                                );
+                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(
+                                        5,
+                                        anim_buffer,
+                                        0,
+                                        mesh.anim_buffer_size,
+                                    );
+                                    render_pass.set_vertex_buffer(
+                                        6,
+                                        anim_buffer,
+                                        0,
+                                        mesh.anim_buffer_size,
+                                    );
 
-                                for j in 0..mesh.sub_meshes.len() {
-                                    if !frustrum
-                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                        .should_render()
-                                    {
-                                        continue;
+                                    for j in 0..mesh.sub_meshes.len() {
+                                        if !frustrum
+                                            .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                            .should_render()
+                                        {
+                                            continue;
+                                        }
+
+                                        let sub_mesh = &mesh.sub_meshes[j];
+                                        let bind_group =
+                                            &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                        render_pass.set_bind_group(2, bind_group, &[]);
+                                        render_pass.set_bind_group(3, match self.skins[skin_id as usize].bind_group.as_ref() {
+                                            None => panic!("Skin {} does not have a bind group (yet)", skin_id),
+                                            Some(b) => b,
+                                        }, &[]);
+                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                     }
+                                } else {
+                                    render_pass.set_pipeline(&self.pipeline.pipeline);
+                                    render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                                    render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
 
-                                    let sub_mesh = &mesh.sub_meshes[j];
-                                    let bind_group =
-                                        &self.material_bind_groups[sub_mesh.mat_id as usize];
-                                    render_pass.set_bind_group(2, bind_group, &[]);
-                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                                    render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+
+                                    for j in 0..mesh.sub_meshes.len() {
+                                        if !frustrum
+                                            .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                            .should_render()
+                                        {
+                                            continue;
+                                        }
+
+                                        let sub_mesh = &mesh.sub_meshes[j];
+                                        let bind_group =
+                                            &self.material_bind_groups[sub_mesh.mat_id as usize];
+                                        render_pass.set_bind_group(2, bind_group, &[]);
+                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                    }
                                 }
                             }
                         }
@@ -803,6 +851,11 @@ impl Renderer for Deferred {
 
     fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()
+    }
+
+    fn set_skin(&mut self, id: usize, skin: &Skin) {
+        self.skins.overwrite(id, DeferredSkin::new(&self.device, skin.clone()));
+        self.skins[id].create_bind_group(&self.device, &self.skin_bind_group_layout);
     }
 
     fn get_settings(&self) -> Vec<Setting> {

@@ -142,21 +142,24 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
         LoadResult::Scene(_root_nodes) => {}
-        LoadResult::Object(reference) => panic!("Gltf files should be loaded as scenes"),
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
 
-    let sponza = match renderer.load("models/sponza/sponza.obj")? {
-        LoadResult::Scene(_root_nodes) => panic!("Obj files are not supposed to be loaded as scenes"),
-        LoadResult::Object(reference) => reference,
-    };
-    let instance = renderer.add_instance(sponza).unwrap();
-    renderer.get_instance_mut(instance, |instance| {
-        if let Some(instance) = instance {
-            instance.set_scale(Vec3::splat(0.1));
-        }
-    });
+    // let sponza = match renderer.load("models/sponza/sponza.obj")? {
+    //     LoadResult::Scene(_root_nodes) => panic!("Obj files are not supposed to be loaded as scenes"),
+    //     LoadResult::Object(reference) => reference,
+    // };
+    let instance = 0;
+    // let instance = renderer.add_instance(sponza).unwrap();
+    // renderer.get_instance_mut(instance, |instance| {
+    //     if let Some(instance) = instance {
+    //         instance.set_scale(Vec3::splat(0.1));
+    //     }
+    // });
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
+
+    let app_time = Timer::new();
 
     {
         let timer = Timer::new();
@@ -301,8 +304,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 let timer = Timer::new();
+                // renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
-                synchronize.add_sample(timer.elapsed_in_millis());
+                // synchronize.add_sample(timer.elapsed_in_millis());
                 renderer.render(&camera, RenderMode::Default);
             }
             Event::WindowEvent {
