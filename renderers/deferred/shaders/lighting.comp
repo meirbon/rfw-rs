@@ -7,7 +7,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "disney_bsdf.glsl"
 
 #define BIAS 0.001
-#define VARIANCE_MAX 0.0001
+#define VARIANCE_MIN 0.0000001
 
 layout(set = 0, binding = 0) uniform Locals {
     mat4 VP;
@@ -110,7 +110,6 @@ void main() {
 
         const vec4 ls_vertex = SpotTransforms[i].MP * vec4(V.xyz, 1.0);
         const float shadow = fetch_spot_shadow(i, BIAS, ls_vertex);
-        //        const float shadow = 1.0;
         const vec3 bsdf = evalLighting(params, normal, D, L);
         final += bsdf * shadow * spot_lights[i].radiance_cos_outer.xyz * NdotL * LNdotL * (1.0 / dist2);
     }
@@ -184,7 +183,7 @@ float fetch_area_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, VARIANCE_MAX);
+    variance = max(variance, VARIANCE_MIN);
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);
@@ -210,7 +209,9 @@ float fetch_spot_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, VARIANCE_MAX);
+    if (variance <= 0.0) {
+        return 0.0;
+    }
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);
@@ -238,7 +239,10 @@ float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, VARIANCE_MAX);
+    if (variance <= 0.0) {
+        return 0.0;
+    }
+//    variance = max(variance, VARIANCE_MIN);
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);

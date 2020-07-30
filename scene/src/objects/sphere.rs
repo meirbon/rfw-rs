@@ -214,15 +214,15 @@ impl Intersect for Sphere {
         let div_2a = glam::Vec4::one() / (2.0 * a);
 
         #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-        let sqrt_d = unsafe {
+            let sqrt_d = unsafe {
             use std::arch::x86_64::_mm_sqrt_ps;
             glam::Vec4::from(_mm_sqrt_ps(d.into())).max(glam::Vec4::zero())
         };
         #[cfg(any(
-            all(not(target_arch = "x86_64"), not(target_arch = "x86")),
-            target_arch = "wasm32-unknown-unknown"
+        all(not(target_arch = "x86_64"), not(target_arch = "x86")),
+        target_arch = "wasm32-unknown-unknown"
         ))]
-        let sqrt_d = glam::Vec4::new(
+            let sqrt_d = glam::Vec4::new(
             (d[0].sqrt()).max(0.0),
             (d[1].sqrt()).max(0.0),
             (d[2].sqrt()).max(0.0),
@@ -362,7 +362,7 @@ impl<'a> SerializableObject<'a, Sphere> for Sphere {
 }
 
 impl ToMesh for Sphere {
-    fn into_mesh(self) -> MeshResult {
+    fn into_mesh(self) -> Mesh {
         use std::f32::consts::PI;
 
         let mut faces: Vec<[u32; 3]> = Vec::with_capacity(20);
@@ -378,7 +378,7 @@ impl ToMesh for Sphere {
                           vertices: &mut Vec<Vec3>,
                           normals: &mut Vec<Vec3>,
                           uvs: &mut Vec<Vec2>|
-         -> usize {
+                          -> usize {
             let v = v.normalize();
             normals.push(v);
             vertices.push(v);
@@ -395,7 +395,7 @@ impl ToMesh for Sphere {
                                     vertices: &mut Vec<Vec3>,
                                     normals: &mut Vec<Vec3>,
                                     uvs: &mut Vec<Vec2>|
-         -> usize {
+                                    -> usize {
             let is_smaller = p1 < p2;
             let (smaller_idx, greater_idx) = if is_smaller { (p1, p2) } else { (p2, p1) };
             let key = smaller_idx.overflowing_shl(32).0 + greater_idx;
@@ -503,13 +503,13 @@ impl ToMesh for Sphere {
             *v = origin + (*v) * radius;
         });
 
-        MeshResult::Static(Mesh::new_indexed(
+        Mesh::new_indexed(
             faces,
             vertices,
             normals,
             uvs,
             material_ids,
             Some(String::from("sphere")),
-        ))
+        )
     }
 }

@@ -13,15 +13,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod animated;
+
 pub use animated::*;
 
-pub enum MeshResult {
-    Static(Mesh),
-    Animated(animated::AnimatedMesh),
-}
-
 pub trait ToMesh {
-    fn into_mesh(self) -> MeshResult;
+    fn into_mesh(self) -> Mesh;
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
@@ -85,6 +81,7 @@ impl VertexData {
         }
     }
 }
+
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Mesh {
@@ -350,7 +347,7 @@ impl Mesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
@@ -433,6 +430,17 @@ impl Mesh {
         if let Some(bvh) = self.bvh.as_mut() {
             let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
             bvh.refit(aabbs.as_slice());
+            self.mbvh = Some(MBVH::construct(self.bvh.as_ref().unwrap()));
+        } else {
+            let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
+            let centers: Vec<Vec3> = self.triangles.par_iter().map(|t| t.center()).collect();
+
+            self.bvh = Some(BVH::construct(
+                aabbs.as_slice(),
+                centers.as_slice(),
+                rtbvh::builders::BVHType::BinnedSAH,
+            ));
+            self.mbvh = Some(MBVH::construct(self.bvh.as_ref().unwrap()));
         }
     }
 

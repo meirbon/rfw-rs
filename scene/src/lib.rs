@@ -1,3 +1,8 @@
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 static mut USE_MBVH: bool = true;
 
 pub type PrimID = i32;
@@ -153,15 +158,12 @@ impl LightRef {
             match &self.light {
                 SceneLight::Point(l) => {
                     lights.point_lights[self.id] = l.clone();
-                    lights.pl_changed.set(self.id, true);
                 }
                 SceneLight::Spot(l) => {
                     lights.spot_lights[self.id] = l.clone();
-                    lights.sl_changed.set(self.id, true);
                 }
                 SceneLight::Directional(l) => {
                     lights.directional_lights[self.id] = l.clone();
-                    lights.dl_changed.set(self.id, true);
                 }
             }
 
@@ -221,6 +223,18 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
+    }
+
+    pub fn get_lights<C>(&self, cb: C)
+        where C: FnOnce(&SceneLights) {
+        let lock = self.scene.lights.lock().unwrap();
+        cb(&lock)
+    }
+
+    pub fn get_lights_mut<C>(&self, cb: C)
+        where C: FnOnce(&mut SceneLights) {
+        let mut lock = self.scene.lights.lock().unwrap();
+        cb(&mut lock)
     }
 
     pub fn get_node<C>(&self, index: usize, cb: C)
@@ -284,13 +298,9 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         futures::executor::block_on(self.scene.load(path))
     }
 
-    // TODO:
-    // pub async fn load_async<B: AsRef<Path>>(
-    //     &self,
-    //     path: B,
-    // ) -> Result<LoadResult, triangle_scene::SceneError> {
-    //     self.scene.load(path)
-    // }
+    pub async fn load_async<B: AsRef<Path>>(&self, path: B) -> Result<LoadResult, triangle_scene::SceneError> {
+        self.scene.load(path).await
+    }
 
     pub fn add_material<B: Into<[f32; 3]>>(
         &self,
@@ -310,23 +320,14 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         &self,
         object: B,
     ) -> Result<ObjectRef, triangle_scene::SceneError> {
-        match object.into_mesh() {
-            MeshResult::Static(m) => {
-                match self.scene.add_object(m) {
-                    Ok(id) => Ok(ObjectRef::Static(id as u32)),
-                    Err(e) => Err(e)
-                }
-            }
-            MeshResult::Animated(m) => {
-                match self.scene.add_animated_object(m) {
-                    Ok(id) => Ok(ObjectRef::Animated(id as u32)),
-                    Err(e) => Err(e)
-                }
-            }
+        let m = object.into_mesh();
+        match self.scene.add_object(m) {
+            Ok(id) => Ok(ObjectRef::Static(id as u32)),
+            Err(e) => Err(e)
         }
     }
 
-    pub fn add_instance(&self, object: ObjectRef) -> Result<usize, triangle_scene::SceneError> {
+    pub fn create_instance(&self, object: ObjectRef) -> Result<usize, triangle_scene::SceneError> {
         self.scene.add_instance(object)
     }
 
@@ -338,7 +339,6 @@ impl<T: Sized + Renderer> RenderSystem<T> {
 
             let light = PointLight::new(position.into(), radiance.into());
             lights.point_lights.push(light.clone());
-            lights.pl_changed.push(true);
 
             let light = LightRef::new(
                 lights.point_lights.len() - 1,
@@ -375,7 +375,6 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             );
 
             lights.spot_lights.push(light.clone());
-            lights.sl_changed.push(true);
 
             let light = LightRef::new(
                 lights.spot_lights.len() - 1,
@@ -400,7 +399,6 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 DirectionalLight::new(Vec3::from(direction.into()), Vec3::from(radiance.into()));
             lights.directional_lights.push(light.clone());
 
-            lights.dl_changed.push(true);
             let light = LightRef::new(
                 lights.directional_lights.len() - 1,
                 SceneLight::Directional(light),
@@ -543,31 +541,33 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             }
 
             if let Ok(mut lights) = self.scene.lights_lock() {
-                if lights.pl_changed.any() {
-                    renderer.set_point_lights(&lights.pl_changed, lights.point_lights.as_slice());
-                    lights.pl_changed.set_all(false);
-                    changed = true;
-                }
+                unsafe {
+                    if lights.point_lights.any_changed() {
+                        renderer.set_point_lights(&lights.point_lights.changed(), lights.point_lights.as_slice());
+                        lights.point_lights.reset_changed();
+                        changed = true;
+                    }
 
-                if lights.sl_changed.any() {
-                    renderer.set_spot_lights(&lights.sl_changed, lights.spot_lights.as_slice());
-                    lights.sl_changed.set_all(false);
-                    changed = true;
-                }
+                    if lights.spot_lights.any_changed() {
+                        renderer.set_spot_lights(&lights.spot_lights.changed(), lights.spot_lights.as_slice());
+                        lights.spot_lights.reset_changed();
+                        changed = true;
+                    }
 
-                if lights.al_changed.any() {
-                    renderer.set_area_lights(&lights.al_changed, lights.area_lights.as_slice());
-                    lights.al_changed.set_all(false);
-                    changed = true;
-                }
+                    if lights.area_lights.any_changed() {
+                        renderer.set_area_lights(&lights.area_lights.changed(), lights.area_lights.as_slice());
+                        lights.area_lights.reset_changed();
+                        changed = true;
+                    }
 
-                if lights.dl_changed.any() {
-                    renderer.set_directional_lights(
-                        &lights.dl_changed,
-                        lights.directional_lights.as_slice(),
-                    );
-                    lights.dl_changed.set_all(false);
-                    changed = true;
+                    if lights.directional_lights.any_changed() {
+                        renderer.set_directional_lights(
+                            &lights.directional_lights.changed(),
+                            lights.directional_lights.as_slice(),
+                        );
+                        lights.directional_lights.reset_changed();
+                        changed = true;
+                    }
                 }
             }
 

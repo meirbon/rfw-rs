@@ -1,4 +1,5 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
+use crate::wgpu_renderer::instance::DeviceInstances;
 use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use crate::wgpu_renderer::skin::DeferredSkin;
 use rtbvh::AABB;
@@ -9,7 +10,7 @@ use scene::{
 use shared::*;
 use std::fmt::Debug;
 use std::ops::Range;
-use crate::wgpu_renderer::instance::DeviceInstances;
+use futures::executor::block_on;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,
@@ -82,11 +83,15 @@ impl DeferredLights {
     }
 
     pub fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
-        let mut changed = self.spot_lights.synchronize(device, queue);
-        changed |= self.area_lights.synchronize(device, queue);
-        changed |= self.directional_lights.synchronize(device, queue);
+        let changed1 = self.spot_lights.synchronize(device, queue);
+        let changed2 = self.area_lights.synchronize(device, queue);
+        let changed3 = self.directional_lights.synchronize(device, queue);
 
-        changed
+        let changed1 = block_on(changed1);
+        let changed2 = block_on(changed2);
+        let changed3 = block_on(changed3);
+
+        changed1 || changed2 || changed3
     }
 
     pub async fn render(
@@ -98,11 +103,14 @@ impl DeferredLights {
         skins: &TrackedStorage<DeferredSkin>,
     ) {
         self.area_lights
-            .render(encoder, instances, meshes, anim_meshes, skins).await;
+            .render(encoder, instances, meshes, anim_meshes, skins)
+            .await;
         self.spot_lights
-            .render(encoder, instances, meshes, anim_meshes, skins).await;
+            .render(encoder, instances, meshes, anim_meshes, skins)
+            .await;
         self.directional_lights
-            .render(encoder, instances, meshes, anim_meshes, skins).await;
+            .render(encoder, instances, meshes, anim_meshes, skins)
+            .await;
     }
 }
 
@@ -110,6 +118,8 @@ pub struct LightShadows<T: Sized + Light + Clone + Debug + Default> {
     lights: TrackedStorage<T>,
     light_buffer: wgpu::Buffer,
     light_buffer_size: wgpu::BufferAddress,
+    staging_buffer: wgpu::Buffer,
+    staging_buffer_size: wgpu::BufferAddress,
     info: Vec<LightInfo>,
     shadow_maps: ShadowMapArray,
 }
@@ -130,10 +140,19 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
 
+        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("light-staging-buffer"),
+            size: light_buffer_size,
+            usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+        });
+        let staging_buffer_size = light_buffer_size;
+
         Self {
             lights: TrackedStorage::new(),
             light_buffer,
             light_buffer_size,
+            staging_buffer,
+            staging_buffer_size,
             info: Vec::new(),
             shadow_maps: ShadowMapArray::new(
                 device,
@@ -153,6 +172,12 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
 
     pub fn set(&mut self, changed: &BitVec, lights: &[T], scene_bounds: &AABB) {
         self.lights = TrackedStorage::from(lights);
+        self.lights.reset_changed();
+        (0..lights.len())
+            .into_iter()
+            .filter(|i| *changed.get(*i).unwrap())
+            .for_each(|i| self.lights.trigger_changed(i));
+
         self.info.resize(lights.len(), LightInfo::default());
 
         for (i, _) in self.lights.iter().filter(|(i, _)| match changed.get(*i) {
@@ -163,7 +188,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+    pub async fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         if self.len() == 0 || !self.lights.any_changed() {
             return false;
         }
@@ -179,29 +204,34 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
             self.light_buffer_size = light_buffer_size;
+
+            self.staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("light-staging-buffer"),
+                size: light_buffer_size,
+                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+            });
+            self.staging_buffer_size = light_buffer_size;
+
             changed = true;
         }
 
-        let staging_buffer = device.create_buffer_with_data(
-            unsafe {
-                std::slice::from_raw_parts(
-                    self.lights.as_ptr() as *const u8,
-                    light_buffer_size as usize,
-                )
-            },
-            wgpu::BufferUsage::COPY_SRC,
-        );
+        let mapping = self.staging_buffer.map_write(0, self.staging_buffer_size);
+        device.poll(wgpu::Maintain::Wait);
+        let mut mapping = mapping.await.unwrap();
+
+        mapping.as_slice()[0..light_buffer_size as usize].copy_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                self.lights.as_ptr() as *const u8,
+                light_buffer_size as usize)
+        });
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("light-buffer-copy"),
         });
 
-        encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.light_buffer, 0, light_buffer_size);
+        encoder.copy_buffer_to_buffer(&self.staging_buffer, 0, &self.light_buffer, 0, light_buffer_size);
         queue.submit(&[encoder.finish()]);
-        futures::executor::block_on(self.shadow_maps.update_infos(self.info.as_slice(), device));
-
-        self.lights.reset_changed();
-
+        self.shadow_maps.update_infos(self.info.as_slice(), device).await;
         changed
     }
 
@@ -246,14 +276,16 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         skins: &TrackedStorage<DeferredSkin>,
     ) {
         if instances.changed() {
-            self.shadow_maps.render(
-                0..self.lights.len() as u32,
-                encoder,
-                instances,
-                meshes,
-                anim_meshes,
-                skins,
-            ).await;
+            self.shadow_maps
+                .render(
+                    0..self.lights.len() as u32,
+                    encoder,
+                    instances,
+                    meshes,
+                    anim_meshes,
+                    skins,
+                )
+                .await;
         } else {
             if !self.lights.any_changed() {
                 return;
@@ -261,7 +293,9 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
 
             for (i, _) in self.lights.iter_changed() {
                 let i = i as u32;
-                self.shadow_maps.render(i..(i + 1), encoder, instances, meshes, anim_meshes, skins).await;
+                self.shadow_maps
+                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes, skins)
+                    .await;
             }
         };
 
@@ -655,9 +689,8 @@ impl ShadowMapArray {
         }
         let staging_buffer = staging_buffer.finish();
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: None
-        });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         encoder.copy_buffer_to_buffer(
             &staging_buffer,
@@ -682,47 +715,57 @@ impl ShadowMapArray {
         });
 
         let filter_bind_groups1: Vec<wgpu::BindGroup> = views
-            .iter().zip(filter_views.iter())
+            .iter()
+            .zip(filter_views.iter())
             .map(|(v1, v2)| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &filter_bind_group_layout,
-                    bindings: &[wgpu::Binding {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(v2),
-                    }, wgpu::Binding {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(v1),
-                    }, wgpu::Binding {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer {
-                            buffer: &filter_uniform_direction_buffer,
-                            range: 0..8,
+                    bindings: &[
+                        wgpu::Binding {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(v2),
                         },
-                    }],
+                        wgpu::Binding {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(v1),
+                        },
+                        wgpu::Binding {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Buffer {
+                                buffer: &filter_uniform_direction_buffer,
+                                range: 0..8,
+                            },
+                        },
+                    ],
                 })
             })
             .collect();
 
         let filter_bind_groups2: Vec<wgpu::BindGroup> = views
-            .iter().zip(filter_views.iter())
+            .iter()
+            .zip(filter_views.iter())
             .map(|(v1, v2)| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &filter_bind_group_layout,
-                    bindings: &[wgpu::Binding {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(v1),
-                    }, wgpu::Binding {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(v2),
-                    }, wgpu::Binding {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer {
-                            buffer: &filter_uniform_direction_buffer,
-                            range: 0..8,
+                    bindings: &[
+                        wgpu::Binding {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(v1),
                         },
-                    }],
+                        wgpu::Binding {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(v2),
+                        },
+                        wgpu::Binding {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Buffer {
+                                buffer: &filter_uniform_direction_buffer,
+                                range: 0..8,
+                            },
+                        },
+                    ],
                 })
             })
             .collect();
@@ -948,51 +991,60 @@ impl ShadowMapArray {
         }
 
         let filter_bind_groups1: Vec<wgpu::BindGroup> = views
-            .iter().zip(filter_views.iter())
+            .iter()
+            .zip(filter_views.iter())
             .map(|(v1, v2)| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &self.filter_bind_group_layout,
-                    bindings: &[wgpu::Binding {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(v2),
-                    }, wgpu::Binding {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(v1),
-                    }, wgpu::Binding {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer {
-                            buffer: &self.filter_uniform_direction_buffer,
-                            range: 0..8,
+                    bindings: &[
+                        wgpu::Binding {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(v2),
                         },
-                    }],
+                        wgpu::Binding {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(v1),
+                        },
+                        wgpu::Binding {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Buffer {
+                                buffer: &self.filter_uniform_direction_buffer,
+                                range: 0..8,
+                            },
+                        },
+                    ],
                 })
             })
             .collect();
 
         let filter_bind_groups2: Vec<wgpu::BindGroup> = views
-            .iter().zip(filter_views.iter())
+            .iter()
+            .zip(filter_views.iter())
             .map(|(v1, v2)| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &self.filter_bind_group_layout,
-                    bindings: &[wgpu::Binding {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(v1),
-                    }, wgpu::Binding {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(v2),
-                    }, wgpu::Binding {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer {
-                            buffer: &self.filter_uniform_direction_buffer,
-                            range: 0..8,
+                    bindings: &[
+                        wgpu::Binding {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(v1),
                         },
-                    }],
+                        wgpu::Binding {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(v2),
+                        },
+                        wgpu::Binding {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Buffer {
+                                buffer: &self.filter_uniform_direction_buffer,
+                                range: 0..8,
+                            },
+                        },
+                    ],
                 })
             })
             .collect();
-
 
         let new_size = (size * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress;
 
@@ -1153,7 +1205,8 @@ impl ShadowMapArray {
                                 render_pass.set_bind_group(
                                     0,
                                     &self.bind_group,
-                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                        as wgpu::DynamicOffset],
                                 );
                                 render_pass.set_bind_group(
                                     1,
@@ -1180,12 +1233,7 @@ impl ShadowMapArray {
                                     let buffer = mesh.buffer.as_ref().unwrap();
                                     let anim_buffer = mesh.anim_buffer.as_ref().unwrap();
                                     render_pass.set_pipeline(&self.anim_pipeline);
-                                    render_pass.set_vertex_buffer(
-                                        0,
-                                        buffer,
-                                        0,
-                                        mesh.buffer_size,
-                                    );
+                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
                                     render_pass.set_vertex_buffer(
                                         1,
                                         anim_buffer,
@@ -1202,7 +1250,8 @@ impl ShadowMapArray {
                                     render_pass.set_bind_group(
                                         0,
                                         &self.bind_group,
-                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                            as wgpu::DynamicOffset],
                                     );
                                     render_pass.set_bind_group(
                                         1,
@@ -1233,7 +1282,8 @@ impl ShadowMapArray {
                                     render_pass.set_bind_group(
                                         0,
                                         &self.bind_group,
-                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                            as wgpu::DynamicOffset],
                                     );
                                     render_pass.set_bind_group(
                                         1,
@@ -1241,12 +1291,7 @@ impl ShadowMapArray {
                                         &[DeviceInstances::dynamic_offset_for(i) as u32],
                                     );
 
-                                    render_pass.set_vertex_buffer(
-                                        0,
-                                        buffer,
-                                        0,
-                                        mesh.buffer_size,
-                                    );
+                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
 
                                     for j in 0..mesh.sub_meshes.len() {
                                         if let Some(bounds) = bounds.mesh_bounds.get(i) {

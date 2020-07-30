@@ -17,6 +17,7 @@ use std::{
 };
 
 use super::helpers::*;
+use scene::graph::Skin;
 
 #[derive(Debug, Copy, Clone)]
 pub enum RendererError {
@@ -850,5 +851,9 @@ impl<'a> Renderer for VkRenderer<'a> {
     fn set_setting(&mut self, _setting: Setting) {}
     fn set_animated_mesh(&mut self, id: usize, mesh: &scene::AnimatedMesh) {
         todo!()
+    }
+
+    fn set_skin(&mut self, id: usize, skin: &Skin) {
+        unimplemented!()
     }
 }

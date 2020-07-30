@@ -3,8 +3,11 @@ members = [
     "renderers/cpu-rt",
     "renderers/deferred",
     "renderers/gpu-rt",
-    "renderers/metal-rt",
+#    "renderers/metal-rt",
     "renderers/shared",
     "renderers/vulkan",
     "scene"
 ]
+
+[profile.release]
+debug = 2

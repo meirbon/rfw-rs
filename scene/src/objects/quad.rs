@@ -1,4 +1,4 @@
-use crate::{Mesh, MeshResult, ToMesh};
+use crate::{Mesh, ToMesh};
 use glam::*;
 
 pub struct Quad {
@@ -74,13 +74,13 @@ impl Quad {
 }
 
 impl ToMesh for Quad {
-    fn into_mesh(self) -> MeshResult {
-        MeshResult::Static(Mesh::new(
+    fn into_mesh(self) -> Mesh {
+        Mesh::new(
             self.vertices.to_vec(),
             self.normals.to_vec(),
             self.uvs.to_vec(),
             self.material_ids.to_vec(),
             Some("quad"),
-        ))
+        )
     }
 }

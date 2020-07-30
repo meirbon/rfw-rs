@@ -1,8 +1,5 @@
 #![allow(dead_code)]
 
-#[global_allocator]
-static ALLOC: rpmalloc::RpMalloc = rpmalloc::RpMalloc;
-
 mod renderer;
 mod surface;
 
@@ -127,7 +124,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let quad_mat = renderer.add_material(Vec3::splat(20.0), 1.0, Vec3::one(), 0.0)?;
     let quad = scene::objects::Quad::new(Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 20.0, 0.0), 10.0, 10.0, quad_mat);
     let quad = renderer.add_object(quad)?;
-    let _quad_inst = renderer.add_instance(quad);
+    let _quad_inst = renderer.create_instance(quad);
 
     let pica = match renderer.load("models/pica/scene.gltf")? {
         LoadResult::Scene(root_nodes) => root_nodes,

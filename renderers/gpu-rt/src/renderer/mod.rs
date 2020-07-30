@@ -82,7 +82,7 @@ impl AnimMesh {
     pub fn set_skinned_mesh(&mut self, mesh: Mesh) {
         *self = match self {
             AnimMesh::None => panic!("This should not happen"),
-            AnimMesh::Skinned { original, skinned } => {
+            AnimMesh::Skinned { original, .. } => {
                 AnimMesh::Skinned {
                     original: original.clone(),
                     skinned: mesh,
@@ -1248,12 +1248,22 @@ impl Renderer for RayTracer {
             .enumerate()
             .par_bridge()
             .map(|(i, (_, mesh))| {
-                let mesh = mesh.as_mut();
-                if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                    mesh.construct_bvh();
-                    1
-                } else {
-                    0
+                match mesh {
+                    AnimMesh::None => { 0 }
+                    AnimMesh::Skinned { skinned, .. } => if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                        skinned.refit_bvh();
+                        1
+                    } else {
+                        0
+                    },
+                    AnimMesh::Regular(mesh) => {
+                        if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                            mesh.refit_bvh();
+                            1
+                        } else {
+                            0
+                        }
+                    }
                 }
             })
             .sum::<usize>();
@@ -1290,23 +1300,46 @@ impl Renderer for RayTracer {
 
             for i in 0..anim_meshes.len() {
                 let j = i + meshes.len();
-                let mesh = anim_meshes[i].as_ref();
-                let start_triangle = self.triangles_index_counter;
-                let start_bvh_node = self.mesh_bvh_index_counter;
-                let start_mbvh_node = self.mesh_mbvh_index_counter;
-                let start_prim_index = self.mesh_prim_index_counter;
+                match &anim_meshes[i] {
+                    AnimMesh::None => {}
+                    AnimMesh::Skinned { skinned, .. } => {
+                        let mesh = skinned;
+                        let start_triangle = self.triangles_index_counter;
+                        let start_bvh_node = self.mesh_bvh_index_counter;
+                        let start_mbvh_node = self.mesh_mbvh_index_counter;
+                        let start_prim_index = self.mesh_prim_index_counter;
 
-                self.meshes_gpu_data[j].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
-                self.meshes_gpu_data[j].bvh_offset = start_bvh_node as u32;
-                self.meshes_gpu_data[j].mbvh_offset = start_mbvh_node as u32;
-                self.meshes_gpu_data[j].triangles = mesh.triangles.len() as u32;
-                self.meshes_gpu_data[j].triangle_offset = start_triangle as u32;
-                self.meshes_gpu_data[j].prim_index_offset = start_prim_index as u32;
+                        self.meshes_gpu_data[j].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
+                        self.meshes_gpu_data[j].bvh_offset = start_bvh_node as u32;
+                        self.meshes_gpu_data[j].mbvh_offset = start_mbvh_node as u32;
+                        self.meshes_gpu_data[j].triangles = mesh.triangles.len() as u32;
+                        self.meshes_gpu_data[j].triangle_offset = start_triangle as u32;
+                        self.meshes_gpu_data[j].prim_index_offset = start_prim_index as u32;
 
-                self.triangles_index_counter += mesh.triangles.len();
-                self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
-                self.mesh_mbvh_index_counter += mesh.mbvh.as_ref().unwrap().m_nodes.len();
-                self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
+                        self.triangles_index_counter += mesh.triangles.len();
+                        self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
+                        self.mesh_mbvh_index_counter += mesh.mbvh.as_ref().unwrap().m_nodes.len();
+                        self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
+                    }
+                    AnimMesh::Regular(mesh) => {
+                        let start_triangle = self.triangles_index_counter;
+                        let start_bvh_node = self.mesh_bvh_index_counter;
+                        let start_mbvh_node = self.mesh_mbvh_index_counter;
+                        let start_prim_index = self.mesh_prim_index_counter;
+
+                        self.meshes_gpu_data[j].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
+                        self.meshes_gpu_data[j].bvh_offset = start_bvh_node as u32;
+                        self.meshes_gpu_data[j].mbvh_offset = start_mbvh_node as u32;
+                        self.meshes_gpu_data[j].triangles = mesh.triangles.len() as u32;
+                        self.meshes_gpu_data[j].triangle_offset = start_triangle as u32;
+                        self.meshes_gpu_data[j].prim_index_offset = start_prim_index as u32;
+
+                        self.triangles_index_counter += mesh.triangles.len();
+                        self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
+                        self.mesh_mbvh_index_counter += mesh.mbvh.as_ref().unwrap().m_nodes.len();
+                        self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
+                    }
+                }
             }
 
 
@@ -1345,28 +1378,56 @@ impl Renderer for RayTracer {
             }
 
             for i in 0..anim_meshes.len() {
-                let mesh = anim_meshes[i].as_ref();
-                let offset_data = &self.meshes_gpu_data[i + meshes.len()];
+                match &anim_meshes[i] {
+                    AnimMesh::None => {}
+                    AnimMesh::Skinned { skinned, .. } => {
+                        let mesh = skinned;
+                        let offset_data = &self.meshes_gpu_data[i + meshes.len()];
 
-                self.meshes_prim_indices.copy_from_slice_offset(
-                    mesh.bvh.as_ref().unwrap().prim_indices.as_slice(),
-                    offset_data.prim_index_offset as usize,
-                );
+                        self.meshes_prim_indices.copy_from_slice_offset(
+                            mesh.bvh.as_ref().unwrap().prim_indices.as_slice(),
+                            offset_data.prim_index_offset as usize,
+                        );
 
-                self.meshes_bvh_buffer.copy_from_slice_offset(
-                    mesh.bvh.as_ref().unwrap().nodes.as_slice(),
-                    offset_data.bvh_offset as usize,
-                );
+                        self.meshes_bvh_buffer.copy_from_slice_offset(
+                            mesh.bvh.as_ref().unwrap().nodes.as_slice(),
+                            offset_data.bvh_offset as usize,
+                        );
 
-                self.meshes_mbvh_buffer.copy_from_slice_offset(
-                    mesh.mbvh.as_ref().unwrap().m_nodes.as_slice(),
-                    offset_data.mbvh_offset as usize,
-                );
+                        self.meshes_mbvh_buffer.copy_from_slice_offset(
+                            mesh.mbvh.as_ref().unwrap().m_nodes.as_slice(),
+                            offset_data.mbvh_offset as usize,
+                        );
 
-                self.triangles_buffer.copy_from_slice_offset(
-                    mesh.triangles.as_slice(),
-                    offset_data.triangle_offset as usize,
-                );
+                        self.triangles_buffer.copy_from_slice_offset(
+                            mesh.triangles.as_slice(),
+                            offset_data.triangle_offset as usize,
+                        );
+                    }
+                    AnimMesh::Regular(mesh) => {
+                        let offset_data = &self.meshes_gpu_data[i + meshes.len()];
+
+                        self.meshes_prim_indices.copy_from_slice_offset(
+                            mesh.bvh.as_ref().unwrap().prim_indices.as_slice(),
+                            offset_data.prim_index_offset as usize,
+                        );
+
+                        self.meshes_bvh_buffer.copy_from_slice_offset(
+                            mesh.bvh.as_ref().unwrap().nodes.as_slice(),
+                            offset_data.bvh_offset as usize,
+                        );
+
+                        self.meshes_mbvh_buffer.copy_from_slice_offset(
+                            mesh.mbvh.as_ref().unwrap().m_nodes.as_slice(),
+                            offset_data.mbvh_offset as usize,
+                        );
+
+                        self.triangles_buffer.copy_from_slice_offset(
+                            mesh.triangles.as_slice(),
+                            offset_data.triangle_offset as usize,
+                        );
+                    }
+                }
             }
 
             self.meshes_prim_indices.update(&self.device, &mut encoder);

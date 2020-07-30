@@ -13,7 +13,6 @@ use rtbvh::{Bounds, AABB};
 use crate::graph::animation::Animation;
 use crate::graph::Skin;
 use crate::utils::TrackedStorage;
-use bitvec::prelude::*;
 use graph::NodeGraph;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -94,27 +93,19 @@ impl Default for Objects {
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SceneLights {
-    pub point_lights: Vec<PointLight>,
-    pub pl_changed: BitVec,
-    pub spot_lights: Vec<SpotLight>,
-    pub sl_changed: BitVec,
-    pub area_lights: Vec<AreaLight>,
-    pub al_changed: BitVec,
-    pub directional_lights: Vec<DirectionalLight>,
-    pub dl_changed: BitVec,
+    pub point_lights: TrackedStorage<PointLight>,
+    pub spot_lights: TrackedStorage<SpotLight>,
+    pub area_lights: TrackedStorage<AreaLight>,
+    pub directional_lights: TrackedStorage<DirectionalLight>,
 }
 
 impl Default for SceneLights {
     fn default() -> Self {
         Self {
-            point_lights: Vec::new(),
-            pl_changed: BitVec::new(),
-            spot_lights: Vec::new(),
-            sl_changed: BitVec::new(),
-            area_lights: Vec::new(),
-            al_changed: BitVec::new(),
-            directional_lights: Vec::new(),
-            dl_changed: BitVec::new(),
+            point_lights: TrackedStorage::new(),
+            spot_lights: TrackedStorage::new(),
+            area_lights: TrackedStorage::new(),
+            directional_lights: TrackedStorage::new(),
         }
     }
 }
@@ -525,7 +516,6 @@ impl TriangleScene {
         match self.lights.try_lock() {
             Ok(mut lights) => {
                 lights.point_lights.push(PointLight::new(pos, radiance));
-                lights.pl_changed.push(true);
                 Ok(lights.point_lights.len() - 1)
             }
             Err(e) => Err(e),
@@ -549,7 +539,6 @@ impl TriangleScene {
                     outer_angle,
                     radiance,
                 ));
-                lights.sl_changed.push(true);
                 Ok(lights.spot_lights.len() - 1)
             }
             Err(e) => Err(e),
@@ -566,7 +555,6 @@ impl TriangleScene {
                 lights
                     .directional_lights
                     .push(DirectionalLight::new(direction, radiance));
-                lights.dl_changed.push(true);
                 Ok(lights.directional_lights.len() - 1)
             }
             Err(e) => Err(e),
@@ -576,10 +564,10 @@ impl TriangleScene {
     pub fn reset_changed(&self) -> Result<(), ()> {
         let lights = self.lights.try_lock();
         if let Ok(mut lights) = lights {
-            lights.pl_changed.set_all(false);
-            lights.sl_changed.set_all(false);
-            lights.al_changed.set_all(false);
-            lights.dl_changed.set_all(false);
+            lights.point_lights.reset_changed();
+            lights.spot_lights.reset_changed();
+            lights.area_lights.reset_changed();
+            lights.directional_lights.reset_changed();
         } else {
             return Err(());
         }
@@ -599,9 +587,7 @@ impl TriangleScene {
         let light_flags = materials.light_flags();
         if light_flags.not_any() {
             if let Ok(mut lights) = self.lights.lock() {
-                lights.area_lights = Vec::new();
-                lights.al_changed.resize(0, false);
-                lights.al_changed.set_all(false);
+                lights.area_lights = TrackedStorage::new();
             }
             return;
         }
@@ -730,10 +716,7 @@ impl TriangleScene {
         }
 
         if let Ok(mut lights) = self.lights.lock() {
-            lights.area_lights = area_lights;
-            let new_len = lights.area_lights.len();
-            lights.al_changed.resize(new_len, true);
-            lights.al_changed.set_all(true);
+            lights.area_lights = TrackedStorage::from(area_lights);
         }
     }
 }

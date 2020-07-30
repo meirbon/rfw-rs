@@ -382,7 +382,7 @@ impl Light for SpotLight {
 
         let direction = Vec3::from(self.direction);
         let center: Vec3 = Vec3::from(self.position);
-        let projection = Mat4::perspective_rh_gl(fov, 1.0, 0.1, self.energy);
+        let projection = Mat4::perspective_rh_gl(fov, 1.0, 0.1, self.energy * 2.0);
         let view = Mat4::look_at_rh(center, center + direction, up);
         projection * view
     }
@@ -391,7 +391,7 @@ impl Light for SpotLight {
         LightInfo {
             pm: self.get_matrix(scene_bounds),
             pos: self.position,
-            range: self.energy,
+            range: self.energy * 2.0,
             ..LightInfo::default()
         }
     }

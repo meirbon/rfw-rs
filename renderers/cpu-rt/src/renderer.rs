@@ -672,7 +672,7 @@ impl Renderer for RayTracer {
         self.skybox = Some(skybox);
     }
 
-    fn set_skin(&mut self, id: usize, skin: &Skin) {}
+    fn set_skin(&mut self, id: usize, _skin: &Skin) {}
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {
         Vec::new()

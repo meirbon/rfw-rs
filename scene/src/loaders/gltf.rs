@@ -168,10 +168,9 @@ impl ObjectLoader for GltfLoader {
 
         let mut root_nodes = Vec::new();
 
-        let mut tmp_indices = Vec::new();
+        let meshes: Vec<LoadedMesh> = document.meshes().map(|mesh| {
+            let mut tmp_indices = Vec::new();
 
-        let mut meshes: Vec<LoadedMesh> = Vec::new();
-        document.meshes().for_each(|mesh| {
             let mut vertices: Vec<Vec3> = Vec::new();
             let mut normals: Vec<Vec3> = Vec::new();
             let mut indices: Vec<[u32; 3]> = Vec::new();
@@ -343,7 +342,7 @@ impl ObjectLoader for GltfLoader {
             });
 
             if !joints.is_empty() || !weights.is_empty() {
-                meshes.push(LoadedMesh::Animated(AnimatedMesh::new_indexed(
+                LoadedMesh::Animated(AnimatedMesh::new_indexed(
                     indices,
                     vertices,
                     normals,
@@ -356,9 +355,9 @@ impl ObjectLoader for GltfLoader {
                     } else {
                         None
                     },
-                )));
+                ))
             } else {
-                meshes.push(LoadedMesh::Static(Mesh::new_indexed(
+                LoadedMesh::Static(Mesh::new_indexed(
                     indices,
                     vertices,
                     normals,
@@ -369,27 +368,26 @@ impl ObjectLoader for GltfLoader {
                     } else {
                         None
                     },
-                )));
-            };
-        });
+                ))
+            }
+        }).collect();
 
-        let meshes = meshes
-            .iter()
-            .map(|m| match m {
-                LoadedMesh::Static(m) => {
-                    let mut mesh_storage = mesh_storage.lock().unwrap();
-                    let mesh_id = mesh_storage.allocate();
-                    mesh_storage[mesh_id] = m.clone();
-                    LoadedMeshID::Static(mesh_id, m.bounds.clone())
-                }
-                LoadedMesh::Animated(m) => {
-                    let mut animated_mesh_storage = animated_mesh_storage.lock().unwrap();
-                    let mesh_id = animated_mesh_storage.allocate();
-                    animated_mesh_storage[mesh_id] = m.clone();
-                    LoadedMeshID::Animated(mesh_id, m.bounds.clone())
-                }
-            })
-            .collect::<Vec<LoadedMeshID>>();
+        let meshes = meshes.iter().map(|m| match m {
+            LoadedMesh::Static(m) => {
+                let clone = m.clone();
+                let mut mesh_storage = mesh_storage.lock().unwrap();
+                let mesh_id = mesh_storage.allocate();
+                mesh_storage[mesh_id] = clone;
+                LoadedMeshID::Static(mesh_id, m.bounds.clone())
+            }
+            LoadedMesh::Animated(m) => {
+                let clone = m.clone();
+                let mut animated_mesh_storage = animated_mesh_storage.lock().unwrap();
+                let mesh_id = animated_mesh_storage.allocate();
+                animated_mesh_storage[mesh_id] = clone;
+                LoadedMeshID::Animated(mesh_id, m.bounds.clone())
+            }
+        }).collect::<Vec<LoadedMeshID>>();
 
         {
             let mut node_storage = node_storage.lock().unwrap();

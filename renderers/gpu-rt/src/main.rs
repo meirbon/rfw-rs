@@ -1,8 +1,5 @@
 #![allow(dead_code)]
 
-#[global_allocator]
-static ALLOC: rpmalloc::RpMalloc = rpmalloc::RpMalloc;
-
 mod renderer;
 
 enum AppType {
@@ -153,15 +150,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // let mut instance = renderer.add_instance(sibenik).unwrap();
     // instance.synchronize().unwrap();
 
-    renderer.add_point_light(Vec3::zero(), Vec3::new(0.0, 2.0, 4.0));
-    renderer.add_point_light(Vec3::new(0.0, -4.0, 0.0), Vec3::splat(1.0));
-
     renderer.add_spot_light(
-        Vec3::new(0.0, -2.0, 0.0),
+        Vec3::new(0.0, 15.0, 0.0),
         Vec3::new(0.0, -1.0, 0.0),
-        Vec3::splat(10.0) * Vec3::new(1.0, 1.0, 251.0 / 255.0),
-        15.0,
-        30.0,
+        Vec3::splat(100.0) * Vec3::new(1.0, 1.0, 251.0 / 255.0),
+        60.0,
+        75.0,
     );
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
@@ -169,6 +163,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     renderer.set_skybox("models/pisa.png").unwrap();
 
+    renderer.set_animation_time(0.0);
     renderer.synchronize();
 
     event_loop.run(move |event, _, control_flow| {

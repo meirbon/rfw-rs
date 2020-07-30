@@ -204,11 +204,11 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     }
 
     pub fn as_slice(&self) -> &[T] {
-        self.storage.as_slice()
+        &self.storage[0..self.storage_ptr]
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self.storage.as_mut_slice()
+        &mut self.storage[0..self.storage_ptr]
     }
 
     pub unsafe fn as_ptr(&self) -> *const T {
@@ -334,6 +334,7 @@ pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
     changed: BitVec,
 }
 
+
 impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
     fn default() -> Self {
         Self {
@@ -383,6 +384,10 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         self.changed.set(index, true);
         self.storage.get_mut(index)
+    }
+
+    pub fn changed(&self) -> &BitVec {
+        &self.changed
     }
 
     pub fn any_changed(&self) -> bool {
@@ -465,6 +470,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn trigger_changed(&mut self, index: usize) {
         self.changed.set(index, true);
     }
+
     pub fn trigger_changed_all(&mut self) {
         self.changed.set_all(true);
     }
@@ -479,6 +485,14 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
 
     pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
         self.storage.as_mut_ptr()
+    }
+
+    pub unsafe fn as_slice(&self) -> &[T] {
+        self.storage.as_slice()
+    }
+
+    pub unsafe fn as_mut_slice(&mut self) -> &mut [T] {
+        self.storage.as_mut_slice()
     }
 }
 
@@ -592,13 +606,13 @@ mod tests {
 
         let values: [u32; 3] = [0, 2, 3];
         let mut i = 0;
-        for j in storage.iter() {
+        for (_, j) in storage.iter() {
             assert_eq!(*j, values[i]);
             i += 1;
         }
 
         let mut i = 0;
-        for j in storage.iter_mut() {
+        for (_, j) in storage.iter_mut() {
             assert_eq!(*j, values[i]);
             i += 1;
         }
@@ -630,3 +644,30 @@ mod tests {
         assert_eq!(storage.allocate(), 1);
     }
 }
+
+impl<T: Default + Clone + std::fmt::Debug> From<Vec<T>> for FlaggedStorage<T> {
+    fn from(v: Vec<T>) -> Self {
+        let mut active = BitVec::with_capacity(v.len());
+        active.set_all(true);
+        let storage_ptr = v.len();
+
+        Self {
+            storage: v,
+            storage_ptr,
+            active,
+            empty_slots: Vec::new(),
+        }
+    }
+}
+
+impl<T: Default + Clone + std::fmt::Debug> From<Vec<T>> for TrackedStorage<T> {
+    fn from(v: Vec<T>) -> Self {
+        let mut changed = BitVec::with_capacity(v.len());
+        changed.set_all(true);
+        Self {
+            changed,
+            storage: FlaggedStorage::from(v),
+        }
+    }
+}
+

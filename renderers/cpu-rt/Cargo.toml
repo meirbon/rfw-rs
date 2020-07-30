@@ -8,7 +8,6 @@ edition = "2018"
 
 [dependencies]
 winit = "0.22"
-rpmalloc = "0.2"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 scene = { path = "../../scene" }
 shared = { path = "../shared" }

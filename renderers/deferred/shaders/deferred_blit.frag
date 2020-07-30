@@ -13,6 +13,6 @@ void main() {
     const vec3 albedo = imageLoad(Albedo, pixel).xyz;
     const vec3 radiance = imageLoad(Radiance, pixel).xyz;
     const float ssao = imageLoad(SSAO, pixel).r;
-    const vec3 ambient = albedo * 0.03 * ssao;
+    const vec3 ambient = albedo * 0.01 * ssao;
     OutColor = vec4(radiance + ambient, 1.0);
 }

@@ -808,14 +808,11 @@ impl Deferred {
 
             let device_instance = &instances.device_instances;
 
-            instances.iter().for_each(|(i, instance, bounds)| {
-                if !frustrum
+            instances.iter().filter(|(_, _, bounds)| {
+                frustrum
                     .aabb_in_frustrum(&bounds.root_bounds)
                     .should_render()
-                {
-                    return;
-                }
-
+            }).for_each(|(i, instance, bounds)| {
                 match instance.object_id {
                     ObjectRef::None => panic!("Invalid"),
                     ObjectRef::Static(mesh_id) => {
@@ -831,20 +828,14 @@ impl Deferred {
                             render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
                             render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
 
-                            for j in 0..mesh.sub_meshes.len() {
-                                if !frustrum
-                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                    .should_render()
-                                {
-                                    continue;
-                                }
-
-                                let sub_mesh = &mesh.sub_meshes[j];
+                            mesh.sub_meshes.iter().enumerate().filter(|(j, _)| {
+                                frustrum.aabb_in_frustrum(&bounds.mesh_bounds[*j]).should_render()
+                            }).for_each(|(_, sub_mesh)| {
                                 let bind_group =
                                     &material_bind_groups[sub_mesh.mat_id as usize];
                                 render_pass.set_bind_group(2, bind_group, &[]);
                                 render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                            }
+                            });
                         }
                     }
                     ObjectRef::Animated(mesh_id) => {
@@ -875,15 +866,9 @@ impl Deferred {
                                     mesh.anim_buffer_size,
                                 );
 
-                                for j in 0..mesh.sub_meshes.len() {
-                                    if !frustrum
-                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                        .should_render()
-                                    {
-                                        continue;
-                                    }
-
-                                    let sub_mesh = &mesh.sub_meshes[j];
+                                mesh.sub_meshes.iter().enumerate().filter(|(j, _)| {
+                                    frustrum.aabb_in_frustrum(&bounds.mesh_bounds[*j]).should_render()
+                                }).for_each(|(_, sub_mesh)| {
                                     let bind_group =
                                         &material_bind_groups[sub_mesh.mat_id as usize];
                                     render_pass.set_bind_group(2, bind_group, &[]);
@@ -899,7 +884,7 @@ impl Deferred {
                                         &[],
                                     );
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                }
+                                });
                             } else {
                                 render_pass.set_pipeline(&pipeline.pipeline);
                                 render_pass.set_bind_group(0, &uniform_bind_group, &[]);
@@ -911,20 +896,14 @@ impl Deferred {
                                 render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
                                 render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
 
-                                for j in 0..mesh.sub_meshes.len() {
-                                    if !frustrum
-                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                        .should_render()
-                                    {
-                                        continue;
-                                    }
-
-                                    let sub_mesh = &mesh.sub_meshes[j];
+                                mesh.sub_meshes.iter().enumerate().filter(|(j, _)| {
+                                    frustrum.aabb_in_frustrum(&bounds.mesh_bounds[*j]).should_render()
+                                }).for_each(|(_, sub_mesh)| {
                                     let bind_group =
                                         &material_bind_groups[sub_mesh.mat_id as usize];
                                     render_pass.set_bind_group(2, bind_group, &[]);
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                }
+                                });
                             }
                         }
                     }
