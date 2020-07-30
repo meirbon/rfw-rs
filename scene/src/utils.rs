@@ -81,7 +81,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     }
 
     pub fn overwrite(&mut self, index: usize) {
-        if index <= self.len() {
+        if index >= self.len() {
             let last_len = self.len();
             let new_len = (index + 1) * 2;
             self.active.resize(new_len, false);
@@ -398,7 +398,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub fn overwrite(&mut self, index: usize, val: T) {
-        if index <= self.len() {
+        if index >= self.len() {
             let new_len = (index + 1) * 2;
             self.changed.resize(new_len, false);
         }

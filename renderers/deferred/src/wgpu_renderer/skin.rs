@@ -1,4 +1,3 @@
-use crate::wgpu_renderer::{CopyCommand, CopyStagingBuffer};
 use scene::graph::Skin;
 use shared::BytesConversion;
 
@@ -7,8 +6,6 @@ pub struct DeferredSkin {
     skin: Skin,
     matrices_buffer: Option<wgpu::Buffer>,
     joint_matrices_buffer_size: wgpu::BufferAddress,
-    staging_buffer: Option<wgpu::Buffer>,
-    staging_size: wgpu::BufferAddress,
     pub bind_group: Option<wgpu::BindGroup>,
 }
 
@@ -18,8 +15,6 @@ impl Clone for DeferredSkin {
             skin: self.skin.clone(),
             matrices_buffer: None,
             joint_matrices_buffer_size: 0,
-            staging_buffer: None,
-            staging_size: 0,
             bind_group: None,
         }
     }
@@ -31,8 +26,6 @@ impl Default for DeferredSkin {
             skin: Skin::default(),
             matrices_buffer: None,
             joint_matrices_buffer_size: 0,
-            staging_buffer: None,
-            staging_size: 0,
             bind_group: None,
         }
     }
@@ -45,19 +38,19 @@ impl DeferredSkin {
         let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("joint-matrices"),
             size: joint_matrices_buffer_size,
-            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::MAP_WRITE,
         });
 
         let staging_size = skin.joint_matrices.to_bytes().len();
-        let staging_buffer =
-            device.create_buffer_with_data(skin.joint_matrices.to_bytes(), wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC);
+        let staging_buffer = device.create_buffer_with_data(
+            skin.joint_matrices.to_bytes(),
+            wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+        );
 
         Self {
             skin,
             matrices_buffer: Some(matrices_buffer),
             joint_matrices_buffer_size,
-            staging_buffer: Some(staging_buffer),
-            staging_size: staging_size as wgpu::BufferAddress,
             bind_group: None,
         }
     }
@@ -90,24 +83,15 @@ impl DeferredSkin {
         }));
     }
 
-    pub fn get_copy_command(&self, device: &wgpu::Device) -> CopyCommand {
-        let mapping = self
-            .staging_buffer
-            .as_ref()
-            .unwrap()
-            .map_write(0, self.staging_size);
+    pub async fn update(&self, device: &wgpu::Device) {
+        if let Some(buffer) = self.matrices_buffer.as_ref() {
+            let mapping = buffer.map_write(0, self.joint_matrices_buffer_size);
+            device.poll(wgpu::Maintain::Wait);
+            let mut mapping = mapping.await.unwrap();
 
-        device.poll(wgpu::Maintain::Wait);
-        let mut mapping = futures::executor::block_on(mapping).unwrap();
-        mapping
-            .as_slice()
-            .copy_from_slice(self.skin.joint_matrices.to_bytes());
-
-        CopyCommand {
-            destination_buffer: self.matrices_buffer.as_ref().unwrap(),
-            offset: 0,
-            copy_size: self.joint_matrices_buffer_size,
-            staging_buffer: CopyStagingBuffer::Reference(self.staging_buffer.as_ref().unwrap()),
+            mapping
+                .as_slice()
+                .copy_from_slice(self.skin.joint_matrices.to_bytes());
         }
     }
 }

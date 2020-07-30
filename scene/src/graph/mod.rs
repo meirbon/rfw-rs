@@ -99,6 +99,70 @@ impl Node {
         self.changed = true;
     }
 
+    pub fn scale_x(&mut self, scale: f32) {
+        self.scale *= Vec3::new(scale, 1.0, 1.0);
+        self.changed = true;
+    }
+
+    pub fn scale_y(&mut self, scale: f32) {
+        self.scale *= Vec3::new(1.0, scale, 1.0);
+        self.changed = true;
+    }
+
+    pub fn scale_z(&mut self, scale: f32) {
+        self.scale *= Vec3::new(1.0, 1.0, scale);
+        self.changed = true;
+    }
+
+    pub fn scale<T: Into<[f32; 3]>>(&mut self, offset: T) {
+        self.scale *= Vec3::from(offset.into());
+        self.changed = true;
+    }
+
+    pub fn translate_x(&mut self, offset: f32) {
+        self.translation += Vec3::new(offset, 0.0, 0.0);
+        self.changed = true;
+    }
+
+    pub fn translate_y(&mut self, offset: f32) {
+        self.translation += Vec3::new(0.0, offset, 0.0);
+        self.changed = true;
+    }
+
+    pub fn translate_z(&mut self, offset: f32) {
+        self.translation += Vec3::new(0.0, 0.0, offset);
+        self.changed = true;
+    }
+
+    pub fn translate<T: Into<[f32; 3]>>(&mut self, offset: T) {
+        let offset: [f32; 3] = offset.into();
+        self.translation += Vec3::from(offset);
+        self.changed = true;
+    }
+
+    pub fn rotate<T: Into<[f32; 3]>>(&mut self, degrees: T) {
+        let degrees: [f32; 3] = degrees.into();
+        self.rotation *= Quat::from_rotation_x(degrees[0].to_radians());
+        self.rotation *= Quat::from_rotation_y(degrees[1].to_radians());
+        self.rotation *= Quat::from_rotation_z(degrees[2].to_radians());
+        self.changed = true;
+    }
+
+    pub fn rotate_x(&mut self, degrees: f32) {
+        self.rotation *= Quat::from_rotation_x(degrees.to_radians());
+        self.changed = true;
+    }
+
+    pub fn rotate_y(&mut self, degrees: f32) {
+        self.rotation *= Quat::from_rotation_y(degrees.to_radians());
+        self.changed = true;
+    }
+
+    pub fn rotate_z(&mut self, degrees: f32) {
+        self.rotation *= Quat::from_rotation_z(degrees.to_radians());
+        self.changed = true;
+    }
+
     pub fn update_matrix(&mut self) {
         let trs =
             Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);

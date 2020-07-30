@@ -16,6 +16,22 @@ pub enum LoadResult {
     Scene(Vec<u32>),
 }
 
+impl LoadResult {
+    pub fn object(self) -> Result<ObjectRef, ()> {
+        match self {
+            LoadResult::Object(obj) => Ok(obj),
+            LoadResult::Scene(_) => Err(()),
+        }
+    }
+
+    pub fn scene(self) -> Result<Vec<u32>, ()> {
+        match self {
+            LoadResult::Object(_) => Err(()),
+            LoadResult::Scene(nodes) => Ok(nodes),
+        }
+    }
+}
+
 pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
     fn load(
         &self,

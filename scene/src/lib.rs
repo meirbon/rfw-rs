@@ -231,12 +231,12 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         cb(lock.get(index))
     }
 
-    pub fn get_node_mut<C>(&self, index: usize, cb: C)
+    pub fn get_node_mut<C>(&self, index: u32, cb: C)
         where
             C: FnOnce(Option<&mut Node>),
     {
         let mut lock = self.scene.objects.nodes.lock().unwrap();
-        cb(lock.get_mut(index))
+        cb(lock.get_mut(index as usize))
     }
 
     pub fn find_mesh_by_name(&self, name: String) -> Vec<ObjectRef> {

@@ -155,12 +155,13 @@ impl InstanceList {
         }
     }
 
-    pub fn update(
+    pub async fn update(
         &mut self,
         device: &wgpu::Device,
         meshes: &TrackedStorage<DeferredMesh>,
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
-    ) -> Vec<super::CopyCommand> {
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
         let mut commands = Vec::with_capacity(self.instances.len());
 
         let device_instances = &self.device_instances;
@@ -178,7 +179,8 @@ impl InstanceList {
 
         let staging_data = self.staging_buffer.map_write(0, self.staging_size);
         device.poll(wgpu::Maintain::Wait);
-        let mut staging_data = futures::executor::block_on(staging_data).unwrap();
+        let mut staging_data = staging_data.await.unwrap();
+
         let copy_data = staging_data.as_slice();
 
         let instances = &self.instances;
@@ -201,7 +203,9 @@ impl InstanceList {
         });
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
-        commands
+        commands.iter().for_each(|c| {
+            c.record(encoder);
+        });
     }
 
     pub fn reset_changed(&mut self) {
