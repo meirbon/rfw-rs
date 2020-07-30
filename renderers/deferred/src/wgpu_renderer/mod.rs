@@ -20,18 +20,29 @@ mod pass;
 mod pipeline;
 mod skin;
 
+#[derive(Debug)]
+pub enum CopyStagingBuffer<'a> {
+    Owned(wgpu::Buffer),
+    Reference(&'a wgpu::Buffer),
+}
+
+#[derive(Debug)]
 pub struct CopyCommand<'a> {
     destination_buffer: &'a wgpu::Buffer,
+    offset: wgpu::BufferAddress,
     copy_size: wgpu::BufferAddress,
-    staging_buffer: wgpu::Buffer,
+    staging_buffer: CopyStagingBuffer<'a>,
 }
 
 impl<'a> CopyCommand<'a> {
     pub fn record(&self, encoder: &mut wgpu::CommandEncoder) {
         assert!(self.copy_size > 0);
         encoder.copy_buffer_to_buffer(
-            &self.staging_buffer,
-            0,
+            match &self.staging_buffer {
+                CopyStagingBuffer::Owned(buffer) => buffer,
+                CopyStagingBuffer::Reference(reference) => *reference,
+            },
+            self.offset,
             self.destination_buffer,
             0,
             self.copy_size,
@@ -541,11 +552,13 @@ impl Renderer for Deferred {
                 label: Some("synchronize-command"),
             });
 
+
         let mut commands =
             Vec::with_capacity(self.meshes.len() + self.instances.len() + self.skins.len());
         self.meshes.iter_changed().for_each(|(_, m)| {
             commands.push(m.get_copy_command(&self.device));
         });
+
 
         self.anim_meshes.iter_changed().for_each(|(_, m)| {
             let (command1, command2) = m.get_copy_command(device);

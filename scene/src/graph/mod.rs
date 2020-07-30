@@ -47,10 +47,10 @@ pub struct Node {
     pub weights: Vec<f32>,
     pub meshes: Vec<NodeMesh>,
     pub child_nodes: Vec<u32>,
+    pub name: String,
     pub changed: bool,
     pub first: bool,
     pub morhped: bool,
-    pub name: String,
 }
 
 impl Default for Node {

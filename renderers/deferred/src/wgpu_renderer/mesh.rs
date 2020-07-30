@@ -118,8 +118,9 @@ impl DeferredMesh {
 
         CopyCommand {
             destination_buffer: self.buffer.as_ref().unwrap(),
+            offset: 0,
             copy_size: self.buffer_size as wgpu::BufferAddress,
-            staging_buffer,
+            staging_buffer: crate::wgpu_renderer::CopyStagingBuffer::Owned(staging_buffer),
         }
     }
 }
@@ -168,8 +169,9 @@ impl DeferredAnimMesh {
 
         let command1 = CopyCommand {
             destination_buffer: self.buffer.as_ref().unwrap(),
+            offset: 0,
             copy_size: self.buffer_size as wgpu::BufferAddress,
-            staging_buffer,
+            staging_buffer: crate::wgpu_renderer::CopyStagingBuffer::Owned(staging_buffer),
         };
 
         let staging_buffer = device.create_buffer_with_data(
@@ -179,8 +181,9 @@ impl DeferredAnimMesh {
 
         let command2 = CopyCommand {
             destination_buffer: self.anim_buffer.as_ref().unwrap(),
+            offset: 0,
             copy_size: self.anim_buffer_size as wgpu::BufferAddress,
-            staging_buffer,
+            staging_buffer: crate::wgpu_renderer::CopyStagingBuffer::Owned(staging_buffer),
         };
 
         (command1, command2)

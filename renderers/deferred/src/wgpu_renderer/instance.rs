@@ -3,6 +3,7 @@ use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use glam::*;
 use rtbvh::{Bounds, AABB};
 use scene::{Instance, ObjectRef, TrackedStorage};
+use crate::wgpu_renderer::CopyStagingBuffer;
 
 pub struct DeviceInstance {
     pub device_matrices: wgpu::Buffer,
@@ -84,6 +85,8 @@ pub struct InstanceList {
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub instances: TrackedStorage<Instance>,
     pub bounds: Vec<InstanceBounds>,
+    pub staging_buffer: wgpu::Buffer,
+    pub staging_size: wgpu::BufferAddress,
 }
 
 impl InstanceList {
@@ -98,11 +101,20 @@ impl InstanceList {
             label: Some("mesh-bind-group-descriptor-layout"),
         });
 
+        let staging_size = (32 * std::mem::size_of::<Mat4>() * 2) as wgpu::BufferAddress;
+        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("instance-list-staging-buffer"),
+            size: staging_size,
+            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+        });
+
         Self {
             device_instances: Vec::new(),
             bind_group_layout,
             instances: TrackedStorage::new(),
             bounds: Vec::new(),
+            staging_buffer,
+            staging_size,
         }
     }
 
@@ -153,34 +165,42 @@ impl InstanceList {
 
         let device_instances = &self.device_instances;
 
-        (0..self.instances.len())
-            .into_iter()
-            .filter(|i| match self.instances.get(*i) {
-                None => false,
-                Some(_) => self.instances.get_changed(*i),
-            })
-            .for_each(|i| {
-                let instance = &self.instances[i];
-                let data = [instance.get_transform(), instance.get_normal_transform()];
-                let staging_buffer = device.create_buffer_with_data(
-                    unsafe {
-                        std::slice::from_raw_parts(
-                            data.as_ptr() as *const u8,
-                            std::mem::size_of::<Mat4>() * 2,
-                        )
-                    },
-                    wgpu::BufferUsage::COPY_SRC,
-                );
-
-                commands.push(super::CopyCommand {
-                    destination_buffer: &device_instances[i].device_matrices,
-                    copy_size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
-                    staging_buffer,
-                });
+        let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
+        // Resize if needed
+        if (self.instances.len() * instance_copy_size) < self.staging_size as usize {
+            self.staging_size = (self.instances.len() * 2 * instance_copy_size) as wgpu::BufferAddress;
+            self.staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("instance-list-staging-buffer"),
+                size: self.staging_size,
+                usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
             });
+        }
+
+        let staging_data = self.staging_buffer.map_write(0, self.staging_size);
+        device.poll(wgpu::Maintain::Wait);
+        let mut staging_data = futures::executor::block_on(staging_data).unwrap();
+        let copy_data = staging_data.as_slice();
+
+        let instances = &self.instances;
+        let staging_buffer = &self.staging_buffer;
+        instances.iter_changed().for_each(|(i, instance)| {
+            unsafe {
+                let transform = instance.get_transform();
+                let n_transform = instance.get_normal_transform();
+
+                std::ptr::copy(&transform as *const Mat4, (copy_data.as_mut_ptr() as *mut Mat4).add(i * 2), 1);
+                std::ptr::copy(&n_transform as *const Mat4, (copy_data.as_mut_ptr() as *mut Mat4).add(i * 2 + 1), 1);
+            }
+
+            commands.push(super::CopyCommand {
+                destination_buffer: &device_instances[i].device_matrices,
+                offset: (i * instance_copy_size) as wgpu::BufferAddress,
+                copy_size: instance_copy_size as wgpu::BufferAddress,
+                staging_buffer: CopyStagingBuffer::Reference(staging_buffer),
+            });
+        });
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
-
         commands
     }
 
