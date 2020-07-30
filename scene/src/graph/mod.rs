@@ -1,7 +1,6 @@
 use crate::utils::*;
 use crate::{Instance, ObjectRef};
 use glam::*;
-use nalgebra_glm as glm;
 
 pub mod animation;
 
@@ -226,7 +225,6 @@ impl NodeGraph {
             return false;
         }
 
-        let first = nodes[current_index].first;
         let meshes = &nodes[current_index].meshes;
         let skin = nodes[current_index].skin;
         meshes.iter().for_each(|m| {
@@ -234,9 +232,6 @@ impl NodeGraph {
             instances[m.instance_id as usize].set_transform(combined_matrix);
 
             // TODO: Morphed
-            // TODO:
-            // if nodes[current_index].flags.has_flag(NodeFlags::Morphed) {
-            // }
         });
 
         // Update skin

@@ -157,32 +157,14 @@ impl ObjectLoader for GltfLoader {
         let mut skin_mapping: HashMap<usize, usize> = HashMap::new();
         let mut node_mapping: HashMap<usize, usize> = HashMap::new();
 
-        // Store each skin and create a mapping
-        document.skins().for_each(|s| {
-            let mut skin = Skin::default();
-            if let Some(name) = s.name() {
-                skin.name = String::from(name);
-            }
-
-            s.joints().for_each(|j| {
-                skin.joint_nodes.push(j.index() as u32);
-            });
-
-            let reader = s.reader(|buffer| Some(&buffers[buffer.index()]));
-            if let Some(ibm) = reader.read_inverse_bind_matrices() {
-                ibm.for_each(|m| {
-                    skin.inverse_bind_matrices
-                        .push(Mat4::from_cols_array_2d(&m));
-                });
-
-                skin.joint_matrices
-                    .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
-            }
-
+        {
             let mut skin_storage = skin_storage.lock().unwrap();
-            let skin_id = skin_storage.push(skin);
-            skin_mapping.insert(s.index(), skin_id);
-        });
+            // Store each skin and create a mapping
+            document.skins().for_each(|s| {
+                let skin_id = skin_storage.allocate();
+                skin_mapping.insert(s.index(), skin_id);
+            });
+        }
 
         let mut root_nodes = Vec::new();
 
@@ -668,18 +650,32 @@ impl ObjectLoader for GltfLoader {
             animations.push(animation);
         });
 
-        Ok(LoadResult::Scene(root_nodes))
-    }
-}
+        // Store each skin and create a mapping
+        document.skins().for_each(|s| {
+            let skin_id = *skin_mapping.get(&s.index()).unwrap() as usize;
+            let mut skin = Skin::default();
+            if let Some(name) = s.name() {
+                skin.name = String::from(name);
+            }
 
-impl GltfLoader {
-    fn traverse_tree<T>(node: &gltf::Node, mut cb: T)
-    where
-        T: FnMut(&gltf::Node) + Clone,
-    {
-        cb(node);
-        node.children().for_each(|child| {
-            Self::traverse_tree(&child, cb.clone());
+            s.joints().for_each(|j| {
+                skin.joint_nodes.push(*node_mapping.get(&j.index()).unwrap() as u32);
+            });
+
+            let reader = s.reader(|buffer| Some(&buffers[buffer.index()]));
+            if let Some(ibm) = reader.read_inverse_bind_matrices() {
+                ibm.for_each(|m| {
+                    skin.inverse_bind_matrices
+                        .push(Mat4::from_cols_array_2d(&m));
+                });
+
+                skin.joint_matrices
+                    .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
+            }
+
+            skin_storage.lock().unwrap()[skin_id] = skin;
         });
+
+        Ok(LoadResult::Scene(root_nodes))
     }
 }

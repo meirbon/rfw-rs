@@ -32,7 +32,7 @@ layout(set = 3, binding = 0) buffer readonly SkinMatrices { mat4 jointMatrices[]
 
 void main() {
     const mat4 skinMatrix = (Weights.x * jointMatrices[Joints.x]) + (Weights.y * jointMatrices[Joints.y]) + (Weights.z * jointMatrices[Joints.z]) + (Weights.w * jointMatrices[Joints.w]);
-    const mat4 inverseSkinMatrix = inverse(skinMatrix);
+    const mat4 inverseSkinMatrix = transpose(inverse(skinMatrix));
 
     const vec4 vertex = Transform * skinMatrix * Vertex;
     const vec4 cVertex = View * vec4(vertex.xyz, 1.0);

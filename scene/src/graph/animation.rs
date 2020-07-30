@@ -1,4 +1,4 @@
-use crate::graph::{Node, NodeFlags, NodeGraph};
+use crate::graph::NodeGraph;
 use glam::*;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -31,7 +31,6 @@ impl Default for Sampler {
 
 impl Sampler {
     pub fn sample_vec3(&self, time: f32, k: usize) -> Vec3 {
-        return Vec3::zero();
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
@@ -60,7 +59,6 @@ impl Sampler {
     }
 
     pub fn sample_float(&self, time: f32, k: usize, i: usize, count: usize) -> f32 {
-        return 0.0;
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
@@ -92,7 +90,6 @@ impl Sampler {
     }
 
     pub fn sample_rotation(&self, time: f32, k: usize) -> Quat {
-        return Quat::identity();
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);

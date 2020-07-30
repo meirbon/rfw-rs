@@ -138,13 +138,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
     renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
 
-    // match renderer.load("models/pica/scene.gltf")? {
-    //     LoadResult::Scene(_root_nodes) => {}
-    //     LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-    // };
+    match renderer.load("models/pica/scene.gltf")? {
+        LoadResult::Scene(_root_nodes) => {}
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
 
     match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
-        LoadResult::Scene(_root_nodes) => {}
+        LoadResult::Scene(root_nodes) => {
+            root_nodes.iter().for_each(|node| {
+                renderer.get_node_mut(*node as usize, |node| {
+                    if let Some(node) = node {
+                        node.set_scale(Vec3::splat(3.0));
+                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                    }
+                });
+            });
+        }
         LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
 
