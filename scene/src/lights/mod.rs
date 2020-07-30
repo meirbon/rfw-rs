@@ -58,13 +58,13 @@ pub struct AreaLight {
     energy: f32,            // 16
     pub normal: [f32; 3],   // 28
     pub area: f32,
-    pub vertex0: [f32; 3],  // 44
-    pub inst_idx: i32,      // 48
-    pub vertex1: [f32; 3],  // 60
+    pub vertex0: [f32; 3], // 44
+    pub inst_idx: i32,     // 48
+    pub vertex1: [f32; 3], // 60
     _dummy0: i32,
     pub radiance: [f32; 3], // 72
     _dummy1: i32,
-    pub vertex2: [f32; 3],  // 84
+    pub vertex2: [f32; 3], // 84
     _dummy2: i32,
 }
 
@@ -75,13 +75,13 @@ impl Default for AreaLight {
             energy: 0.0,        // 16
             normal: [0.0; 3],   // 28
             area: 0.0,
-            vertex0: [0.0; 3],  // 44
-            inst_idx: 0,        // 48
-            vertex1: [0.0; 3],  // 60
+            vertex0: [0.0; 3], // 44
+            inst_idx: 0,       // 48
+            vertex1: [0.0; 3], // 60
             _dummy0: 0,
             radiance: [0.0; 3], // 72
             _dummy1: 0,
-            vertex2: [0.0; 3],  // 84
+            vertex2: [0.0; 3], // 84
             _dummy2: 0,
         }
     }

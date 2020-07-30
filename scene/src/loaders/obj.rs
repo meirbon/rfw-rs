@@ -1,14 +1,12 @@
 use glam::*;
-use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+use std::{path::PathBuf, sync::Mutex};
 
+use crate::graph::animation::Animation;
+use crate::graph::{NodeGraph, Skin};
 use crate::material::*;
-use crate::objects::mesh::ToMesh;
 use crate::triangle_scene::SceneError;
 use crate::utils::*;
-use crate::Mesh;
+use crate::{AnimatedMesh, Instance, LoadResult, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {
     HasNormals = 1,
@@ -21,24 +19,34 @@ impl Into<u8> for ObjFlags {
     }
 }
 
-pub struct Obj {
-    pub vertices: Vec<Vec3>,
-    pub normals: Vec<Vec3>,
-    pub uvs: Vec<Vec2>,
-    pub material_ids: Vec<u32>,
-    pub light_ids: Vec<i32>,
-    pub flags: Flags,
-    pub name: String,
+#[derive(Debug, Copy, Clone)]
+pub struct ObjLoader {}
+
+impl std::fmt::Display for ObjLoader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "obj-loader")
+    }
 }
 
-impl Obj {
-    pub fn new<T: AsRef<Path>>(
-        path: T,
-        mat_manager: Arc<Mutex<MaterialList>>,
-    ) -> Result<Obj, SceneError> {
-        let path = path.as_ref();
+impl Default for ObjLoader {
+    fn default() -> Self {
+        Self {}
+    }
+}
 
-        let object = tobj::load_obj(path);
+impl ObjectLoader for ObjLoader {
+    fn load(
+        &self,
+        path: PathBuf,
+        mat_manager: &Mutex<MaterialList>,
+        mesh_storage: &Mutex<TrackedStorage<Mesh>>,
+        _animation_storage: &Mutex<TrackedStorage<Animation>>,
+        _animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
+        _node_storage: &Mutex<NodeGraph>,
+        _skin_storage: &Mutex<TrackedStorage<Skin>>,
+        _instances_storage: &Mutex<TrackedStorage<Instance>>,
+    ) -> Result<LoadResult, SceneError> {
+        let object = tobj::load_obj(&path);
         if let Err(_) = object {
             return Err(SceneError::LoadError(path.to_path_buf()));
         }
@@ -127,12 +135,36 @@ impl Obj {
                     roughness,
                     specular,
                     opacity,
-                    d_path,
-                    n_path,
-                    roughness_map,
-                    metallic_map,
-                    emissive_map,
-                    sheen_map,
+                    if let Some(path) = d_path {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = n_path {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = roughness_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = metallic_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = emissive_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    if let Some(path) = sheen_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
                 );
                 mat_manager.get_mut(mat_index, |m| {
                     if let Some(mat) = m {
@@ -160,7 +192,6 @@ impl Obj {
         let mut normals = Vec::with_capacity(num_vertices);
         let mut uvs = Vec::with_capacity(num_vertices);
         let mut material_ids = Vec::with_capacity(num_vertices);
-        let light_ids = vec![-1; num_vertices];
 
         for m in models.iter() {
             let mesh = &m.mesh;
@@ -208,26 +239,15 @@ impl Obj {
             }
         }
 
-        Ok(Obj {
+        let mut mesh_storage = mesh_storage.lock().unwrap();
+        let mesh_id = mesh_storage.allocate();
+        mesh_storage[mesh_id] = Mesh::new(
             vertices,
             normals,
             uvs,
             material_ids,
-            light_ids,
-            flags,
-            name: String::from(path.to_str().unwrap()),
-        })
-    }
-}
-
-impl ToMesh for Obj {
-    fn into_mesh(self) -> Mesh {
-        Mesh::new(
-            self.vertices.as_slice(),
-            self.normals.as_slice(),
-            self.uvs.as_slice(),
-            self.material_ids.as_slice(),
-            Some(self.name),
-        )
+            Some(String::from(path.to_str().unwrap())),
+        );
+        Ok(LoadResult::Object(ObjectRef::Static(mesh_id as u32)))
     }
 }

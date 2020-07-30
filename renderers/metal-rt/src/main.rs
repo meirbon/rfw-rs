@@ -76,8 +76,8 @@ impl MouseButtonHandler {
 }
 
 use glam::*;
-use shared::utils;
 use scene::renderers::RenderMode;
+use shared::utils;
 use utils::Timer;
 
 fn main() {

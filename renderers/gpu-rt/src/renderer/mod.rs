@@ -5,10 +5,10 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::FrustrumResult::Intersect;
 use scene::{
-    raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial,
-    DirectionalLight, Instance, Material, Mesh, PointLight, RTTriangle, SpotLight, Texture,
+    raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec, CameraView,
+    DeviceMaterial, DirectionalLight, Instance, Material, Mesh, ObjectRef, PointLight, RTTriangle,
+    SpotLight, Texture,
 };
 use shared::*;
 use std::error::Error;
@@ -975,6 +975,10 @@ impl Renderer for RayTracer {
         self.meshes_changed.set(id, true);
     }
 
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
+        unimplemented!()
+    }
+
     fn set_instance(&mut self, id: usize, instance: &Instance) {
         if id >= self.instances.len() {
             self.instances.push(Instance::default());
@@ -1249,15 +1253,19 @@ impl Renderer for RayTracer {
         self.instances_buffer.as_mut_slice()[0..self.instances.len()]
             .iter_mut()
             .enumerate()
-            .for_each(|(i, inst)| {
-                let mesh_data = &mesh_data[instances[i].get_hit_id()];
-                inst.prim_index_offset = mesh_data.prim_index_offset;
-                inst.triangle_offset = mesh_data.triangle_offset;
-                inst.bvh_offset = mesh_data.bvh_offset;
-                inst.mbvh_offset = mesh_data.mbvh_offset;
-                inst.matrix = instances[i].get_transform();
-                inst.inverse = instances[i].get_inverse_transform();
-                inst.normal = instances[i].get_normal_transform();
+            .for_each(|(i, inst)| match instances[i].object_id {
+                ObjectRef::None => {}
+                ObjectRef::Static(mesh_id) => {
+                    let mesh_data = &mesh_data[mesh_id as usize];
+                    inst.prim_index_offset = mesh_data.prim_index_offset;
+                    inst.triangle_offset = mesh_data.triangle_offset;
+                    inst.bvh_offset = mesh_data.bvh_offset;
+                    inst.mbvh_offset = mesh_data.mbvh_offset;
+                    inst.matrix = instances[i].get_transform();
+                    inst.inverse = instances[i].get_inverse_transform();
+                    inst.normal = instances[i].get_normal_transform();
+                }
+                ObjectRef::Animated(_) => unimplemented!(),
             });
 
         self.top_bvh_buffer

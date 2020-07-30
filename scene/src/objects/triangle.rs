@@ -1,6 +1,6 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
-use crate::scene::PrimID;
+use crate::PrimID;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};

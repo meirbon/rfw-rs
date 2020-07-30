@@ -839,7 +839,7 @@ impl<'a> Renderer for VkRenderer<'a> {
     ) {
     }
 
-    fn set_skybox(&mut self, skybox: Texture) {
+    fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()
     }
 
@@ -848,4 +848,7 @@ impl<'a> Renderer for VkRenderer<'a> {
     }
 
     fn set_setting(&mut self, _setting: Setting) {}
+    fn set_animated_mesh(&mut self, id: usize, mesh: &scene::AnimatedMesh) {
+        todo!()
+    }
 }

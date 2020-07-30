@@ -16,10 +16,9 @@ layout(set = 1, binding = 1) uniform sampler Sampler;
 layout(set = 1, binding = 2) uniform texture2D ScreenSpace;
 layout(set = 1, binding = 3) uniform texture2D Normal;
 
-// TODO: Make these dynamically adjustable
-const float radius = 1.2;
-const float bias = 0.05;
-const int num_samples = 16;
+#define SAMPLES 16
+#define BIAS 0.05
+#define RADIUS 0.5
 
 vec3 randomSample(inout uint seed) {
     const float r1 = RandomFloat(seed);
@@ -39,30 +38,30 @@ void main()
     }
 
     uint seed = WangHash((pixel.x + pixel.y * image_size.x) * 16789 * 1791);
-    const vec2 UV = vec2(pixel) / textureSize(sampler2D(ScreenSpace, Sampler), 0).xy;
+    const vec2 uv = vec2(pixel) / textureSize(sampler2D(ScreenSpace, Sampler), 0).xy;
 
-    // Inspired by https://www.trentreed.net/blog/screen-space-ambient-occlusion/
-    const vec3 fragPos = texture(sampler2D(ScreenSpace, Sampler), UV).xyz;
+    vec4 norz = texture(sampler2D(ScreenSpace, Sampler), uv);
+    float depth = norz.z / norz.w;
+    float scale = RADIUS / depth;
 
-    // iterate over the sample kernel and calculate occlusion factor
-    float occlusion = 0.0;
-    for (int i = 0; i < num_samples; ++i)
+    float ao = 0.0;
+    for(int i = 0; i < SAMPLES; i++)
     {
-        const vec3 S = fragPos + randomSample(seed) * radius;
-
-        // project sample position (to sample texture) (to get position on screen/texture)
-        vec4 offset = vec4(S, 1.0);
-        offset = Proj * offset;// from view to clip-space
-        offset.xy /= offset.w;// perspective divide
-
-        const float sampleDepth = texture(sampler2D(ScreenSpace, Sampler), offset.xy * vec2(0.5, -0.5) + 0.5).z;
-        const float rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
-        if (sampleDepth >= S.z + bias) {
-            occlusion += 1.0 * rangeCheck;
+        vec2 randUv = (vec2(pixel) + 23.71 * float(i)) / image_size.xy;
+        vec3 randNor = randomSample(seed) * 2.0 - 1.0;
+        if(dot(norz.xyz, randNor) < 0.0) {
+            randNor *= -1.0;
         }
+
+        vec2 off = randNor.xy * scale;
+        vec4 sampleNorz = texture(sampler2D(ScreenSpace, Sampler), uv + off);
+        float depthDelta = depth - sampleNorz.z / sampleNorz.w;
+
+        vec3 sampleDir = vec3(randNor.xy * RADIUS, depthDelta);
+        float occ = max(0.0, dot(normalize(norz.xyz), normalize(sampleDir)) - BIAS) / (length(sampleDir) + 1.0);
+        ao += occ;
     }
 
-    occlusion = 1.0 - (occlusion * (1.0 / num_samples));
-    //    occlusion = occlusion * occlusion;
-    imageStore(SSAOTexture, pixel, vec4(occlusion));
+    ao = 1.0 - (ao / float(SAMPLES));
+    imageStore(SSAOTexture, pixel, vec4(vec3(ao * ao), 1.0));
 }

@@ -82,11 +82,12 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef,
+    LoadResult,
 };
 use shared::utils;
+use std::error::Error;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
     let mut height = 720;
 
@@ -123,26 +124,47 @@ fn main() {
     camera.change_fov(60.0);
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
+    let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
-    renderer
-        .add_spot_light(
-            [0.0, 10.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [150.0, 100.0, 200.0],
-            30.0,
-            45.0,
-        )
-        .unwrap();
-    renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
-    let sponza = renderer.load_mesh("models/sponza/sponza.obj").unwrap();
-    let mut instance: InstanceRef = renderer.add_instance(sponza).unwrap();
-    instance.scale(Vec3::splat(0.1));
-    instance.synchronize().unwrap();
+    renderer.add_spot_light(Vec3::new(0.0, 15.0, 0.0), Vec3::new(0.0, -1.0, 0.1), Vec3::new(150.0, 175.0, 160.0), 50.0, 75.0);
+
+    // let sponza = renderer.add_instance(renderer.load("models/sponza/sponza.obj")?.object().unwrap())?;
+    // renderer.get_instance_mut(sponza, |instance| {
+    //     if let Some(instance) = instance {
+    //         instance.scale(Vec3::splat(0.1));
+    //     }
+    // });
+
+    let pica = match renderer.load("models/pica/scene.gltf")? {
+        LoadResult::Scene(root_nodes) => root_nodes,
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
+
+    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
+        LoadResult::Scene(root_nodes) => {
+            root_nodes.iter().for_each(|node| {
+                renderer.get_node_mut(*node, |node| {
+                    if let Some(node) = node {
+                        node.set_scale(Vec3::splat(3.0));
+                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                    }
+                });
+            });
+        }
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 
-    renderer.synchronize();
+    let app_time = Timer::new();
+
+    {
+        let timer = Timer::new();
+        renderer.set_animation_time(0.0);
+        renderer.synchronize();
+        synchronize.add_sample(timer.elapsed_in_millis());
+    }
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -239,7 +261,11 @@ fn main() {
 
                 let elapsed = timer.elapsed_in_millis();
                 fps.add_sample(1000.0 / elapsed);
-                let title = format!("rfw-rs - FPS: {:.2}", fps.get_average());
+                let title = format!(
+                    "rfw-rs - FPS: {:.2}, synchronize: {:.2} ms",
+                    fps.get_average(),
+                    synchronize.get_average()
+                );
                 window.set_title(title.as_str());
 
                 let elapsed = if key_handler.pressed(KeyCode::LShift) {
@@ -249,8 +275,13 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instance.rotate_y(elapsed / 10.0);
-                    instance.synchronize().unwrap();
+                    pica.iter().for_each(|id| {
+                        renderer.get_node_mut(*id, |node| {
+                            if let Some(node) = node {
+                                node.rotate_z(elapsed / 10.0);
+                            }
+                        });
+                    });
                 }
 
                 timer.reset();
@@ -273,7 +304,10 @@ fn main() {
                     resized = false;
                 }
 
+                let timer = Timer::new();
+                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
+                synchronize.add_sample(timer.elapsed_in_millis());
                 renderer.render(&camera, RenderMode::Default);
             }
             Event::WindowEvent {

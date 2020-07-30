@@ -26,6 +26,6 @@ const vec2 uv[6] = vec2[6](
 );
 
 void main() {
-    UV = uv[gl_VertexIndex];
-    gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+    UV = uv[gl_VertexIndex % 6];
+    gl_Position = vec4(positions[gl_VertexIndex  % 6], 0.0, 1.0);
 }

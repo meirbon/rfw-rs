@@ -78,8 +78,8 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use shared::utils;
 use scene::renderers::RenderMode;
+use shared::utils;
 
 fn main() {
     let mut width = 512;

@@ -1,11 +1,12 @@
 use crate::objects::*;
-use crate::scene::*;
 
-use rtbvh::{Ray, RayPacket4, ShadowPacket4, BVH, MBVH};
+use crate::{InstanceID, PrimID, USE_MBVH};
 use glam::*;
+use rtbvh::{Ray, RayPacket4, ShadowPacket4, BVH, MBVH};
 
 pub struct TIntersector<'a> {
     meshes: &'a [Mesh],
+    anim_meshes: &'a [AnimatedMesh],
     instances: &'a [Instance],
     bvh: &'a BVH,
     mbvh: &'a MBVH,
@@ -14,12 +15,14 @@ pub struct TIntersector<'a> {
 impl<'a> TIntersector<'a> {
     pub fn new(
         meshes: &'a [Mesh],
+        anim_meshes: &'a [AnimatedMesh],
         instances: &'a [Instance],
         bvh: &'a BVH,
         mbvh: &'a MBVH,
     ) -> Self {
         Self {
             meshes,
+            anim_meshes,
             instances,
             bvh,
             mbvh,
@@ -32,18 +35,25 @@ impl<'a> TIntersector<'a> {
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
             let (origin, direction) = instance.transform(ray);
-            return self.meshes[instance.get_hit_id() as usize].occludes(
-                (origin, direction).into(),
-                t_min,
-                t_max,
-            );
+
+            match instance.object_id {
+                ObjectRef::None => false,
+                ObjectRef::Static(hit_id) => {
+                    self.meshes[hit_id as usize].occludes((origin, direction).into(), t_min, t_max)
+                }
+                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].occludes(
+                    (origin, direction).into(),
+                    t_min,
+                    t_max,
+                ),
+            }
         };
 
         let bvh = self.bvh;
         let mbvh = self.mbvh;
 
         unsafe {
-            return match USE_MBVH {
+            return match crate::USE_MBVH {
                 true => mbvh.occludes(
                     origin.as_ref(),
                     direction.as_ref(),
@@ -69,11 +79,18 @@ impl<'a> TIntersector<'a> {
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
             let (origin, direction) = instance.transform(ray);
-            if let Some(hit) = self.meshes[instance.get_hit_id()].intersect(
-                (origin, direction).into(),
-                t_min,
-                t_max,
-            ) {
+
+            if let Some(hit) = match instance.object_id {
+                ObjectRef::None => None,
+                ObjectRef::Static(hit_id) => {
+                    self.meshes[hit_id as usize].intersect((origin, direction).into(), t_min, t_max)
+                }
+                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].intersect(
+                    (origin, direction).into(),
+                    t_min,
+                    t_max,
+                ),
+            } {
                 instance_id = i as i32;
                 Some((hit.t, hit))
             } else {
@@ -109,11 +126,20 @@ impl<'a> TIntersector<'a> {
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
             let (origin, direction) = instance.transform(ray);
-            return self.meshes[instance.get_hit_id() as usize].intersect_t(
-                (origin, direction).into(),
-                t_min,
-                t_max,
-            );
+
+            match instance.object_id {
+                ObjectRef::None => None,
+                ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].intersect_t(
+                    (origin, direction).into(),
+                    t_min,
+                    t_max,
+                ),
+                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].intersect_t(
+                    (origin, direction).into(),
+                    t_min,
+                    t_max,
+                ),
+            }
         };
 
         unsafe {
@@ -143,11 +169,19 @@ impl<'a> TIntersector<'a> {
             let instance = &self.instances[i as usize];
 
             let (origin, direction) = instance.transform(ray);
-            return self.meshes[instance.get_hit_id() as usize].depth_test(
-                (origin, direction).into(),
-                t_min,
-                t_max,
-            );
+            match instance.object_id {
+                ObjectRef::None => None,
+                ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].depth_test(
+                    (origin, direction).into(),
+                    t_min,
+                    t_max,
+                ),
+                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].depth_test(
+                    (origin, direction).into(),
+                    t_min,
+                    t_max,
+                ),
+            }
         };
 
         unsafe {
@@ -186,13 +220,32 @@ impl<'a> TIntersector<'a> {
             let instance_id = instance_id as usize;
             let instance = &self.instances[instance_id];
             let mut new_packet = instance.transform4(packet);
-            let object = &self.meshes[instance.get_hit_id()];
-            if let Some(hit) = object.intersect4(&mut new_packet, &t_min) {
-                for i in 0..4 {
-                    if hit[i] >= 0 {
-                        instance_ids[i] = instance_id as i32;
-                        prim_ids[i] = hit[i];
-                        packet.t[i] = new_packet.t[i];
+            match instance.object_id {
+                ObjectRef::None => {}
+                ObjectRef::Static(hit_id) => {
+                    if let Some(hit) =
+                        self.meshes[hit_id as usize].intersect4(&mut new_packet, &t_min)
+                    {
+                        for i in 0..4 {
+                            if hit[i] >= 0 {
+                                instance_ids[i] = instance_id as i32;
+                                prim_ids[i] = hit[i];
+                                packet.t[i] = new_packet.t[i];
+                            }
+                        }
+                    }
+                }
+                ObjectRef::Animated(hit_id) => {
+                    if let Some(hit) =
+                        self.anim_meshes[hit_id as usize].intersect4(&mut new_packet, &t_min)
+                    {
+                        for i in 0..4 {
+                            if hit[i] >= 0 {
+                                instance_ids[i] = instance_id as i32;
+                                prim_ids[i] = hit[i];
+                                packet.t[i] = new_packet.t[i];
+                            }
+                        }
                     }
                 }
             }
@@ -210,7 +263,13 @@ impl<'a> TIntersector<'a> {
 
     pub fn get_mat_id(&self, instance_id: InstanceID, prim_id: PrimID) -> usize {
         let instance = self.instances.get(instance_id as usize).unwrap();
-        self.meshes[instance.get_hit_id()].get_mat_id(prim_id) as usize
+        match instance.object_id {
+            ObjectRef::None => std::usize::MAX,
+            ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].get_mat_id(prim_id) as usize,
+            ObjectRef::Animated(hit_id) => {
+                self.anim_meshes[hit_id as usize].get_mat_id(prim_id) as usize
+            }
+        }
     }
 
     pub fn get_hit_record(
@@ -224,9 +283,15 @@ impl<'a> TIntersector<'a> {
         debug_assert!(prim_id >= 0);
 
         let instance: &Instance = &self.instances[instance_id as usize];
-        let object_id: usize = instance.get_hit_id();
         let ray = instance.transform_ray(ray);
-        instance.transform_hit(self.meshes[object_id].get_hit_record(ray, t, prim_id as u32))
+        match instance.object_id {
+            ObjectRef::None => HitRecord::default(),
+            ObjectRef::Static(hit_id) => instance
+                .transform_hit(self.meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32)),
+            ObjectRef::Animated(hit_id) => instance.transform_hit(
+                self.anim_meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32),
+            ),
+        }
     }
 
     pub fn get_hit_record4(

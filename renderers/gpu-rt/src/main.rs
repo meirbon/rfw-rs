@@ -82,11 +82,12 @@ use crate::utils::Timer;
 use glam::*;
 use scene::{
     renderers::{RenderMode, Setting, SettingValue},
-    InstanceRef,
+    LoadResult,
 };
 use shared::utils;
+use std::error::Error;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1024;
     let mut height = 640;
 
@@ -122,20 +123,38 @@ fn main() {
     let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
     camera.change_fov(50.0);
     camera.focal_distance = 10.0;
-    camera.aperture = 0.001;
+    camera.aperture = 0.0001;
 
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let cbox = renderer.load_mesh("models/cbox.obj").unwrap();
-    let mut instance: InstanceRef = renderer.add_instance(cbox).unwrap();
-    instance.rotate_y(180.0);
-    instance.translate_y(-2.5);
-    instance.translate_z(10.0);
-    instance.synchronize().unwrap();
+    // let cesium_man = renderer
+    //     .load_mesh("models/CesiumMan/CesiumMan.gltf")
+    //     .unwrap();
+    // let mut instance = renderer.add_instance(cesium_man).unwrap();
+    // instance.scale(Vec3::splat(1.0));
+    // instance.synchronize().unwrap();
 
-    // let sibenik = renderer.load_mesh("models/sibenik/sibenik.obj").unwrap();
+    // let cbox = match renderer.load("models/cbox.obj")? {
+    //     LoadResult::Scene => panic!("This object should not be a scene"),
+    //     LoadResult::Object(reference) => reference,
+    // };
+    // let instance = renderer.add_instance(cbox).unwrap();
+    // renderer.get_instance_mut(instance, |instance| {
+    //     if let Some(instance) = instance {
+    //         instance.rotate_y(180.0);
+    //         instance.translate_y(-2.5);
+    //         instance.translate_z(10.0);
+    //     }
+    // });
+
+    match renderer.load("models/pica/scene.gltf")? {
+        LoadResult::Scene(_) => {}
+        LoadResult::Object(_) => panic!("Gltf files should not be loaded as scenes"),
+    }
+
+    // let sibenik = renderer.load("models/sibenik/sibenik.obj").unwrap();
     // let mut instance = renderer.add_instance(sibenik).unwrap();
     // instance.synchronize().unwrap();
 
@@ -262,9 +281,12 @@ fn main() {
                 };
 
                 if key_handler.pressed(KeyCode::Space) {
-                    instance.rotate_y(elapsed / 10.0);
-                    instance.synchronize().unwrap();
-                    mode = RenderMode::Reset;
+                    // renderer.get_instance_mut(instance, |instance| {
+                    //     if let Some(instance) = instance {
+                    //         instance.rotate_y(elapsed / 10.0);
+                    //         mode = RenderMode::Reset;
+                    //     }
+                    // });
                 }
 
                 timer.reset();

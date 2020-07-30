@@ -337,7 +337,7 @@ impl SSAOPass {
         (-value_sq / (2.0 * variance)).exp() / ((2.0 * std::f32::consts::PI).sqrt() * deviation)
     }
 
-    fn calc_blur_data(width: usize, deviation: f32) -> Vec<f32> {
+    pub fn calc_blur_data(width: usize, deviation: f32) -> Vec<f32> {
         let mut weights = vec![0.0 as f32; width * 4];
         let mut total = 0.0;
         let width2 = width * 2;

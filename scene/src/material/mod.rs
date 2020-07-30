@@ -52,7 +52,6 @@ impl Display for MaterialFlags {
             self.get(MaterialProps::HasSheenMap),
         )
     }
-    
 }
 
 #[allow(dead_code)]
@@ -78,7 +77,7 @@ impl MaterialFlags {
 #[repr(C)]
 pub struct Material {
     pub name: String,
-    pub color: [f32; 4],    // 16
+    pub color: [f32; 4], // 16
     pub absorption: [f32; 4],
     pub specular: [f32; 4], // 32
     pub metallic: f32,
@@ -144,18 +143,18 @@ impl Display for Material {
 #[repr(C)]
 pub struct DeviceMaterial {
     pub color: [f32; 4],      // 16
-    pub absorption: [f32; 4],      // 16
+    pub absorption: [f32; 4], // 16
     pub specular: [f32; 4],   // 32
     pub parameters: [u32; 4], // 48
-    
-    pub flags: u32,           // 52
-    pub diffuse_map: i32,     // 56
-    pub normal_map: i32,      // 60
-    pub roughness_map: i32,   // 64
 
-    pub emissive_map: i32,    // 68
-    pub sheen_map: i32,       // 72
-    pub _dummy: [i32; 2]      // 80
+    pub flags: u32,         // 52
+    pub diffuse_map: i32,   // 56
+    pub normal_map: i32,    // 60
+    pub roughness_map: i32, // 64
+
+    pub emissive_map: i32, // 68
+    pub sheen_map: i32,    // 72
+    pub _dummy: [i32; 2],  // 80
 }
 
 impl Default for DeviceMaterial {

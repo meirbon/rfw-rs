@@ -1,11 +1,9 @@
-pub mod deferred;
-
+use crate::graph::Skin;
 use crate::{
-    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, PointLight,
-    SpotLight, Texture,
+    AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh,
+    PointLight, SpotLight, Texture,
 };
 use bitvec::prelude::BitVec;
-pub use deferred::*;
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;
 
@@ -115,6 +113,8 @@ pub trait Renderer {
     ) -> Result<Box<Self>, Box<dyn Error>>;
     /// Updates a mesh at the given index
     fn set_mesh(&mut self, id: usize, mesh: &Mesh);
+    /// Updates an animated mesh at the given index
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh);
     /// Sets an instance with a 4x4 transformation matrix in column-major format
     fn set_instance(&mut self, id: usize, instance: &Instance);
     /// Updates materials
@@ -138,7 +138,10 @@ pub trait Renderer {
     fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight]);
     // Sets the scene skybox
     fn set_skybox(&mut self, skybox: Texture);
+    // Sets a skin
+    fn set_skin(&mut self, id: usize, skin: &Skin);
 
     fn get_settings(&self) -> Vec<Setting>;
+
     fn set_setting(&mut self, setting: Setting);
 }

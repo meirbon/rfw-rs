@@ -187,7 +187,7 @@ impl Renderer for MetalRT {
     ) {
     }
 
-    fn set_skybox(&mut self, skybox: Texture) {
+    fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()
     }
 

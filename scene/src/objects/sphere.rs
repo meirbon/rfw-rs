@@ -1,7 +1,7 @@
 use crate::objects::*;
-use crate::scene::PrimID;
+use crate::PrimID;
 
-use crate::{Material, MaterialList, Mesh, Texture, ToMesh};
+use crate::{Material, Mesh, Texture, ToMesh};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};
 use std::collections::HashMap;
 
@@ -300,7 +300,7 @@ impl<'a> SerializableObject<'a, Sphere> for Sphere {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
         path: S,
-        materials: &MaterialList,
+        materials: &crate::MaterialList,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let material = materials.get(self.mat_id as usize).unwrap();
         let mut d_tex: Option<Texture> = None;
@@ -340,7 +340,7 @@ impl<'a> SerializableObject<'a, Sphere> for Sphere {
 
     fn deserialize_object<S: AsRef<std::path::Path>>(
         path: S,
-        materials: &mut MaterialList,
+        materials: &mut crate::MaterialList,
     ) -> Result<Sphere, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
@@ -362,7 +362,7 @@ impl<'a> SerializableObject<'a, Sphere> for Sphere {
 }
 
 impl ToMesh for Sphere {
-    fn into_mesh(self) -> Mesh {
+    fn into_mesh(self) -> MeshResult {
         use std::f32::consts::PI;
 
         let mut faces: Vec<[u32; 3]> = Vec::with_capacity(20);
@@ -503,13 +503,13 @@ impl ToMesh for Sphere {
             *v = origin + (*v) * radius;
         });
 
-        Mesh::new_indexed(
-            faces.as_slice(),
-            vertices.as_slice(),
-            normals.as_slice(),
-            uvs.as_slice(),
-            material_ids.as_slice(),
-            Some("sphere"),
-        )
+        MeshResult::Static(Mesh::new_indexed(
+            faces,
+            vertices,
+            normals,
+            uvs,
+            material_ids,
+            Some(String::from("sphere")),
+        ))
     }
 }

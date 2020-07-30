@@ -7,15 +7,14 @@ pub mod quad;
 pub mod sphere;
 pub mod triangle;
 
-use crate::scene::PrimID;
-use rtbvh::{Bounds, Ray, RayPacket4};
+use crate::PrimID;
 pub use instance::*;
 pub use mesh::*;
 pub use plane::*;
 pub use quad::*;
+use rtbvh::{Bounds, Ray, RayPacket4};
 pub use sphere::*;
 pub use triangle::*;
-
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
