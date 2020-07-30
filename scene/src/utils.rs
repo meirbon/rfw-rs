@@ -457,6 +457,9 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn trigger_changed(&mut self, index: usize) {
         self.changed.set(index, true);
     }
+    pub fn trigger_changed_all(&mut self) {
+        self.changed.set_all(true);
+    }
 
     pub fn reset_changed(&mut self) {
         self.changed.set_all(false);

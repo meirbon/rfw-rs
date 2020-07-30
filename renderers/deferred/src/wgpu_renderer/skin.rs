@@ -41,12 +41,6 @@ impl DeferredSkin {
             usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::MAP_WRITE,
         });
 
-        let staging_size = skin.joint_matrices.to_bytes().len();
-        let staging_buffer = device.create_buffer_with_data(
-            skin.joint_matrices.to_bytes(),
-            wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        );
-
         Self {
             skin,
             matrices_buffer: Some(matrices_buffer),

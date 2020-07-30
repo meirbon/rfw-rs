@@ -1,4 +1,4 @@
-use crate::wgpu_renderer::instance::InstanceList;
+use crate::wgpu_renderer::instance::{InstanceList, DeviceInstances};
 use crate::wgpu_renderer::light::DeferredLights;
 use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use crate::wgpu_renderer::skin::DeferredSkin;
@@ -29,6 +29,7 @@ pub enum CopyStagingBuffer<'a> {
 #[derive(Debug)]
 pub struct CopyCommand<'a> {
     destination_buffer: &'a wgpu::Buffer,
+    dest_offset: wgpu::BufferAddress,
     offset: wgpu::BufferAddress,
     copy_size: wgpu::BufferAddress,
     staging_buffer: CopyStagingBuffer<'a>,
@@ -44,7 +45,7 @@ impl<'a> CopyCommand<'a> {
             },
             self.offset,
             self.destination_buffer,
-            0,
+            self.dest_offset,
             self.copy_size,
         )
     }
@@ -546,61 +547,15 @@ impl Renderer for Deferred {
     }
 
     fn synchronize(&mut self) {
-        let command = Self::record_update(
+        let command = futures::executor::block_on(Self::record_update(
             &self.device,
             &mut self.instances,
             &self.meshes,
             &self.anim_meshes,
             &self.skins,
-        );
-        let command = futures::executor::block_on(async move {
-            // while let futures::task::Poll::Pending = futures::poll!(command) {
-            //     self.device.poll(wgpu::Maintain::Poll);
-            // }
-            command.await
-        });
-
-        // let command = ;
-        //
-        // let device = &self.device;
-        // let mut encoder = self
-        //     .device
-        //     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //         label: Some("synchronize-command"),
-        //     });
-        //
-        //
-        // let mut commands =
-        //     Vec::with_capacity(self.meshes.len() + self.instances.len() + self.skins.len());
-        // self.meshes.iter_changed().for_each(|(_, m)| {
-        //     commands.push(m.get_copy_command(&self.device));
-        // });
-        //
-        //
-        // self.anim_meshes.iter_changed().for_each(|(_, m)| {
-        //     let (command1, command2) = m.get_copy_command(device);
-        //     commands.push(command1);
-        //     commands.push(command2);
-        // });
-        //
-        // self.skins.iter_changed().for_each(|(_, s)| {
-        //     s.update(device);
-        //     // commands.push(s.get_copy_command(device));
-        // });
-        //
-        // for command in self
-        //     .instances
-        //     .update(device, &self.meshes, &self.anim_meshes)
-        // {
-        //     commands.push(command);
-        // }
-        //
-        // for command in commands.iter() {
-        //     command.record(&mut encoder);
-        // }
+        ));
 
         self.queue.submit(&[command]);
-        // self.queue.submit(&[encoder.finish()]);
         self.lights_changed |= self.lights.synchronize(&self.device, &self.queue);
         if self.lights_changed {
             self.radiance_pass
@@ -851,7 +806,9 @@ impl Deferred {
             let matrix = camera.get_rh_matrix();
             let frustrum = scene::FrustrumG::from_matrix(matrix);
 
-            instances.iter().for_each(|(i, instance, device_instance, bounds)| {
+            let device_instance = &instances.device_instances;
+
+            instances.iter().for_each(|(i, instance, bounds)| {
                 if !frustrum
                     .aabb_in_frustrum(&bounds.root_bounds)
                     .should_render()
@@ -866,7 +823,7 @@ impl Deferred {
                         if let Some(buffer) = mesh.buffer.as_ref() {
                             render_pass.set_pipeline(&pipeline.pipeline);
                             render_pass.set_bind_group(0, uniform_bind_group, &[]);
-                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                            render_pass.set_bind_group(1, &device_instance.bind_group, &[DeviceInstances::dynamic_offset_for(i) as u32]);
 
                             render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
                             render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
@@ -898,7 +855,7 @@ impl Deferred {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);
                                 render_pass.set_bind_group(0, &uniform_bind_group, &[]);
-                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[DeviceInstances::dynamic_offset_for(i) as u32]);
 
                                 render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
                                 render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
@@ -946,7 +903,7 @@ impl Deferred {
                             } else {
                                 render_pass.set_pipeline(&pipeline.pipeline);
                                 render_pass.set_bind_group(0, &uniform_bind_group, &[]);
-                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[DeviceInstances::dynamic_offset_for(i) as u32]);
 
                                 render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
                                 render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);

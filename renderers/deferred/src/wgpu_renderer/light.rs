@@ -9,6 +9,7 @@ use scene::{
 use shared::*;
 use std::fmt::Debug;
 use std::ops::Range;
+use crate::wgpu_renderer::instance::DeviceInstances;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,
@@ -1124,6 +1125,8 @@ impl ShadowMapArray {
                     ),
                 });
 
+                let device_instance = &instances.device_instances;
+
                 (0..instances.len())
                     .into_iter()
                     .filter(|i| match instances.instances.get(*i) {
@@ -1132,7 +1135,6 @@ impl ShadowMapArray {
                     })
                     .for_each(|i| {
                         let instance = &instances.instances[i];
-                        let device_instance = &instances.device_instances[i];
                         let bounds = &instances.bounds[i];
 
                         if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside
@@ -1156,7 +1158,7 @@ impl ShadowMapArray {
                                 render_pass.set_bind_group(
                                     1,
                                     &device_instance.bind_group,
-                                    &[],
+                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
                                 );
 
                                 for j in 0..mesh.sub_meshes.len() {
@@ -1205,7 +1207,7 @@ impl ShadowMapArray {
                                     render_pass.set_bind_group(
                                         1,
                                         &device_instance.bind_group,
-                                        &[],
+                                        &[DeviceInstances::dynamic_offset_for(i) as u32],
                                     );
                                     render_pass.set_bind_group(
                                         2,
@@ -1236,7 +1238,7 @@ impl ShadowMapArray {
                                     render_pass.set_bind_group(
                                         1,
                                         &device_instance.bind_group,
-                                        &[],
+                                        &[DeviceInstances::dynamic_offset_for(i) as u32],
                                     );
 
                                     render_pass.set_vertex_buffer(

@@ -5,9 +5,52 @@ use rtbvh::{Bounds, AABB};
 use scene::{Instance, ObjectRef, TrackedStorage};
 use crate::wgpu_renderer::CopyStagingBuffer;
 
-pub struct DeviceInstance {
+pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
+    capacity: usize,
     pub bind_group: wgpu::BindGroup,
+}
+
+impl DeviceInstances {
+    // std::mem::size_of::<Mat4>() * 2
+    pub const INSTANCE_SIZE: usize = 256;
+    pub fn new(capacity: usize, device: &wgpu::Device, bind_group_layout: &wgpu::BindGroupLayout) -> Self {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (capacity * Self::INSTANCE_SIZE) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: bind_group_layout,
+            bindings: &[wgpu::Binding {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &buffer,
+                    range: 0..(2 * std::mem::size_of::<Mat4>()) as wgpu::BufferAddress,
+                },
+            }],
+        });
+
+        Self {
+            device_matrices: buffer,
+            capacity,
+            bind_group,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.capacity
+    }
+
+    pub const fn offset_for(instance: usize) -> wgpu::BufferAddress {
+        (Self::INSTANCE_SIZE * instance) as wgpu::BufferAddress
+    }
+
+    pub const fn dynamic_offset_for(instance: usize) -> u32 {
+        (256 * instance) as u32
+    }
 }
 
 pub struct InstanceBounds {
@@ -54,34 +97,8 @@ impl InstanceBounds {
     }
 }
 
-impl DeviceInstance {
-    pub fn new(device: &wgpu::Device, bind_group_layout: &wgpu::BindGroupLayout) -> Self {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: std::mem::size_of::<Mat4>() as wgpu::BufferAddress * 2,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: bind_group_layout,
-            bindings: &[wgpu::Binding {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &buffer,
-                    range: 0..(2 * std::mem::size_of::<Mat4>()) as wgpu::BufferAddress,
-                },
-            }],
-        });
-
-        Self {
-            device_matrices: buffer,
-            bind_group,
-        }
-    }
-}
-
 pub struct InstanceList {
-    pub device_instances: Vec<DeviceInstance>,
+    pub device_instances: DeviceInstances,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub instances: TrackedStorage<Instance>,
     pub bounds: Vec<InstanceBounds>,
@@ -96,7 +113,7 @@ impl InstanceList {
                 // Instance matrices
                 binding: 0,
                 visibility: wgpu::ShaderStage::VERTEX,
-                ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                ty: wgpu::BindingType::UniformBuffer { dynamic: true },
             }],
             label: Some("mesh-bind-group-descriptor-layout"),
         });
@@ -108,8 +125,10 @@ impl InstanceList {
             usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
         });
 
+        let device_instances = DeviceInstances::new(32, device, &bind_group_layout);
+
         Self {
-            device_instances: Vec::new(),
+            device_instances,
             bind_group_layout,
             instances: TrackedStorage::new(),
             bounds: Vec::new(),
@@ -128,11 +147,13 @@ impl InstanceList {
         self.instances.overwrite(id, instance);
         if id <= self.bounds.len() {
             self.bounds.push(InstanceBounds::new(&instance, mesh));
-            self.device_instances
-                .push(DeviceInstance::new(device, &self.bind_group_layout));
         } else {
             self.bounds[id] = InstanceBounds::new(&instance, mesh);
-            self.device_instances[id] = DeviceInstance::new(device, &self.bind_group_layout);
+        }
+
+        if self.device_instances.len() <= id {
+            self.device_instances = DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
+            self.instances.trigger_changed_all();
         }
     }
 
@@ -147,11 +168,13 @@ impl InstanceList {
         if id <= self.bounds.len() {
             self.bounds
                 .push(InstanceBounds::new_animated(&instance, mesh));
-            self.device_instances
-                .push(DeviceInstance::new(device, &self.bind_group_layout));
         } else {
             self.bounds[id] = InstanceBounds::new_animated(&instance, mesh);
-            self.device_instances[id] = DeviceInstance::new(device, &self.bind_group_layout);
+        }
+
+        if self.device_instances.len() <= id {
+            self.device_instances = DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
+            self.instances.trigger_changed_all();
         }
     }
 
@@ -195,8 +218,9 @@ impl InstanceList {
             }
 
             commands.push(super::CopyCommand {
-                destination_buffer: &device_instances[i].device_matrices,
+                destination_buffer: &device_instances.device_matrices,
                 offset: (i * instance_copy_size) as wgpu::BufferAddress,
+                dest_offset: DeviceInstances::offset_for(i),
                 copy_size: instance_copy_size as wgpu::BufferAddress,
                 staging_buffer: CopyStagingBuffer::Reference(staging_buffer),
             });
@@ -265,7 +289,6 @@ impl InstanceList {
 
         InstanceIterator {
             instances: &self.instances,
-            device_instances: self.device_instances.as_slice(),
             bounds: self.bounds.as_slice(),
             current: 0,
             length,
@@ -276,7 +299,6 @@ impl InstanceList {
         let length = self.instances.len();
         InstanceIteratorMut {
             instances: &mut self.instances,
-            device_instances: self.device_instances.as_mut_slice(),
             bounds: self.bounds.as_mut_slice(),
             current: 0,
             length,
@@ -286,19 +308,17 @@ impl InstanceList {
 
 pub struct InstanceIterator<'a> {
     instances: &'a TrackedStorage<Instance>,
-    device_instances: &'a [DeviceInstance],
     bounds: &'a [InstanceBounds],
     current: usize,
     length: usize,
 }
 
 impl<'a> Iterator for InstanceIterator<'a> {
-    type Item = (usize, &'a Instance, &'a DeviceInstance, &'a InstanceBounds);
+    type Item = (usize, &'a Instance, &'a InstanceBounds);
     fn next(&mut self) -> Option<Self::Item> {
-        let (instances, device_instances, bounds) = unsafe {
+        let (instances, bounds) = unsafe {
             (
                 self.instances.as_ptr(),
-                self.device_instances.as_ptr(),
                 self.bounds.as_ptr(),
             )
         };
@@ -309,7 +329,6 @@ impl<'a> Iterator for InstanceIterator<'a> {
                     (
                         self.current,
                         instances.add(self.current).as_ref().unwrap(),
-                        device_instances.add(self.current).as_ref().unwrap(),
                         bounds.add(self.current).as_ref().unwrap(),
                     )
                 };
@@ -324,7 +343,6 @@ impl<'a> Iterator for InstanceIterator<'a> {
 
 pub struct InstanceIteratorMut<'a> {
     instances: &'a mut TrackedStorage<Instance>,
-    device_instances: &'a mut [DeviceInstance],
     bounds: &'a mut [InstanceBounds],
     current: usize,
     length: usize,
@@ -334,14 +352,12 @@ impl<'a> Iterator for InstanceIteratorMut<'a> {
     type Item = (
         usize,
         &'a mut Instance,
-        &'a mut DeviceInstance,
         &'a mut InstanceBounds,
     );
     fn next(&mut self) -> Option<Self::Item> {
-        let (instances, device_instances, bounds) = unsafe {
+        let (instances, bounds) = unsafe {
             (
                 self.instances.as_mut_ptr(),
-                self.device_instances.as_mut_ptr(),
                 self.bounds.as_mut_ptr(),
             )
         };
@@ -352,7 +368,6 @@ impl<'a> Iterator for InstanceIteratorMut<'a> {
                     (
                         self.current,
                         instances.add(self.current).as_mut().unwrap(),
-                        device_instances.add(self.current).as_mut().unwrap(),
                         bounds.add(self.current).as_mut().unwrap(),
                     )
                 };
