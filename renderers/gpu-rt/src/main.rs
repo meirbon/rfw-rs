@@ -129,12 +129,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    // let cesium_man = renderer
-    //     .load_mesh("models/CesiumMan/CesiumMan.gltf")
-    //     .unwrap();
-    // let mut instance = renderer.add_instance(cesium_man).unwrap();
-    // instance.scale(Vec3::splat(1.0));
-    // instance.synchronize().unwrap();
+    let _cesium_man = renderer.load("models/CesiumMan/CesiumMan.gltf")?.scene().unwrap();
 
     // let cbox = match renderer.load("models/cbox.obj")? {
     //     LoadResult::Scene => panic!("This object should not be a scene"),

@@ -364,7 +364,7 @@ impl AnimatedMesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
@@ -927,6 +927,73 @@ impl Intersect for AnimatedMesh {
 impl Bounds for AnimatedMesh {
     fn bounds(&self) -> AABB {
         self.bounds.clone()
+    }
+}
+
+impl AnimatedMesh {
+    pub fn to_static_mesh(&self, skin: &crate::graph::Skin) -> Mesh {
+        let mut vertices = vec![VertexData::zero(); self.vertices.len()];
+        let mut triangles = vec![RTTriangle::default(); self.triangles.len()];
+
+        vertices.iter_mut().enumerate().for_each(|(i, v)| {
+            let original_v = &self.vertices[i];
+            let anim_data = &self.anim_vertex_data[i];
+
+            let vertex = Vec4::from(original_v.vertex);
+            let normal = Vec3::from(original_v.normal).extend(0.0);
+            let tangent = Vec4::from(original_v.tangent);
+
+            let skin_matrix = skin.joint_matrices[anim_data.joints[0] as usize] * anim_data.weights[0]
+                + skin.joint_matrices[anim_data.joints[1] as usize] * anim_data.weights[1]
+                + skin.joint_matrices[anim_data.joints[2] as usize] * anim_data.weights[2]
+                + skin.joint_matrices[anim_data.joints[3] as usize] * anim_data.weights[3];
+
+            let normal_matrix: Mat4 = skin_matrix.inverse().transpose();
+
+            *v = VertexData {
+                vertex: (skin_matrix * vertex).into(),
+                normal: (normal_matrix * normal).truncate().into(),
+                tangent: (normal_matrix * tangent).into(),
+                ..original_v.clone()
+            }
+        });
+
+        triangles.iter_mut().enumerate().for_each(|(i, t)| {
+            let original_t = &self.triangles[i];
+
+            let v0 = i * 3;
+            let v1 = v0 + 1;
+            let v2 = v0 + 2;
+
+            let v0 = &vertices[v0];
+            let v1 = &vertices[v1];
+            let v2 = &vertices[v2];
+
+            *t = RTTriangle {
+                normal: RTTriangle::normal(Vec4::from(v0.vertex).truncate(), Vec4::from(v1.vertex).truncate(), Vec4::from(v2.vertex).truncate()).into(),
+                n0: v0.normal,
+                n1: v1.normal,
+                n2: v2.normal,
+                tangent0: v0.tangent,
+                tangent1: v1.tangent,
+                tangent2: v2.tangent,
+                vertex0: [v0.vertex[0], v0.vertex[1], v0.vertex[2]],
+                vertex1: [v1.vertex[0], v1.vertex[1], v1.vertex[2]],
+                vertex2: [v2.vertex[0], v2.vertex[1], v2.vertex[2]],
+                ..original_t.clone()
+            }
+        });
+
+        Mesh {
+            vertices,
+            triangles,
+            name: self.name.clone(),
+            meshes: self.meshes.clone(),
+            bounds: self.bounds,
+            materials: self.materials.clone(),
+            bvh: None,
+            mbvh: None,
+        }
     }
 }
 

@@ -84,6 +84,7 @@ use glam::*;
 use scene::renderers::{RenderMode, Setting, SettingValue};
 use shared::utils;
 use std::error::Error;
+use scene::LoadResult;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 512;
@@ -123,21 +124,45 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let cbox = match renderer.load("models/cbox.obj")? {
-        scene::LoadResult::Scene(_) => panic!("Object is not supposed to be a scene"),
-        scene::LoadResult::Object(reference) => reference,
+    let quad_mat = renderer.add_material(Vec3::splat(20.0), 1.0, Vec3::one(), 0.0)?;
+    let quad = scene::objects::Quad::new(Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 20.0, 0.0), 10.0, 10.0, quad_mat);
+    let quad = renderer.add_object(quad)?;
+    let _quad_inst = renderer.add_instance(quad);
+
+    let pica = match renderer.load("models/pica/scene.gltf")? {
+        LoadResult::Scene(root_nodes) => root_nodes,
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
-    for i in 0..=10 {
-        let instance = renderer.add_instance(cbox).unwrap();
-        renderer.get_instance_mut(instance, |instance| {
-            if let Some(instance) = instance {
-                instance.rotate_y(180.0);
-                instance.translate_y(-2.5);
-                instance.translate_x(((i - 5) * 8) as f32);
-                instance.translate_z(10.0);
-            }
-        });
-    }
+
+    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
+        LoadResult::Scene(root_nodes) => {
+            root_nodes.iter().for_each(|node| {
+                renderer.get_node_mut(*node, |node| {
+                    if let Some(node) = node {
+                        node.set_scale(Vec3::splat(3.0));
+                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                    }
+                });
+            });
+        }
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
+
+    // let cbox = match renderer.load("models/cbox.obj")? {
+    //     scene::LoadResult::Scene(_) => panic!("Object is not supposed to be a scene"),
+    //     scene::LoadResult::Object(reference) => reference,
+    // };
+    // for i in 0..=10 {
+    //     let instance = renderer.add_instance(cbox).unwrap();
+    //     renderer.get_instance_mut(instance, |instance| {
+    //         if let Some(instance) = instance {
+    //             instance.rotate_y(180.0);
+    //             instance.translate_y(-2.5);
+    //             instance.translate_x(((i - 5) * 8) as f32);
+    //             instance.translate_z(10.0);
+    //         }
+    //     });
+    // }
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Accumulate;
@@ -247,16 +272,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 } else {
                     elapsed
                 };
-
-                if key_handler.pressed(KeyCode::Space) {
-                    renderer.iter_instances_mut(|instances| {
-                        instances.for_each(|(_, instance)| {
-                            instance.rotate_y(elapsed / 10.0);
-                        });
-                    });
-
-                    mode = RenderMode::Reset;
-                }
 
                 timer.reset();
 

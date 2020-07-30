@@ -298,19 +298,32 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         roughness: f32,
         specular: B,
         transmission: f32,
-    ) -> Option<usize> {
+    ) -> Result<u32, triangle_scene::SceneError> {
         if let Ok(mut materials) = self.scene.materials.lock() {
-            Some(materials.add(color, roughness, specular, transmission))
+            Ok(materials.add(color, roughness, specular, transmission) as u32)
         } else {
-            None
+            Err(triangle_scene::SceneError::LockError)
         }
     }
 
-    pub fn add_object<B: Into<Mesh>>(
+    pub fn add_object<B: ToMesh>(
         &self,
         object: B,
-    ) -> Result<usize, triangle_scene::SceneError> {
-        self.scene.add_object(object.into())
+    ) -> Result<ObjectRef, triangle_scene::SceneError> {
+        match object.into_mesh() {
+            MeshResult::Static(m) => {
+                match self.scene.add_object(m) {
+                    Ok(id) => Ok(ObjectRef::Static(id as u32)),
+                    Err(e) => Err(e)
+                }
+            }
+            MeshResult::Animated(m) => {
+                match self.scene.add_animated_object(m) {
+                    Ok(id) => Ok(ObjectRef::Animated(id as u32)),
+                    Err(e) => Err(e)
+                }
+            }
+        }
     }
 
     pub fn add_instance(&self, object: ObjectRef) -> Result<usize, triangle_scene::SceneError> {

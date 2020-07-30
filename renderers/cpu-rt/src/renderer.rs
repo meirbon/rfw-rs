@@ -16,6 +16,7 @@ use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use wgpu::TextureCopyView;
+use scene::graph::Skin;
 
 pub struct RayTracer {
     device: wgpu::Device,
@@ -39,6 +40,7 @@ pub struct RayTracer {
     output_pipeline: wgpu::RenderPipeline,
 
     meshes: Vec<Mesh>,
+    anim_meshes: Vec<AnimatedMesh>,
     instances: Vec<Instance>,
     materials: Vec<Material>,
     device_materials: Vec<DeviceMaterial>,
@@ -86,7 +88,7 @@ impl Renderer for RayTracer {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-        .unwrap();
+            .unwrap();
 
         let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             extensions: wgpu::Extensions {
@@ -243,6 +245,7 @@ impl Renderer for RayTracer {
             output_pipeline_layout,
             output_pipeline,
             meshes: Vec::new(),
+            anim_meshes: Vec::new(),
             instances: Vec::new(),
             materials: Vec::new(),
             device_materials: Vec::new(),
@@ -266,7 +269,11 @@ impl Renderer for RayTracer {
     }
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        unimplemented!()
+        while id >= self.anim_meshes.len() {
+            self.anim_meshes.push(AnimatedMesh::empty());
+        }
+
+        self.anim_meshes[id] = mesh.clone();
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
@@ -315,7 +322,7 @@ impl Renderer for RayTracer {
 
         let intersector = TIntersector::new(
             self.meshes.as_slice(),
-            &[], // TODO
+            self.anim_meshes.as_slice(),
             self.instances.as_slice(),
             &self.bvh,
             &self.mbvh,
@@ -664,6 +671,8 @@ impl Renderer for RayTracer {
     fn set_skybox(&mut self, skybox: Texture) {
         self.skybox = Some(skybox);
     }
+
+    fn set_skin(&mut self, id: usize, skin: &Skin) {}
 
     fn get_settings(&self) -> Vec<scene::renderers::Setting> {
         Vec::new()

@@ -304,11 +304,10 @@ impl NodeGraph {
         }
 
         let meshes = &nodes[current_index].meshes;
-        let skin = nodes[current_index].skin;
         meshes.iter().for_each(|m| {
-            instances[m.instance_id as usize].skin_id = skin;
             instances[m.instance_id as usize].set_transform(combined_matrix);
-            // TODO: Morphed
+
+            // TODO: Morph animations
         });
 
         // Update skin
@@ -327,6 +326,10 @@ impl NodeGraph {
                         * nodes[node_id].combined_matrix
                         * inverse_bind_matrices[i];
                 });
+
+            meshes.iter().for_each(|m| {
+                instances[m.instance_id as usize].skin_id = nodes[current_index].skin;
+            });
         }
 
         nodes[current_index].changed = false;

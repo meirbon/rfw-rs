@@ -80,6 +80,10 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         self.storage_ptr
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.storage_ptr == 0
+    }
+
     pub fn overwrite(&mut self, index: usize) {
         if index >= self.len() {
             let last_len = self.len();
@@ -347,6 +351,10 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
 
     pub fn len(&self) -> usize {
         self.storage.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.storage.is_empty()
     }
 
     pub fn allocate(&mut self) -> usize {
