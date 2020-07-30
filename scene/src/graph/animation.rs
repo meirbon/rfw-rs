@@ -171,26 +171,22 @@ impl Channel {
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
 
-        if f <= 0.0 {
-            self.vec3s[0]
-        } else {
-            match self.sampler {
-                Method::Linear => (1.0 - f) * self.vec3s[k] + f * self.vec3s[k + 1],
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
-                    let p0 = self.vec3s[k * 3 + 1];
-                    let m0 = (t1 - t0) * self.vec3s[k * 3 + 2];
-                    let p1 = self.vec3s[(k + 1) * 3 + 1];
-                    let m1 = (t1 - t0) * self.vec3s[(k + 1) * 3];
-                    m0 * (t3 - 2.0 * t2 + t)
-                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                        + p1 * (-2.0 * t3 + 3.0 * t2)
-                        + m1 * (t3 - t2)
-                }
-                Method::Step => self.vec3s[k],
+        match self.sampler {
+            Method::Linear => (1.0 - f) * self.vec3s[k] + f * self.vec3s[k + 1],
+            Method::Spline => {
+                let t = f;
+                let t2 = t * t;
+                let t3 = t2 * t;
+                let p0 = self.vec3s[k * 3 + 1];
+                let m0 = (t1 - t0) * self.vec3s[k * 3 + 2];
+                let p1 = self.vec3s[(k + 1) * 3 + 1];
+                let m1 = (t1 - t0) * self.vec3s[(k + 1) * 3];
+                m0 * (t3 - 2.0 * t2 + t)
+                    + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                    + p1 * (-2.0 * t3 + 3.0 * t2)
+                    + m1 * (t3 - t2)
             }
+            Method::Step => self.vec3s[k],
         }
     }
 
@@ -199,26 +195,22 @@ impl Channel {
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
 
-        if f <= 0.0 {
-            self.vec3s[0]
-        } else {
-            match self.sampler {
-                Method::Linear => (1.0 - f) * self.vec3s[k] + f * self.vec3s[k + 1],
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
-                    let p0 = self.vec3s[k * 3 + 1];
-                    let m0 = (t1 - t0) * self.vec3s[k * 3 + 2];
-                    let p1 = self.vec3s[(k + 1) * 3 + 1];
-                    let m1 = (t1 - t0) * self.vec3s[(k + 1) * 3];
-                    m0 * (t3 - 2.0 * t2 + t)
-                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                        + p1 * (-2.0 * t3 + 3.0 * t2)
-                        + m1 * (t3 - t2)
-                }
-                Method::Step => self.vec3s[k],
+        match self.sampler {
+            Method::Linear => (1.0 - f) * self.vec3s[k] + f * self.vec3s[k + 1],
+            Method::Spline => {
+                let t = f;
+                let t2 = t * t;
+                let t3 = t2 * t;
+                let p0 = self.vec3s[k * 3 + 1];
+                let m0 = (t1 - t0) * self.vec3s[k * 3 + 2];
+                let p1 = self.vec3s[(k + 1) * 3 + 1];
+                let m1 = (t1 - t0) * self.vec3s[(k + 1) * 3];
+                m0 * (t3 - 2.0 * t2 + t)
+                    + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                    + p1 * (-2.0 * t3 + 3.0 * t2)
+                    + m1 * (t3 - t2)
             }
+            Method::Step => self.vec3s[k],
         }
     }
 
@@ -227,28 +219,24 @@ impl Channel {
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
 
-        if f <= 0.0 {
-            self.weights[0]
-        } else {
-            match self.sampler {
-                Method::Linear => {
-                    (1.0 - f) * self.weights[k * count + i] + f * self.weights[(k + 1) * count + i]
-                }
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
-                    let p0 = self.weights[(k * count + i) * 3 + 1];
-                    let m0 = (t1 - t0) * self.weights[(k * count + i) * 3 + 2];
-                    let p1 = self.weights[((k + 1) * count + i) * 3 + 1];
-                    let m1 = (t1 - t0) * self.weights[((k + 1) * count + i) * 3];
-                    m0 * (t3 - 2.0 * t2 + t)
-                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                        + p1 * (-2.0 * t3 + 3.0 * t2)
-                        + m1 * (t3 - t2)
-                }
-                Method::Step => self.weights[k],
+        match self.sampler {
+            Method::Linear => {
+                (1.0 - f) * self.weights[k * count + i] + f * self.weights[(k + 1) * count + i]
             }
+            Method::Spline => {
+                let t = f;
+                let t2 = t * t;
+                let t3 = t2 * t;
+                let p0 = self.weights[(k * count + i) * 3 + 1];
+                let m0 = (t1 - t0) * self.weights[(k * count + i) * 3 + 2];
+                let p1 = self.weights[((k + 1) * count + i) * 3 + 1];
+                let m1 = (t1 - t0) * self.weights[((k + 1) * count + i) * 3];
+                m0 * (t3 - 2.0 * t2 + t)
+                    + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                    + p1 * (-2.0 * t3 + 3.0 * t2)
+                    + m1 * (t3 - t2)
+            }
+            Method::Step => self.weights[k],
         }
     }
 
@@ -257,32 +245,28 @@ impl Channel {
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
 
-        if f <= 0.0 {
-            self.rotations[0]
-        } else {
-            match self.sampler {
-                Method::Linear => Quat::from(
-                    (Vec4::from(self.rotations[k]) * (1.0 - f))
-                        + (Vec4::from(self.rotations[k + 1]) * f),
-                ),
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
+        match self.sampler {
+            Method::Linear => Quat::from(
+                (Vec4::from(self.rotations[k]) * (1.0 - f))
+                    + (Vec4::from(self.rotations[k + 1]) * f),
+            ),
+            Method::Spline => {
+                let t = f;
+                let t2 = t * t;
+                let t3 = t2 * t;
 
-                    let p0 = Vec4::from(self.rotations[k * 3 + 1]);
-                    let m0 = Vec4::from(self.rotations[k * 3 + 2]) * (t1 - t0);
-                    let p1 = Vec4::from(self.rotations[(k + 1) * 3 + 1]);
-                    let m1 = Vec4::from(self.rotations[(k + 1) * 3]) * (t1 - t0);
-                    Quat::from(
-                        m0 * (t3 - 2.0 * t2 + t)
-                            + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                            + p1 * (-2.0 * t3 + 3.0 * t2)
-                            + m1 * (t3 - t2),
-                    )
-                }
-                Method::Step => self.rotations[k],
+                let p0 = Vec4::from(self.rotations[k * 3 + 1]);
+                let m0 = Vec4::from(self.rotations[k * 3 + 2]) * (t1 - t0);
+                let p1 = Vec4::from(self.rotations[(k + 1) * 3 + 1]);
+                let m1 = Vec4::from(self.rotations[(k + 1) * 3]) * (t1 - t0);
+                Quat::from(
+                    m0 * (t3 - 2.0 * t2 + t)
+                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
+                        + p1 * (-2.0 * t3 + 3.0 * t2)
+                        + m1 * (t3 - t2),
+                )
             }
+            Method::Step => self.rotations[k],
         }
     }
 }
@@ -291,6 +275,7 @@ impl Channel {
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub name: String,
+    pub affected_roots: Vec<u32>,
     pub channels: Vec<Channel>,
     pub time: f32,
 }
@@ -299,6 +284,7 @@ impl Default for Animation {
     fn default() -> Self {
         Self {
             name: String::new(),
+            affected_roots: Vec::new(),
             channels: Vec::new(),
             time: 0.0,
         }
@@ -317,6 +303,11 @@ impl Animation {
     }
 
     pub fn set_time(&mut self, time: f32, nodes: &mut NodeGraph) {
+        self.affected_roots.iter().for_each(|id| {
+            let id = *id as usize;
+            nodes.trigger_changed(id);
+        });
+
         self.time = time;
         let channels = &mut self.channels;
 
@@ -331,19 +322,13 @@ impl Animation {
 
                 match t {
                     Target::Translation => {
-                        let t = c.sample_translation(current_time, key);
-                        // println!("updating node {} translation {}", nodes[node_id].name, t);
-                        nodes[node_id].set_translation(t);
+                        nodes[node_id].set_translation(c.sample_translation(current_time, key));
                     }
                     Target::Rotation => {
-                        let r = c.sample_rotation(current_time, key);
-                        // println!("updating node {} rotation {}", nodes[node_id].name, r);
-                        nodes[node_id].set_rotation(r);
+                        nodes[node_id].set_rotation(c.sample_rotation(current_time, key));
                     }
                     Target::Scale => {
-                        let s = c.sample_scale(current_time, key);
-                        // println!("updating node {} scale {}", nodes[node_id].name, s);
-                        nodes[node_id].set_scale(s);
+                        nodes[node_id].set_scale(c.sample_scale(current_time, key));
                     }
                     Target::MorphWeights => {
                         let node = &mut nodes[node_id];

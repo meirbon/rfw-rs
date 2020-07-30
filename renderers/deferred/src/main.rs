@@ -318,7 +318,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let timer = Timer::new();
                 renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
-                // renderer.set_animation_time(0.0);
                 renderer.synchronize();
                 synchronize.add_sample(timer.elapsed_in_millis());
                 renderer.render(&camera, RenderMode::Default);

@@ -96,17 +96,10 @@ impl Node {
 
     pub fn set_matrix(&mut self, matrix: Mat4) {
         self.matrix = matrix;
-        self.local_matrix = self.matrix;
         self.changed = true;
     }
 
     pub fn update_matrix(&mut self) {
-        // let t: glm::Mat4 = glm::translation(&glm::vec3(self.translation.x(), self.translation.y(), self.translation.z()));
-        // let r: glm::Mat4 = glm::quat_to_mat4(&glm::quat(self.rotation.x(), self.rotation.y(), self.rotation.z(), self.rotation.w()));
-        // let s: glm::Mat4 = glm::scale(&glm::identity(), &glm::vec3(self.scale.x(), self.scale.y(), self.scale.z()));
-        // let trs: glm::Mat4 = t * r * s;
-        // let trs = Mat4::from_cols_array_2d(trs.as_ref());
-
         let trs =
             Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
         self.local_matrix = trs * self.matrix;
@@ -117,14 +110,14 @@ impl Node {
 #[derive(Debug, Clone)]
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
-    root_nodes: FlaggedStorage<u32>,
+    root_nodes: TrackedStorage<u32>,
 }
 
 impl Default for NodeGraph {
     fn default() -> Self {
         Self {
             nodes: TrackedStorage::new(),
-            root_nodes: FlaggedStorage::new(),
+            root_nodes: TrackedStorage::new(),
         }
     }
 }
@@ -138,6 +131,18 @@ impl NodeGraph {
         self.nodes.allocate()
     }
 
+    pub fn any_changed(&self) -> bool {
+        self.nodes.any_changed()
+    }
+
+    pub fn reset_changed(&mut self) {
+        self.nodes.reset_changed();
+    }
+
+    pub fn trigger_changed(&mut self, id: usize) {
+        self.nodes.trigger_changed(id);
+    }
+
     pub fn add_root_node(&mut self, id: usize) {
         assert!(self.nodes.get(id).is_some());
         self.root_nodes.push(id as u32);
@@ -149,7 +154,14 @@ impl NodeGraph {
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let mut changed = false;
-        for (_, root_node) in self.root_nodes.iter() {
+        for i in 0..self.root_nodes.len() {
+            let id = self.root_nodes[i] as usize;
+            if self.nodes.get_changed(id) {
+                self.root_nodes.trigger_changed(i);
+            }
+        }
+
+        for (_, root_node) in self.root_nodes.iter_changed() {
             changed |= Self::traverse_children(
                 (*root_node) as usize,
                 Mat4::identity(),
@@ -158,6 +170,8 @@ impl NodeGraph {
                 skins,
             );
         }
+
+        self.root_nodes.reset_changed();
 
         changed
     }

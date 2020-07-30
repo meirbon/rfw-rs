@@ -642,6 +642,7 @@ impl ObjectLoader for GltfLoader {
             let mut animations = animation_storage.lock().unwrap();
             let mut animation = Animation {
                 name: anim.name().unwrap_or("").to_string(),
+                affected_roots: root_nodes.clone(),
                 channels,
                 time: 0.0,
             };

@@ -192,48 +192,48 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIterator<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Instance>),
+        where
+            C: FnOnce(Option<&Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&mut Instance>),
+        where
+            C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
     }
 
     pub fn get_node<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Node>),
+        where
+            C: FnOnce(Option<&Node>),
     {
         let lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_node_mut<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&mut Node>),
+        where
+            C: FnOnce(Option<&mut Node>),
     {
         let mut lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get_mut(index))
@@ -422,11 +422,15 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 self.scene.objects.skins.lock(),
                 self.scene.objects.instances.lock(),
             ) {
-                nodes.update(&mut instances, &mut skins);
+                if nodes.any_changed() {
+                    nodes.update(&mut instances, &mut skins);
+                }
+
                 skins
                     .iter_changed()
                     .for_each(|(id, skin)| renderer.set_skin(id, skin));
                 skins.reset_changed();
+                nodes.reset_changed();
             }
 
             if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
