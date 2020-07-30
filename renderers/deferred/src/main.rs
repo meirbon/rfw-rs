@@ -138,7 +138,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap();
     renderer.add_directional_light([0.0, -1.0, -0.1], [1.0; 3]);
 
-    // assert_eq!(renderer.load("models/pica/scene.gltf")?, LoadResult::Scene);
+    // match renderer.load("models/pica/scene.gltf")? {
+    //     LoadResult::Scene(_root_nodes) => {}
+    //     LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    // };
 
     match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
         LoadResult::Scene(_root_nodes) => {}
@@ -163,6 +166,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     {
         let timer = Timer::new();
+        renderer.set_animation_time(0.0);
         renderer.synchronize();
         synchronize.add_sample(timer.elapsed_in_millis());
     }
@@ -305,6 +309,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let timer = Timer::new();
                 renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
+                // renderer.set_animation_time(0.0);
                 renderer.synchronize();
                 synchronize.add_sample(timer.elapsed_in_millis());
                 renderer.render(&camera, RenderMode::Default);

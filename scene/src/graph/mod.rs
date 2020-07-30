@@ -1,6 +1,7 @@
 use crate::utils::*;
 use crate::{Instance, ObjectRef};
 use glam::*;
+use nalgebra_glm as glm;
 
 pub mod animation;
 
@@ -148,7 +149,6 @@ impl NodeGraph {
                 &mut self.nodes,
                 instances,
                 skins,
-                false,
             );
         }
 
@@ -185,9 +185,8 @@ impl NodeGraph {
         nodes: &mut TrackedStorage<Node>,
         instances: &mut TrackedStorage<Instance>,
         skins: &mut TrackedStorage<Skin>,
-        mut changed: bool,
     ) -> bool {
-        changed |= nodes[current_index].changed;
+        let mut changed = nodes[current_index].changed;
         if changed {
             nodes[current_index].update_matrix();
         }
@@ -206,14 +205,13 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.iter() {
             let c_id = *c_id as usize;
-            changed |= Self::traverse_children(c_id, nodes[current_index].combined_matrix, nodes, instances, skins, changed);
+            changed |= Self::traverse_children(c_id, nodes[current_index].combined_matrix, nodes, instances, skins);
         }
 
         if !changed && !nodes[current_index].first {
             return false;
         }
 
-        let first = nodes[current_index].first;
         let meshes = &nodes[current_index].meshes;
         let skin = nodes[current_index].skin;
         meshes.iter().for_each(|m| {

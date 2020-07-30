@@ -4,6 +4,7 @@ use crate::{AnimatedMesh, Instance, MaterialList, Mesh, ObjectRef};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use crate::graph::animation::Animation;
+use std::fmt::Formatter;
 
 pub mod gltf;
 pub mod obj;
