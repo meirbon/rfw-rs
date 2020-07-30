@@ -1,12 +1,12 @@
 use glam::*;
 use std::{path::PathBuf, sync::Mutex};
 
+use crate::graph::animation::Animation;
 use crate::graph::{NodeGraph, Skin};
 use crate::material::*;
 use crate::triangle_scene::SceneError;
 use crate::utils::*;
-use crate::{AnimatedMesh, Instance, Mesh, ObjectLoader, ObjectRef, LoadResult};
-use crate::graph::animation::Animation;
+use crate::{AnimatedMesh, Instance, LoadResult, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {
     HasNormals = 1,

@@ -481,9 +481,7 @@ impl ObjectLoader for GltfLoader {
                         new_node.child_nodes.push(
                             match node_mapping.get(&(child.index() as usize)) {
                                 Some(val) => *val as u32,
-                                None => {
-                                    panic!("Node with id {} was not in mapping", child.index())
-                                }
+                                None => panic!("Node with id {} was not in mapping", child.index()),
                             },
                         );
                     }
@@ -676,8 +674,8 @@ impl ObjectLoader for GltfLoader {
 
 impl GltfLoader {
     fn traverse_tree<T>(node: &gltf::Node, mut cb: T)
-        where
-            T: FnMut(&gltf::Node) + Clone,
+    where
+        T: FnMut(&gltf::Node) + Clone,
     {
         cb(node);
         node.children().for_each(|child| {

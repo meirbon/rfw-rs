@@ -150,7 +150,6 @@ pub struct Channel {
     pub duration: f32,
 }
 
-
 impl Default for Channel {
     fn default() -> Self {
         Self {
@@ -236,8 +235,7 @@ impl Channel {
         } else {
             match self.sampler {
                 Method::Linear => {
-                    (1.0 - f) * self.weights[k * count + i]
-                        + f * self.weights[(k + 1) * count + i]
+                    (1.0 - f) * self.weights[k * count + i] + f * self.weights[(k + 1) * count + i]
                 }
                 Method::Spline => {
                     let t = f;

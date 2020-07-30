@@ -1,5 +1,6 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
 use crate::wgpu_renderer::mesh::DeferredAnimMesh;
+use crate::wgpu_renderer::skin::DeferredSkin;
 use rtbvh::AABB;
 use scene::{
     lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
@@ -21,14 +22,28 @@ impl DeferredLights {
         capacity: usize,
         device: &wgpu::Device,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
+        skin_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         Self {
             // point_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
-            spot_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
-            area_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
+            spot_lights: LightShadows::new(
+                device,
+                instance_bind_group_layout,
+                skin_bind_group_layout,
+                capacity,
+                false,
+            ),
+            area_lights: LightShadows::new(
+                device,
+                instance_bind_group_layout,
+                skin_bind_group_layout,
+                capacity,
+                false,
+            ),
             directional_lights: LightShadows::new(
                 device,
                 instance_bind_group_layout,
+                skin_bind_group_layout,
                 capacity,
                 true,
             ),
@@ -75,13 +90,14 @@ impl DeferredLights {
         instances: &InstanceList,
         meshes: &TrackedStorage<DeferredMesh>,
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+        skins: &TrackedStorage<DeferredSkin>,
     ) {
         self.area_lights
-            .render(encoder, instances, meshes, anim_meshes);
+            .render(encoder, instances, meshes, anim_meshes, skins);
         self.spot_lights
-            .render(encoder, instances, meshes, anim_meshes);
+            .render(encoder, instances, meshes, anim_meshes, skins);
         self.directional_lights
-            .render(encoder, instances, meshes, anim_meshes);
+            .render(encoder, instances, meshes, anim_meshes, skins);
     }
 }
 
@@ -97,6 +113,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn new(
         device: &wgpu::Device,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
+        skin_bind_group_layout: &wgpu::BindGroupLayout,
         capacity: usize,
         linear: bool,
     ) -> Self {
@@ -112,7 +129,13 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             light_buffer,
             light_buffer_size,
             info: Vec::new(),
-            shadow_maps: ShadowMapArray::new(device, capacity, instance_bind_group_layout, linear),
+            shadow_maps: ShadowMapArray::new(
+                device,
+                capacity,
+                instance_bind_group_layout,
+                skin_bind_group_layout,
+                linear,
+            ),
         }
     }
 
@@ -213,6 +236,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         instances: &InstanceList,
         meshes: &TrackedStorage<DeferredMesh>,
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+        skins: &TrackedStorage<DeferredSkin>,
     ) {
         if instances.changed() {
             self.shadow_maps.render(
@@ -221,6 +245,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
                 instances,
                 meshes,
                 anim_meshes,
+                skins,
             );
         } else {
             if !self.lights.any_changed() {
@@ -230,7 +255,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             for (i, _) in self.lights.iter_changed() {
                 let i = i as u32;
                 self.shadow_maps
-                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes);
+                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes, skins);
             }
         }
 
@@ -251,10 +276,14 @@ pub struct ShadowMapArray {
     depth_map: wgpu::Texture,
     depth_view: wgpu::TextureView,
     pub uniform_buffer: wgpu::Buffer,
+
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
+
     pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
+
+    anim_pipeline_layout: wgpu::PipelineLayout,
     anim_pipeline: wgpu::RenderPipeline,
 
     filter_bind_group_layout: wgpu::BindGroupLayout,
@@ -280,6 +309,7 @@ impl ShadowMapArray {
         device: &wgpu::Device,
         count: usize,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
+        skin_bind_group_layout: &wgpu::BindGroupLayout,
         linear: bool,
     ) -> ShadowMapArray {
         let map = device.create_texture(&wgpu::TextureDescriptor {
@@ -421,7 +451,7 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
+        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv", );
         let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
         let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
 
@@ -481,11 +511,18 @@ impl ShadowMapArray {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single_anim.vert.spv",);
+        let vert_shader = include_bytes!("../../shaders/shadow_single_anim.vert.spv", );
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
+        let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            bind_group_layouts: &[
+                &bind_group_layout,
+                instance_bind_group_layout,
+                skin_bind_group_layout,
+            ],
+        });
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            layout: &anim_pipeline_layout,
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &vert_module,
@@ -605,7 +642,7 @@ impl ShadowMapArray {
             });
 
         let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv",);
+        let frag_shader = include_bytes!("../../shaders/shadow_filter.frag.spv", );
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
@@ -657,6 +694,7 @@ impl ShadowMapArray {
             bind_group,
             pipeline_layout,
             pipeline,
+            anim_pipeline_layout,
             anim_pipeline,
             filter_bind_group_layout,
             filter_bind_groups,
@@ -955,6 +993,7 @@ impl ShadowMapArray {
         instances: &super::instance::InstanceList,
         meshes: &TrackedStorage<DeferredMesh>,
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+        skins: &TrackedStorage<DeferredSkin>,
     ) {
         // TODO: Use anim meshes
         assert!(range.end as usize <= self.views.len());
@@ -981,12 +1020,6 @@ impl ShadowMapArray {
                         },
                     ),
                 });
-
-                render_pass.set_bind_group(
-                    0,
-                    &self.bind_group,
-                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
-                );
 
                 (0..instances.len())
                     .into_iter()
@@ -1030,36 +1063,91 @@ impl ShadowMapArray {
                             }
                             ObjectRef::Animated(mesh_id) => {
                                 let mesh = &anim_meshes[mesh_id as usize];
-                                render_pass.set_pipeline(&self.pipeline);
-                                if let (Some(buffer), Some(anim_buffer)) =
+                                if let Some(skin_id) = instance.skin_id {
+                                    if let (Some(buffer), Some(anim_buffer)) =
                                     (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
-                                {
-                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                                    render_pass.set_vertex_buffer(
-                                        1,
-                                        anim_buffer,
-                                        0,
-                                        mesh.anim_buffer_size,
-                                    );
-                                    render_pass.set_vertex_buffer(
-                                        2,
-                                        anim_buffer,
-                                        0,
-                                        mesh.anim_buffer_size,
-                                    );
-                                    render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+                                    {
+                                        render_pass.set_pipeline(&self.anim_pipeline);
+                                        render_pass.set_vertex_buffer(
+                                            0,
+                                            buffer,
+                                            0,
+                                            mesh.buffer_size,
+                                        );
+                                        render_pass.set_vertex_buffer(
+                                            1,
+                                            anim_buffer,
+                                            0,
+                                            mesh.anim_buffer_size,
+                                        );
+                                        render_pass.set_vertex_buffer(
+                                            2,
+                                            anim_buffer,
+                                            0,
+                                            mesh.anim_buffer_size,
+                                        );
 
-                                    for j in 0..mesh.sub_meshes.len() {
-                                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                            if frustrum.aabb_in_frustrum(bounds)
-                                                == FrustrumResult::Outside
-                                            {
-                                                continue;
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.bind_group,
+                                            &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                                        );
+                                        render_pass.set_bind_group(
+                                            1,
+                                            &device_instance.bind_group,
+                                            &[],
+                                        );
+                                        render_pass.set_bind_group(
+                                            2,
+                                            skins[skin_id as usize].bind_group.as_ref().unwrap(),
+                                            &[],
+                                        );
+
+                                        for j in 0..mesh.sub_meshes.len() {
+                                            if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                                if frustrum.aabb_in_frustrum(bounds)
+                                                    == FrustrumResult::Outside
+                                                {
+                                                    continue;
+                                                }
                                             }
-                                        }
 
-                                        let sub_mesh = &mesh.sub_meshes[j];
-                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                            let sub_mesh = &mesh.sub_meshes[j];
+                                            render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                        }
+                                    }
+                                } else {
+                                    if let Some(buffer) = mesh.buffer.as_ref() {
+                                        render_pass.set_pipeline(&self.pipeline);
+                                        render_pass.set_bind_group(
+                                            0,
+                                            &self.bind_group,
+                                            &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                                        );
+                                        render_pass.set_vertex_buffer(
+                                            0,
+                                            buffer,
+                                            0,
+                                            mesh.buffer_size,
+                                        );
+                                        render_pass.set_bind_group(
+                                            1,
+                                            &device_instance.bind_group,
+                                            &[],
+                                        );
+
+                                        for j in 0..mesh.sub_meshes.len() {
+                                            if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                                if frustrum.aabb_in_frustrum(bounds)
+                                                    == FrustrumResult::Outside
+                                                {
+                                                    continue;
+                                                }
+                                            }
+
+                                            let sub_mesh = &mesh.sub_meshes[j];
+                                            render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                        }
                                     }
                                 }
                             }

@@ -97,11 +97,19 @@ impl Node {
 
     pub fn set_matrix(&mut self, matrix: Mat4) {
         self.matrix = matrix;
+        self.local_matrix = self.matrix;
         self.changed = true;
     }
 
     pub fn update_matrix(&mut self) {
-        let trs = Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
+        // let t: glm::Mat4 = glm::translation(&glm::vec3(self.translation.x(), self.translation.y(), self.translation.z()));
+        // let r: glm::Mat4 = glm::quat_to_mat4(&glm::quat(self.rotation.x(), self.rotation.y(), self.rotation.z(), self.rotation.w()));
+        // let s: glm::Mat4 = glm::scale(&glm::identity(), &glm::vec3(self.scale.x(), self.scale.y(), self.scale.z()));
+        // let trs: glm::Mat4 = t * r * s;
+        // let trs = Mat4::from_cols_array_2d(trs.as_ref());
+
+        let trs =
+            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
         self.local_matrix = trs * self.matrix;
         self.changed = false;
     }
@@ -205,13 +213,20 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.iter() {
             let c_id = *c_id as usize;
-            changed |= Self::traverse_children(c_id, nodes[current_index].combined_matrix, nodes, instances, skins);
+            changed |= Self::traverse_children(
+                c_id,
+                nodes[current_index].combined_matrix,
+                nodes,
+                instances,
+                skins,
+            );
         }
 
         if !changed && !nodes[current_index].first {
             return false;
         }
 
+        let first = nodes[current_index].first;
         let meshes = &nodes[current_index].meshes;
         let skin = nodes[current_index].skin;
         meshes.iter().for_each(|m| {
@@ -227,7 +242,7 @@ impl NodeGraph {
         // Update skin
         if let Some(skin) = nodes[current_index].skin {
             let skin = &mut skins[skin as usize];
-            let inverse_transform = nodes[current_index].combined_matrix.inverse();
+            let inverse_transform = combined_matrix.inverse();
             let inverse_bind_matrices = &skin.inverse_bind_matrices;
             let joint_matrices = &mut skin.joint_matrices;
 
@@ -236,7 +251,26 @@ impl NodeGraph {
                 .enumerate()
                 .for_each(|(i, node_id)| {
                     let node_id = *node_id as usize;
-                    joint_matrices[i] = inverse_transform * nodes[node_id].combined_matrix * inverse_bind_matrices[i];
+                    // println!("joint matrix {}, {}", node_id, nodes[node_id].combined_matrix);
+                    // println!("\tmatrix {}, {}", node_id, nodes[node_id].matrix);
+                    // println!("\tlocal matrix {}, {}", node_id, nodes[node_id].local_matrix);
+
+                    // let t: glm::Mat4 = glm::translate(&glm::identity(),&glm::vec3(nodes[node_id].translation.x(), nodes[node_id].translation.y(), nodes[node_id].translation.z()));
+                    // let r: glm::Mat4 = glm::quat_to_mat4(&glm::quat(nodes[node_id].rotation.x(), nodes[node_id].rotation.y(), nodes[node_id].rotation.z(), nodes[node_id].rotation.w()));
+                    // let s: glm::Mat4 = glm::scale(&glm::identity(), &glm::vec3(nodes[node_id].scale.x(), nodes[node_id].scale.y(), nodes[node_id].scale.z()));
+                    // println!("t: {}", Mat4::from_cols_array_2d(t.as_ref()));
+                    // println!("r: {}", Mat4::from_cols_array_2d(r.as_ref()));
+                    // println!("s: {}", Mat4::from_cols_array_2d(s.as_ref()));
+                    // println!("\ttrue trs {}, {}", node_id, Mat4::from_scale_rotation_translation(nodes[node_id].scale, nodes[node_id].rotation, nodes[node_id].translation));
+
+                    // println!("\tT {}", nodes[node_id].translation);
+                    // println!("\tR {}", nodes[node_id].rotation);
+                    // println!("\tS {}", nodes[node_id].scale);
+                    // nodes[node_id].update_matrix();
+
+                    joint_matrices[i] = inverse_transform
+                        * nodes[node_id].combined_matrix
+                        * inverse_bind_matrices[i];
                 });
         }
 

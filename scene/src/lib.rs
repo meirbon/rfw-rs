@@ -34,9 +34,9 @@ pub use triangle_scene::*;
 
 use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
 use glam::*;
+use graph::Node;
 use std::error::Error;
 use std::path::Path;
-use graph::Node;
 
 #[derive(Debug, Clone)]
 pub enum SceneLight {
@@ -192,48 +192,48 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-        where
-            C: FnOnce(FlaggedIterator<'_, Instance>),
+    where
+        C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-        where
-            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
+    where
+        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&Instance>),
+    where
+        C: FnOnce(Option<&Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&mut Instance>),
+    where
+        C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
     }
 
     pub fn get_node<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&Node>),
+    where
+        C: FnOnce(Option<&Node>),
     {
         let lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_node_mut<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&mut Node>),
+    where
+        C: FnOnce(Option<&mut Node>),
     {
         let mut lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get_mut(index))
@@ -280,10 +280,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn load<B: AsRef<Path>>(
-        &self,
-        path: B,
-    ) -> Result<LoadResult, triangle_scene::SceneError> {
+    pub fn load<B: AsRef<Path>>(&self, path: B) -> Result<LoadResult, triangle_scene::SceneError> {
         futures::executor::block_on(self.scene.load(path))
     }
 
@@ -404,7 +401,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn set_animation_time(&self, time: f32) {
-        if let (Ok(mut nodes), Ok(mut animations)) = (self.scene.objects.nodes.lock(), self.scene.objects.animations.lock()) {
+        if let (Ok(mut nodes), Ok(mut animations)) = (
+            self.scene.objects.nodes.lock(),
+            self.scene.objects.animations.lock(),
+        ) {
             animations.iter_mut().for_each(|(_, anim)| {
                 anim.set_time(time, &mut nodes);
             });
@@ -423,7 +423,9 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 self.scene.objects.instances.lock(),
             ) {
                 nodes.update(&mut instances, &mut skins);
-                skins.iter_changed().for_each(|(id, skin)| renderer.set_skin(id, skin));
+                skins
+                    .iter_changed()
+                    .for_each(|(id, skin)| renderer.set_skin(id, skin));
                 skins.reset_changed();
             }
 

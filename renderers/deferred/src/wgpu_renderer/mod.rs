@@ -174,7 +174,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-        .unwrap();
+            .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -205,7 +205,14 @@ impl Renderer for Deferred {
 
         let texture_bind_group_layout = Self::create_texture_bind_group_layout(&device);
 
-        let lights = light::DeferredLights::new(10, &device, &instances.bind_group_layout);
+        let skin_bind_group_layout = DeferredSkin::create_bind_group_layout(&device);
+
+        let lights = light::DeferredLights::new(
+            10,
+            &device,
+            &instances.bind_group_layout,
+            &skin_bind_group_layout,
+        );
 
         let uniform_camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniform-buffer"),
@@ -258,7 +265,6 @@ impl Renderer for Deferred {
         });
 
         let output = output::DeferredOutput::new(&device, width, height);
-        let skin_bind_group_layout = DeferredSkin::create_bind_group_layout(&device);
 
         let pipeline = pipeline::RenderPipeline::new(
             &device,
@@ -606,6 +612,7 @@ impl Renderer for Deferred {
                 &self.instances,
                 &self.meshes,
                 &self.anim_meshes,
+                &self.skins,
             );
         }
 
@@ -672,7 +679,7 @@ impl Renderer for Deferred {
                         ObjectRef::Animated(mesh_id) => {
                             let mesh = &self.anim_meshes[mesh_id as usize];
                             if let (Some(buffer), Some(anim_buffer)) =
-                                (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                             {
                                 if let Some(skin_id) = instance.skin_id {
                                     render_pass.set_pipeline(&self.pipeline.anim_pipeline);

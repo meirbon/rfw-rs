@@ -5,7 +5,11 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::{raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, AnimatedMesh};
+use scene::{
+    raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec, CameraView,
+    DeviceMaterial, DirectionalLight, Instance, Material, Mesh, ObjectRef, PointLight, RTTriangle,
+    SpotLight, Texture,
+};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};

@@ -163,7 +163,8 @@ impl DeferredAnimMesh {
     }
 
     pub fn get_copy_command(&self, device: &wgpu::Device) -> (CopyCommand, CopyCommand) {
-        let staging_buffer = device.create_buffer_with_data(self.vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
+        let staging_buffer = device
+            .create_buffer_with_data(self.vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
 
         let command1 = CopyCommand {
             destination_buffer: self.buffer.as_ref().unwrap(),
@@ -171,7 +172,10 @@ impl DeferredAnimMesh {
             staging_buffer,
         };
 
-        let staging_buffer = device.create_buffer_with_data(self.anim_vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
+        let staging_buffer = device.create_buffer_with_data(
+            self.anim_vertex_data.to_bytes(),
+            wgpu::BufferUsage::COPY_SRC,
+        );
 
         let command2 = CopyCommand {
             destination_buffer: self.anim_buffer.as_ref().unwrap(),

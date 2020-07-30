@@ -1,10 +1,10 @@
+use crate::graph::animation::Animation;
 use crate::graph::{NodeGraph, Skin};
 use crate::utils::TrackedStorage;
 use crate::{AnimatedMesh, Instance, MaterialList, Mesh, ObjectRef};
+use std::fmt::Formatter;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use crate::graph::animation::Animation;
-use std::fmt::Formatter;
 
 pub mod gltf;
 pub mod obj;

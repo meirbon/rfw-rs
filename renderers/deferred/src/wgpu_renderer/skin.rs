@@ -1,5 +1,5 @@
-use scene::graph::Skin;
 use crate::wgpu_renderer::CopyCommand;
+use scene::graph::Skin;
 use shared::BytesConversion;
 
 #[derive(Debug)]
@@ -34,7 +34,8 @@ impl Default for DeferredSkin {
 
 impl DeferredSkin {
     pub fn new(device: &wgpu::Device, skin: Skin) -> Self {
-        let joint_matrices_buffer_size = skin.joint_matrices.to_bytes().len() as wgpu::BufferAddress;
+        let joint_matrices_buffer_size =
+            skin.joint_matrices.to_bytes().len() as wgpu::BufferAddress;
         let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("joint-matrices"),
             size: joint_matrices_buffer_size,
@@ -78,7 +79,10 @@ impl DeferredSkin {
     }
 
     pub fn get_copy_command(&self, device: &wgpu::Device) -> CopyCommand {
-        let staging_buffer = device.create_buffer_with_data(self.skin.joint_matrices.to_bytes(), wgpu::BufferUsage::COPY_SRC);
+        let staging_buffer = device.create_buffer_with_data(
+            self.skin.joint_matrices.to_bytes(),
+            wgpu::BufferUsage::COPY_SRC,
+        );
 
         CopyCommand {
             destination_buffer: self.matrices_buffer.as_ref().unwrap(),

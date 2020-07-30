@@ -1,3 +1,4 @@
+use crate::graph::Skin;
 use crate::{
     AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh,
     PointLight, SpotLight, Texture,
@@ -5,7 +6,6 @@ use crate::{
 use bitvec::prelude::BitVec;
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;
-use crate::graph::Skin;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SettingType {

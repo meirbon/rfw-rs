@@ -7,7 +7,11 @@ use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
-use scene::{constants, raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, DeviceMaterial, DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight, TIntersector, Texture, AnimatedMesh};
+use scene::{
+    constants, raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec,
+    DeviceMaterial, DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight,
+    TIntersector, Texture,
+};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};

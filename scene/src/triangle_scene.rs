@@ -10,6 +10,7 @@ use crate::*;
 use glam::*;
 use rtbvh::{Bounds, AABB};
 
+use crate::graph::animation::Animation;
 use crate::graph::Skin;
 use crate::utils::TrackedStorage;
 use bitvec::prelude::*;
@@ -22,7 +23,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use utils::Flags;
-use crate::graph::animation::Animation;
 
 #[derive(Debug, Clone)]
 pub enum SceneError {
