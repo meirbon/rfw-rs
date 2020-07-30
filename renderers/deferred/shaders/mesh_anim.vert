@@ -28,16 +28,21 @@ layout(location = 4) out vec2 TUV;
 layout(location = 5) out vec3 T;
 layout(location = 6) out vec3 B;
 
+layout(set = 3, binding = 0) buffer readonly SkinMatrices { mat4 jointMatrices[]; };
+
 void main() {
-    const vec4 vertex = Transform * Vertex;
+    const mat4 skinMatrix = (Weights.x * jointMatrices[Joints.x]) + (Weights.y * jointMatrices[Joints.y]) + (Weights.z * jointMatrices[Joints.z]) + (Weights.w * jointMatrices[Joints.w]);
+    const mat4 inverseSkinMatrix = transpose(inverse(skinMatrix));
+
+    const vec4 vertex = Transform * skinMatrix * Vertex;
     const vec4 cVertex = View * vec4(vertex.xyz, 1.0);
 
     gl_Position = Proj * cVertex;
 
     V = vec4(vertex.xyz, cVertex.w);
     SSV = cVertex;
-    N = normalize(vec3(InverseTransform * vec4(Normal, 0.0)));
-    T = normalize(vec3(InverseTransform * vec4(Tangent.xyz, 0.0)));
+    N = normalize(vec3(InverseTransform * inverseSkinMatrix * vec4(Normal, 0.0)));
+    T = normalize(vec3(InverseTransform * inverseSkinMatrix * vec4(Tangent.xyz, 0.0)));
     B = cross(N, T) * Tangent.w;
     MID = MatID;
     TUV = UV;

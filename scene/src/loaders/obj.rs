@@ -1,11 +1,12 @@
 use glam::*;
 use std::{path::PathBuf, sync::Mutex};
 
-use crate::graph::{Node, Skin};
+use crate::graph::animation::Animation;
+use crate::graph::{NodeGraph, Skin};
 use crate::material::*;
 use crate::triangle_scene::SceneError;
 use crate::utils::*;
-use crate::{AnimatedMesh, Instance, Mesh, ObjectLoader, ObjectRef};
+use crate::{AnimatedMesh, Instance, LoadResult, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {
     HasNormals = 1,
@@ -39,11 +40,12 @@ impl ObjectLoader for ObjLoader {
         path: PathBuf,
         mat_manager: &Mutex<MaterialList>,
         mesh_storage: &Mutex<TrackedStorage<Mesh>>,
+        _animation_storage: &Mutex<TrackedStorage<Animation>>,
         _animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
-        _node_storage: &Mutex<TrackedStorage<Node>>,
-        _skin_storage: &Mutex<FlaggedStorage<Skin>>,
-        _instances: &Mutex<TrackedStorage<Instance>>,
-    ) -> Result<Option<ObjectRef>, SceneError> {
+        _node_storage: &Mutex<NodeGraph>,
+        _skin_storage: &Mutex<TrackedStorage<Skin>>,
+        _instances_storage: &Mutex<TrackedStorage<Instance>>,
+    ) -> Result<LoadResult, SceneError> {
         let object = tobj::load_obj(&path);
         if let Err(_) = object {
             return Err(SceneError::LoadError(path.to_path_buf()));
@@ -246,6 +248,6 @@ impl ObjectLoader for ObjLoader {
             material_ids,
             Some(String::from(path.to_str().unwrap())),
         );
-        Ok(Some(ObjectRef::Static(mesh_id as u32)))
+        Ok(LoadResult::Object(ObjectRef::Static(mesh_id as u32)))
     }
 }

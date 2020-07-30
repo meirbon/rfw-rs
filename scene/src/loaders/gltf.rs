@@ -5,10 +5,14 @@ use crate::{
 use glam::*;
 use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
-use crate::graph::{Node, NodeMesh, Skin};
-use crate::utils::{FlaggedStorage, TrackedStorage};
-use crate::{material::Texture, TextureSource};
+use crate::graph::animation::{Animation, Channel, Method, Target};
+use crate::graph::{Node, NodeGraph, NodeMesh, Skin};
+use crate::utils::TrackedStorage;
+use crate::{material::Texture, LoadResult, TextureSource};
+use gltf::animation::util::{MorphTargetWeights, ReadOutputs, Rotations};
+use gltf::json::animation::{Interpolation, Property};
 use gltf::mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights};
+use gltf::scene::Transform;
 use rtbvh::AABB;
 
 #[derive(Debug, Copy, Clone)]
@@ -44,11 +48,12 @@ impl ObjectLoader for GltfLoader {
         path: PathBuf,
         mat_manager: &Mutex<MaterialList>,
         mesh_storage: &Mutex<TrackedStorage<Mesh>>,
+        animation_storage: &Mutex<TrackedStorage<Animation>>,
         animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
-        node_storage: &Mutex<TrackedStorage<Node>>,
-        skin_storage: &Mutex<FlaggedStorage<Skin>>,
-        instances: &Mutex<TrackedStorage<Instance>>,
-    ) -> Result<Option<ObjectRef>, SceneError> {
+        node_storage: &Mutex<NodeGraph>,
+        skin_storage: &Mutex<TrackedStorage<Skin>>,
+        instances_storage: &Mutex<TrackedStorage<Instance>>,
+    ) -> Result<LoadResult, SceneError> {
         let (document, buffers, images) = match gltf::import(&path) {
             Ok((doc, buf, img)) => (doc, buf, img),
             Err(_) => return Err(SceneError::LoadError(path)),
@@ -149,51 +154,19 @@ impl ObjectLoader for GltfLoader {
             });
         }
 
-        let mut root_nodes = Vec::new();
         let mut skin_mapping: HashMap<usize, usize> = HashMap::new();
         let mut node_mapping: HashMap<usize, usize> = HashMap::new();
 
-        // Store each skin and create a mapping
-        document.skins().for_each(|s| {
-            let mut skin = Skin::default();
-            if let Some(name) = s.name() {
-                skin.name = String::from(name);
-            }
-
-            s.joints().for_each(|j| {
-                skin.joint_nodes.push(j.index() as u32);
-            });
-
-            let reader = s.reader(|buffer| Some(&buffers[buffer.index()]));
-            if let Some(ibm) = reader.read_inverse_bind_matrices() {
-                ibm.for_each(|m| {
-                    skin.inverse_bind_matrices
-                        .push(Mat4::from_cols_array_2d(&m));
-                });
-
-                skin.joint_matrices
-                    .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
-            }
-
-            let mut skin_storage = skin_storage.lock().unwrap();
-            let skin_id = skin_storage.push(skin);
-            skin_mapping.insert(s.index(), skin_id);
-        });
-
-        // Create a mapping of all nodes
         {
-            let mut node_storage = node_storage.lock().unwrap();
-            document.scenes().into_iter().for_each(|scene| {
-                scene.nodes().into_iter().enumerate().for_each(|(i, node)| {
-                    let node_id = node_storage.allocate();
-                    if i == 0 {
-                        // Root node
-                        root_nodes.push(node_id);
-                    }
-                    node_mapping.insert(node.index(), node_id);
-                });
+            let mut skin_storage = skin_storage.lock().unwrap();
+            // Store each skin and create a mapping
+            document.skins().for_each(|s| {
+                let skin_id = skin_storage.allocate();
+                skin_mapping.insert(s.index(), skin_id);
             });
         }
+
+        let mut root_nodes = Vec::new();
 
         let mut tmp_indices = Vec::new();
 
@@ -400,7 +373,7 @@ impl ObjectLoader for GltfLoader {
             };
         });
 
-        let mut meshes = meshes
+        let meshes = meshes
             .iter()
             .map(|m| match m {
                 LoadedMesh::Static(m) => {
@@ -418,66 +391,292 @@ impl ObjectLoader for GltfLoader {
             })
             .collect::<Vec<LoadedMeshID>>();
 
-        document.scenes().into_iter().for_each(|scene| {
-            scene.nodes().into_iter().for_each(|node| {
-                let node_id = node_mapping.get(&node.index()).unwrap();
+        {
+            let mut node_storage = node_storage.lock().unwrap();
+
+            // Create a mapping of all nodes
+            document.nodes().for_each(|node| {
+                let node_id = node_storage.allocate();
+                node_mapping.insert(node.index(), node_id);
+            });
+
+            // Add each node
+            document.nodes().for_each(|node| {
+                let node_id = *node_mapping.get(&node.index()).unwrap();
+
                 let mut new_node = Node::default();
+                match node.transform() {
+                    Transform::Matrix { matrix } => {
+                        new_node.set_matrix(Mat4::from_cols_array_2d(&matrix));
+                    }
+                    Transform::Decomposed {
+                        translation,
+                        rotation,
+                        scale,
+                    } => {
+                        new_node.set_scale(Vec3::from(scale));
+                        new_node.set_rotation(Quat::from_xyzw(
+                            rotation[0],
+                            rotation[1],
+                            rotation[2],
+                            rotation[3],
+                        ));
+                        new_node.set_translation(Vec3::from(translation));
+                    }
+                }
+
+                if let Some(weights) = node.weights() {
+                    new_node.weights = weights.to_vec();
+                }
 
                 if let Some(mesh) = node.mesh() {
                     let mesh = &meshes[mesh.index()];
-                    let mut instance_storage = instances.lock().unwrap();
+                    let mut instance_storage = instances_storage.lock().unwrap();
 
                     match mesh {
                         LoadedMeshID::Static(id, bounds) => {
                             let instance_id = instance_storage.allocate();
-                            instance_storage[instance_id] =
-                                Instance::new(ObjectRef::Static(*id as u32), bounds);
+                            let object = ObjectRef::Static(*id as u32);
+                            instance_storage[instance_id] = Instance::new(object, bounds);
 
                             new_node.meshes.push(NodeMesh {
-                                object_id: ObjectRef::Static(*id as u32),
-                                skin_id: None,
+                                object_id: object,
                                 instance_id: instance_id as u32,
                             });
                         }
                         LoadedMeshID::Animated(id, bounds) => {
                             let instance_id = instance_storage.allocate();
-                            instance_storage[instance_id] =
-                                Instance::new(ObjectRef::Animated(*id as u32), bounds);
-
-                            let skin = if let Some(skin) = node.skin() {
-                                Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)
-                            } else {
-                                None
-                            };
+                            let object = ObjectRef::Animated(*id as u32);
+                            instance_storage[instance_id] = Instance::new(object, bounds);
 
                             new_node.meshes.push(NodeMesh {
-                                object_id: ObjectRef::Animated(*id as u32),
-                                skin_id: skin,
+                                object_id: object,
                                 instance_id: instance_id as u32,
                             });
                         }
                     }
-
-                    new_node.child_nodes.reserve(node.children().len());
-                    for child_id in node.children() {
-                        new_node
-                            .child_nodes
-                            .push(*node_mapping.get(&(child_id.index() as usize)).unwrap() as u32);
-                    }
-
-                    new_node.set_matrix(Mat4::from_cols_array_2d(&node.transform().matrix()));
-                    if let Some(weights) = node.weights() {
-                        new_node.weights = weights.to_vec();
-                    }
-
-                    // TODO: Implement camera as well
-                    // node.camera().unwrap();
-
-                    node_storage.lock().unwrap()[*node_id] = new_node;
                 }
+
+                if node.children().len() > 0 {
+                    new_node.child_nodes.reserve(node.children().len());
+                    for child in node.children() {
+                        new_node.child_nodes.push(
+                            match node_mapping.get(&(child.index() as usize)) {
+                                Some(val) => *val as u32,
+                                None => panic!("Node with id {} was not in mapping", child.index()),
+                            },
+                        );
+                    }
+                }
+
+                new_node.skin = if let Some(skin) = node.skin() {
+                    Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)
+                } else {
+                    None
+                };
+
+                if let Some(name) = node.name() {
+                    new_node.name = String::from(name);
+                }
+
+                // TODO: Implement camera as well
+                // node.camera().unwrap();
+
+                new_node.update_matrix();
+                node_storage[node_id] = new_node;
             });
+
+            document.scenes().into_iter().for_each(|scene| {
+                scene.nodes().for_each(|node| {
+                    let id = *node_mapping.get(&node.index()).unwrap();
+                    node_storage.add_root_node(id);
+                    root_nodes.push(id as u32);
+                });
+            });
+        }
+
+        document.animations().for_each(|anim| {
+            let channels = anim
+                .channels()
+                .map(|c| {
+                    let mut channel = Channel::default();
+                    let reader = c.reader(|buffer| Some(&buffers[buffer.index()]));
+
+                    channel.sampler = match c.sampler().interpolation() {
+                        Interpolation::Linear => Method::Linear,
+                        Interpolation::Step => Method::Step,
+                        Interpolation::CubicSpline => Method::Spline,
+                    };
+
+                    let target = c.target();
+                    let original_node_id = target.node().index();
+                    let new_target_id = *node_mapping.get(&original_node_id).unwrap() as u32;
+                    channel.node_id = new_target_id;
+
+                    channel.targets.push(match target.property() {
+                        Property::Translation => Target::Translation,
+                        Property::Rotation => Target::Rotation,
+                        Property::Scale => Target::Scale,
+                        Property::MorphTargetWeights => Target::MorphWeights,
+                    });
+
+                    if let Some(inputs) = reader.read_inputs() {
+                        inputs.for_each(|input| {
+                            channel.key_frames.push(input);
+                        });
+                    }
+
+                    if let Some(outputs) = reader.read_outputs() {
+                        match outputs {
+                            ReadOutputs::Translations(t) => {
+                                t.for_each(|t| {
+                                    channel.vec3s.push(Vec3::from(t));
+                                });
+                            }
+                            ReadOutputs::Rotations(r) => match r {
+                                Rotations::I8(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::i8::MAX) as f32,
+                                            r[1] as f32 / (std::i8::MAX) as f32,
+                                            r[2] as f32 / (std::i8::MAX) as f32,
+                                            r[3] as f32 / (std::i8::MAX) as f32,
+                                        ];
+                                        channel
+                                            .rotations
+                                            .push(Quat::from_xyzw(r[0], r[1], r[2], r[3]));
+                                    });
+                                }
+                                Rotations::U8(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::u8::MAX) as f32,
+                                            r[1] as f32 / (std::u8::MAX) as f32,
+                                            r[2] as f32 / (std::u8::MAX) as f32,
+                                            r[3] as f32 / (std::u8::MAX) as f32,
+                                        ];
+                                        channel
+                                            .rotations
+                                            .push(Quat::from_xyzw(r[0], r[1], r[2], r[3]));
+                                    });
+                                }
+                                Rotations::I16(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::i16::MAX) as f32,
+                                            r[1] as f32 / (std::i16::MAX) as f32,
+                                            r[2] as f32 / (std::i16::MAX) as f32,
+                                            r[3] as f32 / (std::i16::MAX) as f32,
+                                        ];
+                                        channel
+                                            .rotations
+                                            .push(Quat::from_xyzw(r[0], r[1], r[2], r[3]));
+                                    });
+                                }
+                                Rotations::U16(r) => {
+                                    r.for_each(|r| {
+                                        let r = [
+                                            r[0] as f32 / (std::u16::MAX) as f32,
+                                            r[1] as f32 / (std::u16::MAX) as f32,
+                                            r[2] as f32 / (std::u16::MAX) as f32,
+                                            r[3] as f32 / (std::u16::MAX) as f32,
+                                        ];
+                                        channel
+                                            .rotations
+                                            .push(Quat::from_xyzw(r[0], r[1], r[2], r[3]));
+                                    });
+                                }
+                                Rotations::F32(r) => {
+                                    r.for_each(|r| {
+                                        channel
+                                            .rotations
+                                            .push(Quat::from_xyzw(r[0], r[1], r[2], r[3]));
+                                    });
+                                }
+                            },
+                            ReadOutputs::Scales(s) => {
+                                s.for_each(|s| {
+                                    channel.vec3s.push(Vec3::from(s));
+                                });
+                            }
+                            ReadOutputs::MorphTargetWeights(m) => match m {
+                                MorphTargetWeights::I8(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::i8::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::U8(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::u8::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::I16(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::i16::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::U16(m) => {
+                                    m.for_each(|m| {
+                                        let m = m as f32 / std::u16::MAX as f32;
+                                        channel.weights.push(m);
+                                    });
+                                }
+                                MorphTargetWeights::F32(m) => {
+                                    m.for_each(|m| {
+                                        channel.weights.push(m);
+                                    });
+                                }
+                            },
+                        }
+                    }
+
+                    channel.duration = *channel.key_frames.last().unwrap();
+
+                    channel
+                })
+                .collect::<Vec<Channel>>();
+
+            let mut animations = animation_storage.lock().unwrap();
+            let mut animation = Animation {
+                name: anim.name().unwrap_or("").to_string(),
+                affected_roots: root_nodes.clone(),
+                channels,
+                time: 0.0,
+            };
+
+            animation.set_time(0.0, &mut node_storage.lock().unwrap());
+            animations.push(animation);
         });
 
-        Ok(None)
+        // Store each skin and create a mapping
+        document.skins().for_each(|s| {
+            let skin_id = *skin_mapping.get(&s.index()).unwrap() as usize;
+            let mut skin = Skin::default();
+            if let Some(name) = s.name() {
+                skin.name = String::from(name);
+            }
+
+            s.joints().for_each(|j| {
+                skin.joint_nodes.push(*node_mapping.get(&j.index()).unwrap() as u32);
+            });
+
+            let reader = s.reader(|buffer| Some(&buffers[buffer.index()]));
+            if let Some(ibm) = reader.read_inverse_bind_matrices() {
+                ibm.for_each(|m| {
+                    skin.inverse_bind_matrices
+                        .push(Mat4::from_cols_array_2d(&m));
+                });
+
+                skin.joint_matrices
+                    .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
+            }
+
+            skin_storage.lock().unwrap()[skin_id] = skin;
+        });
+
+        Ok(LoadResult::Scene(root_nodes))
     }
 }

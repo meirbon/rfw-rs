@@ -1,6 +1,3 @@
-#define PCF 0
-#define VSM 1
-
 float linearizeDepth(float depth, float farPlane) {
     float nearPlane = 0.1;
     return (2.0 * nearPlane) / (farPlane + nearPlane - depth * (farPlane - nearPlane));

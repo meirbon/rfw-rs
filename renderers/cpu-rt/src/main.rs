@@ -123,7 +123,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let cbox = renderer.load_mesh("models/cbox.obj")?.unwrap();
+    let cbox = match renderer.load("models/cbox.obj")? {
+        scene::LoadResult::Scene(_) => panic!("Object is not supposed to be a scene"),
+        scene::LoadResult::Object(reference) => reference,
+    };
     for i in 0..=10 {
         let instance = renderer.add_instance(cbox).unwrap();
         renderer.get_instance_mut(instance, |instance| {
@@ -247,7 +250,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 if key_handler.pressed(KeyCode::Space) {
                     renderer.iter_instances_mut(|instances| {
-                        instances.for_each(|instance| {
+                        instances.for_each(|(_, instance)| {
                             instance.rotate_y(elapsed / 10.0);
                         });
                     });

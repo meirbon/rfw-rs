@@ -8,9 +8,9 @@ use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
-    constants, raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, DeviceMaterial,
-    DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight, TIntersector,
-    Texture,
+    constants, raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec,
+    DeviceMaterial, DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight,
+    TIntersector, Texture,
 };
 use shared::*;
 use std::error::Error;
@@ -263,6 +263,10 @@ impl Renderer for RayTracer {
         }
 
         self.meshes[id] = mesh.clone();
+    }
+
+    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
+        unimplemented!()
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {

@@ -6,11 +6,8 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "lights.glsl"
 #include "disney_bsdf.glsl"
 
-#if LINEAR
-#define BIAS 0.0005
-#else
-#define BIAS 0.0005
-#endif
+#define BIAS 0.001
+#define VARIANCE_MAX 0.0001
 
 layout(set = 0, binding = 0) uniform Locals {
     mat4 VP;
@@ -18,8 +15,8 @@ layout(set = 0, binding = 0) uniform Locals {
     uvec4 light_count;
     vec4 cam_pos;
 };
-layout(std430, set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
 
+layout(std430, set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image2D LightingTexture;
 layout(set = 1, binding = 1) uniform sampler Sampler;
 layout(set = 1, binding = 2, rgba16f) uniform readonly image2D Albedo;
@@ -56,9 +53,9 @@ void main() {
         return;
     }
 
-    const vec3 V = imageLoad(WorldPos, pixel).xyz;
-    const vec4 albedo_mid = imageLoad(Albedo, pixel).xyzw;
     const vec3 normal = imageLoad(Normal, pixel).xyz;
+    const vec3 V = imageLoad(WorldPos, pixel).xyz - BIAS * normal;
+    const vec4 albedo_mid = imageLoad(Albedo, pixel).xyzw;
 
     const vec3 albedo = albedo_mid.xyz;
     const uint MID = floatBitsToUint(albedo_mid.w);
@@ -136,7 +133,6 @@ void main() {
 
         const vec4 ls_vertex = AreaTransforms[i].MP * vec4(V.xyz, 1.0);
         const float shadow = fetch_area_shadow(i, BIAS, ls_vertex);
-        //        const float shadow = 1.0;
         const vec3 bsdf = evalLighting(params, normal, D, L);
         final += bsdf * shadow * vec3(area_lights[i].radiance_x, area_lights[i].radiance_y, area_lights[i].radiance_z) * NdotL * LNdotL * (1.0 / dist2);
     }
@@ -170,7 +166,7 @@ float linstep(float low, float high, float v){
 }
 
 float fetch_area_shadow(uint light_id, float bias, vec4 ls_coords) {
-     if (ls_coords.w <= 0.0) {
+    if (ls_coords.w <= 0.0) {
         return 0.0;
     }
     const vec2 texelSize = 1.0 / textureSize(sampler2DArray(AreaShadowMaps, ShadowSampler), 0).xy;
@@ -180,19 +176,6 @@ float fetch_area_shadow(uint light_id, float bias, vec4 ls_coords) {
     float depth = coords.z;
     const vec3 p = vec3(s_uv, light_id);
 
-    #if PCF
-    depth = depth - bias;
-    float shadow = texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p).x >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(-1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(-1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(1, 1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(0, -1) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(0, 1) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(1, 0) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p + vec3(vec2(-1, 0) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    return shadow / 9.0;
-    #elif VSM
     depth = linearizeDepth(depth, AreaTransforms[light_id].PosRange.w);
     const vec2 moments = texture(sampler2DArray(AreaShadowMaps, ShadowSampler), p).xy;
 
@@ -201,12 +184,11 @@ float fetch_area_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, 0.00002);
+    variance = max(variance, VARIANCE_MAX);
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);
     return p_max;
-    #endif
 }
 
 float fetch_spot_shadow(uint light_id, float bias, vec4 ls_coords) {
@@ -220,19 +202,6 @@ float fetch_spot_shadow(uint light_id, float bias, vec4 ls_coords) {
     float depth = coords.z;
     const vec3 p = vec3(s_uv, light_id);
 
-    #if PCF
-    depth = depth - bias;
-    float shadow = texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p).x >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(-1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(-1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(1, 1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(0, -1) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(0, 1) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(1, 0) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p + vec3(vec2(-1, 0) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    return shadow / 9.0;
-    #elif VSM
     depth = linearizeDepth(depth, SpotTransforms[light_id].PosRange.w);
     const vec2 moments = texture(sampler2DArray(SpotShadowMaps, ShadowSampler), p).xy;
 
@@ -241,12 +210,11 @@ float fetch_spot_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, 0.00002);
+    variance = max(variance, VARIANCE_MAX);
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);
     return p_max;
-    #endif
 }
 
 float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
@@ -264,30 +232,15 @@ float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
         return 0.0;
     }
 
-    #if PCF
-    depth = depth - bias;
-    float shadow = texture(sampler2DArray(DirShadowMaps, ShadowSampler), p).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(-1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(-1, -1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(1, 1) * texelSize, 0)).r >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(0, -1) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(0, 1) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(1, 0) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    shadow += texture(sampler2DArray(DirShadowMaps, ShadowSampler), p + vec3(vec2(-1, 0) * texelSize, 0)).r  >= depth ? 1.0 : 0.0;
-    return shadow / 9.0;
-    #elif VSM
-
     const vec2 moments = texture(sampler2DArray(DirShadowMaps, ShadowSampler), p).xy;
     if (depth < moments.x) {
         return 1.0;
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, 0.00002);
+    variance = max(variance, VARIANCE_MAX);
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);
     return p_max;
-    #endif
 }

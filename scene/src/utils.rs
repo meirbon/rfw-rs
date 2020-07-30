@@ -17,11 +17,13 @@ impl Flags {
     }
 
     pub fn set_flag<T: Into<u8>>(&mut self, flag: T) {
-        self.bits.set(flag.into() as u8 as usize, true);
+        let i = flag.into() as u8 as usize;
+        self.bits.set(i, true);
     }
 
     pub fn unset_flag<T: Into<u8>>(&mut self, flag: T) {
-        self.bits.set(flag.into() as u8 as usize, false);
+        let i = flag.into() as u8 as usize;
+        self.bits.set(i, false);
     }
 
     pub fn has_flag<T: Into<u8>>(&self, flag: T) -> bool {
@@ -78,20 +80,37 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         self.storage_ptr
     }
 
-    pub fn allocate(&mut self) -> usize {
-        let index = if let Some(index) = self.empty_slots.pop() {
-            index as usize
-        } else {
-            let index = self.storage_ptr;
-            self.storage_ptr += 1;
+    pub fn overwrite(&mut self, index: usize) {
+        if index >= self.len() {
+            let last_len = self.len();
+            let new_len = (index + 1) * 2;
+            self.active.resize(new_len, false);
+            self.storage.resize((index + 1) * 2, T::default());
+            self.storage_ptr = index + 1;
 
-            if self.storage.len() <= self.storage_ptr {
-                let new_size = self.storage_ptr * 2;
-                self.storage.resize(new_size, T::default());
-                self.active.resize(new_size, false);
+            for i in last_len..new_len {
+                self.empty_slots.push(i as u32);
             }
-            index
-        };
+        }
+
+        self.active.set(index, true);
+    }
+
+    pub fn allocate(&mut self) -> usize {
+        while let Some(index) = self.empty_slots.pop() {
+            if !self.active.get(index as usize).unwrap() {
+                return index as usize;
+            }
+        }
+
+        let index = self.storage_ptr;
+        self.storage_ptr += 1;
+
+        if self.storage.len() <= self.storage_ptr {
+            let new_size = self.storage_ptr * 2;
+            self.storage.resize(new_size, T::default());
+            self.active.resize(new_size, false);
+        }
 
         self.active.set(index, true);
         index
@@ -187,6 +206,40 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.storage.as_mut_slice()
     }
+
+    pub unsafe fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr()
+    }
+
+    pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
+        self.storage.as_mut_ptr()
+    }
+}
+
+impl<T: Default + Clone + std::fmt::Debug> From<&[T]> for FlaggedStorage<T> {
+    fn from(data: &[T]) -> Self {
+        let mut active = BitVec::new();
+        active.resize(data.len(), true);
+
+        Self {
+            storage: data.to_vec(),
+            active,
+            empty_slots: Vec::new(),
+            storage_ptr: data.len(),
+        }
+    }
+}
+
+impl<T: Default + Clone + std::fmt::Debug> From<&[T]> for TrackedStorage<T> {
+    fn from(data: &[T]) -> Self {
+        let mut changed = BitVec::new();
+        changed.resize(data.len(), true);
+
+        Self {
+            storage: FlaggedStorage::from(data),
+            changed,
+        }
+    }
 }
 
 pub struct FlaggedIterator<'a, T: Default + Clone + std::fmt::Debug> {
@@ -197,7 +250,7 @@ pub struct FlaggedIterator<'a, T: Default + Clone + std::fmt::Debug> {
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for FlaggedIterator<'a, T> {
-    type Item = &'a T;
+    type Item = (usize, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.length {
@@ -205,7 +258,7 @@ impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for FlaggedIterator<'a, 
                 true => {
                     return Some(unsafe {
                         let ptr = self.storage.as_ptr();
-                        let reference = ptr.add(self.current).as_ref().unwrap();
+                        let reference = (self.current, ptr.add(self.current).as_ref().unwrap());
                         self.current += 1;
                         reference
                     });
@@ -228,7 +281,7 @@ pub struct FlaggedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for FlaggedIteratorMut<'a, T> {
-    type Item = &'a mut T;
+    type Item = (usize, &'a mut T);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.length {
@@ -236,7 +289,7 @@ impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for FlaggedIteratorMut<'
                 true => {
                     return Some(unsafe {
                         let ptr = self.storage.as_mut_ptr();
-                        let reference = ptr.add(self.current).as_mut().unwrap();
+                        let reference = (self.current, ptr.add(self.current).as_mut().unwrap());
                         self.current += 1;
                         reference
                     });
@@ -340,7 +393,19 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        self.changed.set(index, true);
         &mut self.storage[index]
+    }
+
+    pub fn overwrite(&mut self, index: usize, val: T) {
+        if index >= self.len() {
+            let new_len = (index + 1) * 2;
+            self.changed.resize(new_len, false);
+        }
+
+        self.storage.overwrite(index);
+        self.storage[index] = val;
+        self.changed.set(index, true);
     }
 
     pub fn push(&mut self, val: T) -> usize {
@@ -360,6 +425,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub fn iter_mut(&mut self) -> FlaggedIteratorMut<'_, T> {
+        self.changed.set_all(true);
         FlaggedIteratorMut {
             storage: self.storage.storage.as_mut_slice(),
             flags: &self.storage.active,
@@ -388,8 +454,20 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
         }
     }
 
+    pub fn trigger_changed(&mut self, index: usize) {
+        self.changed.set(index, true);
+    }
+
     pub fn reset_changed(&mut self) {
         self.changed.set_all(false);
+    }
+
+    pub unsafe fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr()
+    }
+
+    pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
+        self.storage.as_mut_ptr()
     }
 }
 
@@ -402,7 +480,7 @@ pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIterator<'a, T> {
-    type Item = &'a T;
+    type Item = (usize, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.length {
@@ -415,7 +493,7 @@ impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIterator<'a, 
                 (true, true) => {
                     return Some(unsafe {
                         let ptr = self.storage.as_ptr();
-                        let reference = ptr.add(self.current).as_ref().unwrap();
+                        let reference = (self.current, ptr.add(self.current).as_ref().unwrap());
                         self.current += 1;
                         reference
                     });
@@ -440,7 +518,7 @@ pub struct ChangedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIteratorMut<'a, T> {
-    type Item = &'a mut T;
+    type Item = (usize, &'a mut T);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.length {
@@ -453,7 +531,7 @@ impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIteratorMut<'
                 (true, true) => {
                     return Some(unsafe {
                         let ptr = self.storage.as_mut_ptr();
-                        let reference = ptr.add(self.current).as_mut().unwrap();
+                        let reference = (self.current, ptr.add(self.current).as_mut().unwrap());
                         self.current += 1;
                         reference
                     });

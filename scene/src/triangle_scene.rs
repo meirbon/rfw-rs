@@ -10,9 +10,11 @@ use crate::*;
 use glam::*;
 use rtbvh::{Bounds, AABB};
 
-use crate::graph::{Node, Skin};
-use crate::utils::{FlaggedStorage, TrackedStorage};
+use crate::graph::animation::Animation;
+use crate::graph::Skin;
+use crate::utils::TrackedStorage;
 use bitvec::prelude::*;
+use graph::NodeGraph;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
@@ -69,9 +71,10 @@ impl error::Error for SceneError {}
 #[derive(Debug, Clone)]
 pub struct Objects {
     pub meshes: Arc<Mutex<TrackedStorage<Mesh>>>,
+    pub animations: Arc<Mutex<TrackedStorage<Animation>>>,
     pub animated_meshes: Arc<Mutex<TrackedStorage<AnimatedMesh>>>,
-    pub nodes: Arc<Mutex<TrackedStorage<Node>>>,
-    pub skins: Arc<Mutex<FlaggedStorage<Skin>>>,
+    pub nodes: Arc<Mutex<NodeGraph>>,
+    pub skins: Arc<Mutex<TrackedStorage<Skin>>>,
     pub instances: Arc<Mutex<TrackedStorage<Instance>>>,
 }
 
@@ -79,9 +82,10 @@ impl Default for Objects {
     fn default() -> Self {
         Self {
             meshes: Arc::new(Mutex::new(TrackedStorage::new())),
+            animations: Arc::new(Mutex::new(TrackedStorage::new())),
             animated_meshes: Arc::new(Mutex::new(TrackedStorage::new())),
-            nodes: Arc::new(Mutex::new(TrackedStorage::new())),
-            skins: Arc::new(Mutex::new(FlaggedStorage::new())),
+            nodes: Arc::new(Mutex::new(NodeGraph::new())),
+            skins: Arc::new(Mutex::new(TrackedStorage::new())),
             instances: Arc::new(Mutex::new(TrackedStorage::new())),
         }
     }
@@ -158,8 +162,8 @@ impl Default for TriangleScene {
 struct SerializableScene {
     pub meshes: TrackedStorage<Mesh>,
     pub animated_meshes: TrackedStorage<AnimatedMesh>,
-    pub nodes: TrackedStorage<Node>,
-    pub skins: FlaggedStorage<Skin>,
+    pub nodes: NodeGraph,
+    pub skins: TrackedStorage<Skin>,
     pub instances: TrackedStorage<Instance>,
     pub lights: SceneLights,
     pub materials: MaterialList,
@@ -232,10 +236,7 @@ impl TriangleScene {
     }
 
     /// Returns an id if a single mesh was loaded, otherwise it was a scene
-    pub async fn load_mesh<S: AsRef<Path>>(
-        &self,
-        path: S,
-    ) -> Result<Option<ObjectRef>, SceneError> {
+    pub async fn load<S: AsRef<Path>>(&self, path: S) -> Result<LoadResult, SceneError> {
         let path = path.as_ref();
         let extension = path.extension();
         let _build_bvh = self
@@ -303,6 +304,7 @@ impl TriangleScene {
                 path.to_path_buf(),
                 self.materials.as_ref(),
                 self.objects.meshes.as_ref(),
+                self.objects.animations.as_ref(),
                 self.objects.animated_meshes.as_ref(),
                 self.objects.nodes.as_ref(),
                 self.objects.skins.as_ref(),
@@ -615,7 +617,6 @@ impl TriangleScene {
 
             instances
                 .iter()
-                .enumerate()
                 .for_each(|(inst_idx, instance)| match instance.object_id {
                     ObjectRef::None => return,
                     ObjectRef::Static(mesh_id) => {
@@ -742,7 +743,7 @@ impl Bounds for Objects {
         let mut aabb = AABB::new();
 
         if let Ok(instances) = self.instances.lock() {
-            for instance in instances.iter() {
+            for (_, instance) in instances.iter() {
                 aabb.grow_bb(&instance.bounds());
             }
         }

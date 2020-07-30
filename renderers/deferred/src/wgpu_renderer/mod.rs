@@ -1,11 +1,14 @@
+use crate::wgpu_renderer::instance::InstanceList;
+use crate::wgpu_renderer::light::DeferredLights;
+use crate::wgpu_renderer::mesh::DeferredAnimMesh;
+use crate::wgpu_renderer::skin::DeferredSkin;
 use futures::executor::block_on;
 use glam::*;
+use mesh::DeferredMesh;
 use rtbvh::AABB;
+use scene::graph::Skin;
 use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AnimatedMesh, BitVec, DeviceMaterial, Instance,
-    ObjectRef, Texture, TrackedStorage,
-};
+use scene::{raw_window_handle::HasRawWindowHandle, AnimatedMesh, BitVec, DeviceMaterial, Instance, ObjectRef, Texture, TrackedStorage, Camera};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -15,19 +18,31 @@ mod mesh;
 mod output;
 mod pass;
 mod pipeline;
+mod skin;
 
+#[derive(Debug)]
+pub enum CopyStagingBuffer<'a> {
+    Owned(wgpu::Buffer),
+    Reference(&'a wgpu::Buffer),
+}
+
+#[derive(Debug)]
 pub struct CopyCommand<'a> {
     destination_buffer: &'a wgpu::Buffer,
+    offset: wgpu::BufferAddress,
     copy_size: wgpu::BufferAddress,
-    staging_buffer: wgpu::Buffer,
+    staging_buffer: CopyStagingBuffer<'a>,
 }
 
 impl<'a> CopyCommand<'a> {
     pub fn record(&self, encoder: &mut wgpu::CommandEncoder) {
         assert!(self.copy_size > 0);
         encoder.copy_buffer_to_buffer(
-            &self.staging_buffer,
-            0,
+            match &self.staging_buffer {
+                CopyStagingBuffer::Owned(buffer) => buffer,
+                CopyStagingBuffer::Reference(reference) => *reference,
+            },
+            self.offset,
             self.destination_buffer,
             0,
             self.copy_size,
@@ -65,6 +80,9 @@ pub struct Deferred {
     ssao_pass: pass::SSAOPass,
     radiance_pass: pass::RadiancePass,
     blit_pass: pass::BlitPass,
+
+    skins: TrackedStorage<DeferredSkin>,
+    skin_bind_group_layout: wgpu::BindGroupLayout,
 
     debug_view: output::DeferredView,
     debug_enabled: bool,
@@ -167,7 +185,7 @@ impl Renderer for Deferred {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-        .unwrap();
+            .unwrap();
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -185,7 +203,7 @@ impl Renderer for Deferred {
                 height: height as u32,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
             },
         );
 
@@ -198,7 +216,15 @@ impl Renderer for Deferred {
 
         let texture_bind_group_layout = Self::create_texture_bind_group_layout(&device);
 
-        let lights = light::DeferredLights::new(10, &device, &instances.bind_group_layout);
+        let skin_bind_group_layout = DeferredSkin::create_bind_group_layout(&device);
+
+        let lights = light::DeferredLights::new(
+            10,
+            &device,
+            &queue,
+            &instances.bind_group_layout,
+            &skin_bind_group_layout,
+        );
 
         let uniform_camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniform-buffer"),
@@ -257,6 +283,7 @@ impl Renderer for Deferred {
             &uniform_bind_group_layout,
             &instances.bind_group_layout,
             &texture_bind_group_layout,
+            &skin_bind_group_layout,
         );
 
         let material_buffer_size =
@@ -295,6 +322,9 @@ impl Renderer for Deferred {
             blit_pass,
             scene_bounds: AABB::new(),
 
+            skins: TrackedStorage::new(),
+            skin_bind_group_layout,
+
             debug_view: output::DeferredView::Output,
             debug_enabled: false,
             lights_changed: true,
@@ -303,38 +333,37 @@ impl Renderer for Deferred {
     }
 
     fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
-        if id >= self.meshes.len() {
-            self.meshes
-                .push(mesh::DeferredMesh::new(&self.device, mesh));
-        } else {
-            self.meshes[id] = mesh::DeferredMesh::new(&self.device, mesh);
-        }
+        self.meshes
+            .overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
     }
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        if id >= self.anim_meshes.len() {
-            self.anim_meshes
-                .push(mesh::DeferredAnimMesh::new(&self.device, mesh));
-        } else {
-            self.anim_meshes[id] = mesh::DeferredAnimMesh::new(&self.device, mesh);
-        }
+        self.anim_meshes
+            .overwrite(id, mesh::DeferredAnimMesh::new(&self.device, mesh));
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
         match instance.object_id {
-            ObjectRef::None => panic!("Invalid"),
-            ObjectRef::Static(mesh_id) => self.instances.set(
-                &self.device,
-                id,
-                instance.clone(),
-                &self.meshes[mesh_id as usize],
-            ),
-            ObjectRef::Animated(mesh_id) => self.instances.set_animated(
-                &self.device,
-                id,
-                instance.clone(),
-                &self.anim_meshes[mesh_id as usize],
-            ),
+            ObjectRef::None => {
+                self.instances
+                    .set(&self.device, id, instance.clone(), &DeferredMesh::default());
+            }
+            ObjectRef::Static(mesh_id) => {
+                self.instances.set(
+                    &self.device,
+                    id,
+                    instance.clone(),
+                    &self.meshes[mesh_id as usize],
+                );
+            }
+            ObjectRef::Animated(mesh_id) => {
+                self.instances.set_animated(
+                    &self.device,
+                    id,
+                    instance.clone(),
+                    &self.anim_meshes[mesh_id as usize],
+                );
+            }
         }
 
         self.scene_bounds.grow_bb(
@@ -517,210 +546,105 @@ impl Renderer for Deferred {
     }
 
     fn synchronize(&mut self) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("synchronize-command"),
-            });
-
-        let mut commands = Vec::with_capacity(self.meshes.len() + self.instances.len());
-        self.meshes.iter_changed().for_each(|m| {
-            commands.push(m.get_copy_command(&self.device));
+        let command = Self::record_update(
+            &self.device,
+            &mut self.instances,
+            &self.meshes,
+            &self.anim_meshes,
+            &self.skins,
+        );
+        let command = futures::executor::block_on(async move {
+            // while let futures::task::Poll::Pending = futures::poll!(command) {
+            //     self.device.poll(wgpu::Maintain::Poll);
+            // }
+            command.await
         });
 
-        self.anim_meshes.iter_changed().for_each(|m| {
-            commands.push(m.get_copy_command(&self.device));
-        });
+        // let command = ;
+        //
+        // let device = &self.device;
+        // let mut encoder = self
+        //     .device
+        //     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //         label: Some("synchronize-command"),
+        //     });
+        //
+        //
+        // let mut commands =
+        //     Vec::with_capacity(self.meshes.len() + self.instances.len() + self.skins.len());
+        // self.meshes.iter_changed().for_each(|(_, m)| {
+        //     commands.push(m.get_copy_command(&self.device));
+        // });
+        //
+        //
+        // self.anim_meshes.iter_changed().for_each(|(_, m)| {
+        //     let (command1, command2) = m.get_copy_command(device);
+        //     commands.push(command1);
+        //     commands.push(command2);
+        // });
+        //
+        // self.skins.iter_changed().for_each(|(_, s)| {
+        //     s.update(device);
+        //     // commands.push(s.get_copy_command(device));
+        // });
+        //
+        // for command in self
+        //     .instances
+        //     .update(device, &self.meshes, &self.anim_meshes)
+        // {
+        //     commands.push(command);
+        // }
+        //
+        // for command in commands.iter() {
+        //     command.record(&mut encoder);
+        // }
 
-        for command in self
-            .instances
-            .update(&self.device, &self.meshes, &self.anim_meshes)
-        {
-            commands.push(command);
-        }
-
-        for command in commands.iter() {
-            command.record(&mut encoder);
-        }
-
-        self.queue.submit(&[encoder.finish()]);
+        self.queue.submit(&[command]);
+        // self.queue.submit(&[encoder.finish()]);
         self.lights_changed |= self.lights.synchronize(&self.device, &self.queue);
         if self.lights_changed {
             self.radiance_pass
                 .update_bind_groups(&self.device, &self.output, &self.lights);
         }
 
+        self.skins.reset_changed();
         self.meshes.reset_changed();
         self.anim_meshes.reset_changed();
     }
 
     fn render(&mut self, camera: &scene::Camera, _mode: RenderMode) {
-        let mapping = self
-            .camera_staging_buffer
-            .map_write(0, Self::UNIFORM_CAMERA_SIZE);
+        let output = match self.swap_chain.get_next_texture() {
+            Ok(output) => output,
+            Err(_) => return,
+        };
 
-        let mut rasterize_pass =
-            self.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render"),
-                });
+        let light_counts = self.lights.counts();
+        let light_pass = Self::render_lights(
+            &self.device,
+            &mut self.lights,
+            &self.instances,
+            &self.meshes,
+            &self.anim_meshes,
+            &self.skins,
+        );
 
-        rasterize_pass.copy_buffer_to_buffer(
+        let render_pass = Self::render_scene(
+            &self.device,
+            camera,
+            light_counts,
+            &self.pipeline,
+            &self.instances,
+            &self.meshes,
+            &self.anim_meshes,
+            &self.skins,
+            &self.output,
             &self.camera_staging_buffer,
-            0,
             &self.uniform_camera_buffer,
-            0,
-            Self::UNIFORM_CAMERA_SIZE,
-        );
-
-        let output = self.swap_chain.get_next_texture();
-        if output.is_err() {
-            return;
-        }
-        let output = output.unwrap();
-        use output::*;
-
-        if self.lights_changed || self.instances.changed() {
-            self.lights.render(
-                &mut rasterize_pass,
-                &self.instances,
-                &self.meshes,
-                &self.anim_meshes,
-            );
-        }
-
-        {
-            let mut render_pass = rasterize_pass.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[
-                    self.output.as_descriptor(DeferredView::Albedo),
-                    self.output.as_descriptor(DeferredView::Normal),
-                    self.output.as_descriptor(DeferredView::WorldPos),
-                    self.output.as_descriptor(DeferredView::ScreenSpace),
-                ],
-                depth_stencil_attachment: Some(self.output.as_depth_descriptor()),
-            });
-
-            let matrix = camera.get_rh_matrix();
-            let frustrum = scene::FrustrumG::from_matrix(matrix);
-
-            for i in 0..self.instances.len() {
-                let instance = &self.instances.instances[i];
-                let device_instance = &self.instances.device_instances[i];
-                let bounds = &self.instances.bounds[i];
-
-                if !frustrum
-                    .aabb_in_frustrum(&bounds.root_bounds)
-                    .should_render()
-                {
-                    continue;
-                }
-
-                match instance.object_id {
-                    ObjectRef::None => panic!("Invalid"),
-                    ObjectRef::Static(mesh_id) => {
-                        let mesh = &self.meshes[mesh_id as usize];
-                        if let Some(buffer) = mesh.buffer.as_ref() {
-                            render_pass.set_pipeline(&self.pipeline.pipeline);
-                            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
-
-                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
-
-                            for j in 0..mesh.sub_meshes.len() {
-                                if !frustrum
-                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                    .should_render()
-                                {
-                                    continue;
-                                }
-
-                                let sub_mesh = &mesh.sub_meshes[j];
-                                let bind_group =
-                                    &self.material_bind_groups[sub_mesh.mat_id as usize];
-                                render_pass.set_bind_group(2, bind_group, &[]);
-                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                            }
-                        }
-                    }
-                    ObjectRef::Animated(mesh_id) => {
-                        let mesh = &self.anim_meshes[mesh_id as usize];
-                        if let Some(buffer) = mesh.buffer.as_ref() {
-                            render_pass.set_pipeline(&self.pipeline.anim_pipeline);
-                            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(5, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(6, buffer, 0, mesh.buffer_size);
-
-                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
-
-                            for j in 0..mesh.sub_meshes.len() {
-                                if !frustrum
-                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
-                                    .should_render()
-                                {
-                                    continue;
-                                }
-
-                                let sub_mesh = &mesh.sub_meshes[j];
-                                let bind_group =
-                                    &self.material_bind_groups[sub_mesh.mat_id as usize];
-                                render_pass.set_bind_group(2, bind_group, &[]);
-                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        self.ssao_pass.launch(
-            &mut rasterize_pass,
-            self.output.width,
-            self.output.height,
             &self.uniform_bind_group,
+            self.material_bind_groups.as_slice(),
+            &self.ssao_pass,
+            &self.radiance_pass,
         );
-
-        self.radiance_pass.launch(
-            &mut rasterize_pass,
-            self.output.width,
-            self.output.height,
-            &self.uniform_bind_group,
-        );
-        self.device.poll(wgpu::Maintain::Wait);
-        if let Ok(mut mapping) = block_on(mapping) {
-            let slice = mapping.as_slice();
-            let view = camera.get_view_matrix();
-            let projection = camera.get_projection();
-            let light_counts: [u32; 4] = self.lights.counts();
-
-            unsafe {
-                let ptr = slice.as_mut_ptr();
-                // View matrix
-                ptr.copy_from(view.as_ref().as_ptr() as *const u8, 64);
-                // Projection matrix
-                ptr.add(64)
-                    .copy_from(projection.as_ref().as_ptr() as *const u8, 64);
-
-                // Light counts
-                ptr.add(128)
-                    .copy_from(light_counts.as_ptr() as *const u8, 16);
-
-                // Camera position
-                ptr.add(144).copy_from(
-                    Vec3::from(camera.pos).extend(1.0).as_ref().as_ptr() as *const u8,
-                    16,
-                );
-            }
-        }
-        self.queue.submit(&[rasterize_pass.finish()]);
 
         let mut output_pass = self
             .device
@@ -735,7 +659,10 @@ impl Renderer for Deferred {
                 .blit_debug(&output.view, &mut output_pass, self.debug_view);
         }
 
-        self.queue.submit(&[output_pass.finish()]);
+        let light_pass = futures::executor::block_on(light_pass);
+        let render_pass = futures::executor::block_on(render_pass);
+
+        self.queue.submit(&[light_pass, render_pass, output_pass.finish()]);
 
         self.instances.reset_changed();
         self.lights_changed = false;
@@ -747,7 +674,7 @@ impl Renderer for Deferred {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },
@@ -788,6 +715,12 @@ impl Renderer for Deferred {
         unimplemented!()
     }
 
+    fn set_skin(&mut self, id: usize, skin: &Skin) {
+        self.skins
+            .overwrite(id, DeferredSkin::new(&self.device, skin.clone()));
+        self.skins[id].create_bind_group(&self.device, &self.skin_bind_group_layout);
+    }
+
     fn get_settings(&self) -> Vec<Setting> {
         vec![Setting::new(
             String::from("debug-view"),
@@ -805,5 +738,284 @@ impl Renderer for Deferred {
 
             self.debug_view = debug_view;
         }
+    }
+}
+
+impl Deferred {
+    async fn record_update(
+        device: &wgpu::Device,
+        instances: &mut InstanceList,
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+        skins: &TrackedStorage<DeferredSkin>,
+    ) -> wgpu::CommandBuffer {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("synchronize-command"),
+        });
+
+        let s = skins
+            .iter_changed()
+            .map(|(_, s)| {
+                s.update(device)
+                // commands.push(s.get_copy_command(device));
+            })
+            .collect::<Vec<_>>();
+
+        let instances_update = instances.update(device, &meshes, &anim_meshes, &mut encoder);
+
+        let mut commands = Vec::with_capacity(meshes.len() + skins.len());
+
+        meshes.iter_changed().for_each(|(_, m)| {
+            commands.push(m.get_copy_command(device));
+        });
+
+        anim_meshes.iter_changed().for_each(|(_, m)| {
+            let (command1, command2) = m.get_copy_command(device);
+            commands.push(command1);
+            commands.push(command2);
+        });
+
+        instances_update.await;
+
+        for command in commands.iter() {
+            command.record(&mut encoder);
+        }
+
+        for s in s.into_iter() {
+            s.await;
+        }
+
+        encoder.finish()
+    }
+
+    async fn render_lights(
+        device: &wgpu::Device,
+        lights: &mut DeferredLights,
+        instances: &InstanceList,
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+        skins: &TrackedStorage<DeferredSkin>,
+    ) -> wgpu::CommandBuffer {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("render-lights")
+        });
+        lights.render(&mut encoder, instances, meshes, anim_meshes, skins).await;
+        encoder.finish()
+    }
+
+    async fn render_scene(
+        device: &wgpu::Device,
+        camera: &Camera,
+        light_counts: [u32; 4],
+        pipeline: &pipeline::RenderPipeline,
+        instances: &InstanceList,
+        meshes: &TrackedStorage<DeferredMesh>,
+        anim_meshes: &TrackedStorage<DeferredAnimMesh>,
+        skins: &TrackedStorage<DeferredSkin>,
+        d_output: &output::DeferredOutput,
+        camera_staging_buffer: &wgpu::Buffer,
+        uniform_camera_buffer: &wgpu::Buffer,
+        uniform_bind_group: &wgpu::BindGroup,
+        material_bind_groups: &[wgpu::BindGroup],
+        ssao_pass: &pass::SSAOPass,
+        radiance_pass: &pass::RadiancePass,
+    ) -> wgpu::CommandBuffer {
+        let mapping = camera_staging_buffer.map_write(0, Self::UNIFORM_CAMERA_SIZE);
+
+        let mut rasterize_pass = device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("render"),
+            });
+
+        rasterize_pass.copy_buffer_to_buffer(
+            camera_staging_buffer,
+            0,
+            uniform_camera_buffer,
+            0,
+            Self::UNIFORM_CAMERA_SIZE,
+        );
+
+        use output::*;
+
+        {
+            let mut render_pass = rasterize_pass.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[
+                    d_output.as_descriptor(DeferredView::Albedo),
+                    d_output.as_descriptor(DeferredView::Normal),
+                    d_output.as_descriptor(DeferredView::WorldPos),
+                    d_output.as_descriptor(DeferredView::ScreenSpace),
+                ],
+                depth_stencil_attachment: Some(d_output.as_depth_descriptor()),
+            });
+
+            let matrix = camera.get_rh_matrix();
+            let frustrum = scene::FrustrumG::from_matrix(matrix);
+
+            instances.iter().for_each(|(i, instance, device_instance, bounds)| {
+                if !frustrum
+                    .aabb_in_frustrum(&bounds.root_bounds)
+                    .should_render()
+                {
+                    return;
+                }
+
+                match instance.object_id {
+                    ObjectRef::None => panic!("Invalid"),
+                    ObjectRef::Static(mesh_id) => {
+                        let mesh = &meshes[mesh_id as usize];
+                        if let Some(buffer) = mesh.buffer.as_ref() {
+                            render_pass.set_pipeline(&pipeline.pipeline);
+                            render_pass.set_bind_group(0, uniform_bind_group, &[]);
+                            render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+
+                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+
+                            for j in 0..mesh.sub_meshes.len() {
+                                if !frustrum
+                                    .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                    .should_render()
+                                {
+                                    continue;
+                                }
+
+                                let sub_mesh = &mesh.sub_meshes[j];
+                                let bind_group =
+                                    &material_bind_groups[sub_mesh.mat_id as usize];
+                                render_pass.set_bind_group(2, bind_group, &[]);
+                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                            }
+                        }
+                    }
+                    ObjectRef::Animated(mesh_id) => {
+                        let mesh = &anim_meshes[mesh_id as usize];
+                        if let (Some(buffer), Some(anim_buffer)) =
+                        (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                        {
+                            if let Some(skin_id) = instance.skin_id {
+                                render_pass.set_pipeline(&pipeline.anim_pipeline);
+                                render_pass.set_bind_group(0, &uniform_bind_group, &[]);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+
+                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(
+                                    5,
+                                    anim_buffer,
+                                    0,
+                                    mesh.anim_buffer_size,
+                                );
+                                render_pass.set_vertex_buffer(
+                                    6,
+                                    anim_buffer,
+                                    0,
+                                    mesh.anim_buffer_size,
+                                );
+
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if !frustrum
+                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                        .should_render()
+                                    {
+                                        continue;
+                                    }
+
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    let bind_group =
+                                        &material_bind_groups[sub_mesh.mat_id as usize];
+                                    render_pass.set_bind_group(2, bind_group, &[]);
+                                    render_pass.set_bind_group(
+                                        3,
+                                        match skins[skin_id as usize].bind_group.as_ref() {
+                                            None => panic!(
+                                                "Skin {} does not have a bind group (yet)",
+                                                skin_id
+                                            ),
+                                            Some(b) => b,
+                                        },
+                                        &[],
+                                    );
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                }
+                            } else {
+                                render_pass.set_pipeline(&pipeline.pipeline);
+                                render_pass.set_bind_group(0, &uniform_bind_group, &[]);
+                                render_pass.set_bind_group(1, &device_instance.bind_group, &[]);
+
+                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
+                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if !frustrum
+                                        .aabb_in_frustrum(&bounds.mesh_bounds[j])
+                                        .should_render()
+                                    {
+                                        continue;
+                                    }
+
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    let bind_group =
+                                        &material_bind_groups[sub_mesh.mat_id as usize];
+                                    render_pass.set_bind_group(2, bind_group, &[]);
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        ssao_pass.launch(
+            &mut rasterize_pass,
+            d_output.width,
+            d_output.height,
+            &uniform_bind_group,
+        );
+
+        radiance_pass.launch(
+            &mut rasterize_pass,
+            d_output.width,
+            d_output.height,
+            &uniform_bind_group,
+        );
+
+        device.poll(wgpu::Maintain::Wait);
+
+        if let Ok(mut mapping) = mapping.await {
+            let slice = mapping.as_slice();
+            let view = camera.get_view_matrix();
+            let projection = camera.get_projection();
+
+            unsafe {
+                let ptr = slice.as_mut_ptr();
+                // View matrix
+                ptr.copy_from(view.as_ref().as_ptr() as *const u8, 64);
+                // Projection matrix
+                ptr.add(64)
+                    .copy_from(projection.as_ref().as_ptr() as *const u8, 64);
+
+                // Light counts
+                ptr.add(128)
+                    .copy_from(light_counts.as_ptr() as *const u8, 16);
+
+                // Camera position
+                ptr.add(144).copy_from(
+                    Vec3::from(camera.pos).extend(1.0).as_ref().as_ptr() as *const u8,
+                    16,
+                );
+            }
+        }
+
+        rasterize_pass.finish()
     }
 }

@@ -34,6 +34,7 @@ pub use triangle_scene::*;
 
 use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
 use glam::*;
+use graph::Node;
 use std::error::Error;
 use std::path::Path;
 
@@ -191,35 +192,51 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIterator<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Instance>),
+        where
+            C: FnOnce(Option<&Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&mut Instance>),
+        where
+            C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
+    }
+
+    pub fn get_node<C>(&self, index: usize, cb: C)
+        where
+            C: FnOnce(Option<&Node>),
+    {
+        let lock = self.scene.objects.nodes.lock().unwrap();
+        cb(lock.get(index))
+    }
+
+    pub fn get_node_mut<C>(&self, index: u32, cb: C)
+        where
+            C: FnOnce(Option<&mut Node>),
+    {
+        let mut lock = self.scene.objects.nodes.lock().unwrap();
+        cb(lock.get_mut(index as usize))
     }
 
     pub fn find_mesh_by_name(&self, name: String) -> Vec<ObjectRef> {
@@ -263,12 +280,17 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn load_mesh<B: AsRef<Path>>(
-        &self,
-        path: B,
-    ) -> Result<Option<ObjectRef>, triangle_scene::SceneError> {
-        futures::executor::block_on(self.scene.load_mesh(path))
+    pub fn load<B: AsRef<Path>>(&self, path: B) -> Result<LoadResult, triangle_scene::SceneError> {
+        futures::executor::block_on(self.scene.load(path))
     }
+
+    // TODO:
+    // pub async fn load_async<B: AsRef<Path>>(
+    //     &self,
+    //     path: B,
+    // ) -> Result<LoadResult, triangle_scene::SceneError> {
+    //     self.scene.load(path)
+    // }
 
     pub fn add_material<B: Into<[f32; 3]>>(
         &self,
@@ -378,79 +400,103 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
+    pub fn set_animation_time(&self, time: f32) {
+        if let (Ok(mut nodes), Ok(mut animations)) = (
+            self.scene.objects.nodes.lock(),
+            self.scene.objects.animations.lock(),
+        ) {
+            animations.iter_mut().for_each(|(_, anim)| {
+                anim.set_time(time, &mut nodes);
+            });
+        }
+    }
+
     pub fn synchronize(&self) {
         if let Ok(mut renderer) = self.renderer.try_lock() {
             let mut changed = false;
             let mut update_lights = false;
             let mut found_light = false;
 
+            if let (Ok(mut nodes), Ok(mut skins), Ok(mut instances)) = (
+                self.scene.objects.nodes.lock(),
+                self.scene.objects.skins.lock(),
+                self.scene.objects.instances.lock(),
+            ) {
+                if nodes.any_changed() {
+                    nodes.update(&mut instances, &mut skins);
+                }
+
+                skins
+                    .iter_changed()
+                    .for_each(|(id, skin)| renderer.set_skin(id, skin));
+                skins.reset_changed();
+                nodes.reset_changed();
+            }
+
             if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
                 self.scene.objects.meshes.lock(),
                 self.scene.objects.animated_meshes.lock(),
                 self.scene.objects.instances.lock(),
             ) {
-                meshes.iter_changed().enumerate().for_each(|(i, m)| {
+                meshes.iter_changed().for_each(|(i, m)| {
                     renderer.set_mesh(i, m);
                     changed = true;
                 });
 
-                anim_meshes.iter_changed().enumerate().for_each(|(i, m)| {
+                anim_meshes.iter_changed().for_each(|(i, m)| {
                     renderer.set_animated_mesh(i, m);
                     changed = true;
                 });
 
                 if let Ok(materials) = self.scene.materials_lock() {
                     let light_flags = materials.light_flags();
-                    instances
-                        .iter_changed_mut()
-                        .enumerate()
-                        .for_each(|(i, instance)| {
-                            instance.update_transform();
-                            renderer.set_instance(i, instance);
-                            changed = true;
+                    instances.iter_changed_mut().for_each(|(i, instance)| {
+                        instance.update_transform();
+                        renderer.set_instance(i, instance);
+                        changed = true;
 
-                            if found_light {
+                        if found_light {
+                            return;
+                        }
+
+                        match instance.object_id {
+                            ObjectRef::None => {
                                 return;
                             }
-
-                            match instance.object_id {
-                                ObjectRef::None => {
-                                    return;
-                                }
-                                ObjectRef::Static(object_id) => {
-                                    let object_id = object_id as usize;
-                                    for j in 0..meshes[object_id].meshes.len() {
-                                        match light_flags
-                                            .get(meshes[object_id].meshes[j].mat_id as usize)
-                                        {
-                                            None => {}
-                                            Some(flag) => {
-                                                if *flag {
-                                                    found_light = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                ObjectRef::Animated(object_id) => {
-                                    let object_id = object_id as usize;
-                                    for j in 0..anim_meshes[object_id].meshes.len() {
-                                        match light_flags
-                                            .get(meshes[object_id].meshes[j].mat_id as usize)
-                                        {
-                                            None => {}
-                                            Some(flag) => {
-                                                if *flag {
-                                                    found_light = true;
-                                                    break;
-                                                }
+                            ObjectRef::Static(object_id) => {
+                                let object_id = object_id as usize;
+                                for j in 0..meshes[object_id].meshes.len() {
+                                    match light_flags
+                                        .get(meshes[object_id].meshes[j].mat_id as usize)
+                                    {
+                                        None => {}
+                                        Some(flag) => {
+                                            if *flag {
+                                                found_light = true;
+                                                break;
                                             }
                                         }
                                     }
                                 }
                             }
-                        });
+                            ObjectRef::Animated(object_id) => {
+                                let object_id = object_id as usize;
+                                for j in 0..anim_meshes[object_id].meshes.len() {
+                                    match light_flags
+                                        .get(anim_meshes[object_id].meshes[j].mat_id as usize)
+                                    {
+                                        None => {}
+                                        Some(flag) => {
+                                            if *flag {
+                                                found_light = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
 
                 meshes.reset_changed();

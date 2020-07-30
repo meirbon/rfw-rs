@@ -4,8 +4,9 @@ use shared::*;
 
 pub struct RenderPipeline {
     pub pipeline: wgpu::RenderPipeline,
-    pub anim_pipeline: wgpu::RenderPipeline,
     pub layout: wgpu::PipelineLayout,
+    pub anim_layout: wgpu::PipelineLayout,
+    pub anim_pipeline: wgpu::RenderPipeline,
 }
 
 impl RenderPipeline {
@@ -14,6 +15,7 @@ impl RenderPipeline {
         uniform_layout: &wgpu::BindGroupLayout,
         instance_layout: &wgpu::BindGroupLayout,
         texture_layout: &wgpu::BindGroupLayout,
+        skin_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let vert_shader = include_bytes!("../../shaders/mesh.vert.spv");
         let frag_shader = include_bytes!("../../shaders/deferred.frag.spv");
@@ -22,7 +24,7 @@ impl RenderPipeline {
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            bind_group_layouts: &[&uniform_layout, &instance_layout, &texture_layout],
+            bind_group_layouts: &[uniform_layout, instance_layout, texture_layout],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &pipeline_layout,
@@ -139,8 +141,11 @@ impl RenderPipeline {
         let vert_shader = include_bytes!("../../shaders/mesh_anim.vert.spv");
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
+        let anim_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            bind_group_layouts: &[uniform_layout, instance_layout, texture_layout, skin_layout],
+        });
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            layout: &anim_layout,
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -199,7 +204,7 @@ impl RenderPipeline {
             vertex_state: wgpu::VertexStateDescriptor {
                 vertex_buffers: &[
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 0,
@@ -244,19 +249,19 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
-                            offset: 56,
-                            format: wgpu::VertexFormat::Ushort4,
+                            offset: 0,
+                            format: wgpu::VertexFormat::Uint4,
                             shader_location: 5,
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
-                            offset: 64,
+                            offset: 16,
                             format: wgpu::VertexFormat::Float4,
                             shader_location: 6,
                         }],
@@ -271,8 +276,9 @@ impl RenderPipeline {
 
         Self {
             pipeline,
-            anim_pipeline,
             layout: pipeline_layout,
+            anim_pipeline,
+            anim_layout,
         }
     }
 }
