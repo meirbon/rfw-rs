@@ -228,7 +228,7 @@ impl NodeGraph {
             let c_id = *c_id as usize;
             changed |= Self::traverse_children(
                 c_id,
-                nodes[current_index].combined_matrix,
+                combined_matrix,
                 nodes,
                 instances,
                 skins,
@@ -244,7 +244,6 @@ impl NodeGraph {
         meshes.iter().for_each(|m| {
             instances[m.instance_id as usize].skin_id = skin;
             instances[m.instance_id as usize].set_transform(combined_matrix);
-
             // TODO: Morphed
         });
 
@@ -260,23 +259,6 @@ impl NodeGraph {
                 .enumerate()
                 .for_each(|(i, node_id)| {
                     let node_id = *node_id as usize;
-                    // println!("joint matrix {}, {}", node_id, nodes[node_id].combined_matrix);
-                    // println!("\tmatrix {}, {}", node_id, nodes[node_id].matrix);
-                    // println!("\tlocal matrix {}, {}", node_id, nodes[node_id].local_matrix);
-
-                    // let t: glm::Mat4 = glm::translate(&glm::identity(),&glm::vec3(nodes[node_id].translation.x(), nodes[node_id].translation.y(), nodes[node_id].translation.z()));
-                    // let r: glm::Mat4 = glm::quat_to_mat4(&glm::quat(nodes[node_id].rotation.x(), nodes[node_id].rotation.y(), nodes[node_id].rotation.z(), nodes[node_id].rotation.w()));
-                    // let s: glm::Mat4 = glm::scale(&glm::identity(), &glm::vec3(nodes[node_id].scale.x(), nodes[node_id].scale.y(), nodes[node_id].scale.z()));
-                    // println!("t: {}", Mat4::from_cols_array_2d(t.as_ref()));
-                    // println!("r: {}", Mat4::from_cols_array_2d(r.as_ref()));
-                    // println!("s: {}", Mat4::from_cols_array_2d(s.as_ref()));
-                    // println!("\ttrue trs {}, {}", node_id, Mat4::from_scale_rotation_translation(nodes[node_id].scale, nodes[node_id].rotation, nodes[node_id].translation));
-
-                    // println!("\tT {}", nodes[node_id].translation);
-                    // println!("\tR {}", nodes[node_id].rotation);
-                    // println!("\tS {}", nodes[node_id].scale);
-                    // nodes[node_id].update_matrix();
-
                     joint_matrices[i] = inverse_transform
                         * nodes[node_id].combined_matrix
                         * inverse_bind_matrices[i];
