@@ -38,7 +38,7 @@ impl DeferredSkin {
         let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("joint-matrices"),
             size: joint_matrices_buffer_size,
-            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::MAP_WRITE,
+            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::COPY_DST,
         });
 
         Self {
@@ -77,15 +77,32 @@ impl DeferredSkin {
         }));
     }
 
-    pub async fn update(&self, device: &wgpu::Device) {
+    pub async fn update(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if let Some(buffer) = self.matrices_buffer.as_ref() {
-            let mapping = buffer.map_write(0, self.joint_matrices_buffer_size);
-            device.poll(wgpu::Maintain::Wait);
-            let mut mapping = mapping.await.unwrap();
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("skin-update"),
+            });
 
-            mapping
-                .as_slice()
-                .copy_from_slice(self.skin.joint_matrices.to_bytes());
+            let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+                label: Some("skin-update-staging-buffer"),
+                size: self.joint_matrices_buffer_size,
+                usage: wgpu::BufferUsage::COPY_SRC,
+            });
+
+            let data = self.skin.joint_matrices.to_bytes();
+            staging_buffer.data[0..data.len()].copy_from_slice(data);
+
+            let staging_buffer = staging_buffer.finish();
+
+            encoder.copy_buffer_to_buffer(
+                &staging_buffer,
+                0,
+                buffer,
+                0,
+                self.joint_matrices_buffer_size,
+            );
+
+            queue.submit(&[encoder.finish()]);
         }
     }
 }

@@ -2,6 +2,7 @@ use super::{instance::InstanceList, mesh::DeferredMesh};
 use crate::wgpu_renderer::instance::DeviceInstances;
 use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use crate::wgpu_renderer::skin::DeferredSkin;
+use futures::executor::block_on;
 use rtbvh::AABB;
 use scene::{
     lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
@@ -10,7 +11,6 @@ use scene::{
 use shared::*;
 use std::fmt::Debug;
 use std::ops::Range;
-use futures::executor::block_on;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,
@@ -118,8 +118,6 @@ pub struct LightShadows<T: Sized + Light + Clone + Debug + Default> {
     lights: TrackedStorage<T>,
     light_buffer: wgpu::Buffer,
     light_buffer_size: wgpu::BufferAddress,
-    staging_buffer: wgpu::Buffer,
-    staging_buffer_size: wgpu::BufferAddress,
     info: Vec<LightInfo>,
     shadow_maps: ShadowMapArray,
 }
@@ -140,19 +138,10 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
 
-        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("light-staging-buffer"),
-            size: light_buffer_size,
-            usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
-        });
-        let staging_buffer_size = light_buffer_size;
-
         Self {
             lights: TrackedStorage::new(),
             light_buffer,
             light_buffer_size,
-            staging_buffer,
-            staging_buffer_size,
             info: Vec::new(),
             shadow_maps: ShadowMapArray::new(
                 device,
@@ -193,6 +182,10 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             return false;
         }
 
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("light-buffer-copy"),
+        });
+
         let mut changed = self.shadow_maps.resize(device, queue, self.lights.len());
 
         let light_buffer_size =
@@ -205,33 +198,30 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             });
             self.light_buffer_size = light_buffer_size;
 
-            self.staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("light-staging-buffer"),
-                size: light_buffer_size,
-                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
-            });
-            self.staging_buffer_size = light_buffer_size;
-
             changed = true;
         }
 
-        let mapping = self.staging_buffer.map_write(0, self.staging_buffer_size);
-        device.poll(wgpu::Maintain::Wait);
-        let mut mapping = mapping.await.unwrap();
+        let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            label: Some("lights-staging-buffer"),
+            size: self.light_buffer_size,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
 
-        mapping.as_slice()[0..light_buffer_size as usize].copy_from_slice(unsafe {
+        staging_buffer.data[0..light_buffer_size as usize].copy_from_slice(unsafe {
             std::slice::from_raw_parts(
                 self.lights.as_ptr() as *const u8,
-                light_buffer_size as usize)
+                light_buffer_size as usize,
+            )
         });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("light-buffer-copy"),
-        });
+        let staging_buffer = staging_buffer.finish();
 
-        encoder.copy_buffer_to_buffer(&self.staging_buffer, 0, &self.light_buffer, 0, light_buffer_size);
+        encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.light_buffer, 0, light_buffer_size);
         queue.submit(&[encoder.finish()]);
-        self.shadow_maps.update_infos(self.info.as_slice(), device).await;
+        self.shadow_maps
+            .update_infos(self.info.as_slice(), device, queue)
+            .await;
+
         changed
     }
 
@@ -465,8 +455,7 @@ impl ShadowMapArray {
             size: uniform_size,
             usage: wgpu::BufferUsage::UNIFORM
                 | wgpu::BufferUsage::COPY_SRC
-                | wgpu::BufferUsage::COPY_DST
-                | wgpu::BufferUsage::MAP_WRITE,
+                | wgpu::BufferUsage::COPY_DST,
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -494,7 +483,7 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv", );
+        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
         let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
         let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
 
@@ -554,7 +543,7 @@ impl ShadowMapArray {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single_anim.vert.spv", );
+        let vert_shader = include_bytes!("../../shaders/shadow_single_anim.vert.spv",);
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
         let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1052,7 +1041,6 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-buffer"),
             size: new_size,
             usage: wgpu::BufferUsage::UNIFORM
-                | wgpu::BufferUsage::MAP_WRITE
                 | wgpu::BufferUsage::COPY_SRC
                 | wgpu::BufferUsage::COPY_DST,
         });
@@ -1119,24 +1107,41 @@ impl ShadowMapArray {
         })
     }
 
-    pub async fn update_infos(&mut self, infos: &[LightInfo], device: &wgpu::Device) {
+    pub async fn update_infos(
+        &mut self,
+        infos: &[LightInfo],
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
         self.light_infos = Vec::from(infos);
 
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("shadow-maps-update-infos"),
+        });
+
         let copy_size = infos.len() * Self::UNIFORM_ELEMENT_SIZE;
-        let mapping = self
-            .uniform_buffer
-            .map_write(0, copy_size as wgpu::BufferAddress);
+        let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            label: Some("shadow-maps-update-infos-buffer"),
+            size: copy_size as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
 
-        // Copy matrices to staging buffer
-        device.poll(wgpu::Maintain::Wait);
-
-        let mapping = mapping.await;
-        if let Ok(mut mapping) = mapping {
-            unsafe {
-                let ptr = mapping.as_slice().as_mut_ptr();
-                ptr.copy_from(infos.as_ptr() as *const u8, copy_size);
-            }
+        unsafe {
+            let ptr = staging_buffer.data.as_mut_ptr();
+            ptr.copy_from(infos.as_ptr() as *const u8, copy_size);
         }
+
+        let staging_buffer = staging_buffer.finish();
+
+        encoder.copy_buffer_to_buffer(
+            &staging_buffer,
+            0,
+            &self.uniform_buffer,
+            0,
+            copy_size as wgpu::BufferAddress,
+        );
+
+        queue.submit(&[encoder.finish()]);
     }
 
     pub async fn render(

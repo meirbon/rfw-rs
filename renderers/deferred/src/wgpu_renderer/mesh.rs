@@ -1,4 +1,3 @@
-use super::CopyCommand;
 use rtbvh::AABB;
 use scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
@@ -106,7 +105,11 @@ impl DeferredMesh {
         self.vertex_data.len()
     }
 
-    pub fn get_copy_command(&self, device: &wgpu::Device) -> CopyCommand {
+    pub async fn copy_data(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mesh-update"),
+        });
+
         let data = unsafe {
             std::slice::from_raw_parts(
                 self.vertex_data.as_ptr() as *const u8,
@@ -115,14 +118,14 @@ impl DeferredMesh {
         };
 
         let staging_buffer = device.create_buffer_with_data(data, wgpu::BufferUsage::COPY_SRC);
-
-        CopyCommand {
-            destination_buffer: self.buffer.as_ref().unwrap(),
-            dest_offset: 0,
-            offset: 0,
-            copy_size: self.buffer_size as wgpu::BufferAddress,
-            staging_buffer: crate::wgpu_renderer::CopyStagingBuffer::Owned(staging_buffer),
-        }
+        encoder.copy_buffer_to_buffer(
+            &staging_buffer,
+            0,
+            self.buffer.as_ref().unwrap(),
+            0,
+            self.buffer_size as wgpu::BufferAddress,
+        );
+        queue.submit(&[encoder.finish()]);
     }
 }
 
@@ -164,31 +167,34 @@ impl DeferredAnimMesh {
         self.vertex_data.len()
     }
 
-    pub fn get_copy_command(&self, device: &wgpu::Device) -> (CopyCommand, CopyCommand) {
-        let staging_buffer = device
+    pub async fn copy_data(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("anim-mesh-copy"),
+        });
+        let staging_buffer1 = device
             .create_buffer_with_data(self.vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
 
-        let command1 = CopyCommand {
-            destination_buffer: self.buffer.as_ref().unwrap(),
-            dest_offset: 0,
-            offset: 0,
-            copy_size: self.buffer_size as wgpu::BufferAddress,
-            staging_buffer: crate::wgpu_renderer::CopyStagingBuffer::Owned(staging_buffer),
-        };
+        encoder.copy_buffer_to_buffer(
+            &staging_buffer1,
+            0,
+            self.buffer.as_ref().unwrap(),
+            0,
+            self.buffer_size as wgpu::BufferAddress,
+        );
 
-        let staging_buffer = device.create_buffer_with_data(
+        let staging_buffer2 = device.create_buffer_with_data(
             self.anim_vertex_data.to_bytes(),
             wgpu::BufferUsage::COPY_SRC,
         );
 
-        let command2 = CopyCommand {
-            destination_buffer: self.anim_buffer.as_ref().unwrap(),
-            dest_offset: 0,
-            offset: 0,
-            copy_size: self.anim_buffer_size as wgpu::BufferAddress,
-            staging_buffer: crate::wgpu_renderer::CopyStagingBuffer::Owned(staging_buffer),
-        };
+        encoder.copy_buffer_to_buffer(
+            &staging_buffer2,
+            0,
+            self.anim_buffer.as_ref().unwrap(),
+            0,
+            self.anim_buffer_size as wgpu::BufferAddress,
+        );
 
-        (command1, command2)
+        queue.submit(&[encoder.finish()]);
     }
 }

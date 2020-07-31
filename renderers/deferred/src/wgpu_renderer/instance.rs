@@ -3,7 +3,6 @@ use crate::wgpu_renderer::mesh::DeferredAnimMesh;
 use glam::*;
 use rtbvh::{Bounds, AABB};
 use scene::{Instance, ObjectRef, TrackedStorage};
-use crate::wgpu_renderer::CopyStagingBuffer;
 
 pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
@@ -14,7 +13,11 @@ pub struct DeviceInstances {
 impl DeviceInstances {
     // std::mem::size_of::<Mat4>() * 2
     pub const INSTANCE_SIZE: usize = 256;
-    pub fn new(capacity: usize, device: &wgpu::Device, bind_group_layout: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(
+        capacity: usize,
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (capacity * Self::INSTANCE_SIZE) as wgpu::BufferAddress,
@@ -102,8 +105,6 @@ pub struct InstanceList {
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub instances: TrackedStorage<Instance>,
     pub bounds: Vec<InstanceBounds>,
-    pub staging_buffer: wgpu::Buffer,
-    pub staging_size: wgpu::BufferAddress,
 }
 
 impl InstanceList {
@@ -118,13 +119,6 @@ impl InstanceList {
             label: Some("mesh-bind-group-descriptor-layout"),
         });
 
-        let staging_size = (32 * std::mem::size_of::<Mat4>() * 2) as wgpu::BufferAddress;
-        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("instance-list-staging-buffer"),
-            size: staging_size,
-            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        });
-
         let device_instances = DeviceInstances::new(32, device, &bind_group_layout);
 
         Self {
@@ -132,8 +126,6 @@ impl InstanceList {
             bind_group_layout,
             instances: TrackedStorage::new(),
             bounds: Vec::new(),
-            staging_buffer,
-            staging_size,
         }
     }
 
@@ -152,7 +144,8 @@ impl InstanceList {
         }
 
         if self.device_instances.len() <= id {
-            self.device_instances = DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
+            self.device_instances =
+                DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
             self.instances.trigger_changed_all();
         }
     }
@@ -173,7 +166,8 @@ impl InstanceList {
         }
 
         if self.device_instances.len() <= id {
-            self.device_instances = DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
+            self.device_instances =
+                DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
             self.instances.trigger_changed_all();
         }
     }
@@ -183,53 +177,51 @@ impl InstanceList {
         device: &wgpu::Device,
         meshes: &TrackedStorage<DeferredMesh>,
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
-        encoder: &mut wgpu::CommandEncoder,
+        queue: &wgpu::Queue,
     ) {
-        let mut commands = Vec::with_capacity(self.instances.len());
-
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let device_instances = &self.device_instances;
 
         let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
-        // Resize if needed
-        if (self.instances.len() * instance_copy_size) < self.staging_size as usize {
-            self.staging_size = (self.instances.len() * 2 * instance_copy_size) as wgpu::BufferAddress;
-            self.staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("instance-list-staging-buffer"),
-                size: self.staging_size,
-                usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-            });
-        }
-
-        let staging_data = self.staging_buffer.map_write(0, self.staging_size);
-        device.poll(wgpu::Maintain::Wait);
-        let mut staging_data = staging_data.await.unwrap();
-
-        let copy_data = staging_data.as_slice();
+        let staging_data = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            label: Some("instance-staging-buffer"),
+            size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
 
         let instances = &self.instances;
-        let staging_buffer = &self.staging_buffer;
-        instances.iter_changed().for_each(|(i, instance)| {
-            unsafe {
-                let transform = instance.get_transform();
-                let n_transform = instance.get_normal_transform();
+        // let staging_buffer = &self.staging_buffer;
+        instances.iter_changed().for_each(|(i, instance)| unsafe {
+            let transform = instance.get_transform();
+            let n_transform = instance.get_normal_transform();
 
-                std::ptr::copy(&transform as *const Mat4, (copy_data.as_mut_ptr() as *mut Mat4).add(i * 2), 1);
-                std::ptr::copy(&n_transform as *const Mat4, (copy_data.as_mut_ptr() as *mut Mat4).add(i * 2 + 1), 1);
-            }
+            std::ptr::copy(
+                &transform as *const Mat4,
+                (staging_data.data.as_mut_ptr() as *mut Mat4).add(i * 2),
+                1,
+            );
+            std::ptr::copy(
+                &n_transform as *const Mat4,
+                (staging_data.data.as_mut_ptr() as *mut Mat4).add(i * 2 + 1),
+                1,
+            );
+        });
 
-            commands.push(super::CopyCommand {
-                destination_buffer: &device_instances.device_matrices,
-                offset: (i * instance_copy_size) as wgpu::BufferAddress,
-                dest_offset: DeviceInstances::offset_for(i),
-                copy_size: instance_copy_size as wgpu::BufferAddress,
-                staging_buffer: CopyStagingBuffer::Reference(staging_buffer),
-            });
+        let staging_buffer = staging_data.finish();
+
+        instances.iter_changed().for_each(|(i, _)| {
+            encoder.copy_buffer_to_buffer(
+                &staging_buffer,
+                (i * instance_copy_size) as wgpu::BufferAddress,
+                &device_instances.device_matrices,
+                DeviceInstances::offset_for(i),
+                instance_copy_size as wgpu::BufferAddress,
+            );
         });
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
-        commands.iter().for_each(|c| {
-            c.record(encoder);
-        });
+        queue.submit(&[encoder.finish()]);
     }
 
     pub fn reset_changed(&mut self) {
@@ -316,12 +308,7 @@ pub struct InstanceIterator<'a> {
 impl<'a> Iterator for InstanceIterator<'a> {
     type Item = (usize, &'a Instance, &'a InstanceBounds);
     fn next(&mut self) -> Option<Self::Item> {
-        let (instances, bounds) = unsafe {
-            (
-                self.instances.as_ptr(),
-                self.bounds.as_ptr(),
-            )
-        };
+        let (instances, bounds) = unsafe { (self.instances.as_ptr(), self.bounds.as_ptr()) };
 
         while self.current < self.length {
             if let Some(_) = self.instances.get(self.current) {
@@ -349,18 +336,10 @@ pub struct InstanceIteratorMut<'a> {
 }
 
 impl<'a> Iterator for InstanceIteratorMut<'a> {
-    type Item = (
-        usize,
-        &'a mut Instance,
-        &'a mut InstanceBounds,
-    );
+    type Item = (usize, &'a mut Instance, &'a mut InstanceBounds);
     fn next(&mut self) -> Option<Self::Item> {
-        let (instances, bounds) = unsafe {
-            (
-                self.instances.as_mut_ptr(),
-                self.bounds.as_mut_ptr(),
-            )
-        };
+        let (instances, bounds) =
+            unsafe { (self.instances.as_mut_ptr(), self.bounds.as_mut_ptr()) };
 
         while self.current < self.length {
             if let Some(_) = self.instances.get(self.current) {

@@ -121,71 +121,76 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
-    // renderer.add_spot_light(Vec3::new(0.0, 15.0, 0.0), Vec3::new(0.0, -1.0, 0.3), Vec3::new(105.0, 100.0, 110.0), 50.0, 75.0);
+    // let sponza =
+    //     renderer.create_instance(renderer.load("models/sponza/sponza.obj")?.object().unwrap())?;
+    // renderer.get_instance_mut(sponza, |instance| {
+    //     if let Some(instance) = instance {
+    //         instance.scale(Vec3::splat(0.1));
+    //     }
+    // });
 
-    let sponza =
-        renderer.create_instance(renderer.load("models/sponza/sponza.obj")?.object().unwrap())?;
-    renderer.get_instance_mut(sponza, |instance| {
-        if let Some(instance) = instance {
-            instance.scale(Vec3::splat(0.1));
-        }
-    });
+    // let x = 0.0_f32;
 
-    let x = 0.0_f32;
+    // // for x in [-60.0_f32, -30.0, 0.0, 30.0, 60.0].iter() {
+    // renderer.add_spot_light(
+    //     Vec3::new(x, 5.0, 0.0),
+    //     Vec3::new(1.0, 0.0, 1.0),
+    //     Vec3::new(150.0, 100.0, 150.0),
+    //     45.0,
+    //     60.0,
+    // );
+    // renderer.add_spot_light(
+    //     Vec3::new(x, 5.0, 0.0),
+    //     Vec3::new(-1.0, 0.0, 1.0),
+    //     Vec3::new(150.0, 150.0, 100.0),
+    //     45.0,
+    //     60.0,
+    // );
+    // renderer.add_spot_light(
+    //     Vec3::new(x, 5.0, 0.0),
+    //     Vec3::new(1.0, 0.0, -1.0),
+    //     Vec3::new(100.0, 150.0, 150.0),
+    //     45.0,
+    //     60.0,
+    // );
 
-    // for x in [-60.0_f32, -30.0, 0.0, 30.0, 60.0].iter() {
-    renderer.add_spot_light(
-        Vec3::new(x, 5.0, 0.0),
-        Vec3::new(1.0, 0.0, 1.0),
-        Vec3::new(150.0, 100.0, 150.0),
-        45.0,
-        60.0,
-    );
-    renderer.add_spot_light(
-        Vec3::new(x, 5.0, 0.0),
-        Vec3::new(-1.0, 0.0, 1.0),
-        Vec3::new(150.0, 150.0, 100.0),
-        45.0,
-        60.0,
-    );
-    renderer.add_spot_light(
-        Vec3::new(x, 5.0, 0.0),
-        Vec3::new(1.0, 0.0, -1.0),
-        Vec3::new(100.0, 150.0, 150.0),
-        45.0,
-        60.0,
-    );
-
-    renderer.add_spot_light(
-        Vec3::new(x, 5.0, 0.0),
-        Vec3::new(-1.0, 0.0, -1.0),
-        Vec3::new(150.0, 150.0, 150.0),
-        45.0,
-        60.0,
-    );
+    // renderer.add_spot_light(
+    //     Vec3::new(x, 5.0, 0.0),
+    //     Vec3::new(-1.0, 0.0, -1.0),
+    //     Vec3::new(150.0, 150.0, 150.0),
+    //     45.0,
+    //     60.0,
+    // );
     // }
 
-    // let pica = renderer.load_async("models/pica/scene.gltf");
-    // let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
+    renderer.add_spot_light(
+        Vec3::new(0.0, 15.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.3),
+        Vec3::new(105.0, 100.0, 110.0),
+        50.0,
+        75.0,
+    );
+    let pica = renderer.load_async("models/pica/scene.gltf");
+    let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
 
-    // let pica = match futures::executor::block_on(pica)? {
-    // LoadResult::Scene(root_nodes) => root_nodes,
-    // LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-    // };
+    let _pica = match futures::executor::block_on(pica)? {
+        scene::LoadResult::Scene(root_nodes) => root_nodes,
+        scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
 
-    // match futures::executor::block_on(cesium_man)? {
-    //     LoadResult::Scene(root_nodes) => {
-    //         root_nodes.iter().for_each(|node| {
-    //             renderer.get_node_mut(*node, |node| {
-    //                 if let Some(node) = node {
-    //                     node.set_scale(Vec3::splat(3.0));
-    //                     node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
-    //                 }
-    //             });
-    //         });
-    //     }
-    //     LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-    // };
+    match futures::executor::block_on(cesium_man)? {
+        scene::LoadResult::Scene(root_nodes) => {
+            root_nodes.iter().for_each(|node| {
+                renderer.get_node_mut(*node, |node| {
+                    if let Some(node) = node {
+                        node.set_scale(Vec3::splat(3.0));
+                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                    }
+                });
+            });
+        }
+        scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 
@@ -306,15 +311,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                     elapsed
                 };
 
-                // if key_handler.pressed(KeyCode::Space) {
-                //     pica.iter().for_each(|id| {
-                //         renderer.get_node_mut(*id, |node| {
-                //             if let Some(node) = node {
-                //                 node.rotate_z(elapsed / 10.0);
-                //             }
-                //         });
-                //     });
-                // }
+                if key_handler.pressed(KeyCode::Space) {
+                    _pica.iter().for_each(|id| {
+                        renderer.get_node_mut(*id, |node| {
+                            if let Some(node) = node {
+                                node.rotate_z(elapsed / 10.0);
+                            }
+                        });
+                    });
+                }
 
                 timer.reset();
 
