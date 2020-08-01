@@ -577,6 +577,7 @@ impl Renderer for RayTracer {
                         size: std::mem::size_of::<CameraData>().next_power_of_two()
                             as wgpu::BufferAddress,
                         usage: wgpu::BufferUsage::STORAGE
+                            | wgpu::BufferUsage::ORDERED
                             | wgpu::BufferUsage::MAP_WRITE
                             | wgpu::BufferUsage::MAP_READ,
                     }),

@@ -6,6 +6,7 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
+use scene::graph::Skin;
 use scene::renderers::{RenderMode, Renderer};
 use scene::{
     constants, raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec,
@@ -16,7 +17,6 @@ use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use wgpu::TextureCopyView;
-use scene::graph::Skin;
 
 pub struct RayTracer {
     device: wgpu::Device,
@@ -26,7 +26,6 @@ pub struct RayTracer {
     swap_chain: wgpu::SwapChain,
     pixels: Vec<Vec4>,
     render_surface: Surface<Vec4>,
-    pixel_buffer: wgpu::Buffer,
     width: usize,
     height: usize,
     sample_count: usize,
@@ -88,7 +87,7 @@ impl Renderer for RayTracer {
             },
             wgpu::BackendBit::PRIMARY,
         ))
-            .unwrap();
+        .unwrap();
 
         let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             extensions: wgpu::Extensions {
@@ -109,11 +108,6 @@ impl Renderer for RayTracer {
         };
 
         let swap_chain = device.create_swap_chain(&surface, &descriptor);
-        let pixel_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
-            label: Some("pixel-buffer"),
-            size: (width * height * 4) as wgpu::BufferAddress,
-        });
 
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -233,7 +227,6 @@ impl Renderer for RayTracer {
             swap_chain,
             render_surface,
             pixels,
-            pixel_buffer,
             width,
             height,
             sample_count: 0,
@@ -507,43 +500,43 @@ impl Renderer for RayTracer {
 
         let pixels = &self.pixels;
         if let Ok(output) = self.swap_chain.get_next_texture() {
-            let mapping = self
-                .pixel_buffer
-                .map_write(0, (self.width * self.height) as wgpu::BufferAddress * 4);
+            let pixel_buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
+                label: Some("pixel-buffer"),
+                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+                size: (self.width * self.height * 4) as wgpu::BufferAddress,
+            });
+
             let mut encoder = self
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("pixel-buffer-copy"),
                 });
 
-            self.device.poll(wgpu::Maintain::Wait);
             let color_weight = Vec4::splat(255.0);
-            if let Ok(mut mapping) = block_on(mapping) {
-                let width = self.width;
-                let fb_iterator = mapping.as_slice().par_chunks_mut(width * 4).enumerate();
+            let width = self.width;
+            let fb_iterator = pixel_buffer.data.par_chunks_mut(width * 4).enumerate();
 
-                fb_iterator.for_each(|(y, fb_pixels)| {
-                    let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
-                    let y_offset = y * width;
+            fb_iterator.for_each(|(y, fb_pixels)| {
+                let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
+                let y_offset = y * width;
 
-                    for (x, pixel) in line_iterator {
-                        let color: Vec4 = unsafe { *pixels.get_unchecked(x + y_offset) };
-                        let color = color.min(Vec4::one()).max(Vec4::zero());
+                for (x, pixel) in line_iterator {
+                    let color: Vec4 = unsafe { *pixels.get_unchecked(x + y_offset) };
+                    let color = color.min(Vec4::one()).max(Vec4::zero());
 
-                        let color: Vec4 = color * color_weight;
-                        let red = color.x() as u8;
-                        let green = color.y() as u8;
-                        let blue = color.z() as u8;
-                        pixel.copy_from_slice(&[blue, green, red, 0xff]);
-                    }
-                });
-            } else {
-                println!("Could not map pixel buffer.");
-            }
+                    let color: Vec4 = color * color_weight;
+                    let red = color.x() as u8;
+                    let green = color.y() as u8;
+                    let blue = color.z() as u8;
+                    pixel.copy_from_slice(&[blue, green, red, 0xff]);
+                }
+            });
+
+            let pixel_buffer = pixel_buffer.finish();
 
             encoder.copy_buffer_to_texture(
                 wgpu::BufferCopyView {
-                    buffer: &self.pixel_buffer,
+                    buffer: &pixel_buffer,
                     offset: 0,
                     bytes_per_row: self.width as u32 * 4,
                     rows_per_image: self.height as u32,
@@ -587,17 +580,6 @@ impl Renderer for RayTracer {
     }
 
     fn resize<T: HasRawWindowHandle>(&mut self, _window: &T, width: usize, height: usize) {
-        if self.pixels.len() <= (width * height) {
-            let new_size = width * height * 2;
-            self.pixels.resize(new_size, Vec4::zero());
-
-            self.pixel_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
-                label: Some("pixel-buffer"),
-                size: (new_size * 4) as wgpu::BufferAddress,
-            });
-        }
-
         let pixel_ref = &mut self.pixels[0..(width * height)];
         self.render_surface = Surface::new(pixel_ref, width, height, 16, 16);
         self.render_surface.clear();

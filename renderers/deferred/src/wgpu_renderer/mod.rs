@@ -45,7 +45,6 @@ pub struct Deferred {
     uniform_bind_group: wgpu::BindGroup,
 
     uniform_camera_buffer: wgpu::Buffer,
-    camera_staging_buffer: wgpu::Buffer,
     output: output::DeferredOutput,
     pipeline: pipeline::RenderPipeline,
     scene_bounds: AABB,
@@ -205,12 +204,6 @@ impl Renderer for Deferred {
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
 
-        let camera_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("uniform-staging-buffer"),
-            size: Self::UNIFORM_CAMERA_SIZE,
-            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        });
-
         let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -287,7 +280,6 @@ impl Renderer for Deferred {
             uniform_bind_group_layout,
             uniform_bind_group,
             uniform_camera_buffer,
-            camera_staging_buffer,
             output,
             pipeline,
             ssao_pass,
@@ -568,13 +560,15 @@ impl Renderer for Deferred {
             &self.anim_meshes,
             &self.skins,
             &self.output,
-            &self.camera_staging_buffer,
             &self.uniform_camera_buffer,
             &self.uniform_bind_group,
             self.material_bind_groups.as_slice(),
             &self.ssao_pass,
             &self.radiance_pass,
         );
+
+        let light_pass = futures::executor::block_on(light_pass);
+        self.queue.submit(&[light_pass]);
 
         let mut output_pass = self
             .device
@@ -589,11 +583,9 @@ impl Renderer for Deferred {
                 .blit_debug(&output.view, &mut output_pass, self.debug_view);
         }
 
-        let light_pass = futures::executor::block_on(light_pass);
         let render_pass = futures::executor::block_on(render_pass);
 
-        self.queue
-            .submit(&[light_pass, render_pass, output_pass.finish()]);
+        self.queue.submit(&[render_pass, output_pass.finish()]);
 
         self.instances.reset_changed();
         self.lights_changed = false;
@@ -738,21 +730,48 @@ impl Deferred {
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
         skins: &TrackedStorage<DeferredSkin>,
         d_output: &output::DeferredOutput,
-        camera_staging_buffer: &wgpu::Buffer,
         uniform_camera_buffer: &wgpu::Buffer,
         uniform_bind_group: &wgpu::BindGroup,
         material_bind_groups: &[wgpu::BindGroup],
         ssao_pass: &pass::SSAOPass,
         radiance_pass: &pass::RadiancePass,
     ) -> wgpu::CommandBuffer {
-        let mapping = camera_staging_buffer.map_write(0, Self::UNIFORM_CAMERA_SIZE);
+        let camera_data = {
+            let mut data = [0 as u8; Self::UNIFORM_CAMERA_SIZE as usize];
+            let view = camera.get_view_matrix();
+            let projection = camera.get_projection();
+
+            unsafe {
+                let ptr = data.as_mut_ptr();
+                // View matrix
+                ptr.copy_from(view.as_ref().as_ptr() as *const u8, 64);
+                // Projection matrix
+                ptr.add(64)
+                    .copy_from(projection.as_ref().as_ptr() as *const u8, 64);
+
+                // Light counts
+                ptr.add(128)
+                    .copy_from(light_counts.as_ptr() as *const u8, 16);
+
+                // Camera position
+                ptr.add(144).copy_from(
+                    Vec3::from(camera.pos).extend(1.0).as_ref().as_ptr() as *const u8,
+                    16,
+                );
+            }
+
+            data
+        };
+
+        let camera_staging_buffer =
+            device.create_buffer_with_data(&camera_data, wgpu::BufferUsage::COPY_SRC);
 
         let mut rasterize_pass = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render"),
         });
 
         rasterize_pass.copy_buffer_to_buffer(
-            camera_staging_buffer,
+            &camera_staging_buffer,
             0,
             uniform_camera_buffer,
             0,
@@ -924,33 +943,6 @@ impl Deferred {
             d_output.height,
             &uniform_bind_group,
         );
-
-        device.poll(wgpu::Maintain::Wait);
-
-        if let Ok(mut mapping) = mapping.await {
-            let slice = mapping.as_slice();
-            let view = camera.get_view_matrix();
-            let projection = camera.get_projection();
-
-            unsafe {
-                let ptr = slice.as_mut_ptr();
-                // View matrix
-                ptr.copy_from(view.as_ref().as_ptr() as *const u8, 64);
-                // Projection matrix
-                ptr.add(64)
-                    .copy_from(projection.as_ref().as_ptr() as *const u8, 64);
-
-                // Light counts
-                ptr.add(128)
-                    .copy_from(light_counts.as_ptr() as *const u8, 16);
-
-                // Camera position
-                ptr.add(144).copy_from(
-                    Vec3::from(camera.pos).extend(1.0).as_ref().as_ptr() as *const u8,
-                    16,
-                );
-            }
-        }
 
         rasterize_pass.finish()
     }

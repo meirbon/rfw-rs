@@ -167,8 +167,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         Vec3::new(0.0, 15.0, 0.0),
         Vec3::new(0.0, -1.0, 0.3),
         Vec3::new(105.0, 100.0, 110.0),
-        50.0,
-        75.0,
+        45.0,
+        60.0,
     );
     let pica = renderer.load_async("models/pica/scene.gltf");
     let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
