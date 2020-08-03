@@ -77,6 +77,17 @@ impl AnimatedMesh {
         material_ids: Vec<u32>,
         name: Option<String>,
     ) -> Self {
+        assert_eq!(original_vertices.len(), original_normals.len());
+        for vec in original_joints.iter() {
+            assert_eq!(original_normals.len(), vec.len());
+        }
+
+        for vec in original_weights.iter() {
+            assert_eq!(original_normals.len(), vec.len());
+        }
+        assert_eq!(original_normals.len(), original_uvs.len());
+        assert_eq!(material_ids.len(), indices.len());
+
         let mut vertices = Vec::with_capacity(indices.len() * 3);
         let mut normals = Vec::with_capacity(indices.len() * 3);
         let mut uvs = Vec::with_capacity(indices.len() * 3);
@@ -246,26 +257,24 @@ impl AnimatedMesh {
             tangents[i] = tangent.normalize().extend(w);
         }
 
-        vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
-            let vertex: [f32; 3] = vertices[i].into();
-            let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
-            let normal = normals[i].into();
-
-            *v = VertexData {
-                vertex,
-                normal,
-                mat_id: material_ids[i / 3],
-                uv: uvs[i].into(),
-                tangent: tangents[i].into(),
-                // joints,
-                // weights,
-            };
-        });
-
-        anim_vertex_data
-            .par_iter_mut()
+        vertex_data
+            .iter_mut()
             .enumerate()
-            .for_each(|(i, v)| {
+            .zip(anim_vertex_data.iter_mut())
+            .par_bridge()
+            .for_each(|((i, v), anim_v)| {
+                let vertex: [f32; 3] = vertices[i].into();
+                let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
+                let normal = normals[i].into();
+
+                *v = VertexData {
+                    vertex,
+                    normal,
+                    mat_id: material_ids[i / 3],
+                    uv: uvs[i].into(),
+                    tangent: tangents[i].into(),
+                };
+
                 let joints: [u32; 4] = if let Some(j) = joints.get(0) {
                     if let Some(joints) = j.get(i) {
                         [
@@ -280,17 +289,23 @@ impl AnimatedMesh {
                 } else {
                     [0; 4]
                 };
-                let weights: [f32; 4] = if let Some(w) = weights.get(0) {
+                let mut weights: [f32; 4] = if let Some(w) = weights.get(0) {
                     if let Some(weights) = w.get(i) {
                         *weights.as_ref()
                     } else {
                         [0.0; 4]
                     }
                 } else {
-                    [0.0; 4]
+                    [0.25; 4]
                 };
 
-                *v = AnimVertexData { joints, weights }
+                // Ensure weights sum up to 1.0
+                let total = weights[0] + weights[1] + weights[2] + weights[3];
+                for i in 0..4 {
+                    weights[i] = weights[i] / total;
+                }
+
+                *anim_v = AnimVertexData { joints, weights };
             });
 
         let mut last_id = material_ids[0];
@@ -366,7 +381,7 @@ impl AnimatedMesh {
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
                 - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
-            let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
+            let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
             *triangle = RTTriangle {
@@ -943,7 +958,8 @@ impl AnimatedMesh {
             let normal = Vec3::from(original_v.normal).extend(0.0);
             let tangent = Vec4::from(original_v.tangent);
 
-            let skin_matrix = skin.joint_matrices[anim_data.joints[0] as usize] * anim_data.weights[0]
+            let skin_matrix = skin.joint_matrices[anim_data.joints[0] as usize]
+                * anim_data.weights[0]
                 + skin.joint_matrices[anim_data.joints[1] as usize] * anim_data.weights[1]
                 + skin.joint_matrices[anim_data.joints[2] as usize] * anim_data.weights[2]
                 + skin.joint_matrices[anim_data.joints[3] as usize] * anim_data.weights[3];
@@ -970,7 +986,12 @@ impl AnimatedMesh {
             let v2 = &vertices[v2];
 
             *t = RTTriangle {
-                normal: RTTriangle::normal(Vec4::from(v0.vertex).truncate(), Vec4::from(v1.vertex).truncate(), Vec4::from(v2.vertex).truncate()).into(),
+                normal: RTTriangle::normal(
+                    Vec4::from(v0.vertex).truncate(),
+                    Vec4::from(v1.vertex).truncate(),
+                    Vec4::from(v2.vertex).truncate(),
+                )
+                    .into(),
                 n0: v0.normal,
                 n1: v1.normal,
                 n2: v2.normal,
