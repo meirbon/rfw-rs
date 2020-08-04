@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="run deferred" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="run animated" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="channel" value="NIGHTLY" />
     <option name="command" value="run -p animated" />
     <option name="allFeatures" value="false" />

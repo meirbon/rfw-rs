@@ -14,6 +14,7 @@ use scene::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use wgpu::Adapter;
 
 mod instance;
 mod light;
@@ -150,14 +151,16 @@ impl Renderer for Deferred {
         height: usize,
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let surface = wgpu::Surface::create(window);
-        let adapter = block_on(wgpu::Adapter::request(
+        let adapter = match block_on(wgpu::Adapter::request(
             &wgpu::RequestAdapterOptions {
                 compatible_surface: Some(&surface),
                 power_preference: wgpu::PowerPreference::HighPerformance,
             },
             wgpu::BackendBit::PRIMARY,
-        ))
-        .unwrap();
+        )) {
+            None => return Err(Box::new(DeferredError::RequestDeviceError)),
+            Some(adapter) => adapter,
+        };
 
         println!("Picked device: {}", adapter.get_info().name);
 
@@ -841,7 +844,7 @@ impl Deferred {
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
                         if let (Some(buffer), Some(anim_buffer)) =
-                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                        (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                         {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);
