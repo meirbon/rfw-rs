@@ -1,7 +1,7 @@
 use super::{instance::InstanceList, mesh::DeferredMesh};
-use crate::wgpu_renderer::instance::DeviceInstances;
-use crate::wgpu_renderer::mesh::DeferredAnimMesh;
-use crate::wgpu_renderer::skin::DeferredSkin;
+use crate::instance::DeviceInstances;
+use crate::mesh::DeferredAnimMesh;
+use crate::skin::DeferredSkin;
 use futures::executor::block_on;
 use rtbvh::AABB;
 use scene::{
@@ -483,9 +483,9 @@ impl ShadowMapArray {
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single.vert.spv",);
-        let regular_frag_shader = include_bytes!("../../shaders/shadow_single.frag.spv");
-        let linear_frag_shader = include_bytes!("../../shaders/shadow_single_linear.frag.spv");
+        let vert_shader = include_bytes!("../shaders/shadow_single.vert.spv",);
+        let regular_frag_shader = include_bytes!("../shaders/shadow_single.frag.spv");
+        let linear_frag_shader = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(match linear {
@@ -543,7 +543,7 @@ impl ShadowMapArray {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../../shaders/shadow_single_anim.vert.spv",);
+        let vert_shader = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
         let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -763,7 +763,7 @@ impl ShadowMapArray {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[&filter_bind_group_layout],
             });
-        let shader = include_bytes!("../../shaders/shadow_filter.comp.spv");
+        let shader = include_bytes!("../shaders/shadow_filter.comp.spv");
         let shader_module = device.create_shader_module(shader.to_quad_bytes());
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &filter_pipeline_layout,

@@ -40,8 +40,8 @@ impl BlitPass {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[&bind_group_layout],
         });
-        let vert_shader = include_bytes!("../../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../../shaders/deferred_blit.frag.spv");
+        let vert_shader = include_bytes!("../shaders/quad.vert.spv");
+        let frag_shader = include_bytes!("../shaders/deferred_blit.frag.spv");
 
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
@@ -185,7 +185,7 @@ impl SSAOPass {
             bind_group_layouts: &[uniform_bind_group_layout, &bind_group_layout],
         });
 
-        let shader = include_bytes!("../../shaders/ssao.comp.spv");
+        let shader = include_bytes!("../shaders/ssao.comp.spv");
         let shader_module = device.create_shader_module(shader.to_quad_bytes());
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &pipeline_layout,
@@ -301,7 +301,7 @@ impl SSAOPass {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[&filter_bind_group_layout],
             });
-        let shader = include_bytes!("../../shaders/ssao_filter.comp.spv");
+        let shader = include_bytes!("../shaders/ssao_filter.comp.spv");
         let shader_module = device.create_shader_module(shader.to_quad_bytes());
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &filter_pipeline_layout,
@@ -636,7 +636,7 @@ impl RadiancePass {
             ],
         });
 
-        let spirv = include_bytes!("../../shaders/lighting.comp.spv");
+        let spirv = include_bytes!("../shaders/lighting.comp.spv");
         let module = device.create_shader_module(spirv.to_quad_bytes());
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {

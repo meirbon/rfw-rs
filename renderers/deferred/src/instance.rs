@@ -1,5 +1,5 @@
 use super::mesh::DeferredMesh;
-use crate::wgpu_renderer::mesh::DeferredAnimMesh;
+use crate::mesh::DeferredAnimMesh;
 use glam::*;
 use rtbvh::{Bounds, AABB};
 use scene::{Instance, ObjectRef, TrackedStorage};

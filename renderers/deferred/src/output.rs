@@ -167,8 +167,8 @@ impl DeferredOutput {
                 bind_group_layouts: &[&blit_debug_layout],
             });
 
-        let vert_spirv = include_bytes!("../../shaders/quad.vert.spv");
-        let frag_spirv = include_bytes!("../../shaders/quad.frag.spv");
+        let vert_spirv = include_bytes!("../shaders/quad.vert.spv");
+        let frag_spirv = include_bytes!("../shaders/quad.frag.spv");
 
         let vert_module = device.create_shader_module(vert_spirv.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_spirv.to_quad_bytes());
