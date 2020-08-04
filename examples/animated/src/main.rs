@@ -13,12 +13,12 @@ use winit::{
     window::WindowBuilder,
 };
 
+use rfw_deferred::Deferred;
 use scene::{
-    RenderSystem,
     renderers::{RenderMode, Setting, SettingValue},
+    RenderSystem,
 };
 use shared::utils;
-use rfw_deferred::Deferred;
 
 pub struct KeyHandler {
     states: HashMap<VirtualKeyCode, bool>,
@@ -114,48 +114,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut fps = utils::Averager::new();
     let mut synchronize = utils::Averager::new();
     let mut resized = false;
-
-    // let sponza =
-    //     renderer.create_instance(renderer.load("models/sponza/sponza.obj")?.object().unwrap())?;
-    // renderer.get_instance_mut(sponza, |instance| {
-    //     if let Some(instance) = instance {
-    //         instance.scale(Vec3::splat(0.1));
-    //     }
-    // });
-
-    // let x = 0.0_f32;
-
-    // // for x in [-60.0_f32, -30.0, 0.0, 30.0, 60.0].iter() {
-    // renderer.add_spot_light(
-    //     Vec3::new(x, 5.0, 0.0),
-    //     Vec3::new(1.0, 0.0, 1.0),
-    //     Vec3::new(150.0, 100.0, 150.0),
-    //     45.0,
-    //     60.0,
-    // );
-    // renderer.add_spot_light(
-    //     Vec3::new(x, 5.0, 0.0),
-    //     Vec3::new(-1.0, 0.0, 1.0),
-    //     Vec3::new(150.0, 150.0, 100.0),
-    //     45.0,
-    //     60.0,
-    // );
-    // renderer.add_spot_light(
-    //     Vec3::new(x, 5.0, 0.0),
-    //     Vec3::new(1.0, 0.0, -1.0),
-    //     Vec3::new(100.0, 150.0, 150.0),
-    //     45.0,
-    //     60.0,
-    // );
-
-    // renderer.add_spot_light(
-    //     Vec3::new(x, 5.0, 0.0),
-    //     Vec3::new(-1.0, 0.0, -1.0),
-    //     Vec3::new(150.0, 150.0, 150.0),
-    //     45.0,
-    //     60.0,
-    // );
-    // }
 
     renderer.add_spot_light(
         Vec3::new(0.0, 15.0, 0.0),

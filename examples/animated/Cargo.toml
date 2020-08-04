@@ -1,0 +1,16 @@
+[package]
+name = "animated"
+version = "0.1.0"
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+winit = "0.22"
+glam = "0.8"
+futures = "0.3"
+scene = { path = "../../scene" }
+rfw_deferred = { path = "../../renderers/deferred" }
+
+shared = { path = "../../renderers/shared" }

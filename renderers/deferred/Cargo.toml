@@ -1,5 +1,5 @@
 [package]
-name = "rfw-deferred"
+name = "rfw_deferred"
 version = "0.1.0"
 authors = ["meir"]
 edition = "2018"
@@ -8,7 +8,6 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-winit = "0.22"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 scene = { path = "../../scene" }
 shared = { path = "../shared" }

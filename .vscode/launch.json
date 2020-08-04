@@ -130,8 +130,8 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Launch Deferred debug",
-            "program": "${workspaceFolder}/target/debug/deferred",
+            "name": "Launch animated debug",
+            "program": "${workspaceFolder}/target/debug/animated",
             "env": {
                 "RUST_BACKTRACE": "1"
             },
@@ -140,7 +140,7 @@
                 "args": [
                     "build",
                     "-p",
-                    "deferred"
+                    "animated"
                 ]
             },
             "sourceLanguages": [
@@ -150,8 +150,8 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Launch Deferred release",
-            "program": "${workspaceFolder}/target/release/deferred",
+            "name": "Launch animated release",
+            "program": "${workspaceFolder}/target/release/animated",
             "env": {
                 "RUST_BACKTRACE": "1"
             },
@@ -161,7 +161,7 @@
                     "build",
                     "--release",
                     "-p",
-                    "deferred"
+                    "animated"
                 ]
             },
             "sourceLanguages": [
