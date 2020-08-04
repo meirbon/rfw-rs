@@ -58,7 +58,6 @@ pub struct Deferred {
     skin_bind_group_layout: wgpu::BindGroupLayout,
 
     debug_view: output::DeferredView,
-    debug_enabled: bool,
     lights_changed: bool,
     materials_changed: bool,
 }
@@ -294,7 +293,6 @@ impl Renderer for Deferred {
             skin_bind_group_layout,
 
             debug_view: output::DeferredView::Output,
-            debug_enabled: false,
             lights_changed: true,
             materials_changed: true,
         }))

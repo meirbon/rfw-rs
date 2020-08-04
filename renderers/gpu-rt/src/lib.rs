@@ -348,8 +348,6 @@ impl RayTracer {
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
     const ACC_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
     const SWAPCHAIN_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
-    const PACKET_WIDTH: usize = 4;
-    const PACKET_HEIGHT: usize = 1;
     const TEXTURE_WIDTH: usize = 1024;
     const TEXTURE_HEIGHT: usize = 1024;
     const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
@@ -362,14 +360,16 @@ impl Renderer for RayTracer {
         height: usize,
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let surface = wgpu::Surface::create(window);
-        let adapter = block_on(wgpu::Adapter::request(
+        let adapter = match block_on(wgpu::Adapter::request(
             &wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
             },
             wgpu::BackendBit::PRIMARY,
-        ))
-            .unwrap();
+        )) {
+            Some(adapter) => adapter,
+            None => return Err(Box::new(RayTracerError::RequestDeviceError))
+        };
 
         println!("Picked render device: {}", adapter.get_info().name);
 

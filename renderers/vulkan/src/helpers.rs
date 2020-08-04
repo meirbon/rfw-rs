@@ -1,5 +1,5 @@
 use ash::version::DeviceV1_0;
-use ash::{extensions::ext::DebugUtils, vk};
+use ash::vk;
 use std::borrow::Cow;
 use std::ffi::CStr;
 
@@ -126,7 +126,7 @@ pub fn extension_names() -> Vec<*const i8> {
     vec![
         ash::extensions::khr::Surface::name().as_ptr(),
         ash::extensions::khr::XlibSurface::name().as_ptr(),
-        DebugUtils::name().as_ptr(),
+        ash::extensions::ext::DebugUtils::name().as_ptr(),
     ]
 }
 
@@ -135,6 +135,6 @@ pub fn extension_names() -> Vec<*const i8> {
     vec![
         ash::extensions::khr::Surface::name().as_ptr(),
         ash::extensions::mvk::MacOSSurface::name().as_ptr(),
-        DebugUtils::name().as_ptr(),
+        ash::extensions::ext::DebugUtils::name().as_ptr(),
     ]
 }

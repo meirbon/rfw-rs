@@ -19,7 +19,6 @@ use scene::{
     raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, Camera, DeviceMaterial,
     DirectionalLight, Instance, Local, Material, Mesh, PointLight, SpotLight, Texture,
 };
-use shared::*;
 use std::io::Cursor;
 
 mod helpers;
@@ -601,17 +600,15 @@ impl Renderer for VkRenderer {
                                 .build(),
                         );
 
-                    unsafe {
-                        device.cmd_pipeline_barrier(
-                            setup_command_buffer,
-                            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-                            vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
-                            vk::DependencyFlags::empty(),
-                            &[],
-                            &[],
-                            &[layout_transition_barriers.build()],
-                        );
-                    }
+                    device.cmd_pipeline_barrier(
+                        command_buffer,
+                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                        vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+                        vk::DependencyFlags::empty(),
+                        &[],
+                        &[],
+                        &[layout_transition_barriers.build()],
+                    );
                 },
             );
 
@@ -925,7 +922,7 @@ impl Renderer for VkRenderer {
                         );
 
                     device.cmd_pipeline_barrier(
-                        self.setup_command_buffer,
+                        command_buffer,
                         vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                         vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
                         vk::DependencyFlags::empty(),
@@ -959,11 +956,11 @@ impl Renderer for VkRenderer {
     }
 
     fn set_setting(&mut self, _setting: Setting) {}
-    fn set_animated_mesh(&mut self, id: usize, mesh: &scene::AnimatedMesh) {
+    fn set_animated_mesh(&mut self, _id: usize, _mesh: &scene::AnimatedMesh) {
         todo!()
     }
 
-    fn set_skin(&mut self, id: usize, skin: &Skin) {
+    fn set_skin(&mut self, _id: usize, _skin: &Skin) {
         unimplemented!()
     }
 }
