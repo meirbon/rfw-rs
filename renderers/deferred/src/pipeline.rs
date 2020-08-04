@@ -17,8 +17,8 @@ impl RenderPipeline {
         texture_layout: &wgpu::BindGroupLayout,
         skin_layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let vert_shader = include_bytes!("../../shaders/mesh.vert.spv");
-        let frag_shader = include_bytes!("../../shaders/deferred.frag.spv");
+        let vert_shader = include_bytes!("../shaders/mesh.vert.spv");
+        let frag_shader = include_bytes!("../shaders/deferred.frag.spv");
 
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
         let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
@@ -138,7 +138,7 @@ impl RenderPipeline {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../../shaders/mesh_anim.vert.spv");
+        let vert_shader = include_bytes!("../shaders/mesh_anim.vert.spv");
         let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
 
         let anim_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

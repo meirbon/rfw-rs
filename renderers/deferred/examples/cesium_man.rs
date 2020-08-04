@@ -1,13 +1,9 @@
 #![allow(dead_code)]
 
-mod wgpu_renderer;
-
-enum AppType {
-    CPURayTracer,
-    GPU,
-}
-
 use std::collections::HashMap;
+use std::error::Error;
+
+use glam::*;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -16,6 +12,13 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+
+use scene::{
+    RenderSystem,
+    renderers::{RenderMode, Setting, SettingValue},
+};
+use shared::utils;
+use rfw_deferred::Deferred;
 
 pub struct KeyHandler {
     states: HashMap<VirtualKeyCode, bool>,
@@ -75,12 +78,6 @@ impl MouseButtonHandler {
     }
 }
 
-use crate::utils::Timer;
-use glam::*;
-use scene::renderers::{RenderMode, Setting, SettingValue};
-use shared::utils;
-use std::error::Error;
-
 fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
     let mut height = 720;
@@ -109,14 +106,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
-    use scene::RenderSystem;
-    use wgpu_renderer::Deferred;
-
     let renderer: RenderSystem<Deferred> =
         RenderSystem::new(&window, render_width, render_height).unwrap();
     let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
     camera.change_fov(60.0);
-    let mut timer = Timer::new();
+    let mut timer = utils::Timer::new();
     let mut fps = utils::Averager::new();
     let mut synchronize = utils::Averager::new();
     let mut resized = false;
@@ -194,10 +188,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
 
-    let app_time = Timer::new();
+    let app_time = utils::Timer::new();
 
     {
-        let timer = Timer::new();
+        let timer = utils::Timer::new();
         renderer.set_animation_time(0.0);
         renderer.synchronize();
         synchronize.add_sample(timer.elapsed_in_millis());
@@ -350,7 +344,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     });
                 });
 
-                let timer = Timer::new();
+                let timer = utils::Timer::new();
                 renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
                 synchronize.add_sample(timer.elapsed_in_millis());

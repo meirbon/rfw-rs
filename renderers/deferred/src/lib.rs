@@ -1,7 +1,7 @@
-use crate::wgpu_renderer::instance::{DeviceInstances, InstanceList};
-use crate::wgpu_renderer::light::DeferredLights;
-use crate::wgpu_renderer::mesh::DeferredAnimMesh;
-use crate::wgpu_renderer::skin::DeferredSkin;
+use crate::instance::{DeviceInstances, InstanceList};
+use crate::light::DeferredLights;
+use crate::mesh::DeferredAnimMesh;
+use crate::skin::DeferredSkin;
 use futures::executor::block_on;
 use glam::*;
 use mesh::DeferredMesh;

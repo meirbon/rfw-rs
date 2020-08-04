@@ -1,5 +1,5 @@
 [package]
-name = "deferred"
+name = "rfw-deferred"
 version = "0.1.0"
 authors = ["meir"]
 edition = "2018"
