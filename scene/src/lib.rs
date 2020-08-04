@@ -30,7 +30,6 @@ pub use objects::*;
 pub use renderers::*;
 pub use utils::*;
 
-use renderers::{RenderMode, Renderer, Setting};
 use std::sync::{Arc, Mutex};
 
 pub use bitvec::prelude::*;

@@ -1,5 +1,5 @@
 [package]
-name = "gpu-rt"
+name = "rfw_gpu_rt"
 version = "0.1.0"
 authors = ["meir"]
 edition = "2018"

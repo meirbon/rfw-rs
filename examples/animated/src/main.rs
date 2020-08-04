@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 
+use clap::{Arg, App};
 use glam::*;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -14,10 +15,9 @@ use winit::{
 };
 
 use rfw_deferred::Deferred;
-use scene::{
-    renderers::{RenderMode, Setting, SettingValue},
-    RenderSystem,
-};
+use rfw_gpu_rt::RayTracer;
+
+use scene::{renderers::{RenderMode, Setting, SettingValue}, RenderSystem, Renderer};
 use shared::utils;
 
 pub struct KeyHandler {
@@ -79,18 +79,24 @@ impl MouseButtonHandler {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let matches = App::new("rfw-animated")
+        .about("Example with animated meshes for the rfw framework.")
+        .arg(Arg::with_name("renderer")
+            .short("r")
+            .long("renderer")
+            .takes_value(true)
+            .help("Which renderer to use (current options are: gpu-rt, deferred)"))
+        .get_matches();
+
+    match matches.value_of("renderer") {
+        Some("gpu-rt") => run_application::<RayTracer>(),
+        _ => run_application::<Deferred>()
+    }
+}
+
+fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
     let mut height = 720;
-
-    let mut key_handler = KeyHandler::new();
-    let mut mouse_button_handler = MouseButtonHandler::new();
-    let mut first_mouse_pos = true;
-
-    let mut mouse_x = 0.0;
-    let mut mouse_y = 0.0;
-
-    let mut _old_mouse_x = 0.0;
-    let mut _old_mouse_y = 0.0;
 
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
@@ -106,10 +112,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
-    let renderer: RenderSystem<Deferred> =
-        RenderSystem::new(&window, render_width, render_height).unwrap();
-    let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
-    camera.change_fov(60.0);
+    let renderer = RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
+
+    let mut key_handler = KeyHandler::new();
+    let mut mouse_button_handler = MouseButtonHandler::new();
+
+    let mut camera = scene::Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
+
     let mut timer = utils::Timer::new();
     let mut fps = utils::Averager::new();
     let mut synchronize = utils::Averager::new();
@@ -306,7 +315,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
                 synchronize.add_sample(timer.elapsed_in_millis());
-                renderer.render(&camera, RenderMode::Default);
+                renderer.render(&camera, RenderMode::Reset);
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -316,27 +325,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 height = size.height as usize;
 
                 resized = true;
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CursorMoved { position, .. },
-                window_id,
-            } if window_id == window.id() => {
-                if first_mouse_pos {
-                    mouse_x = position.x;
-                    mouse_y = position.y;
-                    _old_mouse_x = position.x;
-                    _old_mouse_y = position.y;
-                    first_mouse_pos = false;
-                } else {
-                    _old_mouse_x = mouse_x;
-                    _old_mouse_y = mouse_y;
-
-                    mouse_x = position.x;
-                    mouse_y = position.y;
-                }
-
-                let _delta_x = mouse_x - _old_mouse_x;
-                let _delta_y = mouse_y - _old_mouse_y;
             }
             Event::WindowEvent {
                 event: WindowEvent::MouseInput { state, button, .. },
