@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "examples/animated",
+    "examples/simple",
     "renderers/cpu-rt",
     "renderers/deferred",
     "renderers/gpu-rt",

@@ -168,5 +168,46 @@
                 "rust"
             ]
         },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch simple debug",
+            "program": "${workspaceFolder}/target/debug/simple",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "-p",
+                    "simple"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch simple release",
+            "program": "${workspaceFolder}/target/release/simple",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "-p",
+                    "simple"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ]
+        }
     ]
 }

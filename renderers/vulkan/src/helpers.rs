@@ -25,7 +25,7 @@ pub unsafe extern "system" fn vulkan_debug_callback(
     };
 
     println!(
-        "{:?}:\n{:?} [{} ({})] : {}\n",
+        "{:?}: {:?} [{} ({})] : {}\n",
         message_severity,
         message_type,
         message_id_name,
@@ -135,15 +135,6 @@ pub fn extension_names() -> Vec<*const i8> {
     vec![
         ash::extensions::khr::Surface::name().as_ptr(),
         ash::extensions::mvk::MacOSSurface::name().as_ptr(),
-        DebugUtils::name().as_ptr(),
-    ]
-}
-
-#[cfg(all(windows))]
-pub fn extension_names() -> Vec<*const i8> {
-    vec![
-        ash::extensions::khr::Surface::name().as_ptr(),
-        ash::extensions::khr::Win32Surface::name().as_ptr(),
         DebugUtils::name().as_ptr(),
     ]
 }
