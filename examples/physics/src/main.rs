@@ -119,7 +119,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut camera =
         scene::Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 2.0, -8.0));
     let mut timer = Timer::new();
+    let mut timer2 = Timer::new();
     let mut fps = utils::Averager::new();
+    let mut render = utils::Averager::new();
+    let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
     renderer.add_spot_light(
@@ -165,7 +168,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sphere_handle = scene.add_dynamic(sphere_actor);
 
     scene.simulate(1.0 / 60.0);
+    timer2.reset();
     renderer.synchronize();
+    synchronize.add_sample(timer2.elapsed_in_millis());
+
     let mut first = true;
 
     event_loop.run(move |event, _, control_flow| {
@@ -229,7 +235,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let elapsed = timer.elapsed_in_millis();
                 fps.add_sample(1000.0 / elapsed);
-                let title = format!("rfw-rs - FPS: {:.2}", fps.get_average());
+                let title = format!(
+                    "rfw-rs - FPS: {:.2}, render: {:.2} ms, synchronize: {:.2} ms",
+                    fps.get_average(),
+                    render.get_average(),
+                    synchronize.get_average()
+                );
                 window.set_title(title.as_str());
 
                 let elapsed = if key_handler.pressed(KeyCode::LShift) {
@@ -272,9 +283,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                         // instance.set_rotation_quat(rotation);
                     }
                 });
-                renderer.synchronize();
 
+                timer2.reset();
+                renderer.synchronize();
+                synchronize.add_sample(timer2.elapsed_in_millis());
+
+                timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);
+                render.add_sample(timer2.elapsed_in_millis());
+
                 scene.simulate(match first {
                     true => {
                         first = false;

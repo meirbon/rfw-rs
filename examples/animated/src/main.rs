@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 use glam::*;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -17,7 +17,10 @@ use winit::{
 use rfw_deferred::Deferred;
 use rfw_gpu_rt::RayTracer;
 
-use scene::{renderers::{RenderMode, Setting, SettingValue}, RenderSystem, Renderer};
+use scene::{
+    renderers::{RenderMode, Setting, SettingValue},
+    RenderSystem, Renderer,
+};
 use shared::utils;
 
 pub struct KeyHandler {
@@ -81,16 +84,18 @@ impl MouseButtonHandler {
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("rfw-animated")
         .about("Example with animated meshes for the rfw framework.")
-        .arg(Arg::with_name("renderer")
-            .short("r")
-            .long("renderer")
-            .takes_value(true)
-            .help("Which renderer to use (current options are: gpu-rt, deferred)"))
+        .arg(
+            Arg::with_name("renderer")
+                .short("r")
+                .long("renderer")
+                .takes_value(true)
+                .help("Which renderer to use (current options are: gpu-rt, deferred)"),
+        )
         .get_matches();
 
     match matches.value_of("renderer") {
         Some("gpu-rt") => run_application::<RayTracer>(),
-        _ => run_application::<Deferred>()
+        _ => run_application::<Deferred>(),
     }
 }
 
@@ -112,7 +117,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
-    let renderer = RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
+    let renderer =
+        RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -120,8 +126,11 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let mut camera = scene::Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
 
     let mut timer = utils::Timer::new();
+    let mut timer2 = utils::Timer::new();
     let mut fps = utils::Averager::new();
+    let mut render = utils::Averager::new();
     let mut synchronize = utils::Averager::new();
+
     let mut resized = false;
 
     renderer.add_spot_light(
@@ -157,12 +166,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
 
     let app_time = utils::Timer::new();
 
-    {
-        let timer = utils::Timer::new();
-        renderer.set_animation_time(0.0);
-        renderer.synchronize();
-        synchronize.add_sample(timer.elapsed_in_millis());
-    }
+    timer2.reset();
+    renderer.set_animation_time(0.0);
+    renderer.synchronize();
+    synchronize.add_sample(timer2.elapsed_in_millis());
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -260,8 +267,9 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 let elapsed = timer.elapsed_in_millis();
                 fps.add_sample(1000.0 / elapsed);
                 let title = format!(
-                    "rfw-rs - FPS: {:.2}, synchronize: {:.2} ms",
+                    "rfw-rs - FPS: {:.2}, render: {:.2} ms, synchronize: {:.2} ms",
                     fps.get_average(),
+                    render.get_average(),
                     synchronize.get_average()
                 );
                 window.set_title(title.as_str());
@@ -311,11 +319,14 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     });
                 });
 
-                let timer = utils::Timer::new();
+                timer2.reset();
                 renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
-                synchronize.add_sample(timer.elapsed_in_millis());
+                synchronize.add_sample(timer2.elapsed_in_millis());
+
+                timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);
+                render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
