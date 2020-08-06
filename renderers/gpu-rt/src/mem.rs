@@ -9,6 +9,7 @@ pub struct ManagedBuffer<T: Sized + Default + Clone> {
     dirty: bool,
 }
 
+#[allow(dead_code)]
 impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     pub fn new(device: &wgpu::Device, capacity: usize, usage: wgpu::BufferUsage) -> Self {
         let usage = usage | wgpu::BufferUsage::COPY_DST;

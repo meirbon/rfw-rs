@@ -4,12 +4,16 @@ use glam::*;
 use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
+use scene::graph::Skin;
 use scene::renderers::{RenderMode, Renderer};
-use scene::{raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, TrackedStorage};
+use scene::{
+    raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec, CameraView,
+    DeviceMaterial, DirectionalLight, Instance, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight,
+    Texture, TrackedStorage,
+};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use scene::graph::Skin;
 
 mod bind_group;
 mod blue_noise;
@@ -78,22 +82,19 @@ impl Default for AnimMesh {
     }
 }
 
+#[allow(dead_code)]
 impl AnimMesh {
     pub fn set_skinned_mesh(&mut self, mesh: Mesh) {
         *self = match self {
             AnimMesh::None => panic!("This should not happen"),
-            AnimMesh::Skinned { original, .. } => {
-                AnimMesh::Skinned {
-                    original: original.clone(),
-                    skinned: mesh,
-                }
-            }
-            AnimMesh::Regular(original) => {
-                AnimMesh::Skinned {
-                    original: original.clone(),
-                    skinned: mesh,
-                }
-            }
+            AnimMesh::Skinned { original, .. } => AnimMesh::Skinned {
+                original: original.clone(),
+                skinned: mesh,
+            },
+            AnimMesh::Regular(original) => AnimMesh::Skinned {
+                original: original.clone(),
+                skinned: mesh,
+            },
         }
     }
 
@@ -257,7 +258,6 @@ impl Default for GPUInstanceData {
 pub struct RayTracer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    adapter: wgpu::Adapter,
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
     width: usize,
@@ -266,7 +266,6 @@ pub struct RayTracer {
     buffer_capacity: usize,
 
     intersection_bind_group: bind_group::BindGroup,
-    intersection_pipeline_layout: wgpu::PipelineLayout,
     intersection_pipeline: wgpu::ComputePipeline,
 
     extend_pipeline: wgpu::ComputePipeline,
@@ -286,7 +285,6 @@ pub struct RayTracer {
 
     output_bind_group: bind_group::BindGroup,
     output_texture: wgpu::Texture,
-    output_pipeline_layout: wgpu::PipelineLayout,
     output_pipeline: wgpu::RenderPipeline,
     accumulation_texture: wgpu::Texture,
 
@@ -309,7 +307,6 @@ pub struct RayTracer {
     triangles_buffer: ManagedBuffer<RTTriangle>,
     triangles_index_counter: usize,
 
-    materials: Vec<Material>,
     textures: Vec<Texture>,
 
     materials_buffer: ManagedBuffer<DeviceMaterial>,
@@ -368,7 +365,7 @@ impl Renderer for RayTracer {
             wgpu::BackendBit::PRIMARY,
         )) {
             Some(adapter) => adapter,
-            None => return Err(Box::new(RayTracerError::RequestDeviceError))
+            None => return Err(Box::new(RayTracerError::RequestDeviceError)),
         };
 
         println!("Picked render device: {}", adapter.get_info().name);
@@ -849,7 +846,7 @@ impl Renderer for RayTracer {
                 },
             });
 
-        let compute_module = include_bytes!("../shaders/ray_extend.comp.spv", );
+        let compute_module = include_bytes!("../shaders/ray_extend.comp.spv",);
         let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
         let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
@@ -969,11 +966,9 @@ impl Renderer for RayTracer {
         Ok(Box::new(Self {
             device,
             queue,
-            adapter,
             surface,
             swap_chain,
             intersection_bind_group,
-            intersection_pipeline_layout,
             intersection_pipeline,
             extend_pipeline,
             shadow_pipeline,
@@ -992,7 +987,6 @@ impl Renderer for RayTracer {
             buffer_capacity: width * height,
             output_bind_group,
             output_texture,
-            output_pipeline_layout,
             output_pipeline,
             accumulation_texture,
             skins: Vec::new(),
@@ -1011,7 +1005,6 @@ impl Renderer for RayTracer {
             instances_buffer,
             triangles_buffer,
             triangles_index_counter: 0,
-            materials: Vec::new(),
             textures: Vec::new(),
             materials_buffer,
             texture_array,
@@ -1042,7 +1035,8 @@ impl Renderer for RayTracer {
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
         if id >= self.anim_meshes.len() {
-            self.anim_meshes.push(AnimMesh::Regular(AnimatedMesh::empty()));
+            self.anim_meshes
+                .push(AnimMesh::Regular(AnimatedMesh::empty()));
             self.anim_meshes_changed.push(true);
         }
 
@@ -1201,7 +1195,8 @@ impl Renderer for RayTracer {
         let anim_meshes = &mut self.anim_meshes;
         let meshes = &mut self.meshes;
 
-        self.instances.iter_changed()
+        self.instances
+            .iter_changed()
             .filter(|(_, inst)| inst.skin_id.is_some())
             .for_each(|(_, inst)| {
                 let skin = &skins[inst.skin_id.unwrap() as usize];
@@ -1210,13 +1205,9 @@ impl Renderer for RayTracer {
                     ObjectRef::Static(_) => {}
                     ObjectRef::Animated(mesh) => {
                         let m = match &anim_meshes[mesh as usize] {
-                            AnimMesh::Skinned { original, .. } => {
-                                original.to_static_mesh(skin)
-                            }
-                            AnimMesh::Regular(org) => {
-                                org.to_static_mesh(skin)
-                            }
-                            _ => panic!("This should not happen.")
+                            AnimMesh::Skinned { original, .. } => original.to_static_mesh(skin),
+                            AnimMesh::Regular(org) => org.to_static_mesh(skin),
+                            _ => panic!("This should not happen."),
                         };
 
                         anim_meshes[mesh as usize].set_skinned_mesh(m);
@@ -1245,18 +1236,21 @@ impl Renderer for RayTracer {
             })
             .sum();
 
-        let constructed: usize = constructed + anim_meshes.iter_mut()
-            .enumerate()
-            .par_bridge()
-            .map(|(i, (_, mesh))| {
-                match mesh {
-                    AnimMesh::None => { 0 }
-                    AnimMesh::Skinned { skinned, .. } => if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                        skinned.refit_bvh();
-                        1
-                    } else {
-                        0
-                    },
+        let constructed: usize = constructed
+            + anim_meshes
+                .iter_mut()
+                .enumerate()
+                .par_bridge()
+                .map(|(i, (_, mesh))| match mesh {
+                    AnimMesh::None => 0,
+                    AnimMesh::Skinned { skinned, .. } => {
+                        if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                            skinned.refit_bvh();
+                            1
+                        } else {
+                            0
+                        }
+                    }
                     AnimMesh::Regular(mesh) => {
                         if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
                             mesh.refit_bvh();
@@ -1265,9 +1259,8 @@ impl Renderer for RayTracer {
                             0
                         }
                     }
-                }
-            })
-            .sum::<usize>();
+                })
+                .sum::<usize>();
 
         self.meshes_changed.set_all(false);
 
@@ -1310,7 +1303,8 @@ impl Renderer for RayTracer {
                         let start_mbvh_node = self.mesh_mbvh_index_counter;
                         let start_prim_index = self.mesh_prim_index_counter;
 
-                        self.meshes_gpu_data[j].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
+                        self.meshes_gpu_data[j].bvh_nodes =
+                            mesh.bvh.as_ref().unwrap().nodes.len() as u32;
                         self.meshes_gpu_data[j].bvh_offset = start_bvh_node as u32;
                         self.meshes_gpu_data[j].mbvh_offset = start_mbvh_node as u32;
                         self.meshes_gpu_data[j].triangles = mesh.triangles.len() as u32;
@@ -1320,7 +1314,8 @@ impl Renderer for RayTracer {
                         self.triangles_index_counter += mesh.triangles.len();
                         self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
                         self.mesh_mbvh_index_counter += mesh.mbvh.as_ref().unwrap().m_nodes.len();
-                        self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
+                        self.mesh_prim_index_counter +=
+                            mesh.bvh.as_ref().unwrap().prim_indices.len();
                     }
                     AnimMesh::Regular(mesh) => {
                         let start_triangle = self.triangles_index_counter;
@@ -1328,7 +1323,8 @@ impl Renderer for RayTracer {
                         let start_mbvh_node = self.mesh_mbvh_index_counter;
                         let start_prim_index = self.mesh_prim_index_counter;
 
-                        self.meshes_gpu_data[j].bvh_nodes = mesh.bvh.as_ref().unwrap().nodes.len() as u32;
+                        self.meshes_gpu_data[j].bvh_nodes =
+                            mesh.bvh.as_ref().unwrap().nodes.len() as u32;
                         self.meshes_gpu_data[j].bvh_offset = start_bvh_node as u32;
                         self.meshes_gpu_data[j].mbvh_offset = start_mbvh_node as u32;
                         self.meshes_gpu_data[j].triangles = mesh.triangles.len() as u32;
@@ -1338,11 +1334,11 @@ impl Renderer for RayTracer {
                         self.triangles_index_counter += mesh.triangles.len();
                         self.mesh_bvh_index_counter += mesh.bvh.as_ref().unwrap().nodes.len();
                         self.mesh_mbvh_index_counter += mesh.mbvh.as_ref().unwrap().m_nodes.len();
-                        self.mesh_prim_index_counter += mesh.bvh.as_ref().unwrap().prim_indices.len();
+                        self.mesh_prim_index_counter +=
+                            mesh.bvh.as_ref().unwrap().prim_indices.len();
                     }
                 }
             }
-
 
             self.meshes_prim_indices
                 .resize(&self.device, self.mesh_prim_index_counter);

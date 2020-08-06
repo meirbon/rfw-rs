@@ -14,4 +14,5 @@ clap = "2.33.1"
 nphysics3d = "0.16.1"
 scene = { path = "../../scene" }
 rfw_deferred = { path = "../../renderers/deferred" }
+rfw_gpu_rt = { path = "../../renderers/gpu-rt" }
 shared = { path = "../../renderers/shared" }

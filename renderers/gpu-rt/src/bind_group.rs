@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Binding {
     ReadStorageBuffer(wgpu::Buffer, std::ops::Range<wgpu::BufferAddress>),
     WriteStorageBuffer(wgpu::Buffer, std::ops::Range<wgpu::BufferAddress>),
@@ -238,6 +239,7 @@ pub struct BindGroupBuilder {
     bindings: HashMap<u32, BindGroupBinding>,
 }
 
+#[allow(dead_code)]
 impl BindGroupBuilder {
     pub fn new() -> Self {
         Self::default()
@@ -334,6 +336,7 @@ impl Display for BindGroupError {
     }
 }
 
+#[allow(dead_code)]
 impl BindGroup {
     pub fn as_bind_group(&mut self, device: &wgpu::Device) -> &wgpu::BindGroup {
         if self.dirty {

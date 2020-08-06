@@ -78,11 +78,10 @@ use nphysics3d::nalgebra::Vector3;
 use nphysics3d::ncollide3d::nalgebra::{Isometry3, Unit};
 use nphysics3d::ncollide3d::shape::{Ball, ShapeHandle};
 use nphysics3d::object::{
-    BodyPartHandle, BodyStatus, ColliderDesc, DefaultBodySet, DefaultColliderSet,
-    RigidBodyDesc,
+    BodyPartHandle, BodyStatus, ColliderDesc, DefaultBodySet, DefaultColliderSet, RigidBodyDesc,
 };
 use nphysics3d::world::{DefaultGeometricalWorld, DefaultMechanicalWorld};
-use scene::renderers::RenderMode;
+use scene::{renderers::RenderMode, Setting, SettingValue};
 use shared::utils;
 use std::error::Error;
 
@@ -110,10 +109,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    use rfw_deferred::Deferred;
-    use scene::RenderSystem;
-
-    let renderer: RenderSystem<Deferred> = RenderSystem::new(&window, width, height).unwrap();
+    use rfw_deferred::Deferred as Renderer;
+    let renderer: scene::RenderSystem<Renderer> = scene::RenderSystem::new(&window, width, height)?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -125,16 +122,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut camera =
         scene::Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
+    let mut timer2 = Timer::new();
     let mut fps = utils::Averager::new();
+    let mut synchronize = utils::Averager::new();
+    let mut physics = utils::Averager::new();
+    let mut render = utils::Averager::new();
     let mut resized = false;
 
-    // renderer.add_spot_light(
-    //     Vec3::new(0.0, 10.0, 0.0),
-    //     Vec3::new(0.0, -1.0, 0.0),
-    //     Vec3::splat(100.0),
-    //     45.0,
-    //     60.0,
-    // );
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     // Ground
@@ -146,11 +140,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ground_shape = ShapeHandle::new(nphysics3d::ncollide3d::shape::Plane::new(
         Unit::new_normalize(Vector3::new(0.0_f32, 1.0, 0.0)),
     ));
-    let ground_handle = bodies.insert(RigidBodyDesc::new()
-        .mass(1.0_f32)
-        .angular_damping(0.5)
-        .status(BodyStatus::Static)
-        .build());
+    let ground_handle = bodies.insert(
+        RigidBodyDesc::new()
+            .mass(1.0_f32)
+            .angular_damping(0.5)
+            .status(BodyStatus::Static)
+            .build(),
+    );
     let ground_collider = ColliderDesc::new(ground_shape)
         .material(MaterialHandle::new(BasicMaterial::new(0.3, 1.2)))
         .build(BodyPartHandle(ground_handle, 0));
@@ -191,7 +187,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     geometrical_world.maintain(&mut bodies, &mut colliders);
 
+    let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
+
+    timer2.reset();
     renderer.synchronize();
+    synchronize.add_sample(timer2.elapsed_in_millis());
 
     let mut first = true;
 
@@ -222,6 +222,40 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut view_change = Vec3::zero();
                 let mut pos_change = Vec3::zero();
                 let mut sphere_forces = Vec3::zero();
+
+                if !settings.is_empty() {
+                    let mut value = None;
+                    if key_handler.pressed(KeyCode::Key0) {
+                        value = Some(0);
+                    }
+                    if key_handler.pressed(KeyCode::Key1) {
+                        value = Some(1);
+                    }
+                    if key_handler.pressed(KeyCode::Key2) {
+                        value = Some(2);
+                    }
+                    if key_handler.pressed(KeyCode::Key3) {
+                        value = Some(3);
+                    }
+                    if key_handler.pressed(KeyCode::Key4) {
+                        value = Some(4);
+                    }
+                    if key_handler.pressed(KeyCode::Key5) {
+                        value = Some(5);
+                    }
+                    if key_handler.pressed(KeyCode::Key6) {
+                        value = Some(6);
+                    }
+                    if key_handler.pressed(KeyCode::Key7) {
+                        value = Some(7);
+                    }
+
+                    if let Some(value) = value {
+                        let mut setting: Setting = settings[0].clone();
+                        setting.set(SettingValue::Int(value));
+                        renderer.set_setting(setting).unwrap();
+                    }
+                }
 
                 if key_handler.pressed(KeyCode::Up) {
                     view_change += (0.0, 1.0, 0.0).into();
@@ -274,7 +308,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 let elapsed = timer.elapsed_in_millis();
                 fps.add_sample(1000.0 / elapsed);
-                let title = format!("rfw-rs - FPS: {:.2}", fps.get_average());
+                let title = format!(
+                    "rfw-rs - FPS: {:.2}, render: {:.2}, physics: {:.2}, synchronize: {:.2}",
+                    fps.get_average(),
+                    render.get_average(),
+                    physics.get_average(),
+                    synchronize.get_average()
+                );
                 window.set_title(title.as_str());
 
                 sphere_forces *= elapsed * 0.01;
@@ -303,6 +343,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     resized = false;
                 }
 
+                timer2.reset();
                 mechanical_world.set_timestep(match first {
                     true => {
                         first = false;
@@ -336,6 +377,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         true,
                     );
                 }
+                physics.add_sample(timer2.elapsed_in_millis());
 
                 renderer.get_instance_mut(sphere_inst, |instance| {
                     if let Some(instance) = instance {
@@ -351,9 +393,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         instance.set_rotation_quat(rotation);
                     }
                 });
+                timer2.reset();
                 renderer.synchronize();
+                synchronize.add_sample(timer2.elapsed_in_millis());
 
+                timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);
+                render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
