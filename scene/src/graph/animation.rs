@@ -140,7 +140,7 @@ pub struct Channel {
     pub key_frames: Vec<f32>,
 
     pub sampler: Method,
-    pub vec3s: Vec<Vec3>,
+    pub vec3s: Vec<Vec3A>,
     pub rotations: Vec<Quat>,
     pub weights: Vec<f32>,
 
@@ -166,7 +166,7 @@ impl Default for Channel {
 }
 
 impl Channel {
-    pub fn sample_translation(&self, time: f32, k: usize) -> Vec3 {
+    pub fn sample_translation(&self, time: f32, k: usize) -> Vec3A {
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
@@ -190,7 +190,7 @@ impl Channel {
         }
     }
 
-    pub fn sample_scale(&self, time: f32, k: usize) -> Vec3 {
+    pub fn sample_scale(&self, time: f32, k: usize) -> Vec3A {
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);

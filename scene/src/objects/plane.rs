@@ -23,15 +23,15 @@ impl Plane {
     pub fn new(pos: [f32; 3], up: [f32; 3], dims: [f32; 2], mat_id: u32) -> Plane {
         use glam::*;
 
-        let pos = Vec3::from(pos);
-        let up = Vec3::from(up).normalize();
+        let pos = Vec3A::from(pos);
+        let up = Vec3A::from(up).normalize();
 
         let offset = (pos - (pos - up)).length();
 
         let right = if up[0].abs() >= up[1].abs() {
-            Vec3::new(up.z(), 0.0, -up.x()) / (up.x() * up.x() + up.z() * up.z()).sqrt()
+            Vec3A::new(up.z(), 0.0, -up.x()) / (up.x() * up.x() + up.z() * up.z()).sqrt()
         } else {
-            Vec3::new(0.0, -up.z(), up.y()) / (up.y() * up.y() + up.z() * up.z()).sqrt()
+            Vec3A::new(0.0, -up.z(), up.y()) / (up.y() * up.y() + up.z() * up.z()).sqrt()
         }
         .normalize();
 
@@ -48,12 +48,12 @@ impl Plane {
         }
     }
 
-    pub fn get_normal(&self) -> Vec3 {
+    pub fn get_normal(&self) -> Vec3A {
         self.up.into()
     }
 
-    pub fn get_uv(&self, p: Vec3) -> Vec2 {
-        let center_to_hit = p - Vec3::from(self.pos);
+    pub fn get_uv(&self, p: Vec3A) -> Vec2 {
+        let center_to_hit = p - Vec3A::from(self.pos);
         let dot_right = center_to_hit.dot(self.right.into());
         let dot_forward = center_to_hit.dot(self.forward.into());
 
@@ -69,8 +69,8 @@ impl Plane {
 
 impl Intersect for Plane {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        let (origin, direction) = ray.into();
-        let up = Vec3::from(self.up);
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
+        let up = Vec3A::from(self.up);
 
         let div = up.dot(direction);
         let t = -(up.dot(origin) + self.offset) / div;
@@ -83,8 +83,8 @@ impl Intersect for Plane {
     }
 
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let (origin, direction) = ray.into();
-        let up = Vec3::from(self.up);
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
+        let up = Vec3A::from(self.up);
 
         let div = up.dot(direction);
         let t = -(up.dot(origin) + self.offset) / div;
@@ -106,8 +106,8 @@ impl Intersect for Plane {
     }
 
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        let (origin, direction) = ray.into();
-        let up = Vec3::from(self.up);
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
+        let up = Vec3A::from(self.up);
 
         let div = up.dot(direction);
         let t = -(up.dot(origin) + self.offset) / div;
@@ -129,8 +129,8 @@ impl Intersect for Plane {
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
         use glam::*;
 
-        let (origin_x, origin_y, origin_z) = packet.origin_xyz();
-        let (dir_x, dir_y, dir_z) = packet.direction_xyz();
+        let (origin_x, origin_y, origin_z) = packet.origin_xyz::<Vec4>();
+        let (dir_x, dir_y, dir_z) = packet.direction_xyz::<Vec4>();
 
         let up_x = Vec4::splat(self.up[0]);
         let up_y = Vec4::splat(self.up[1]);
@@ -162,7 +162,7 @@ impl Intersect for Plane {
     }
 
     fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
         let p = origin + direction * t;
 
         HitRecord {
@@ -184,11 +184,11 @@ impl Bounds for Plane {
     fn bounds(&self) -> AABB {
         use glam::*;
 
-        let right_offset = self.dims[0] * Vec3::from(self.right);
-        let forward_offset = self.dims[1] * Vec3::from(self.forward);
+        let right_offset = self.dims[0] * Vec3A::from(self.right);
+        let forward_offset = self.dims[1] * Vec3A::from(self.forward);
 
-        let min = Vec3::from(self.pos) - right_offset - forward_offset - Vec3::splat(EPSILON);
-        let max = Vec3::from(self.pos) + right_offset + forward_offset + Vec3::splat(EPSILON);
+        let min = Vec3A::from(self.pos) - right_offset - forward_offset - Vec3A::splat(EPSILON);
+        let max = Vec3A::from(self.pos) + right_offset + forward_offset + Vec3A::splat(EPSILON);
 
         AABB {
             min: min.into(),
@@ -269,5 +269,15 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
 
         materials.push(material);
         Ok(plane)
+    }
+}
+
+impl ToMesh for Plane {
+    fn into_mesh(self) -> Mesh {
+        let normal: [f32; 3] = self.up;
+        let position: [f32; 3] = self.pos;
+        let (width, height) = (self.dims[0], self.dims[1]);
+        let mat_id = self.mat_id;
+        Quad::new(normal, position, width, height, mat_id).into_mesh()
     }
 }

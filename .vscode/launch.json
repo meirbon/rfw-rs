@@ -208,6 +208,47 @@
             "sourceLanguages": [
                 "rust"
             ]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch physics debug",
+            "program": "${workspaceFolder}/target/debug/physics",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "-p",
+                    "physics"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch physics release",
+            "program": "${workspaceFolder}/target/release/physics",
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--release",
+                    "-p",
+                    "physics"
+                ]
+            },
+            "sourceLanguages": [
+                "rust"
+            ]
         }
     ]
 }

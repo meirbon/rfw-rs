@@ -5,7 +5,7 @@ use crate::PrimID;
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
-use glam::Vec3;
+use glam::Vec3A;
 use rtbvh::{builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB};
 use std::ops::BitAnd;
 
@@ -80,22 +80,22 @@ impl Default for RTTriangle {
 }
 
 impl SpatialTriangle for RTTriangle {
-    fn vertex0(&self) -> Vec3 {
+    fn vertex0(&self) -> Vec3A {
         self.vertex0.into()
     }
 
-    fn vertex1(&self) -> Vec3 {
+    fn vertex1(&self) -> Vec3A {
         self.vertex1.into()
     }
 
-    fn vertex2(&self) -> Vec3 {
+    fn vertex2(&self) -> Vec3A {
         self.vertex2.into()
     }
 }
 
 #[allow(dead_code)]
 impl RTTriangle {
-    pub fn vertices(&self) -> (Vec3, Vec3, Vec3) {
+    pub fn vertices(&self) -> (Vec3A, Vec3A, Vec3A) {
         (
             self.vertex0.into(),
             self.vertex1.into(),
@@ -104,14 +104,14 @@ impl RTTriangle {
     }
 
     #[inline]
-    pub fn normal(v0: glam::Vec3, v1: glam::Vec3, v2: glam::Vec3) -> glam::Vec3 {
+    pub fn normal(v0: glam::Vec3A, v1: glam::Vec3A, v2: glam::Vec3A) -> glam::Vec3A {
         let a = v1 - v0;
         let b = v2 - v0;
         a.cross(b).normalize()
     }
 
     #[inline]
-    pub fn area(v0: glam::Vec3, v1: glam::Vec3, v2: glam::Vec3) -> f32 {
+    pub fn area(v0: glam::Vec3A, v1: glam::Vec3A, v2: glam::Vec3A) -> f32 {
         let a = (v1 - v0).length();
         let b = (v2 - v1).length();
         let c = (v0 - v2).length();
@@ -120,20 +120,20 @@ impl RTTriangle {
     }
 
     #[inline]
-    pub fn center(&self) -> Vec3 {
+    pub fn center(&self) -> Vec3A {
         let (v0, v1, v2) = self.vertices();
         (v0 + v1 + v2) * (1.0 / 3.0)
     }
 
     #[inline(always)]
     pub fn bary_centrics(
-        v0: glam::Vec3,
-        v1: glam::Vec3,
-        v2: glam::Vec3,
-        edge1: glam::Vec3,
-        edge2: glam::Vec3,
-        p: glam::Vec3,
-        n: glam::Vec3,
+        v0: glam::Vec3A,
+        v1: glam::Vec3A,
+        v2: glam::Vec3A,
+        edge1: glam::Vec3A,
+        edge2: glam::Vec3A,
+        p: glam::Vec3A,
+        n: glam::Vec3A,
     ) -> (f32, f32) {
         let abc = n.dot((edge1).cross(edge2));
         let pbc = n.dot((v1 - p).cross(v2 - p));
@@ -143,17 +143,17 @@ impl RTTriangle {
 
     // Transforms triangle using given matrix and normal_matrix (transposed of inverse of matrix)
     pub fn transform(&self, matrix: glam::Mat4, normal_matrix: glam::Mat3) -> RTTriangle {
-        let vertex0 = glam::Vec3::from(self.vertex0).extend(1.0);
-        let vertex1 = glam::Vec3::from(self.vertex1).extend(1.0);
-        let vertex2 = glam::Vec3::from(self.vertex2).extend(1.0);
+        let vertex0 = glam::Vec3A::from(self.vertex0).extend(1.0);
+        let vertex1 = glam::Vec3A::from(self.vertex1).extend(1.0);
+        let vertex2 = glam::Vec3A::from(self.vertex2).extend(1.0);
 
         let vertex0 = matrix * vertex0;
         let vertex1 = matrix * vertex1;
         let vertex2 = matrix * vertex2;
 
-        let n0 = normal_matrix * glam::Vec3::from(self.n0);
-        let n1 = normal_matrix * glam::Vec3::from(self.n1);
-        let n2 = normal_matrix * glam::Vec3::from(self.n2);
+        let n0 = normal_matrix * glam::Vec3A::from(self.n0);
+        let n1 = normal_matrix * glam::Vec3A::from(self.n1);
+        let n2 = normal_matrix * glam::Vec3A::from(self.n2);
 
         RTTriangle {
             vertex0: vertex0.truncate().into(),
@@ -168,12 +168,12 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        let origin = glam::Vec3::from(ray.origin);
-        let direction = glam::Vec3::from(ray.direction);
+        let origin = glam::Vec3A::from(ray.origin);
+        let direction = glam::Vec3A::from(ray.direction);
 
-        let vertex0 = glam::Vec3::from(self.vertex0);
-        let vertex1 = glam::Vec3::from(self.vertex1);
-        let vertex2 = glam::Vec3::from(self.vertex2);
+        let vertex0 = glam::Vec3A::from(self.vertex0);
+        let vertex1 = glam::Vec3A::from(self.vertex1);
+        let vertex2 = glam::Vec3A::from(self.vertex2);
 
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
@@ -203,12 +203,12 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let origin = glam::Vec3::from(ray.origin);
-        let direction = glam::Vec3::from(ray.direction);
+        let origin = glam::Vec3A::from(ray.origin);
+        let direction = glam::Vec3A::from(ray.direction);
 
-        let vertex0 = glam::Vec3::from(self.vertex0);
-        let vertex1 = glam::Vec3::from(self.vertex1);
-        let vertex2 = glam::Vec3::from(self.vertex2);
+        let vertex0 = glam::Vec3A::from(self.vertex0);
+        let vertex1 = glam::Vec3A::from(self.vertex1);
+        let vertex2 = glam::Vec3A::from(self.vertex2);
 
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
@@ -236,14 +236,14 @@ impl RTTriangle {
 
         let p = origin + direction * t;
 
-        let gnormal = Vec3::from(self.normal);
+        let gnormal = Vec3A::from(self.normal);
         let inv_denom = 1.0 / gnormal.dot(gnormal);
         let (u, v) = (u * inv_denom, v * inv_denom);
 
         let w = 1.0 - u - v;
-        let normal = glam::Vec3::from(self.n0) * u
-            + glam::Vec3::from(self.n1) * v
-            + glam::Vec3::from(self.n2) * w;
+        let normal = glam::Vec3A::from(self.n0) * u
+            + glam::Vec3A::from(self.n1) * v
+            + glam::Vec3A::from(self.n2) * w;
         let uv = glam::Vec2::new(
             self.u0 * u + self.u1 * v + self.u2 * w,
             self.v0 * u + self.v1 * v + self.v2 * w,
@@ -261,11 +261,11 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
-        let vertex0 = glam::Vec3::from(self.vertex0);
-        let vertex1 = glam::Vec3::from(self.vertex1);
-        let vertex2 = glam::Vec3::from(self.vertex2);
+        let vertex0 = glam::Vec3A::from(self.vertex0);
+        let vertex1 = glam::Vec3A::from(self.vertex1);
+        let vertex2 = glam::Vec3A::from(self.vertex2);
 
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
@@ -389,10 +389,10 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
-        let (origin, direction) = ray.into();
-        let vertex0 = glam::Vec3::from(self.vertex0);
-        let vertex1 = glam::Vec3::from(self.vertex1);
-        let vertex2 = glam::Vec3::from(self.vertex2);
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
+        let vertex0 = glam::Vec3A::from(self.vertex0);
+        let vertex1 = glam::Vec3A::from(self.vertex1);
+        let vertex2 = glam::Vec3A::from(self.vertex2);
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
 
@@ -404,12 +404,12 @@ impl RTTriangle {
             edge1,
             edge2,
             p,
-            glam::Vec3::from(self.normal),
+            glam::Vec3A::from(self.normal),
         );
         let w = 1.0 - u - v;
-        let normal = glam::Vec3::from(self.n0) * u
-            + glam::Vec3::from(self.n1) * v
-            + glam::Vec3::from(self.n2) * w;
+        let normal = glam::Vec3A::from(self.n0) * u
+            + glam::Vec3A::from(self.n1) * v
+            + glam::Vec3A::from(self.n2) * w;
         let uv = glam::Vec2::new(
             self.u0 * u + self.u1 * v + self.u2 * w,
             self.v0 * u + self.v1 * v + self.v2 * w,
@@ -429,9 +429,9 @@ impl RTTriangle {
 impl Bounds for RTTriangle {
     fn bounds(&self) -> AABB {
         let mut aabb = AABB::new();
-        aabb.grow(glam::Vec3::from(self.vertex0));
-        aabb.grow(glam::Vec3::from(self.vertex1));
-        aabb.grow(glam::Vec3::from(self.vertex2));
+        aabb.grow(self.vertex0);
+        aabb.grow(self.vertex1);
+        aabb.grow(self.vertex2);
         aabb.offset_by(crate::constants::AABB_EPSILON);
         aabb
     }

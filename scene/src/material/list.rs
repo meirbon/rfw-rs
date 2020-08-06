@@ -608,7 +608,7 @@ impl MaterialList {
     pub fn push(&mut self, mat: Material) -> usize {
         let i = self.materials.len();
         self.changed.push(true);
-        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any();
+        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any();
 
         self.light_flags.push(is_light);
         self.materials.push(mat);
@@ -632,7 +632,7 @@ impl MaterialList {
             index,
             Vec4::from(self.materials[index].color)
                 .truncate()
-                .cmpgt(Vec3::one())
+                .cmpgt(Vec3A::one())
                 .any(),
         );
     }
@@ -648,7 +648,7 @@ impl MaterialList {
             index,
             Vec4::from(self.materials[index].color)
                 .truncate()
-                .cmpgt(Vec3::one())
+                .cmpgt(Vec3A::one())
                 .any(),
         );
     }

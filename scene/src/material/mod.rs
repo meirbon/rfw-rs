@@ -284,7 +284,7 @@ impl Default for Material {
 
 impl Material {
     pub fn is_emissive(&self) -> bool {
-        let color: Vec3 = Vec4::from(self.color).truncate();
-        color.cmpgt(Vec3::one()).any()
+        let color: Vec3A = Vec4::from(self.color).truncate();
+        color.cmpgt(Vec3A::one()).any()
     }
 }

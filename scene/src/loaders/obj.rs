@@ -104,12 +104,12 @@ impl ObjectLoader for ObjLoader {
                                 i += 1;
                             }
 
-                            let mut value: Vec3 = Vec3::from(f_values);
-                            if !value.cmpeq(Vec3::zero()).all() && value.cmple(Vec3::one()).all() {
-                                value = value * Vec3::splat(10.0);
+                            let mut value: Vec3A = Vec3A::from(f_values);
+                            if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all() {
+                                value = value * Vec3A::splat(10.0);
                             }
 
-                            color = value.max(color);
+                            color = value.max(color.into()).into();
                         }
                         "map_pr" => {
                             roughness_map = Some(parent.join(value.as_str()).to_path_buf());
@@ -177,9 +177,9 @@ impl ObjectLoader for ObjLoader {
 
             if material_indices.is_empty() {
                 material_indices.push(mat_manager.add(
-                    Vec3::new(1.0, 0.0, 0.0),
+                    Vec3A::new(1.0, 0.0, 0.0),
                     1.0,
-                    Vec3::zero(),
+                    Vec3A::zero(),
                     1.0,
                 ));
             }

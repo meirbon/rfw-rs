@@ -45,10 +45,10 @@ pub struct Camera {
 
 #[derive(Debug, Copy, Clone)]
 pub struct CameraView {
-    pub pos: Vec3,
-    pub right: Vec3,
-    pub up: Vec3,
-    pub p1: Vec3,
+    pub pos: Vec3A,
+    pub right: Vec3A,
+    pub up: Vec3A,
+    pub p1: Vec3A,
     pub lens_size: f32,
     pub spread_angle: f32,
     pub epsilon: f32,
@@ -307,7 +307,7 @@ impl Camera {
 
     pub fn get_view(&self) -> CameraView {
         let (right, up, forward) = self.calculate_matrix();
-        let pos = Vec3::from(self.pos);
+        let pos = Vec3A::from(self.pos);
         let fov = self.fov;
         let spread_angle = (fov * std::f32::consts::PI / 180.0) * (1.0 / self.height as f32);
         let screen_size = (fov * 0.5 / (180.0 / std::f32::consts::PI)).tan();
@@ -367,33 +367,35 @@ impl Camera {
         self
     }
 
-    pub fn with_position(mut self, position: Vec3) -> Self {
+    pub fn with_position<T: Into<[f32; 3]>>(mut self, position: T) -> Self {
         self.pos = position.into();
         self
     }
 
-    pub fn translate_relative(&mut self, delta: Vec3) {
+    pub fn translate_relative<T: Into<[f32; 3]>>(&mut self, delta: T) {
+        let delta = Vec3A::from(delta.into());
         let delta = delta * self.speed;
         let (right, up, forward) = self.calculate_matrix();
-        self.pos = (Vec3::from(self.pos)
+        self.pos = (Vec3A::from(self.pos)
             + (delta.x() * right + delta.y() * up + delta.z() * forward))
             .into();
     }
 
-    pub fn translate_target(&mut self, delta: Vec3) {
+    pub fn translate_target<T: Into<[f32; 3]>>(&mut self, delta: T) {
         let (right, up, forward) = self.calculate_matrix();
+        let delta: [f32; 3] = delta.into();
         self.direction =
-            (Vec3::from(self.direction) + delta.x() * right + delta.y() * up + delta.z() * forward)
+            (Vec3A::from(self.direction) + delta[0] * right + delta[1] * up + delta[2] * forward)
                 .normalize()
                 .into();
     }
 
-    pub fn look_at(&mut self, origin: Vec3, target: Vec3) {
+    pub fn look_at(&mut self, origin: Vec3A, target: Vec3A) {
         self.pos = origin.into();
         self.direction = (target - origin).normalize().into();
     }
 
-    pub fn with_direction(mut self, direction: Vec3) -> Self {
+    pub fn with_direction(mut self, direction: Vec3A) -> Self {
         self.direction = direction.normalize().into();
         self
     }
@@ -405,10 +407,10 @@ impl Camera {
         let projection =
             Mat4::perspective_lh(fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = Vec3A::from(self.pos);
+        let dir = Vec3A::from(self.direction);
 
-        let view = Mat4::look_at_lh(pos, pos + dir, up);
+        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
 
         projection * view
     }
@@ -426,10 +428,10 @@ impl Camera {
     pub fn get_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = Vec3A::from(self.pos);
+        let dir = Vec3A::from(self.direction);
 
-        let view = Mat4::look_at_rh(pos, pos + dir, up);
+        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
 
         view
     }
@@ -445,19 +447,19 @@ impl Camera {
             self.far_plane,
         );
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = Vec3A::from(self.pos);
+        let dir = Vec3A::from(self.direction);
 
-        let view = Mat4::look_at_rh(pos, pos + dir, up);
+        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
 
         projection * view
     }
 
-    fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
-        let y: Vec3 = vec3(0.0, 1.0, 0.0);
-        let z: Vec3 = Vec3::from(self.direction).normalize();
-        let x: Vec3 = z.cross(y).normalize();
-        let y: Vec3 = x.cross(z).normalize();
+    fn calculate_matrix(&self) -> (Vec3A, Vec3A, Vec3A) {
+        let y: Vec3A = Vec3A::new(0.0, 1.0, 0.0);
+        let z: Vec3A = Vec3A::from(self.direction).normalize();
+        let x: Vec3A = z.cross(y).normalize();
+        let y: Vec3A = x.cross(z).normalize();
         (x, y, z)
     }
 

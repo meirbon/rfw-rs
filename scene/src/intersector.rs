@@ -30,7 +30,7 @@ impl<'a> TIntersector<'a> {
     }
 
     pub fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
@@ -73,7 +73,7 @@ impl<'a> TIntersector<'a> {
     }
 
     pub fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let mut instance_id = -1;
         let intersection = |i, t_min, t_max| {
@@ -121,7 +121,7 @@ impl<'a> TIntersector<'a> {
     }
 
     pub fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let intersection = |i, t_min, t_max| {
             let instance = &self.instances[i as usize];
@@ -163,7 +163,7 @@ impl<'a> TIntersector<'a> {
     }
 
     pub fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> (f32, u32) {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let intersection = |i, t_min, t_max| -> Option<(f32, u32)> {
             let instance = &self.instances[i as usize];

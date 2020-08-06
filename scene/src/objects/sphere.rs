@@ -38,11 +38,11 @@ pub struct Sphere {
 impl Sphere {
     /// Creates new sphere with specified radius, material and segments.
     /// Segments is only used when this sphere is procedurally transformed into a mesh.
-    pub fn new(pos: glam::Vec3, radius: f32, mat_id: usize) -> Sphere {
+    pub fn new<T: Into<[f32; 3]>>(pos: T, radius: f32, mat_id: u32) -> Sphere {
         Sphere {
             pos: pos.into(),
             radius2: radius * radius,
-            mat_id: mat_id as u32,
+            mat_id,
             quality: Quality::High,
         }
     }
@@ -52,11 +52,11 @@ impl Sphere {
         self
     }
 
-    pub fn normal(&self, p: glam::Vec3) -> glam::Vec3 {
+    pub fn normal(&self, p: glam::Vec3A) -> glam::Vec3A {
         (p - self.pos.into()).normalize()
     }
 
-    pub fn get_uv(&self, n: glam::Vec3) -> glam::Vec2 {
+    pub fn get_uv(&self, n: glam::Vec3A) -> glam::Vec2 {
         let u = n.x().atan2(n.z()) * (1.0 / (2.0 * std::f32::consts::PI)) + 0.5;
         let v = n.y() * 0.5 + 0.5;
         vec2(u, v)
@@ -65,7 +65,7 @@ impl Sphere {
 
 impl Intersect for Sphere {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let a = direction.dot(direction);
         let r_pos = origin - self.pos.into();
@@ -91,7 +91,7 @@ impl Intersect for Sphere {
     }
 
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let a = direction.dot(direction);
         let r_pos = origin - self.pos.into();
@@ -133,7 +133,7 @@ impl Intersect for Sphere {
     }
 
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let a = direction.dot(direction);
         let r_pos = origin - self.pos.into();
@@ -248,7 +248,7 @@ impl Intersect for Sphere {
     }
 
     fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
 
         let p = origin + direction * t;
         let normal = self.normal(p);
@@ -366,17 +366,17 @@ impl ToMesh for Sphere {
         use std::f32::consts::PI;
 
         let mut faces: Vec<[u32; 3]> = Vec::with_capacity(20);
-        let mut vertices: Vec<Vec3> = Vec::with_capacity(12);
-        let mut normals: Vec<Vec3> = Vec::with_capacity(12);
+        let mut vertices: Vec<Vec3A> = Vec::with_capacity(12);
+        let mut normals: Vec<Vec3A> = Vec::with_capacity(12);
         let mut uvs: Vec<Vec2> = Vec::with_capacity(12);
 
         let s = ((5.0 - 5.0_f32.sqrt()) / 10.0).sqrt();
         let t: f32 = ((5.0 + 5.0_f32.sqrt()) / 10.0).sqrt();
 
         // First, create an Icosahedron
-        let add_vertex = |v: Vec3,
-                          vertices: &mut Vec<Vec3>,
-                          normals: &mut Vec<Vec3>,
+        let add_vertex = |v: Vec3A,
+                          vertices: &mut Vec<Vec3A>,
+                          normals: &mut Vec<Vec3A>,
                           uvs: &mut Vec<Vec2>|
                           -> usize {
             let v = v.normalize();
@@ -392,8 +392,8 @@ impl ToMesh for Sphere {
         let mut index_hash: HashMap<usize, usize> = HashMap::new();
         let mut get_middle_point = |p1: usize,
                                     p2: usize,
-                                    vertices: &mut Vec<Vec3>,
-                                    normals: &mut Vec<Vec3>,
+                                    vertices: &mut Vec<Vec3A>,
+                                    normals: &mut Vec<Vec3A>,
                                     uvs: &mut Vec<Vec2>|
                                     -> usize {
             let is_smaller = p1 < p2;
@@ -413,35 +413,35 @@ impl ToMesh for Sphere {
             }
         };
 
-        add_vertex(Vec3::new(-s, t, 0.0), &mut vertices, &mut normals, &mut uvs);
-        add_vertex(Vec3::new(s, t, 0.0), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(-s, t, 0.0), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(s, t, 0.0), &mut vertices, &mut normals, &mut uvs);
         add_vertex(
-            Vec3::new(-s, -t, 0.0),
+            Vec3A::new(-s, -t, 0.0),
             &mut vertices,
             &mut normals,
             &mut uvs,
         );
-        add_vertex(Vec3::new(s, -t, 0.0), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(s, -t, 0.0), &mut vertices, &mut normals, &mut uvs);
 
-        add_vertex(Vec3::new(0.0, -s, t), &mut vertices, &mut normals, &mut uvs);
-        add_vertex(Vec3::new(0.0, s, t), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(0.0, -s, t), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(0.0, s, t), &mut vertices, &mut normals, &mut uvs);
         add_vertex(
-            Vec3::new(0.0, -s, -t),
+            Vec3A::new(0.0, -s, -t),
             &mut vertices,
             &mut normals,
             &mut uvs,
         );
-        add_vertex(Vec3::new(0.0, s, -t), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(0.0, s, -t), &mut vertices, &mut normals, &mut uvs);
 
-        add_vertex(Vec3::new(t, 0.0, -s), &mut vertices, &mut normals, &mut uvs);
-        add_vertex(Vec3::new(t, 0.0, s), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(t, 0.0, -s), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(t, 0.0, s), &mut vertices, &mut normals, &mut uvs);
         add_vertex(
-            Vec3::new(-t, 0.0, -s),
+            Vec3A::new(-t, 0.0, -s),
             &mut vertices,
             &mut normals,
             &mut uvs,
         );
-        add_vertex(Vec3::new(-t, 0.0, s), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(Vec3A::new(-t, 0.0, s), &mut vertices, &mut normals, &mut uvs);
 
         // 5 faces around point 0
         faces.push([0, 11, 5]);
@@ -494,9 +494,9 @@ impl ToMesh for Sphere {
 
         let material_ids = vec![self.mat_id; faces.len()];
 
-        let origin = Vec3::from(self.pos);
+        let origin = Vec3A::from(self.pos);
         let radius = self.radius2.sqrt();
-        let radius = Vec3::splat(radius);
+        let radius = Vec3A::splat(radius);
 
         use rayon::prelude::*;
         vertices.par_iter_mut().for_each(|v| {

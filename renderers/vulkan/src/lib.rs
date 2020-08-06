@@ -149,12 +149,12 @@ impl Renderer for VkRenderer {
                             let supports_graphic_and_surface =
                                 info.queue_flags.contains(vk::QueueFlags::GRAPHICS)
                                     && surface_loader
-                                    .get_physical_device_surface_support(
-                                        *pdevice,
-                                        index as u32,
-                                        surface,
-                                    )
-                                    .unwrap();
+                                        .get_physical_device_surface_support(
+                                            *pdevice,
+                                            index as u32,
+                                            surface,
+                                        )
+                                        .unwrap();
                             if supports_graphic_and_surface {
                                 Some((*pdevice, index))
                             } else {
@@ -334,7 +334,7 @@ impl Renderer for VkRenderer {
                 &device_memory_properties,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )
-                .expect("Unable to find suitable memory index for depth image.");
+            .expect("Unable to find suitable memory index for depth image.");
 
             let depth_image_allocate_info = vk::MemoryAllocateInfo::builder()
                 .allocation_size(depth_image_memory_req.size)
@@ -760,9 +760,12 @@ impl Renderer for VkRenderer {
                 .swapchains(&swapchains)
                 .image_indices(&image_indices);
 
-            self.swapchain_loader
+            match self
+                .swapchain_loader
                 .queue_present(self.present_queue, &present_info)
-                .unwrap();
+            {
+                _ => {}
+            }
         }
     }
 
@@ -846,7 +849,7 @@ impl Renderer for VkRenderer {
                 &self.device_memory_properties,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )
-                .expect("Unable to find suitable memory index for depth image.");
+            .expect("Unable to find suitable memory index for depth image.");
 
             let depth_image_allocate_info = vk::MemoryAllocateInfo::builder()
                 .allocation_size(depth_image_memory_req.size)
@@ -945,7 +948,8 @@ impl Renderer for VkRenderer {
         &mut self,
         _changed: &BitVec<Local, usize>,
         _lights: &[DirectionalLight],
-    ) {}
+    ) {
+    }
 
     fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()

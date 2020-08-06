@@ -5,7 +5,7 @@ use rtbvh::{Ray, RayPacket4, AABB};
 
 use std::fmt::Display;
 
-use glam::f32::Vec3;
+use glam::f32::Vec3A;
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
@@ -48,11 +48,9 @@ pub struct Instance {
     transform: [f32; 16],
     inverse: [f32; 16],
     normal_transform: [f32; 16],
-    translation: Vec3,
-    scaling: Vec3,
-    rotation_x: f32,
-    rotation_y: f32,
-    rotation_z: f32,
+    translation: Vec3A,
+    scaling: Vec3A,
+    rotation: glam::Quat,
     pub object_id: ObjectRef,
     pub skin_id: Option<u32>,
     updated: InstanceUpdate,
@@ -74,11 +72,9 @@ impl Default for Instance {
             transform: [0.0; 16],
             inverse: [0.0; 16],
             normal_transform: [0.0; 16],
-            translation: Vec3::zero(),
-            scaling: Vec3::one(),
-            rotation_x: 0.0,
-            rotation_y: 0.0,
-            rotation_z: 0.0,
+            translation: Vec3A::zero(),
+            scaling: Vec3A::one(),
+            rotation: glam::Quat::identity(),
             object_id: ObjectRef::None,
             skin_id: None,
             updated: InstanceUpdate::None,
@@ -93,7 +89,7 @@ impl Instance {
         let inverse = transform.inverse();
 
         let normal_transform = inverse.transpose();
-        let transformed_bounds = bounds.transformed(transform);
+        let transformed_bounds = bounds.transformed(transform.to_cols_array());
 
         Instance {
             original_bounds: bounds.clone(),
@@ -108,7 +104,7 @@ impl Instance {
 
     pub fn set_bounds(&mut self, bounds: AABB) {
         self.original_bounds = bounds;
-        self.bounds = self.original_bounds.transformed(self.get_transform());
+        self.bounds = self.original_bounds.transformed(self.transform);
     }
 
     pub fn local_bounds(&self) -> AABB {
@@ -132,18 +128,18 @@ impl Instance {
         self.transform = transform.to_cols_array();
         self.inverse = inverse.to_cols_array();
         self.normal_transform = inverse.transpose().to_cols_array();
-        self.bounds = self.original_bounds.transformed(transform);
+        self.bounds = self.original_bounds.transformed(self.transform);
         self.updated = InstanceUpdate::Matrix;
     }
 
     #[inline(always)]
-    pub fn transform_vertex(&self, vertex: glam::Vec3) -> glam::Vec3 {
+    pub fn transform_vertex(&self, vertex: glam::Vec3A) -> glam::Vec3A {
         (self.get_transform() * vertex.extend(1.0)).truncate()
     }
 
     #[inline(always)]
-    pub fn transform(&self, ray: Ray) -> (glam::Vec3, glam::Vec3) {
-        let (origin, direction) = ray.into();
+    pub fn transform(&self, ray: Ray) -> (glam::Vec3A, glam::Vec3A) {
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
         let inverse = self.get_inverse_transform();
         let new_origin = inverse * origin.extend(1.0);
         let new_direction = inverse * direction.extend(0.0);
@@ -227,7 +223,7 @@ impl Instance {
     #[inline(always)]
     pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
         let normal_transform = self.get_normal_transform();
-        let normal = normal_transform * glam::Vec3::from(hit.normal).extend(0.0);
+        let normal = normal_transform * glam::Vec3A::from(hit.normal).extend(0.0);
 
         HitRecord {
             normal: normal.truncate().normalize().into(),
@@ -337,63 +333,68 @@ impl Instance {
     pub fn transform_ray(&self, ray: Ray) -> Ray {
         let inverse = self.get_inverse_transform();
 
-        let (origin, direction) = ray.into();
+        let (origin, direction) = ray.get_vectors::<Vec3A>();
         let new_origin: glam::Vec4 = inverse * origin.extend(1.0);
         let new_direction: glam::Vec4 = inverse * direction.extend(0.0);
         (new_origin.truncate(), new_direction.truncate()).into()
     }
 
     pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
-        self.translation = Vec3::from(t.into());
+        self.translation = Vec3A::from(t.into());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_x(&mut self, offset: f32) {
-        self.translation += Vec3::new(offset, 0.0, 0.0);
+        self.translation += Vec3A::new(offset, 0.0, 0.0);
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_y(&mut self, offset: f32) {
-        self.translation += Vec3::new(0.0, offset, 0.0);
+        self.translation += Vec3A::new(0.0, offset, 0.0);
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_z(&mut self, offset: f32) {
-        self.translation += Vec3::new(0.0, 0.0, offset);
+        self.translation += Vec3A::new(0.0, 0.0, offset);
         self.updated = InstanceUpdate::Transformed;
+    }
+
+    // Set rotation using a quaternion in format [x, y, z, w]
+    pub fn set_rotation_quat<T: Into<[f32; 4]>>(&mut self, r: T) {
+        self.rotation = glam::Quat::from(r.into());
     }
 
     pub fn set_rotation<T: Into<[f32; 3]>>(&mut self, r: T) {
         let r: [f32; 3] = r.into();
-        self.rotation_x = r[0];
-        self.rotation_y = r[1];
-        self.rotation_z = r[2];
+        let axis: [f32; 3] = r.into();
+        let axis = glam::Vec3::new(axis[0], axis[1], axis[2]);
+        self.rotation = glam::Quat::from_axis_angle(axis, 1.0);
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_x(&mut self, degrees: f32) {
-        self.rotation_x = (self.rotation_x + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
+        self.rotation *= glam::Quat::from_rotation_x(degrees.to_radians());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_y(&mut self, degrees: f32) {
-        self.rotation_y = (self.rotation_y + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
+        self.rotation *= glam::Quat::from_rotation_y(degrees.to_radians());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_z(&mut self, degrees: f32) {
-        self.rotation_z = (self.rotation_z + degrees.to_radians()) % (std::f32::consts::PI * 2.0);
+        self.rotation *= glam::Quat::from_rotation_z(degrees.to_radians());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn set_scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
-        self.scaling = Vec3::from(scale.into());
+        self.scaling = Vec3A::from(scale.into());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
         let scale: [f32; 3] = scale.into();
-        let scale: Vec3 = Vec3::from(scale).max(Vec3::splat(0.001));
+        let scale: Vec3A = Vec3A::from(scale).max(Vec3A::splat(0.001));
         self.scaling *= scale;
         self.updated = InstanceUpdate::Transformed;
     }
@@ -428,23 +429,13 @@ impl Instance {
 
     /// Returns rotation as quaternion in [x, y, z, w]
     pub fn get_rotation(&self) -> [f32; 4] {
-        let mut quat = glam::Quat::identity();
-        if self.rotation_x.abs() > 0.0001 {
-            quat *= glam::Quat::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), self.rotation_x);
-        }
-        if self.rotation_y.abs() > 0.0001 {
-            quat *= glam::Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), self.rotation_y);
-        }
-        if self.rotation_z.abs() > 0.0001 {
-            quat *= glam::Quat::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), self.rotation_z);
-        }
-
-        quat.into()
+        self.rotation.into()
     }
 
     /// Returns rotation as radian euler angles in [x, y, z]
     pub fn get_euler_angles(&self) -> [f32; 3] {
-        [self.rotation_x, self.rotation_y, self.rotation_z]
+        let (rot, factor) = self.rotation.to_axis_angle();
+        (rot * factor).into()
     }
 
     pub fn update_transform(&mut self) {
@@ -452,13 +443,9 @@ impl Instance {
             return;
         }
 
-        let rotation_x = glam::Quat::from_axis_angle(Vec3::unit_x(), self.rotation_x);
-        let rotation_y = glam::Quat::from_axis_angle(Vec3::unit_y(), self.rotation_y);
-        let rotation_z = glam::Quat::from_axis_angle(Vec3::unit_z(), self.rotation_z);
-
         self.set_transform(glam::Mat4::from_scale_rotation_translation(
             self.scaling.into(),
-            rotation_x * rotation_y * rotation_z,
+            self.rotation,
             self.translation.into(),
         ));
     }
@@ -466,7 +453,7 @@ impl Instance {
 
 impl Bounds for Instance {
     fn bounds(&self) -> AABB {
-        self.original_bounds.transformed(self.get_transform())
+        self.original_bounds.transformed(self.transform)
     }
 }
 

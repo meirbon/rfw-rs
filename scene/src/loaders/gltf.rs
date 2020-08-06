@@ -120,9 +120,9 @@ impl ObjectLoader for GltfLoader {
                 material.color = pbr.base_color_factor();
                 material.metallic = pbr.metallic_factor();
                 let index = mat_manager.add_with_maps(
-                    Vec4::from(pbr.base_color_factor()).truncate(),
+                    Vec4::from(pbr.base_color_factor()).truncate().into(),
                     pbr.roughness_factor(),
-                    Vec4::from(pbr.base_color_factor()).truncate(),
+                    Vec4::from(pbr.base_color_factor()).truncate().into(),
                     0.0,
                     match pbr.base_color_texture() {
                         Some(tex) => load_texture(tex.texture().source().source()),
@@ -171,8 +171,8 @@ impl ObjectLoader for GltfLoader {
         let meshes: Vec<LoadedMesh> = document.meshes().map(|mesh| {
             let mut tmp_indices = Vec::new();
 
-            let mut vertices: Vec<Vec3> = Vec::new();
-            let mut normals: Vec<Vec3> = Vec::new();
+            let mut vertices: Vec<Vec3A> = Vec::new();
+            let mut normals: Vec<Vec3A> = Vec::new();
             let mut indices: Vec<[u32; 3]> = Vec::new();
             let mut joints: Vec<Vec<[u16; 4]>> = Vec::new();
             let mut weights: Vec<Vec<Vec4>> = Vec::new();
@@ -183,13 +183,13 @@ impl ObjectLoader for GltfLoader {
                 let reader = prim.reader(|buffer| Some(&buffers[buffer.index()]));
                 if let Some(iter) = reader.read_positions() {
                     for pos in iter {
-                        vertices.push(Vec3::from(pos));
+                        vertices.push(Vec3A::from(pos));
                     }
                 }
 
                 if let Some(iter) = reader.read_normals() {
                     for n in iter {
-                        normals.push(Vec3::from(n));
+                        normals.push(Vec3A::from(n));
                     }
                 }
 
@@ -412,14 +412,14 @@ impl ObjectLoader for GltfLoader {
                         rotation,
                         scale,
                     } => {
-                        new_node.set_scale(Vec3::from(scale));
+                        new_node.set_scale(Vec3A::from(scale));
                         new_node.set_rotation(Quat::from_xyzw(
                             rotation[0],
                             rotation[1],
                             rotation[2],
                             rotation[3],
                         ));
-                        new_node.set_translation(Vec3::from(translation));
+                        new_node.set_translation(Vec3A::from(translation));
                     }
                 }
 
@@ -528,7 +528,7 @@ impl ObjectLoader for GltfLoader {
                         match outputs {
                             ReadOutputs::Translations(t) => {
                                 t.for_each(|t| {
-                                    channel.vec3s.push(Vec3::from(t));
+                                    channel.vec3s.push(Vec3A::from(t));
                                 });
                             }
                             ReadOutputs::Rotations(r) => match r {
@@ -594,7 +594,7 @@ impl ObjectLoader for GltfLoader {
                             },
                             ReadOutputs::Scales(s) => {
                                 s.for_each(|s| {
-                                    channel.vec3s.push(Vec3::from(s));
+                                    channel.vec3s.push(Vec3A::from(s));
                                 });
                             }
                             ReadOutputs::MorphTargetWeights(m) => match m {

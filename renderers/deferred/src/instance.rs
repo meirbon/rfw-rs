@@ -69,7 +69,7 @@ impl InstanceBounds {
         let mesh_bounds: Vec<AABB> = mesh
             .sub_meshes
             .iter()
-            .map(|m| m.bounds.transformed(transform))
+            .map(|m| m.bounds.transformed(transform.to_cols_array()))
             .collect();
 
         assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
@@ -87,7 +87,7 @@ impl InstanceBounds {
         let mesh_bounds: Vec<AABB> = mesh
             .sub_meshes
             .iter()
-            .map(|m| m.bounds.transformed(transform))
+            .map(|m| m.bounds.transformed(transform.to_cols_array()))
             .collect();
 
         assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
@@ -183,42 +183,44 @@ impl InstanceList {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let device_instances = &self.device_instances;
 
-        let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
-        let staging_data = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("instance-staging-buffer"),
-            size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::COPY_SRC,
-        });
+        if !self.instances.is_empty() {
+            let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
+            let staging_data = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+                label: Some("instance-staging-buffer"),
+                size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
+                usage: wgpu::BufferUsage::COPY_SRC,
+            });
 
-        let instances = &self.instances;
-        // let staging_buffer = &self.staging_buffer;
-        instances.iter_changed().for_each(|(i, instance)| unsafe {
-            let transform = instance.get_transform();
-            let n_transform = instance.get_normal_transform();
+            let instances = &self.instances;
+            // let staging_buffer = &self.staging_buffer;
+            instances.iter_changed().for_each(|(i, instance)| unsafe {
+                let transform = instance.get_transform();
+                let n_transform = instance.get_normal_transform();
 
-            std::ptr::copy(
-                &transform as *const Mat4,
-                (staging_data.data.as_mut_ptr() as *mut Mat4).add(i * 2),
-                1,
-            );
-            std::ptr::copy(
-                &n_transform as *const Mat4,
-                (staging_data.data.as_mut_ptr() as *mut Mat4).add(i * 2 + 1),
-                1,
-            );
-        });
+                std::ptr::copy(
+                    transform.as_ref() as *const [f32; 16],
+                    (staging_data.data.as_mut_ptr() as *mut  [f32; 16]).add(i * 2),
+                    1,
+                );
+                std::ptr::copy(
+                    n_transform.as_ref() as *const [f32; 16],
+                    (staging_data.data.as_mut_ptr() as *mut [f32; 16]).add(i * 2 + 1),
+                    1,
+                );
+            });
 
-        let staging_buffer = staging_data.finish();
+            let staging_buffer = staging_data.finish();
 
-        instances.iter_changed().for_each(|(i, _)| {
-            encoder.copy_buffer_to_buffer(
-                &staging_buffer,
-                (i * instance_copy_size) as wgpu::BufferAddress,
-                &device_instances.device_matrices,
-                DeviceInstances::offset_for(i),
-                instance_copy_size as wgpu::BufferAddress,
-            );
-        });
+            instances.iter_changed().for_each(|(i, _)| {
+                encoder.copy_buffer_to_buffer(
+                    &staging_buffer,
+                    (i * instance_copy_size) as wgpu::BufferAddress,
+                    &device_instances.device_matrices,
+                    DeviceInstances::offset_for(i),
+                    instance_copy_size as wgpu::BufferAddress,
+                );
+            });
+        }
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
         queue.submit(&[encoder.finish()]);
@@ -254,7 +256,7 @@ impl InstanceList {
                         let transform = instance.get_transform();
                         mesh.sub_meshes
                             .iter()
-                            .map(|m| m.bounds.transformed(transform))
+                            .map(|m| m.bounds.transformed(transform.to_cols_array()))
                             .collect()
                     }
                     ObjectRef::Animated(mesh_id) => {
@@ -262,7 +264,7 @@ impl InstanceList {
                         let transform = instance.get_transform();
                         mesh.sub_meshes
                             .iter()
-                            .map(|m| m.bounds.transformed(transform))
+                            .map(|m| m.bounds.transformed(transform.to_cols_array()))
                             .collect()
                     }
                 };

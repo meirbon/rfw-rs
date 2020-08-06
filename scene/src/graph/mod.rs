@@ -37,9 +37,9 @@ impl std::fmt::Display for NodeMesh {
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
-    translation: Vec3,
+    translation: Vec3A,
     rotation: Quat,
-    scale: Vec3,
+    scale: Vec3A,
     matrix: Mat4,
     local_matrix: Mat4,
     pub combined_matrix: Mat4,
@@ -56,9 +56,9 @@ pub struct Node {
 impl Default for Node {
     fn default() -> Self {
         Self {
-            translation: Vec3::zero(),
+            translation: Vec3A::zero(),
             rotation: Quat::identity(),
-            scale: Vec3::splat(1.0),
+            scale: Vec3A::splat(1.0),
             matrix: Mat4::identity(),
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
@@ -79,7 +79,7 @@ impl Node {
         Self::default()
     }
 
-    pub fn set_translation(&mut self, t: Vec3) {
+    pub fn set_translation(&mut self, t: Vec3A) {
         self.translation = t;
         self.changed = true;
     }
@@ -89,7 +89,7 @@ impl Node {
         self.changed = true;
     }
 
-    pub fn set_scale(&mut self, s: Vec3) {
+    pub fn set_scale(&mut self, s: Vec3A) {
         self.scale = s;
         self.changed = true;
     }
@@ -100,43 +100,43 @@ impl Node {
     }
 
     pub fn scale_x(&mut self, scale: f32) {
-        self.scale *= Vec3::new(scale, 1.0, 1.0);
+        self.scale *= Vec3A::new(scale, 1.0, 1.0);
         self.changed = true;
     }
 
     pub fn scale_y(&mut self, scale: f32) {
-        self.scale *= Vec3::new(1.0, scale, 1.0);
+        self.scale *= Vec3A::new(1.0, scale, 1.0);
         self.changed = true;
     }
 
     pub fn scale_z(&mut self, scale: f32) {
-        self.scale *= Vec3::new(1.0, 1.0, scale);
+        self.scale *= Vec3A::new(1.0, 1.0, scale);
         self.changed = true;
     }
 
     pub fn scale<T: Into<[f32; 3]>>(&mut self, offset: T) {
-        self.scale *= Vec3::from(offset.into());
+        self.scale *= Vec3A::from(offset.into());
         self.changed = true;
     }
 
     pub fn translate_x(&mut self, offset: f32) {
-        self.translation += Vec3::new(offset, 0.0, 0.0);
+        self.translation += Vec3A::new(offset, 0.0, 0.0);
         self.changed = true;
     }
 
     pub fn translate_y(&mut self, offset: f32) {
-        self.translation += Vec3::new(0.0, offset, 0.0);
+        self.translation += Vec3A::new(0.0, offset, 0.0);
         self.changed = true;
     }
 
     pub fn translate_z(&mut self, offset: f32) {
-        self.translation += Vec3::new(0.0, 0.0, offset);
+        self.translation += Vec3A::new(0.0, 0.0, offset);
         self.changed = true;
     }
 
     pub fn translate<T: Into<[f32; 3]>>(&mut self, offset: T) {
         let offset: [f32; 3] = offset.into();
-        self.translation += Vec3::from(offset);
+        self.translation += Vec3A::from(offset);
         self.changed = true;
     }
 
@@ -165,7 +165,7 @@ impl Node {
 
     pub fn update_matrix(&mut self) {
         let trs =
-            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
+            Mat4::from_scale_rotation_translation(self.scale.into(), self.rotation, self.translation.into());
         self.local_matrix = trs * self.matrix;
         self.changed = false;
     }

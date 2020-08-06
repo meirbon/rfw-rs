@@ -510,8 +510,8 @@ impl TriangleScene {
 
     pub fn add_point_light(
         &mut self,
-        pos: Vec3,
-        radiance: Vec3,
+        pos: Vec3A,
+        radiance: Vec3A,
     ) -> Result<usize, TryLockError<MutexGuard<SceneLights>>> {
         match self.lights.try_lock() {
             Ok(mut lights) => {
@@ -524,9 +524,9 @@ impl TriangleScene {
 
     pub fn add_spot_light(
         &mut self,
-        pos: Vec3,
-        direction: Vec3,
-        radiance: Vec3,
+        pos: Vec3A,
+        direction: Vec3A,
+        radiance: Vec3A,
         inner_angle: f32,
         outer_angle: f32,
     ) -> Result<usize, TryLockError<MutexGuard<SceneLights>>> {
@@ -547,8 +547,8 @@ impl TriangleScene {
 
     pub fn add_directional_light(
         &mut self,
-        direction: Vec3,
-        radiance: Vec3,
+        direction: Vec3A,
+        radiance: Vec3A,
     ) -> Result<usize, TryLockError<MutexGuard<SceneLights>>> {
         match self.lights.try_lock() {
             Ok(mut lights) => {
@@ -623,11 +623,11 @@ impl TriangleScene {
                                     let v1 = &m.vertices[i1];
                                     let v2 = &m.vertices[i2];
 
-                                    let vertex0: Vec3 =
+                                    let vertex0: Vec3A =
                                         instance.transform_vertex(Vec4::from(v0.vertex).truncate());
-                                    let vertex1: Vec3 =
+                                    let vertex1: Vec3A =
                                         instance.transform_vertex(Vec4::from(v1.vertex).truncate());
-                                    let vertex2: Vec3 =
+                                    let vertex2: Vec3A =
                                         instance.transform_vertex(Vec4::from(v2.vertex).truncate());
 
                                     let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
@@ -673,11 +673,11 @@ impl TriangleScene {
                                     let v1 = &m.vertices[i1];
                                     let v2 = &m.vertices[i2];
 
-                                    let vertex0: Vec3 =
+                                    let vertex0: Vec3A =
                                         instance.transform_vertex(Vec4::from(v0.vertex).truncate());
-                                    let vertex1: Vec3 =
+                                    let vertex1: Vec3A =
                                         instance.transform_vertex(Vec4::from(v1.vertex).truncate());
-                                    let vertex2: Vec3 =
+                                    let vertex2: Vec3A =
                                         instance.transform_vertex(Vec4::from(v2.vertex).truncate());
 
                                     let normal = RTTriangle::normal(vertex0, vertex1, vertex2);

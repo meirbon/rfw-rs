@@ -177,7 +177,7 @@ impl Renderer for Deferred {
                 height: height as u32,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
-                present_mode: wgpu::PresentMode::Mailbox,
+                present_mode: wgpu::PresentMode::Fifo,
             },
         );
 
@@ -335,7 +335,7 @@ impl Renderer for Deferred {
         self.scene_bounds.grow_bb(
             &instance
                 .local_bounds()
-                .transformed(instance.get_transform()),
+                .transformed(instance.get_transform().to_cols_array()),
         );
     }
 
@@ -598,7 +598,7 @@ impl Renderer for Deferred {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Mailbox,
+                present_mode: wgpu::PresentMode::Fifo,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },

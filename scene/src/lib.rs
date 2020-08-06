@@ -395,7 +395,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     ) -> Option<LightRef> {
         if let Ok(mut lights) = self.scene.lights_lock() {
             let light =
-                DirectionalLight::new(Vec3::from(direction.into()), Vec3::from(radiance.into()));
+                DirectionalLight::new(Vec3A::from(direction.into()), Vec3A::from(radiance.into()));
             lights.directional_lights.push(light.clone());
 
             let light = LightRef::new(
