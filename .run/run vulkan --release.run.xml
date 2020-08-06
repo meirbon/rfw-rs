@@ -13,6 +13,18 @@
   </configuration>
   <configuration default="false" name="run vulkan --release" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="channel" value="NIGHTLY" />
+    <option name="command" value="run -p vulkan --release" />
+    <option name="allFeatures" value="false" />
+    <option name="emulateTerminal" value="false" />
+    <option name="backtrace" value="SHORT" />
+    <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+    <envs />
+    <method v="2">
+      <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+    </method>
+  </configuration>
+  <configuration default="false" name="run vulkan --release" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+    <option name="channel" value="NIGHTLY" />
     <option name="command" value="run -p simple --release" />
     <option name="allFeatures" value="false" />
     <option name="emulateTerminal" value="false" />

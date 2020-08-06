@@ -154,11 +154,6 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub fn push(&mut self, light: T, scene_bounds: &AABB) {
-        self.info.push(light.get_light_info(scene_bounds));
-        self.lights.push(light);
-    }
-
     pub fn set(&mut self, changed: &BitVec, lights: &[T], scene_bounds: &AABB) {
         self.lights = TrackedStorage::from(lights);
         self.lights.reset_changed();
@@ -1084,13 +1079,6 @@ impl ShadowMapArray {
 
         self.light_infos.resize(size, LightInfo::default());
         true
-    }
-
-    pub fn as_binding(&self, binding: usize) -> wgpu::Binding {
-        wgpu::Binding {
-            resource: wgpu::BindingResource::TextureView(&self.filter_view),
-            binding: binding as u32,
-        }
     }
 
     pub fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {

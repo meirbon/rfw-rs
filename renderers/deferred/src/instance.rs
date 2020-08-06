@@ -107,6 +107,7 @@ pub struct InstanceList {
     pub bounds: Vec<InstanceBounds>,
 }
 
+#[allow(dead_code)]
 impl InstanceList {
     pub fn new(device: &wgpu::Device) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

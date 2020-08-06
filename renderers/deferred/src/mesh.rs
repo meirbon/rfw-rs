@@ -1,14 +1,5 @@
-use rtbvh::AABB;
 use scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
-
-pub struct VertexBuffer {
-    pub count: usize,
-    pub size_in_bytes: usize,
-    pub buffer: wgpu::Buffer,
-    pub bounds: AABB,
-    pub meshes: Vec<VertexMesh>,
-}
 
 #[derive(Debug)]
 pub struct DeferredAnimMesh {
@@ -79,6 +70,7 @@ impl Clone for DeferredMesh {
     }
 }
 
+#[allow(dead_code)]
 impl DeferredMesh {
     pub fn new(device: &wgpu::Device, mesh: &Mesh) -> Self {
         let buffer_size = mesh.buffer_size() as wgpu::BufferAddress;
@@ -129,6 +121,7 @@ impl DeferredMesh {
     }
 }
 
+#[allow(dead_code)]
 impl DeferredAnimMesh {
     pub fn new(device: &wgpu::Device, mesh: &AnimatedMesh) -> Self {
         let buffer_size = mesh.vertices.to_bytes().len() as wgpu::BufferAddress;

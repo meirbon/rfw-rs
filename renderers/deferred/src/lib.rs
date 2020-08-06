@@ -14,7 +14,6 @@ use scene::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use wgpu::Adapter;
 
 mod instance;
 mod light;

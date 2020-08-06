@@ -2,6 +2,7 @@
 members = [
     "examples/animated",
     "examples/physics",
+    "examples/nphysics",
     "examples/simple",
     "renderers/cpu-rt",
     "renderers/deferred",

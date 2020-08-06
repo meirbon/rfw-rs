@@ -8,10 +8,8 @@ pub struct DeferredOutput {
     blit_debug_layout: wgpu::BindGroupLayout,
 
     blit_pipeline: wgpu::RenderPipeline,
-    blit_pipeline_layout: wgpu::PipelineLayout,
 
     blit_debug_pipeline: wgpu::RenderPipeline,
-    blit_debug_pipeline_layout: wgpu::PipelineLayout,
 
     debug_bind_groups: Vec<wgpu::BindGroup>,
 
@@ -100,10 +98,6 @@ impl DeferredOutput {
     pub const STORAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
     pub const SSAO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-    pub const VIEW_DIMENSION: wgpu::TextureViewDimension = wgpu::TextureViewDimension::D2;
-
-    pub const OUTPUT_TYPE: wgpu::TextureComponentType = wgpu::TextureComponentType::Uint;
-    pub const STORAGE_TYPE: wgpu::TextureComponentType = wgpu::TextureComponentType::Float;
 
     pub fn new(device: &wgpu::Device, width: usize, height: usize) -> Self {
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -313,9 +307,7 @@ impl DeferredOutput {
             blit_output_layout,
             blit_debug_layout,
             blit_pipeline,
-            blit_pipeline_layout,
             blit_debug_pipeline,
-            blit_debug_pipeline_layout,
             debug_bind_groups,
             output_texture,
             output_texture_view,

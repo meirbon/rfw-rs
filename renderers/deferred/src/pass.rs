@@ -7,7 +7,6 @@ use shared::*;
 pub struct BlitPass {
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
-    pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
 }
 
@@ -78,7 +77,6 @@ impl BlitPass {
         Self {
             bind_group_layout,
             bind_group,
-            pipeline_layout,
             pipeline,
         }
     }
@@ -117,7 +115,6 @@ pub struct SSAOPass {
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
-    pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::ComputePipeline,
 
     filter_uniform_direction_buffer: wgpu::Buffer,
@@ -126,7 +123,6 @@ pub struct SSAOPass {
     filter_bind_group_layout: wgpu::BindGroupLayout,
     filter_bind_group1: wgpu::BindGroup,
     filter_bind_group2: wgpu::BindGroup,
-    filter_pipeline_layout: wgpu::PipelineLayout,
     filter_pipeline: wgpu::ComputePipeline,
 }
 
@@ -317,7 +313,6 @@ impl SSAOPass {
             sampler,
             bind_group_layout,
             bind_group,
-            pipeline_layout,
             pipeline,
             filter_uniform_direction_buffer,
             filter_direction_x,
@@ -325,7 +320,6 @@ impl SSAOPass {
             filter_bind_group_layout,
             filter_bind_group1,
             filter_bind_group2,
-            filter_pipeline_layout,
             filter_pipeline,
         }
     }
@@ -467,7 +461,6 @@ impl SSAOPass {
 }
 
 pub struct RadiancePass {
-    pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::ComputePipeline,
     deferred_sampler: wgpu::Sampler,
     shadow_sampler: wgpu::Sampler,
@@ -648,7 +641,6 @@ impl RadiancePass {
         });
 
         Self {
-            pipeline_layout,
             pipeline,
             deferred_sampler,
             shadow_sampler,

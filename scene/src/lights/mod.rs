@@ -262,40 +262,40 @@ impl PointLight {
         [
             projection
                 * Mat4::look_at_rh(
-                center,
-                center + Vec3::new(1.0, 0.0, 0.0),
-                Vec3::new(0.0, -1.0, 0.0),
-            ),
+                    center,
+                    center + Vec3::new(1.0, 0.0, 0.0),
+                    Vec3::new(0.0, -1.0, 0.0),
+                ),
             projection
                 * Mat4::look_at_rh(
-                center,
-                center + Vec3::new(-1.0, 0.0, 0.0),
-                Vec3::new(0.0, -1.0, 0.0),
-            ),
+                    center,
+                    center + Vec3::new(-1.0, 0.0, 0.0),
+                    Vec3::new(0.0, -1.0, 0.0),
+                ),
             projection
                 * Mat4::look_at_rh(
-                center,
-                center + Vec3::new(0.0, 1.0, 0.0),
-                Vec3::new(0.0, 0.0, 1.0),
-            ),
+                    center,
+                    center + Vec3::new(0.0, 1.0, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
             projection
                 * Mat4::look_at_rh(
-                center,
-                center + Vec3::new(0.0, -1.0, 0.0),
-                Vec3::new(0.0, 0.0, -1.0),
-            ),
+                    center,
+                    center + Vec3::new(0.0, -1.0, 0.0),
+                    Vec3::new(0.0, 0.0, -1.0),
+                ),
             projection
                 * Mat4::look_at_rh(
-                center,
-                center + Vec3::new(0.0, 0.0, 1.0),
-                Vec3::new(0.0, -1.0, 0.0),
-            ),
+                    center,
+                    center + Vec3::new(0.0, 0.0, 1.0),
+                    Vec3::new(0.0, -1.0, 0.0),
+                ),
             projection
                 * Mat4::look_at_rh(
-                center,
-                center + Vec3::new(0.0, 0.0, -1.0),
-                Vec3::new(0.0, -1.0, 0.0),
-            ),
+                    center,
+                    center + Vec3::new(0.0, 0.0, -1.0),
+                    Vec3::new(0.0, -1.0, 0.0),
+                ),
         ]
     }
 
@@ -507,8 +507,8 @@ impl Light for DirectionalLight {
         let l = dims.length() * 1.5;
         let center = scene_bounds.center::<Vec3A>() - Vec3A::splat(0.5 * l) * direction;
 
-        let h = (up * l).length() / 2.0;
-        let w = (direction.cross(up).normalize() * l).length() / 2.0;
+        let h = (up * l).length();
+        let w = (direction.cross(up).normalize() * l).length();
 
         let projection = Mat4::orthographic_rh(-w, w, -h, h, 0.1, l);
         let view = Mat4::look_at_rh(center.into(), (center + direction).into(), up.into());
@@ -543,8 +543,8 @@ impl Light for DirectionalLight {
         let l = dims.length() * 1.5;
         let center = scene_bounds.center::<Vec3A>() - Vec3A::splat(0.5 * l) * direction;
 
-        let h = (up * l).length() / 2.0;
-        let w = (direction.cross(up).normalize() * l).length() / 2.0;
+        let h = (up * l).length();
+        let w = (direction.cross(up).normalize() * l).length();
 
         let right = direction.cross(up).normalize();
         let up = right.cross(direction).normalize();
