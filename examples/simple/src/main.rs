@@ -70,7 +70,7 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use scene::renderers::RenderMode;
+use rfw_system::{scene::renderers::RenderMode, scene::Camera, RenderSystem};
 use shared::utils;
 
 fn main() {
@@ -97,11 +97,9 @@ fn main() {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    use rfw_vulkan::VkRenderer;
-    use scene::RenderSystem;
-
-    let renderer: RenderSystem<VkRenderer> = RenderSystem::new(&window, width, height).unwrap();
-    let mut camera = scene::Camera::new(width as u32, height as u32);
+    // let renderer = RenderSystem::<rfw_vulkan::VkRenderer>::new(&window, width, height).unwrap();
+    let renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
+    let mut camera = Camera::new(width as u32, height as u32);
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;

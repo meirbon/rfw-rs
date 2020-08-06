@@ -4,12 +4,13 @@ use glam::*;
 use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
-use scene::graph::Skin;
-use scene::renderers::{RenderMode, Renderer};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec, CameraView,
-    DeviceMaterial, DirectionalLight, Instance, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight,
-    Texture, TrackedStorage,
+
+use rfw_scene::{
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer},
+    AnimatedMesh, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Mesh,
+    ObjectRef, PointLight, RTTriangle, SpotLight, Texture, TrackedStorage,
 };
 use shared::*;
 use std::error::Error;
@@ -1054,8 +1055,8 @@ impl Renderer for RayTracer {
 
     fn set_materials(
         &mut self,
-        _materials: &[scene::Material],
-        device_materials: &[scene::DeviceMaterial],
+        _materials: &[rfw_scene::Material],
+        device_materials: &[rfw_scene::DeviceMaterial],
     ) {
         self.materials_buffer
             .resize(&self.device, device_materials.len());
@@ -1094,7 +1095,7 @@ impl Renderer for RayTracer {
         });
     }
 
-    fn set_textures(&mut self, textures: &[scene::Texture]) {
+    fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
         self.textures = textures
             .par_iter()
             .map(|t| {
@@ -1553,7 +1554,7 @@ impl Renderer for RayTracer {
         });
     }
 
-    fn render(&mut self, camera: &scene::Camera, mode: RenderMode) {
+    fn render(&mut self, camera: &rfw_scene::Camera, mode: RenderMode) {
         if self.meshes.is_empty() {
             return;
         }
@@ -1787,25 +1788,25 @@ impl Renderer for RayTracer {
             .unwrap();
     }
 
-    fn set_point_lights(&mut self, _changed: &BitVec, lights: &[scene::PointLight]) {
+    fn set_point_lights(&mut self, _changed: &BitVec, lights: &[rfw_scene::PointLight]) {
         self.light_counts[LightBindings::PointLights as usize] = lights.len();
         self.point_lights.resize(&self.device, lights.len());
         self.point_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
-    fn set_spot_lights(&mut self, _changed: &BitVec, lights: &[scene::SpotLight]) {
+    fn set_spot_lights(&mut self, _changed: &BitVec, lights: &[rfw_scene::SpotLight]) {
         self.light_counts[LightBindings::SpotLights as usize] = lights.len();
         self.spot_lights.resize(&self.device, lights.len());
         self.spot_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
-    fn set_area_lights(&mut self, _changed: &BitVec, lights: &[scene::AreaLight]) {
+    fn set_area_lights(&mut self, _changed: &BitVec, lights: &[rfw_scene::AreaLight]) {
         self.light_counts[LightBindings::AreaLights as usize] = lights.len();
         self.area_lights.resize(&self.device, lights.len());
         self.area_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
-    fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[scene::DirectionalLight]) {
+    fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[rfw_scene::DirectionalLight]) {
         self.light_counts[LightBindings::DirectionalLights as usize] = lights.len();
         self.directional_lights.resize(&self.device, lights.len());
         self.directional_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
@@ -1900,11 +1901,11 @@ impl Renderer for RayTracer {
         self.skins[id] = skin.clone();
     }
 
-    fn get_settings(&self) -> Vec<scene::renderers::Setting> {
+    fn get_settings(&self) -> Vec<rfw_scene::renderers::Setting> {
         Vec::new()
     }
 
-    fn set_setting(&mut self, _setting: scene::renderers::Setting) {
+    fn set_setting(&mut self, _setting: rfw_scene::renderers::Setting) {
         todo!()
     }
 }

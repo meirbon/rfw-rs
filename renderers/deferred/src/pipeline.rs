@@ -1,5 +1,5 @@
 use super::output::*;
-use scene::{AnimVertexData, VertexData};
+use rfw_scene::{AnimVertexData, VertexData};
 use shared::*;
 
 pub struct RenderPipeline {

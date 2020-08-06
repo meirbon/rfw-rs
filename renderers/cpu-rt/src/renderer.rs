@@ -6,12 +6,14 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use rtbvh::builders::{locb::LocallyOrderedClusteringBuilder, Builder};
 use rtbvh::{Bounds, Ray, AABB, BVH, MBVH};
-use scene::graph::Skin;
-use scene::renderers::{RenderMode, Renderer};
-use scene::{
-    constants, raw_window_handle::HasRawWindowHandle, AnimatedMesh, AreaLight, BitVec,
-    DeviceMaterial, DirectionalLight, Instance, Light, Material, Mesh, PointLight, SpotLight,
-    TIntersector, Texture,
+
+use rfw_system::scene::{
+    constants,
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer},
+    AnimatedMesh, AreaLight, BitVec, DeviceMaterial, DirectionalLight, Instance, Light, Material,
+    Mesh, PointLight, SpotLight, TIntersector, Texture,
 };
 use shared::*;
 use std::error::Error;
@@ -279,14 +281,14 @@ impl Renderer for RayTracer {
 
     fn set_materials(
         &mut self,
-        materials: &[scene::Material],
-        device_materials: &[scene::DeviceMaterial],
+        materials: &[rfw_system::scene::Material],
+        device_materials: &[rfw_system::scene::DeviceMaterial],
     ) {
         self.materials = materials.to_vec();
         self.device_materials = device_materials.to_vec();
     }
 
-    fn set_textures(&mut self, textures: &[scene::Texture]) {
+    fn set_textures(&mut self, textures: &[rfw_system::scene::Texture]) {
         self.textures = textures.to_vec();
     }
 
@@ -298,13 +300,13 @@ impl Renderer for RayTracer {
         });
 
         let aabbs: Vec<AABB> = self.instances.iter().map(|i| i.bounds()).collect();
-        let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
+        let centers: Vec<Vec3A> = aabbs.iter().map(|bb| bb.center()).collect();
         let builder = LocallyOrderedClusteringBuilder::new(aabbs.as_slice(), centers.as_slice());
         self.bvh = builder.build();
         self.mbvh = MBVH::construct(&self.bvh);
     }
 
-    fn render(&mut self, camera: &scene::Camera, mode: RenderMode) {
+    fn render(&mut self, camera: &rfw_system::scene::Camera, mode: RenderMode) {
         if mode == RenderMode::Reset {
             self.sample_count = 0;
             self.render_surface.clear();
@@ -390,8 +392,8 @@ impl Renderer for RayTracer {
                                 && (prim_id >= 0 || instance_id >= 0)
                             {
                                 path_length += 1;
-                                let mut throughput = Vec3::one();
-                                let mut color = Vec3::zero();
+                                let mut throughput = Vec3A::one();
+                                let mut color = Vec3A::zero();
                                 let mut ray = packet.ray(i);
 
                                 let mut hit =
@@ -408,9 +410,9 @@ impl Renderer for RayTracer {
                                         }
                                         break;
                                     } else {
-                                        let normal: Vec3 = hit.normal.into();
-                                        let (origin, direction) = ray.into();
-                                        let p: Vec3 = origin + direction * hit.t;
+                                        let normal: Vec3A = hit.normal.into();
+                                        let (origin, direction) = ray.get_vectors::<Vec3A>();
+                                        let p: Vec3A = origin + direction * hit.t;
                                         let backward_facing = -direction.dot(normal).signum();
                                         let normal = normal * backward_facing;
 
@@ -423,14 +425,14 @@ impl Renderer for RayTracer {
                                             as usize;
                                         if let Some(al) = area_lights.get(sampled_light) {
                                             let nee_pdf = 1.0 / area_lights.len() as f32;
-                                            let pos = Vec3::from(al.position);
-                                            let l: Vec3 = pos - p;
+                                            let pos = Vec3A::from(al.position);
+                                            let l: Vec3A = pos - p;
                                             let dist2 = l.dot(l);
                                             let dist = dist2.sqrt();
-                                            let l: Vec3 = l / dist;
+                                            let l: Vec3A = l / dist;
 
                                             let n_dot_l = normal.dot(l);
-                                            let ln_dot_l = -Vec3::from(al.normal).dot(l);
+                                            let ln_dot_l = -Vec3A::from(al.normal).dot(l);
                                             if n_dot_l > 0.0 && ln_dot_l > 0.0 {
                                                 if !intersector.occludes(
                                                     Ray::new(p.into(), l.into()),
@@ -454,7 +456,7 @@ impl Renderer for RayTracer {
                                             rng.gen::<f32>(),
                                             rng.gen::<f32>(),
                                         );
-                                        let origin: Vec3 = p;
+                                        let origin: Vec3A = p;
                                         ray = Ray::new(origin.into(), direction.into());
 
                                         // Intersect new ray
@@ -514,13 +516,13 @@ impl Renderer for RayTracer {
 
             let color_weight = Vec4::splat(255.0);
             let width = self.width;
-            let fb_iterator = pixel_buffer.data.par_chunks_mut(width * 4).enumerate();
+            let fb_iterayor = pixel_buffer.data.par_chunks_mut(width * 4).enumerate();
 
-            fb_iterator.for_each(|(y, fb_pixels)| {
-                let line_iterator = fb_pixels.chunks_exact_mut(4).enumerate();
+            fb_iterayor.for_each(|(y, fb_pixels)| {
+                let line_iterayor = fb_pixels.chunks_exact_mut(4).enumerate();
                 let y_offset = y * width;
 
-                for (x, pixel) in line_iterator {
+                for (x, pixel) in line_iterayor {
                     let color: Vec4 = unsafe { *pixels.get_unchecked(x + y_offset) };
                     let color = color.min(Vec4::one()).max(Vec4::zero());
 
@@ -634,19 +636,23 @@ impl Renderer for RayTracer {
         });
     }
 
-    fn set_point_lights(&mut self, _changed: &BitVec, lights: &[scene::PointLight]) {
+    fn set_point_lights(&mut self, _changed: &BitVec, lights: &[rfw_system::scene::PointLight]) {
         self.point_lights = Vec::from(lights);
     }
 
-    fn set_spot_lights(&mut self, _changed: &BitVec, lights: &[scene::SpotLight]) {
+    fn set_spot_lights(&mut self, _changed: &BitVec, lights: &[rfw_system::scene::SpotLight]) {
         self.spot_lights = Vec::from(lights);
     }
 
-    fn set_area_lights(&mut self, _changed: &BitVec, lights: &[scene::AreaLight]) {
+    fn set_area_lights(&mut self, _changed: &BitVec, lights: &[rfw_system::scene::AreaLight]) {
         self.area_lights = Vec::from(lights);
     }
 
-    fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[scene::DirectionalLight]) {
+    fn set_directional_lights(
+        &mut self,
+        _changed: &BitVec,
+        lights: &[rfw_system::scene::DirectionalLight],
+    ) {
         self.directional_lights = Vec::from(lights);
     }
 
@@ -656,16 +662,16 @@ impl Renderer for RayTracer {
 
     fn set_skin(&mut self, id: usize, _skin: &Skin) {}
 
-    fn get_settings(&self) -> Vec<scene::renderers::Setting> {
+    fn get_settings(&self) -> Vec<rfw_system::scene::renderers::Setting> {
         Vec::new()
     }
-    fn set_setting(&mut self, _setting: scene::renderers::Setting) {
+    fn set_setting(&mut self, _setting: rfw_system::scene::renderers::Setting) {
         todo!()
     }
 }
 
 impl RayTracer {
-    fn create_tangent_space(normal: Vec3) -> (Vec3, Vec3) {
+    fn create_tangent_space(normal: Vec3A) -> (Vec3A, Vec3A) {
         // *w = v2;
         // *u = normalize(cross(fabs(v2.x) > fabs(v2.y) ? (float3)(0, 1, 0) : (float3)(1, 0, 0), *w));
         // *v = cross(*w, *u);
@@ -673,9 +679,9 @@ impl RayTracer {
         // return normalize((float3)(dot(*u, wi), dot(*v, wi), dot(*w, wi)));
 
         let t = if normal.x().abs() > normal.y().abs() {
-            Vec3::new(0.0, 1.0, 0.0)
+            Vec3A::new(0.0, 1.0, 0.0)
         } else {
-            Vec3::new(1.0, 0.0, 0.0)
+            Vec3A::new(1.0, 0.0, 0.0)
         };
 
         let t = t.cross(normal).normalize();
@@ -683,39 +689,39 @@ impl RayTracer {
         (t, b)
     }
 
-    fn tangent_to_world(sample: Vec3, normal: Vec3, tb: (Vec3, Vec3)) -> Vec3 {
+    fn tangent_to_world(sample: Vec3A, normal: Vec3A, tb: (Vec3A, Vec3A)) -> Vec3A {
         let (t, b) = tb;
         sample.x() * b + sample.y() * t + sample.z() * normal
     }
 
-    fn world_to_tangent(sample: Vec3, normal: Vec3, tb: (Vec3, Vec3)) -> Vec3 {
+    fn world_to_tangent(sample: Vec3A, normal: Vec3A, tb: (Vec3A, Vec3A)) -> Vec3A {
         let (t, b) = tb;
-        Vec3::new(t.dot(sample), b.dot(sample), normal.dot(sample)).normalize()
+        Vec3A::new(t.dot(sample), b.dot(sample), normal.dot(sample)).normalize()
     }
 
-    fn sample_hemisphere(r1: f32, r2: f32) -> Vec3 {
+    fn sample_hemisphere(r1: f32, r2: f32) -> Vec3A {
         let r = (1.0 - r1 * r1).sqrt();
         let phi = 2.0 * std::f32::consts::PI * r2;
         let (x, y) = phi.sin_cos();
         let (x, y) = (x * r, y * r);
-        Vec3::new(x, y, r1)
+        Vec3A::new(x, y, r1)
     }
 
-    fn world_sample(normal: Vec3, r1: f32, r2: f32) -> Vec3 {
+    fn world_sample(normal: Vec3A, r1: f32, r2: f32) -> Vec3A {
         let tb = Self::create_tangent_space(normal);
         let sample = Self::sample_hemisphere(r1, r2);
         Self::tangent_to_world(sample, normal, tb)
     }
 
-    fn sample_hemisphere_cos(r1: f32, r2: f32) -> Vec3 {
+    fn sample_hemisphere_cos(r1: f32, r2: f32) -> Vec3A {
         let r = r1.sqrt();
         let theta = 2.0 * std::f32::consts::PI * r2;
         let (x, y) = theta.sin_cos();
         let (x, y) = (x * r, y * r);
-        Vec3::new(x, y, (1.0 - r1).sqrt())
+        Vec3A::new(x, y, (1.0 - r1).sqrt())
     }
 
-    fn world_sample_cos(normal: Vec3, r1: f32, r2: f32) -> Vec3 {
+    fn world_sample_cos(normal: Vec3A, r1: f32, r2: f32) -> Vec3A {
         let tb = Self::create_tangent_space(normal);
         let sample = Self::sample_hemisphere_cos(r1, r2);
         Self::tangent_to_world(sample, normal, tb)

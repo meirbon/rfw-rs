@@ -1,5 +1,5 @@
 [package]
-name = "scene"
+name = "rfw_scene"
 version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"

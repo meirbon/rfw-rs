@@ -1,8 +1,8 @@
 use super::mesh::DeferredMesh;
 use crate::mesh::DeferredAnimMesh;
 use glam::*;
+use rfw_scene::{Instance, ObjectRef, TrackedStorage};
 use rtbvh::{Bounds, AABB};
-use scene::{Instance, ObjectRef, TrackedStorage};
 
 pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
@@ -200,7 +200,7 @@ impl InstanceList {
 
                 std::ptr::copy(
                     transform.as_ref() as *const [f32; 16],
-                    (staging_data.data.as_mut_ptr() as *mut  [f32; 16]).add(i * 2),
+                    (staging_data.data.as_mut_ptr() as *mut [f32; 16]).add(i * 2),
                     1,
                 );
                 std::ptr::copy(

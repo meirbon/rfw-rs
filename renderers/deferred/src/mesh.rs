@@ -1,4 +1,4 @@
-use scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
+use rfw_scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
 
 #[derive(Debug)]

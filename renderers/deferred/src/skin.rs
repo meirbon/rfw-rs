@@ -1,4 +1,4 @@
-use scene::graph::Skin;
+use rfw_scene::graph::Skin;
 use shared::BytesConversion;
 
 #[derive(Debug)]

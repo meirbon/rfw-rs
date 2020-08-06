@@ -3,11 +3,11 @@ use crate::instance::DeviceInstances;
 use crate::mesh::DeferredAnimMesh;
 use crate::skin::DeferredSkin;
 use futures::executor::block_on;
-use rtbvh::AABB;
-use scene::{
+use rfw_scene::{
     lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
     VertexData,
 };
+use rtbvh::AABB;
 use shared::*;
 use std::fmt::Debug;
 use std::ops::Range;

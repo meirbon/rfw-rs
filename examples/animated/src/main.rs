@@ -17,9 +17,12 @@ use winit::{
 use rfw_deferred::Deferred;
 use rfw_gpu_rt::RayTracer;
 
-use scene::{
-    renderers::{RenderMode, Setting, SettingValue},
-    RenderSystem, Renderer,
+use rfw_system::{
+    scene::{
+        renderers::{RenderMode, Setting, SettingValue},
+        Camera, LoadResult, Renderer,
+    },
+    RenderSystem,
 };
 use shared::utils;
 
@@ -123,7 +126,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let mut camera = scene::Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
+    let mut camera = Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -144,12 +147,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
 
     let _pica = match futures::executor::block_on(pica)? {
-        scene::LoadResult::Scene(root_nodes) => root_nodes,
-        scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+        LoadResult::Scene(root_nodes) => root_nodes,
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
 
     match futures::executor::block_on(cesium_man)? {
-        scene::LoadResult::Scene(root_nodes) => {
+        LoadResult::Scene(root_nodes) => {
             root_nodes.iter().for_each(|node| {
                 renderer.get_node_mut(*node, |node| {
                     if let Some(node) = node {
@@ -159,10 +162,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 });
             });
         }
-        scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
 
-    let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
+    let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
     let app_time = utils::Timer::new();
 

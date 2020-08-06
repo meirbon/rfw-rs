@@ -9,7 +9,7 @@ build = "build.rs"
 
 [dependencies]
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
-scene = { path = "../../scene" }
+rfw_scene = { path = "../../scene" }
 shared = { path = "../shared" }
 rayon = "1.3"
 num_cpus = "1.13"

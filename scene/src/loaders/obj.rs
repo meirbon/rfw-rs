@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::Mutex};
 use crate::graph::animation::Animation;
 use crate::graph::{NodeGraph, Skin};
 use crate::material::*;
-use crate::triangle_scene::SceneError;
+use crate::SceneError;
 use crate::utils::*;
 use crate::{AnimatedMesh, Instance, LoadResult, Mesh, ObjectLoader, ObjectRef};
 

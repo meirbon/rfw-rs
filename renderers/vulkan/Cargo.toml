@@ -10,10 +10,9 @@ build = "build.rs"
 [dependencies]
 ash = "0.31"
 ash-window = "0.4"
-scene = { path = "../../scene" }
-shared = { path = "../shared" }
 glam = "0.8"
-winit = "0.22"
+shared = { path = "../shared" }
+rfw_scene = { path = "../../scene" }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["windef", "winuser"] }

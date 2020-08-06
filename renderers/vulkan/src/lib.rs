@@ -13,11 +13,12 @@ use ash::{vk, Entry};
 
 use ash::util::read_spv;
 use helpers::*;
-use scene::graph::Skin;
-use scene::renderers::{RenderMode, Renderer, Setting};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AreaLight, BitVec, Camera, DeviceMaterial,
-    DirectionalLight, Instance, Local, Material, Mesh, PointLight, SpotLight, Texture,
+use rfw_scene::{
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer, Setting},
+    AreaLight, BitVec, Camera, DeviceMaterial, DirectionalLight, Instance, Local, Material, Mesh,
+    PointLight, SpotLight, Texture,
 };
 use std::io::Cursor;
 
@@ -960,7 +961,7 @@ impl Renderer for VkRenderer {
     }
 
     fn set_setting(&mut self, _setting: Setting) {}
-    fn set_animated_mesh(&mut self, _id: usize, _mesh: &scene::AnimatedMesh) {
+    fn set_animated_mesh(&mut self, _id: usize, _mesh: &rfw_scene::AnimatedMesh) {
         todo!()
     }
 

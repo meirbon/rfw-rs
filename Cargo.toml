@@ -8,7 +8,10 @@ members = [
     "renderers/deferred",
     "renderers/gpu-rt",
     "renderers/shared",
-    "scene"
+    "renderers/vulkan",
+    "renderers/gfx",
+    "scene",
+    "system",
 ]
 
 [profile.release]

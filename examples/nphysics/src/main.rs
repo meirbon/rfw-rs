@@ -81,7 +81,13 @@ use nphysics3d::object::{
     BodyPartHandle, BodyStatus, ColliderDesc, DefaultBodySet, DefaultColliderSet, RigidBodyDesc,
 };
 use nphysics3d::world::{DefaultGeometricalWorld, DefaultMechanicalWorld};
-use scene::{renderers::RenderMode, Setting, SettingValue};
+use rfw_system::{
+    scene::Camera,
+    scene::Setting,
+    scene::SettingValue,
+    scene::{renderers::RenderMode, Plane, Sphere},
+    RenderSystem,
+};
 use shared::utils;
 use std::error::Error;
 
@@ -110,7 +116,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     height = window.inner_size().height as usize;
 
     use rfw_deferred::Deferred as Renderer;
-    let renderer: scene::RenderSystem<Renderer> = scene::RenderSystem::new(&window, width, height)?;
+    let renderer: RenderSystem<Renderer> = RenderSystem::new(&window, width, height)?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -120,7 +126,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut force_generators = DefaultForceGeneratorSet::new();
 
     let mut camera =
-        scene::Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
+        Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
     let mut fps = utils::Averager::new();
@@ -129,11 +135,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut render = utils::Averager::new();
     let mut resized = false;
 
-    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
+    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0))?;
 
     // Ground
     let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0)?;
-    let plane = scene::Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
+    let plane = Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
     let plane = renderer.add_object(plane)?;
     let _plane_inst = renderer.create_instance(plane)?;
 
@@ -156,7 +162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sphere_material = renderer.add_material([0.0, 0.5, 1.0], 1.0, [1.0; 3], 0.0)?;
     let sphere_radius = 0.5_f32;
     let sphere_center: [f32; 3] = [0.0, 5.0, 0.0];
-    let sphere = scene::Sphere::new([0.0; 3], sphere_radius, sphere_material);
+    let sphere = Sphere::new([0.0; 3], sphere_radius, sphere_material);
     let sphere = renderer.add_object(sphere)?;
     let sphere_inst = renderer.create_instance(sphere)?;
     renderer.get_instance_mut(sphere_inst, |instance| {
@@ -187,7 +193,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     geometrical_world.maintain(&mut bodies, &mut colliders);
 
-    let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
+    let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
     timer2.reset();
     renderer.synchronize();

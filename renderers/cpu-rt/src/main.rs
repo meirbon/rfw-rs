@@ -78,10 +78,10 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use scene::renderers::{RenderMode, Setting, SettingValue};
+use rfw_system::scene::renderers::{RenderMode, Setting, SettingValue};
 use shared::utils;
 use std::error::Error;
-use scene::LoadResult;
+use rfw_system::scene::LoadResult;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 512;
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     height = window.inner_size().height as usize;
 
     use renderer::RayTracer;
-    use scene::RenderSystem;
+    use rfw_system::RenderSystem;
 
     let dpi_factor = window.current_monitor().scale_factor();
     let render_width = (width as f64 / dpi_factor) as usize;
@@ -116,13 +116,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let renderer: RenderSystem<RayTracer> =
         RenderSystem::new(&window, render_width, render_height).unwrap();
-    let mut camera = scene::Camera::new(render_width as u32, render_height as u32);
+    let mut camera = rfw_system::scene::Camera::new(render_width as u32, render_height as u32);
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
     let quad_mat = renderer.add_material(Vec3::splat(20.0), 1.0, Vec3::one(), 0.0)?;
-    let quad = scene::objects::Quad::new(Vec3::new(0.0, -1.0, 0.0), Vec3::new(0.0, 20.0, 0.0), 10.0, 10.0, quad_mat);
+    let quad = rfw_system::scene::objects::Quad::new(
+        Vec3::new(0.0, -1.0, 0.0),
+        Vec3::new(0.0, 20.0, 0.0),
+        10.0,
+        10.0,
+        quad_mat,
+    );
     let quad = renderer.add_object(quad)?;
     let _quad_inst = renderer.create_instance(quad);
 
@@ -161,7 +167,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     });
     // }
 
-    let settings: Vec<scene::renderers::Setting> = renderer.get_settings().unwrap();
+    let settings: Vec<rfw_system::scene::renderers::Setting> = renderer.get_settings().unwrap();
     let mut mode = RenderMode::Accumulate;
 
     renderer.synchronize();

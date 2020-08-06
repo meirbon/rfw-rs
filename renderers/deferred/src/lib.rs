@@ -6,11 +6,12 @@ use futures::executor::block_on;
 use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
-use scene::graph::Skin;
-use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AnimatedMesh, BitVec, Camera, DeviceMaterial, Instance,
-    ObjectRef, Texture, TrackedStorage,
+
+use rfw_scene::{
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer, Setting, SettingValue},
+    AnimatedMesh, BitVec, Camera, DeviceMaterial, Instance, ObjectRef, Texture, TrackedStorage,
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -295,7 +296,7 @@ impl Renderer for Deferred {
         }))
     }
 
-    fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
+    fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
         self.meshes
             .overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
     }
@@ -338,8 +339,8 @@ impl Renderer for Deferred {
 
     fn set_materials(
         &mut self,
-        materials: &[scene::Material],
-        device_materials: &[scene::DeviceMaterial],
+        materials: &[rfw_scene::Material],
+        device_materials: &[rfw_scene::DeviceMaterial],
     ) {
         assert!(materials.len() > 0);
         assert_eq!(materials.len(), device_materials.len());
@@ -424,7 +425,7 @@ impl Renderer for Deferred {
         self.materials_changed = true;
     }
 
-    fn set_textures(&mut self, textures: &[scene::Texture]) {
+    fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
         let staging_size =
             textures.iter().map(|t| t.data.len()).sum::<usize>() * std::mem::size_of::<u32>();
         let staging_buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
@@ -458,7 +459,7 @@ impl Renderer for Deferred {
                     depth: 1,
                 },
                 array_layer_count: 1,
-                mip_level_count: scene::Texture::MIP_LEVELS as u32,
+                mip_level_count: rfw_scene::Texture::MIP_LEVELS as u32,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Bgra8Unorm,
@@ -468,7 +469,7 @@ impl Renderer for Deferred {
             let mut width = tex.width;
             let mut height = tex.height;
             let mut local_offset = 0 as wgpu::BufferAddress;
-            for i in 0..scene::Texture::MIP_LEVELS {
+            for i in 0..rfw_scene::Texture::MIP_LEVELS {
                 encoder.copy_buffer_to_texture(
                     wgpu::BufferCopyView {
                         buffer: &staging_buffer,
@@ -532,7 +533,7 @@ impl Renderer for Deferred {
         self.anim_meshes.reset_changed();
     }
 
-    fn render(&mut self, camera: &scene::Camera, _mode: RenderMode) {
+    fn render(&mut self, camera: &rfw_scene::Camera, _mode: RenderMode) {
         let output = match self.swap_chain.get_next_texture() {
             Ok(output) => output,
             Err(_) => return,
@@ -610,23 +611,23 @@ impl Renderer for Deferred {
             .update_bind_groups(&self.device, &self.output);
     }
 
-    fn set_point_lights(&mut self, _changed: &BitVec, _lights: &[scene::PointLight]) {
+    fn set_point_lights(&mut self, _changed: &BitVec, _lights: &[rfw_scene::PointLight]) {
         self.lights_changed = true;
     }
 
-    fn set_spot_lights(&mut self, changed: &BitVec, lights: &[scene::SpotLight]) {
+    fn set_spot_lights(&mut self, changed: &BitVec, lights: &[rfw_scene::SpotLight]) {
         self.lights
             .set_spot_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_area_lights(&mut self, changed: &BitVec, lights: &[scene::AreaLight]) {
+    fn set_area_lights(&mut self, changed: &BitVec, lights: &[rfw_scene::AreaLight]) {
         self.lights
             .set_area_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_directional_lights(&mut self, changed: &BitVec, lights: &[scene::DirectionalLight]) {
+    fn set_directional_lights(&mut self, changed: &BitVec, lights: &[rfw_scene::DirectionalLight]) {
         self.lights
             .set_directional_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
@@ -650,7 +651,7 @@ impl Renderer for Deferred {
         )]
     }
 
-    fn set_setting(&mut self, setting: scene::renderers::Setting) {
+    fn set_setting(&mut self, setting: rfw_scene::renderers::Setting) {
         if setting.key() == "debug-view" {
             let debug_view = match setting.value() {
                 SettingValue::Int(i) => output::DeferredView::from(*i),
@@ -790,7 +791,7 @@ impl Deferred {
             });
 
             let matrix = camera.get_rh_matrix();
-            let frustrum = scene::FrustrumG::from_matrix(matrix);
+            let frustrum = rfw_scene::FrustrumG::from_matrix(matrix);
 
             let device_instance = &instances.device_instances;
 
@@ -839,7 +840,7 @@ impl Deferred {
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
                         if let (Some(buffer), Some(anim_buffer)) =
-                        (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                         {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);

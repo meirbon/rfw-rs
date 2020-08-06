@@ -73,7 +73,7 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use scene::renderers::RenderMode;
+use rfw_system::scene::renderers::RenderMode;
 use shared::utils;
 use std::error::Error;
 
@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     height = window.inner_size().height as usize;
 
     use rfw_deferred::Deferred;
-    use scene::RenderSystem;
+    use rfw_system::RenderSystem;
 
     let renderer: RenderSystem<Deferred> = RenderSystem::new(&window, width, height).unwrap();
 
@@ -116,8 +116,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             .set_simulation_threading(SimulationThreadType::Dedicated(2)),
     );
 
-    let mut camera =
-        scene::Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 2.0, -8.0));
+    let mut camera = rfw_system::scene::Camera::new(width as u32, height as u32)
+        .with_position(Vec3::new(0.0, 2.0, -8.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
     let mut fps = utils::Averager::new();
@@ -135,7 +135,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Ground
     let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0)?;
-    let plane = scene::Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
+    let plane = rfw_system::scene::Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
     let plane = renderer.add_object(plane)?;
     let _plane_inst = renderer.create_instance(plane)?;
 
@@ -146,8 +146,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sphere_material = renderer.add_material([0.0, 0.5, 1.0], 1.0, [1.0; 3], 0.0)?;
     let sphere_radius = 0.5_f32;
     let sphere_center: [f32; 3] = [0.0, 10.0, 0.0];
-    let sphere = scene::Sphere::new([0.0; 3], sphere_radius, sphere_material);
-    let sphere = renderer.add_object(sphere.with_quality(scene::sphere::Quality::Medium))?;
+    let sphere = rfw_system::scene::Sphere::new([0.0; 3], sphere_radius, sphere_material);
+    let sphere =
+        renderer.add_object(sphere.with_quality(rfw_system::scene::sphere::Quality::Medium))?;
     let sphere_inst = renderer.create_instance(sphere)?;
     renderer.get_instance_mut(sphere_inst, |instance| {
         instance.unwrap().set_translation(sphere_center);
@@ -272,11 +273,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     scene
                         .get_rigid_actor_unchecked(&sphere_handle)
                         .get_global_position()
-                }.into();
-
-                unsafe {
-                    // let actor: &physx::rigid_actor = scene.get_rigid_actor_unchecked(&sphere_handle);
                 }
+                .into();
 
                 renderer.get_instance_mut(sphere_inst, |instance| {
                     if let Some(instance) = instance {
@@ -292,7 +290,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                renderer.render(&camera, RenderMode::Reset);
+                renderer.render(&camera, rfw_system::scene::RenderMode::Reset);
                 render.add_sample(timer2.elapsed_in_millis());
 
                 scene.simulate(match first {
