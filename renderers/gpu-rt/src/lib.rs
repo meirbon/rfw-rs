@@ -1459,7 +1459,7 @@ impl Renderer for RayTracer {
         let instances_buffer = &mut self.instances_buffer;
         let aabbs: Vec<AABB> = self.instances.iter().map(|(_, i)| i.bounds()).collect();
 
-        let centers: Vec<Vec3> = aabbs.iter().map(|bb| bb.center()).collect();
+        let centers: Vec<Vec3A> = aabbs.iter().map(|bb| bb.center()).collect();
         let builder = BinnedSahBuilder::new(aabbs.as_slice(), centers.as_slice());
         self.bvh = builder.build();
         self.mbvh = MBVH::construct(&self.bvh);

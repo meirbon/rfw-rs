@@ -6,8 +6,9 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "lights.glsl"
 #include "disney_bsdf.glsl"
 
-#define BIAS 0.001
+#define BIAS 0.0001
 #define VARIANCE_MIN 0.0000001
+#define SHADOW_CUTOFF 0.0001
 
 layout(set = 0, binding = 0) uniform Locals {
     mat4 VP;
@@ -110,6 +111,9 @@ void main() {
 
         const vec4 ls_vertex = SpotTransforms[i].MP * vec4(V.xyz, 1.0);
         const float shadow = fetch_spot_shadow(i, BIAS, ls_vertex);
+        if (shadow < SHADOW_CUTOFF) {
+            continue;
+        }
         const vec3 bsdf = evalLighting(params, normal, D, L);
         final += bsdf * shadow * spot_lights[i].radiance_cos_outer.xyz * NdotL * LNdotL * (1.0 / dist2);
     }
@@ -132,6 +136,9 @@ void main() {
 
         const vec4 ls_vertex = AreaTransforms[i].MP * vec4(V.xyz, 1.0);
         const float shadow = fetch_area_shadow(i, BIAS, ls_vertex);
+        if (shadow < SHADOW_CUTOFF) {
+            continue;
+        }
         const vec3 bsdf = evalLighting(params, normal, D, L);
         final += bsdf * shadow * vec3(area_lights[i].radiance_x, area_lights[i].radiance_y, area_lights[i].radiance_z) * NdotL * LNdotL * (1.0 / dist2);
     }
@@ -146,6 +153,9 @@ void main() {
 
         const vec4 ls_vertex = DirTransforms[i].MP * vec4(V.xyz, 1.0);
         const float shadow = fetch_dir_shadow(i, BIAS, ls_vertex);
+        if (shadow < SHADOW_CUTOFF) {
+            continue;
+        }
         const vec3 bsdf = evalLighting(params, normal, D, L);
         final += bsdf * shadow * dir_lights[i].radiance.xyz * NdotL;
     }
@@ -172,7 +182,7 @@ float fetch_area_shadow(uint light_id, float bias, vec4 ls_coords) {
     const vec3 flip_correction = vec3(0.5, -0.5, 1);
     const vec3 coords = ls_coords.xyz / ls_coords.w * flip_correction;
     const vec2 s_uv = coords.xy + 0.5;
-    float depth = coords.z;
+    float depth = coords.z - BIAS;
     const vec3 p = vec3(s_uv, light_id);
 
     depth = linearizeDepth(depth, AreaTransforms[light_id].PosRange.w);
@@ -183,7 +193,9 @@ float fetch_area_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    variance = max(variance, VARIANCE_MIN);
+    if (variance <= VARIANCE_MIN) {
+        return 0.0;
+    }
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);
@@ -198,7 +210,7 @@ float fetch_spot_shadow(uint light_id, float bias, vec4 ls_coords) {
     const vec3 flip_correction = vec3(0.5, -0.5, 1);
     const vec3 coords = ls_coords.xyz / ls_coords.w * flip_correction;
     const vec2 s_uv = coords.xy + 0.5;
-    float depth = coords.z;
+    float depth = coords.z - BIAS;
     const vec3 p = vec3(s_uv, light_id);
 
     depth = linearizeDepth(depth, SpotTransforms[light_id].PosRange.w);
@@ -209,7 +221,7 @@ float fetch_spot_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    if (variance <= 0.0) {
+    if (variance <= VARIANCE_MIN) {
         return 0.0;
     }
 
@@ -227,7 +239,7 @@ float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
     const vec3 flip_correction = vec3(0.5, -0.5, 1);
     const vec3 coords = ls_coords.xyz / ls_coords.w * flip_correction;
     const vec2 s_uv = coords.xy + 0.5;
-    float depth = coords.z;
+    float depth = coords.z - BIAS;
     const vec3 p = vec3(s_uv, light_id);
     if (depth > 1.0) {
         return 0.0;
@@ -239,10 +251,9 @@ float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
     }
 
     float variance = moments.y - (moments.x * moments.x);
-    if (variance <= 0.0) {
+    if (variance <= VARIANCE_MIN) {
         return 0.0;
     }
-//    variance = max(variance, VARIANCE_MIN);
 
     const float d = depth - moments.x;
     const float p_max = variance / (variance + d * d);

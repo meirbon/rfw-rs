@@ -79,23 +79,29 @@ impl Node {
         Self::default()
     }
 
-    pub fn set_translation(&mut self, t: Vec3A) {
-        self.translation = t;
+    pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
+        self.translation = Vec3A::from(t.into());
         self.changed = true;
     }
 
-    pub fn set_rotation(&mut self, r: Quat) {
-        self.rotation = r;
+    /// Set rotation using an xyzw quaternion
+    pub fn set_rotation<T: Into<[f32; 4]>>(&mut self, r: T) {
+        self.rotation = Quat::from(Vec4::from(r.into()));
         self.changed = true;
     }
 
-    pub fn set_scale(&mut self, s: Vec3A) {
-        self.scale = s;
+    pub fn set_scale<T: Into<[f32; 3]>>(&mut self, s: T) {
+        self.scale = Vec3A::from(s.into());
         self.changed = true;
     }
 
-    pub fn set_matrix(&mut self, matrix: Mat4) {
-        self.matrix = matrix;
+    pub fn set_matrix<T: Into<[f32; 16]>>(&mut self, matrix: T) {
+        self.matrix = Mat4::from_cols_array(&matrix.into());
+        self.changed = true;
+    }
+
+    pub fn set_matrix_cols<T: Into<[[f32; 4]; 4]>>(&mut self, matrix: T) {
+        self.matrix = Mat4::from_cols_array_2d(&matrix.into());
         self.changed = true;
     }
 
@@ -164,8 +170,11 @@ impl Node {
     }
 
     pub fn update_matrix(&mut self) {
-        let trs =
-            Mat4::from_scale_rotation_translation(self.scale.into(), self.rotation, self.translation.into());
+        let trs = Mat4::from_scale_rotation_translation(
+            self.scale.into(),
+            self.rotation,
+            self.translation.into(),
+        );
         self.local_matrix = trs * self.matrix;
         self.changed = false;
     }
@@ -290,13 +299,7 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.iter() {
             let c_id = *c_id as usize;
-            changed |= Self::traverse_children(
-                c_id,
-                combined_matrix,
-                nodes,
-                instances,
-                skins,
-            );
+            changed |= Self::traverse_children(c_id, combined_matrix, nodes, instances, skins);
         }
 
         if !changed && !nodes[current_index].first {

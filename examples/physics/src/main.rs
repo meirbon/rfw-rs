@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use physx::prelude::*;
 use std::collections::HashMap;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -9,7 +10,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
-use physx::prelude::*;
 
 const PX_PHYSICS_VERSION: u32 = physx::version(4, 1, 1);
 
@@ -78,8 +78,8 @@ use shared::utils;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut width = 512;
-    let mut height = 512;
+    let mut width = 1280;
+    let mut height = 720;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sphere_radius = 0.5_f32;
     let sphere_center: [f32; 3] = [0.0, 10.0, 0.0];
     let sphere = scene::Sphere::new([0.0; 3], sphere_radius, sphere_material);
-    let sphere = renderer.add_object(sphere)?;
+    let sphere = renderer.add_object(sphere.with_quality(scene::sphere::Quality::Medium))?;
     let sphere_inst = renderer.create_instance(sphere)?;
     renderer.get_instance_mut(sphere_inst, |instance| {
         instance.unwrap().set_translation(sphere_center);
@@ -164,8 +164,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     sphere_actor.set_angular_damping(0.5);
     let sphere_handle = scene.add_dynamic(sphere_actor);
 
+    scene.simulate(1.0 / 60.0);
     renderer.synchronize();
-
     let mut first = true;
 
     event_loop.run(move |event, _, control_flow| {
@@ -256,21 +256,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     resized = false;
                 }
 
-                scene.simulate(match first {
-                    true => {
-                        first = false;
-                        1.0 / 60.0
-                    }
-                    _ => elapsed / 1000.0
-                });
-
                 scene.fetch_results(true).unwrap();
-
                 let global_pos: [f32; 3] = unsafe {
-                    scene.get_rigid_actor_unchecked(&sphere_handle)
+                    scene
+                        .get_rigid_actor_unchecked(&sphere_handle)
                         .get_global_position()
-                }.into();
-
+                }
+                .into();
 
                 renderer.get_instance_mut(sphere_inst, |instance| {
                     if let Some(instance) = instance {
@@ -283,6 +275,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 renderer.synchronize();
 
                 renderer.render(&camera, RenderMode::Reset);
+                scene.simulate(match first {
+                    true => {
+                        first = false;
+                        1.0 / 60.0
+                    }
+                    _ => elapsed / 1000.0,
+                });
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

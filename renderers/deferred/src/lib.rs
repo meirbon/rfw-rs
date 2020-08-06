@@ -27,7 +27,6 @@ mod skin;
 pub struct Deferred {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    adapter: wgpu::Adapter,
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
     meshes: TrackedStorage<mesh::DeferredMesh>,
@@ -177,7 +176,7 @@ impl Renderer for Deferred {
                 height: height as u32,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
-                present_mode: wgpu::PresentMode::Fifo,
+                present_mode: wgpu::PresentMode::Immediate,
             },
         );
 
@@ -265,7 +264,6 @@ impl Renderer for Deferred {
         Ok(Box::new(Self {
             device,
             queue,
-            adapter,
             surface,
             swap_chain,
             meshes: TrackedStorage::new(),
@@ -598,7 +596,7 @@ impl Renderer for Deferred {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Fifo,
+                present_mode: wgpu::PresentMode::Immediate,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },
