@@ -27,6 +27,7 @@ pub use loaders::*;
 pub use material::*;
 pub use objects::*;
 pub use renderers::*;
+pub use rtbvh as bvh;
 pub use utils::*;
 
 pub use bitvec::prelude::*;

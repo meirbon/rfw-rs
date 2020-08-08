@@ -737,8 +737,8 @@ impl Deferred {
     ) -> wgpu::CommandBuffer {
         let camera_data = {
             let mut data = [0 as u8; Self::UNIFORM_CAMERA_SIZE as usize];
-            let view = camera.get_view_matrix();
-            let projection = camera.get_projection();
+            let view = camera.get_rh_view_matrix();
+            let projection = camera.get_rh_projection();
 
             unsafe {
                 let ptr = data.as_mut_ptr();

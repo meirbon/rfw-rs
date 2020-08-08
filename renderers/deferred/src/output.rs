@@ -164,8 +164,8 @@ impl DeferredOutput {
         let vert_spirv = include_bytes!("../shaders/quad.vert.spv");
         let frag_spirv = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_spirv.to_quad_bytes());
-        let frag_module = device.create_shader_module(frag_spirv.to_quad_bytes());
+        let vert_module = device.create_shader_module(vert_spirv.as_quad_bytes());
+        let frag_module = device.create_shader_module(frag_spirv.as_quad_bytes());
 
         let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &blit_pipeline_layout,

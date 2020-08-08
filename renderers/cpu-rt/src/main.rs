@@ -79,9 +79,9 @@ impl MouseButtonHandler {
 use crate::utils::Timer;
 use glam::*;
 use rfw_system::scene::renderers::{RenderMode, Setting, SettingValue};
+use rfw_system::scene::LoadResult;
 use shared::utils;
 use std::error::Error;
-use rfw_system::scene::LoadResult;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 512;

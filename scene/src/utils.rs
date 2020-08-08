@@ -334,7 +334,6 @@ pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
     changed: BitVec,
 }
 
-
 impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
     fn default() -> Self {
         Self {
@@ -382,8 +381,13 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.changed.set(index, true);
-        self.storage.get_mut(index)
+        match self.storage.get_mut(index) {
+            Some(v) => {
+                self.changed.set(index, true);
+                Some(v)
+            }
+            None => None,
+        }
     }
 
     pub fn changed(&self) -> &BitVec {
@@ -670,4 +674,3 @@ impl<T: Default + Clone + std::fmt::Debug> From<Vec<T>> for TrackedStorage<T> {
         }
     }
 }
-

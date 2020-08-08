@@ -17,6 +17,12 @@ pub enum ObjectRef {
     Animated(u32),
 }
 
+impl Default for ObjectRef {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 impl std::fmt::Display for ObjectRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

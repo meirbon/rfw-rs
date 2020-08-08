@@ -1,6 +1,25 @@
-use gfx_backend_dx12 as backend;
-use gfx_hal as hal;
+#[cfg(all(not(feature = "dx12"), any(target_os = "windows", target_os = "unix")))]
+pub use gfx_backend_vulkan as backend;
+
+#[cfg(feature = "dx12")]
+pub use gfx_backend_dx12 as backend;
+
+#[cfg(target_os = "macos")]
+pub use gfx_backend_metal as backend;
+
+pub use gfx_hal as hal;
+
+use buffer::Allocator;
 use hal::prelude::*;
+use hal::{
+    adapter::PhysicalDevice,
+    command::CommandBuffer,
+    device::Device,
+    pool::CommandPool,
+    queue::{CommandQueue, QueueFamily},
+    window::PresentationSurface,
+    Instance,
+};
 use hal::{
     command, format as f,
     format::ChannelType,
@@ -8,9 +27,14 @@ use hal::{
     queue::{QueueGroup, Submission},
     window,
 };
+use instances::SceneList;
 use rfw_scene::Renderer;
-use std::{iter, mem::ManuallyDrop, ptr};
+use std::{iter, mem::ManuallyDrop, ptr, sync::Arc};
 use window::Extent2D;
+
+mod buffer;
+mod instances;
+mod mesh;
 
 #[derive(Debug, Copy, Clone)]
 pub enum GfxError {
@@ -40,7 +64,7 @@ pub type GfxBackend = GfxRenderer<backend::Backend>;
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
     queue_group: ManuallyDrop<QueueGroup<B>>,
-    device: B::Device,
+    device: Arc<B::Device>,
     surface: ManuallyDrop<B::Surface>,
     adapter: hal::adapter::Adapter<B>,
     cmd_pools: Vec<B::CommandPool>,
@@ -52,6 +76,10 @@ pub struct GfxRenderer<B: hal::Backend> {
     frame: usize,
     frames_in_flight: usize,
     dimensions: Extent2D,
+
+    allocator: Allocator<B>,
+    scene_list: SceneList<B>,
+    mesh_renderer: mesh::RenderPipeline<B>,
 }
 
 impl<B: hal::Backend> Renderer for GfxRenderer<B> {
@@ -91,6 +119,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }
 
         let adapter = adapters.remove(adapter_index.unwrap());
+        println!("Picked adapter: {}", adapter.info.name);
 
         // Build a new device and associated command queues
         let family = adapter
@@ -103,7 +132,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let mut gpu = unsafe {
             adapter
                 .physical_device
-                .open(&[(family, &[1.0])], hal::Features::empty())
+                .open(&[(family, &[1.0])], hal::Features::NDC_Y_UP)
                 .unwrap()
         };
         let queue_group = gpu.queue_groups.pop().unwrap();
@@ -112,7 +141,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let command_pool = unsafe {
             device.create_command_pool(queue_group.family, pool::CommandPoolCreateFlags::empty())
         }
-        .expect("Can't create command pool");
+            .expect("Can't create command pool");
 
         let frames_in_flight = 3;
 
@@ -178,11 +207,24 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             rect: pso::Rect {
                 x: 0,
                 y: 0,
-                w: extent.width as _,
-                h: extent.height as _,
+                w: extent.width as i16,
+                h: extent.height as i16,
             },
             depth: 0.0..1.0,
         };
+
+        let device = Arc::new(device);
+        let allocator = Allocator::new(device.clone(), &adapter);
+
+        let scene_list = SceneList::new(device.clone(), allocator.clone());
+        let mesh_renderer = mesh::RenderPipeline::new(
+            device.clone(),
+            allocator.clone(),
+            format,
+            width as u32,
+            height as u32,
+            &scene_list,
+        );
 
         Ok(Box::new(Self {
             instance,
@@ -202,27 +244,37 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 width: width as u32,
                 height: height as u32,
             },
+            allocator,
+            scene_list,
+            mesh_renderer,
         }))
     }
 
-    fn set_mesh(&mut self, _id: usize, _mesh: &rfw_scene::Mesh) {}
+    fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
+        self.scene_list.set_mesh(id, mesh);
+    }
 
     fn set_animated_mesh(&mut self, _id: usize, _mesh: &rfw_scene::AnimatedMesh) {}
 
-    fn set_instance(&mut self, _id: usize, _instance: &rfw_scene::Instance) {}
+    fn set_instance(&mut self, id: usize, instance: &rfw_scene::Instance) {
+        self.scene_list.set_instance(id, instance);
+    }
 
     fn set_materials(
         &mut self,
         _materials: &[rfw_scene::Material],
         _device_materials: &[rfw_scene::DeviceMaterial],
-    ) {
-    }
+    ) {}
 
     fn set_textures(&mut self, _textures: &[rfw_scene::Texture]) {}
 
-    fn synchronize(&mut self) {}
+    fn synchronize(&mut self) {
+        self.scene_list.synchronize();
+    }
 
-    fn render(&mut self, _camera: &rfw_scene::Camera, _mode: rfw_scene::RenderMode) {
+    fn render(&mut self, camera: &rfw_scene::Camera, _mode: rfw_scene::RenderMode) {
+        self.mesh_renderer.update_camera(camera);
+
         let surface_image = unsafe {
             match self.surface.acquire_image(!0) {
                 Ok((image, _)) => image,
@@ -233,19 +285,10 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             }
         };
 
-        // let framebuffer = unsafe {
-        //     self.device
-        //         .create_framebuffer(
-        //             &self.render_pass,
-        //             iter::once(surface_image.borrow()),
-        //             i::Extent {
-        //                 width: self.dimensions.width,
-        //                 height: self.dimensions.height,
-        //                 depth: 1,
-        //             },
-        //         )
-        //         .unwrap()
-        // };
+        let framebuffer = unsafe {
+            self.mesh_renderer
+                .create_frame_buffer(&surface_image, self.dimensions)
+        };
 
         // Compute index into our resource ring buffers based on the frame number
         // and number of frames in flight. Pay close attention to where this index is needed
@@ -274,28 +317,10 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
 
             cmd_buffer.set_viewports(0, &[self.viewport.clone()]);
-            //     cmd_buffer.set_scissors(0, &[self.viewport.rect]);
-            //     cmd_buffer.bind_graphics_pipeline(&self.pipeline);
-            //     cmd_buffer.bind_graphics_descriptor_sets(
-            //         &self.pipeline_layout,
-            //         0,
-            //         iter::once(&self.desc_set),
-            //         &[],
-            //     );
+            cmd_buffer.set_scissors(0, &[self.viewport.rect]);
 
-            //     cmd_buffer.begin_render_pass(
-            //         &self.render_pass,
-            //         &framebuffer,
-            //         self.viewport.rect,
-            //         &[command::ClearValue {
-            //             color: command::ClearColor {
-            //                 float32: [0.8, 0.8, 0.8, 1.0],
-            //             },
-            //         }],
-            //         command::SubpassContents::Inline,
-            //     );
-            //     cmd_buffer.draw_mesh_tasks(1, 0);
-            //     cmd_buffer.end_render_pass();
+            self.mesh_renderer
+                .draw(cmd_buffer, &framebuffer, &self.viewport, &self.scene_list);
             cmd_buffer.finish();
 
             let submission = Submission {
@@ -309,14 +334,14 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 Some(&self.submission_complete_fences[frame_idx]),
             );
 
-            //     // present frame
+            // present frame
             let result = self.queue_group.queues[0].present_surface(
                 &mut self.surface,
                 surface_image,
                 Some(&self.submission_complete_semaphores[frame_idx]),
             );
 
-            // self.device.destroy_framebuffer(framebuffer);
+            self.device.destroy_framebuffer(framebuffer);
 
             if result.is_err() {
                 self.recreate_swapchain();
@@ -333,17 +358,19 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         width: usize,
         height: usize,
     ) {
+        self.device.wait_idle().unwrap();
+
         self.dimensions.width = width as u32;
         self.dimensions.height = height as u32;
         self.recreate_swapchain();
+        self.mesh_renderer.resize(width as u32, height as u32);
     }
 
     fn set_point_lights(
         &mut self,
         _changed: &rfw_scene::BitVec,
         _lights: &[rfw_scene::PointLight],
-    ) {
-    }
+    ) {}
 
     fn set_spot_lights(&mut self, _changed: &rfw_scene::BitVec, _lights: &[rfw_scene::SpotLight]) {}
 
@@ -353,8 +380,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         &mut self,
         _changed: &rfw_scene::BitVec,
         _lights: &[rfw_scene::DirectionalLight],
-    ) {
-    }
+    ) {}
 
     fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
 
@@ -388,6 +414,7 @@ impl<B: hal::Backend> GfxRenderer<B> {
 impl<B: hal::Backend> Drop for GfxRenderer<B> {
     fn drop(&mut self) {
         self.device.wait_idle().unwrap();
+
         unsafe {
             for p in self.cmd_pools.drain(..) {
                 self.device.destroy_command_pool(p);

@@ -486,8 +486,8 @@ impl Renderer for RayTracer {
         let vert_shader = include_bytes!("../shaders/quad.vert.spv");
         let frag_shader = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
-        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
+        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.as_quad_bytes());
 
         let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &output_pipeline_layout,
@@ -837,7 +837,7 @@ impl Renderer for RayTracer {
             });
 
         let compute_module = include_bytes!("../shaders/ray_gen.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
+        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
         let intersection_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 layout: &intersection_pipeline_layout,
@@ -848,7 +848,7 @@ impl Renderer for RayTracer {
             });
 
         let compute_module = include_bytes!("../shaders/ray_extend.comp.spv",);
-        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
+        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
         let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -858,7 +858,7 @@ impl Renderer for RayTracer {
         });
 
         let compute_module = include_bytes!("../shaders/ray_shadow.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
+        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
         let shadow_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -868,7 +868,7 @@ impl Renderer for RayTracer {
         });
 
         let compute_module = include_bytes!("../shaders/shade.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
+        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
         let shade_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {
@@ -878,7 +878,7 @@ impl Renderer for RayTracer {
         });
 
         let compute_module = include_bytes!("../shaders/blit.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.to_quad_bytes());
+        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
         let blit_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {

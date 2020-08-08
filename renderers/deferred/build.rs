@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut save_path = entry.path().to_str().unwrap().to_string();
         save_path.push_str(".spv");
         let mut file = File::create(save_path)?;
-        file.write_all(shader.to_bytes())?;
+        file.write_all(shader.as_bytes())?;
     }
 
     Ok(())

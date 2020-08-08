@@ -390,50 +390,17 @@ impl Camera {
                 .into();
     }
 
-    pub fn look_at(&mut self, origin: Vec3A, target: Vec3A) {
+    pub fn look_at<T: Into<[f32; 3]>>(&mut self, origin: T, target: T) {
+        let origin: Vec3A = Vec3A::from(origin.into());
+        let target: Vec3A = Vec3A::from(target.into());
         self.pos = origin.into();
         self.direction = (target - origin).normalize().into();
     }
 
-    pub fn with_direction(mut self, direction: Vec3A) -> Self {
+    pub fn with_direction<T: Into<[f32; 3]>>(mut self, direction: T) -> Self {
+        let direction: Vec3A = Vec3A::from(direction.into());
         self.direction = direction.normalize().into();
         self
-    }
-
-    pub fn get_lh_matrix(&self) -> Mat4 {
-        let up = Vec3::new(0.0, 1.0, 0.0);
-        let fov = self.fov.to_radians();
-
-        let projection =
-            Mat4::perspective_lh(fov, self.aspect_ratio, self.near_plane, self.far_plane);
-
-        let pos = Vec3A::from(self.pos);
-        let dir = Vec3A::from(self.direction);
-
-        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
-
-        projection * view
-    }
-
-    pub fn get_projection(&self) -> Mat4 {
-        let fov = self.fov.to_radians();
-        Mat4::perspective_rh_gl(
-            fov,
-            self.width as f32 / self.height as f32,
-            self.near_plane,
-            self.far_plane,
-        )
-    }
-
-    pub fn get_view_matrix(&self) -> Mat4 {
-        let up = Vec3::new(0.0, 1.0, 0.0);
-
-        let pos = Vec3A::from(self.pos);
-        let dir = Vec3A::from(self.direction);
-
-        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
-
-        view
     }
 
     pub fn get_rh_matrix(&self) -> Mat4 {
@@ -453,6 +420,67 @@ impl Camera {
         let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
 
         projection * view
+    }
+
+    pub fn get_lh_matrix(&self) -> Mat4 {
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let fov = self.fov.to_radians();
+
+        let projection = Mat4::perspective_lh(
+            fov,
+            self.width as f32 / self.height as f32,
+            self.near_plane,
+            self.far_plane,
+        );
+
+        let pos = Vec3A::from(self.pos);
+        let dir = Vec3A::from(self.direction);
+
+        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
+
+        projection * view
+    }
+
+    pub fn get_rh_projection(&self) -> Mat4 {
+        let fov = self.fov.to_radians();
+        Mat4::perspective_rh_gl(
+            fov,
+            self.width as f32 / self.height as f32,
+            self.near_plane,
+            self.far_plane,
+        )
+    }
+
+    pub fn get_lh_projection(&self) -> Mat4 {
+        let fov = self.fov.to_radians();
+        Mat4::perspective_lh(
+            fov,
+            self.width as f32 / self.height as f32,
+            self.near_plane,
+            self.far_plane,
+        )
+    }
+
+    pub fn get_rh_view_matrix(&self) -> Mat4 {
+        let up = Vec3::new(0.0, 1.0, 0.0);
+
+        let pos = Vec3A::from(self.pos);
+        let dir = Vec3A::from(self.direction);
+
+        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
+
+        view
+    }
+
+    pub fn get_lh_view_matrix(&self) -> Mat4 {
+        let up = Vec3::new(0.0, 1.0, 0.0);
+
+        let pos = Vec3A::from(self.pos);
+        let dir = Vec3A::from(self.direction);
+
+        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
+
+        view
     }
 
     fn calculate_matrix(&self) -> (Vec3A, Vec3A, Vec3A) {

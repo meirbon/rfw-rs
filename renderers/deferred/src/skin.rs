@@ -34,7 +34,7 @@ impl Default for DeferredSkin {
 impl DeferredSkin {
     pub fn new(device: &wgpu::Device, skin: Skin) -> Self {
         let joint_matrices_buffer_size =
-            skin.joint_matrices.to_bytes().len() as wgpu::BufferAddress;
+            skin.joint_matrices.as_bytes().len() as wgpu::BufferAddress;
         let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("joint-matrices"),
             size: joint_matrices_buffer_size,
@@ -89,7 +89,7 @@ impl DeferredSkin {
                 usage: wgpu::BufferUsage::COPY_SRC,
             });
 
-            let data = self.skin.joint_matrices.to_bytes();
+            let data = self.skin.joint_matrices.as_bytes();
             staging_buffer.data[0..data.len()].copy_from_slice(data);
 
             let staging_buffer = staging_buffer.finish();

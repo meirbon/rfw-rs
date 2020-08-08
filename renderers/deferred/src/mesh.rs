@@ -124,7 +124,7 @@ impl DeferredMesh {
 #[allow(dead_code)]
 impl DeferredAnimMesh {
     pub fn new(device: &wgpu::Device, mesh: &AnimatedMesh) -> Self {
-        let buffer_size = mesh.vertices.to_bytes().len() as wgpu::BufferAddress;
+        let buffer_size = mesh.vertices.as_bytes().len() as wgpu::BufferAddress;
         assert!(buffer_size > 0);
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -133,7 +133,7 @@ impl DeferredAnimMesh {
             usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
         });
 
-        let anim_buffer_size = mesh.anim_vertex_data.to_bytes().len() as wgpu::BufferAddress;
+        let anim_buffer_size = mesh.anim_vertex_data.as_bytes().len() as wgpu::BufferAddress;
         assert!(anim_buffer_size > 0);
         let anim_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(mesh.name.as_str()),
@@ -165,7 +165,7 @@ impl DeferredAnimMesh {
             label: Some("anim-mesh-copy"),
         });
         let staging_buffer1 = device
-            .create_buffer_with_data(self.vertex_data.to_bytes(), wgpu::BufferUsage::COPY_SRC);
+            .create_buffer_with_data(self.vertex_data.as_bytes(), wgpu::BufferUsage::COPY_SRC);
 
         encoder.copy_buffer_to_buffer(
             &staging_buffer1,
@@ -176,7 +176,7 @@ impl DeferredAnimMesh {
         );
 
         let staging_buffer2 = device.create_buffer_with_data(
-            self.anim_vertex_data.to_bytes(),
+            self.anim_vertex_data.as_bytes(),
             wgpu::BufferUsage::COPY_SRC,
         );
 

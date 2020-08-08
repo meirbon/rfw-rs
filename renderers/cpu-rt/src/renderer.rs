@@ -184,8 +184,8 @@ impl Renderer for RayTracer {
         let vert_shader = include_bytes!("../shaders/quad.vert.spv");
         let frag_shader = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
-        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
+        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
+        let frag_module = device.create_shader_module(frag_shader.as_quad_bytes());
 
         let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &output_pipeline_layout,

@@ -482,10 +482,10 @@ impl ShadowMapArray {
         let regular_frag_shader = include_bytes!("../shaders/shadow_single.frag.spv");
         let linear_frag_shader = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
         let frag_module = device.create_shader_module(match linear {
-            true => linear_frag_shader.to_quad_bytes(),
-            false => regular_frag_shader.to_quad_bytes(),
+            true => linear_frag_shader.as_quad_bytes(),
+            false => regular_frag_shader.as_quad_bytes(),
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -539,7 +539,7 @@ impl ShadowMapArray {
         });
 
         let vert_shader = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
 
         let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[
@@ -759,7 +759,7 @@ impl ShadowMapArray {
                 bind_group_layouts: &[&filter_bind_group_layout],
             });
         let shader = include_bytes!("../shaders/shadow_filter.comp.spv");
-        let shader_module = device.create_shader_module(shader.to_quad_bytes());
+        let shader_module = device.create_shader_module(shader.as_quad_bytes());
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &filter_pipeline_layout,
             compute_stage: wgpu::ProgrammableStageDescriptor {

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -70,10 +70,14 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use rfw_system::{scene::renderers::RenderMode, scene::Camera, RenderSystem};
+use rfw_system::{
+    scene::Camera,
+    scene::{renderers::RenderMode, LoadResult},
+    RenderSystem,
+};
 use shared::utils;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 512;
     let mut height = 512;
 
@@ -99,10 +103,21 @@ fn main() {
 
     // let renderer = RenderSystem::<rfw_vulkan::VkRenderer>::new(&window, width, height).unwrap();
     let renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
-    let mut camera = Camera::new(width as u32, height as u32);
+    let mut camera =
+        Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
     let mut timer = Timer::new();
     let mut fps = utils::Averager::new();
     let mut resized = false;
+
+    let object = renderer.load("models/sponza/sponza.obj")?;
+    // let object = renderer.load("models/cbox.obj")?;
+    let _ = if let LoadResult::Object(id) = object {
+        renderer.get_instance_mut(renderer.create_instance(id)?, |_instance| {
+            // _instance.unwrap().scale(Vec3::splat(0.1));
+        });
+    } else {
+        panic!("Could not load cbox.obj");
+    };
 
     renderer.synchronize();
 
