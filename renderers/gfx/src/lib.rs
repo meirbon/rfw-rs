@@ -77,7 +77,6 @@ pub struct GfxRenderer<B: hal::Backend> {
     frames_in_flight: usize,
     dimensions: Extent2D,
 
-    allocator: Allocator<B>,
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
 }
@@ -141,7 +140,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let command_pool = unsafe {
             device.create_command_pool(queue_group.family, pool::CommandPoolCreateFlags::empty())
         }
-            .expect("Can't create command pool");
+        .expect("Can't create command pool");
 
         let frames_in_flight = 3;
 
@@ -219,7 +218,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let scene_list = SceneList::new(device.clone(), allocator.clone());
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
-            allocator.clone(),
+            allocator,
             format,
             width as u32,
             height as u32,
@@ -244,7 +243,6 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 width: width as u32,
                 height: height as u32,
             },
-            allocator,
             scene_list,
             mesh_renderer,
         }))
@@ -264,7 +262,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         &mut self,
         _materials: &[rfw_scene::Material],
         _device_materials: &[rfw_scene::DeviceMaterial],
-    ) {}
+    ) {
+    }
 
     fn set_textures(&mut self, _textures: &[rfw_scene::Texture]) {}
 
@@ -370,7 +369,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         &mut self,
         _changed: &rfw_scene::BitVec,
         _lights: &[rfw_scene::PointLight],
-    ) {}
+    ) {
+    }
 
     fn set_spot_lights(&mut self, _changed: &rfw_scene::BitVec, _lights: &[rfw_scene::SpotLight]) {}
 
@@ -380,7 +380,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         &mut self,
         _changed: &rfw_scene::BitVec,
         _lights: &[rfw_scene::DirectionalLight],
-    ) {}
+    ) {
+    }
 
     fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
 

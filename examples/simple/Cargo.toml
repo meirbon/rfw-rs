@@ -13,7 +13,5 @@ futures = "0.3"
 clap = "2.33.1"
 rfw_system = { path = "../../system" }
 rfw_deferred = { path = "../../renderers/deferred" }
-rfw_gpu_rt = { path = "../../renderers/gpu-rt" }
-rfw_vulkan = { path = "../../renderers/vulkan" }
 rfw_gfx = { path = "../../renderers/gfx" }
 shared = { path = "../../renderers/shared" }

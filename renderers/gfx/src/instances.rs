@@ -4,6 +4,7 @@ use glam::*;
 use crate::{buffer::*, mesh::GfxMesh};
 use hal::{
     buffer::{SubRange, Usage},
+    command::DescriptorSetOffset,
     device::Device,
     memory::{Properties, Segment},
     pso,
@@ -88,12 +89,11 @@ impl<B: hal::Backend> SceneList<B> {
                         ty: pso::DescriptorType::Buffer {
                             ty: pso::BufferDescriptorType::Uniform,
                             format: pso::BufferDescriptorFormat::Structured {
-                                dynamic_offset: false,
+                                dynamic_offset: true,
                             },
                         },
                         count: 1,
-                        stage_flags: pso::ShaderStageFlags::VERTEX
-                            | pso::ShaderStageFlags::FRAGMENT,
+                        stage_flags: pso::ShaderStageFlags::VERTEX,
                         immutable_samplers: false,
                     }],
                     &[],
@@ -110,7 +110,7 @@ impl<B: hal::Backend> SceneList<B> {
                         ty: pso::DescriptorType::Buffer {
                             ty: pso::BufferDescriptorType::Uniform,
                             format: pso::BufferDescriptorFormat::Structured {
-                                dynamic_offset: false,
+                                dynamic_offset: true,
                             },
                         },
                         count: 1,
@@ -252,7 +252,7 @@ impl<B: hal::Backend> SceneList<B> {
 
     pub fn iter_instances<T>(&self, mut render_instance: T)
     where
-        T: FnMut(&B::Buffer, RenderInstance<'_>, Range<u32>),
+        T: FnMut(&B::Buffer, DescriptorSetOffset, RenderInstance<'_>, Range<u32>),
     {
         self.mesh_instances
             .iter()
@@ -262,8 +262,12 @@ impl<B: hal::Backend> SceneList<B> {
                     let buffer = buffer.borrow();
                     set.iter().for_each(|i| {
                         let i = *i as usize;
+                        let offset = (std::mem::size_of::<Instance>() * i)
+                            as DescriptorSetOffset;
+
                         render_instance(
                             buffer,
+                            offset,
                             RenderInstance {
                                 id: i as u32,
                                 instance: &self.instances[i],

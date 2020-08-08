@@ -1,9 +1,6 @@
 use crate::hal;
 
-use gfx_hal::{Backend, MemoryTypeId};
-use hal::{adapter::PhysicalDevice, buffer, device::Device, memory};
-use memory::Segment;
-use std::mem::MaybeUninit;
+use hal::{adapter::PhysicalDevice, buffer, device::Device, memory, memory::Segment, MemoryTypeId};
 use std::{mem::ManuallyDrop, sync::Arc};
 
 #[derive(Debug)]

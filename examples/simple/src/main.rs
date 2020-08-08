@@ -78,8 +78,8 @@ use rfw_system::{
 use shared::utils;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut width = 512;
-    let mut height = 512;
+    let mut width = 1280;
+    let mut height = 720;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -110,13 +110,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut resized = false;
 
     let object = renderer.load("models/sponza/sponza.obj")?;
-    // let object = renderer.load("models/cbox.obj")?;
     let _ = if let LoadResult::Object(id) = object {
-        renderer.get_instance_mut(renderer.create_instance(id)?, |_instance| {
-            // _instance.unwrap().scale(Vec3::splat(0.1));
+        renderer.get_instance_mut(renderer.create_instance(id)?, |instance| {
+            instance.unwrap().scale(Vec3::splat(0.1));
         });
     } else {
-        panic!("Could not load cbox.obj");
+        panic!("Could not load sponza.obj");
     };
 
     renderer.synchronize();

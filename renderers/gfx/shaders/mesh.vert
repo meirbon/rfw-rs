@@ -28,7 +28,7 @@ struct Instance {
 };
 
 layout(set = 1, binding = 0) uniform I {
-    Instance Instances[2048];
+    Instance Inst;
 };
 
 layout(location = 0) out vec4 V;
@@ -40,15 +40,15 @@ layout(location = 5) out vec3 T;
 layout(location = 6) out vec3 B;
 
 void main() {
-    const vec4 vertex = Instances[gl_InstanceIndex].Transform * Vertex;
+    const vec4 vertex = Inst.Transform * Vertex;
     const vec4 cVertex = View * vec4(vertex.xyz, 1.0);
 
     gl_Position = Proj * cVertex;
 
     V = vec4(vertex.xyz, cVertex.w);
     SSV = cVertex;
-    N = normalize(vec3(Instances[gl_InstanceIndex].InverseTransform * vec4(Normal, 0.0)));
-    T = normalize(vec3(Instances[gl_InstanceIndex].InverseTransform * vec4(Tangent.xyz, 0.0)));
+    N = normalize(vec3(Inst.InverseTransform * vec4(Normal, 0.0)));
+    T = normalize(vec3(Inst.InverseTransform * vec4(Tangent.xyz, 0.0)));
     B = cross(N, T) * Tangent.w;
     MID = MatID;
     TUV = UV;

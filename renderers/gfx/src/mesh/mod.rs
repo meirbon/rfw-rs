@@ -1,10 +1,10 @@
 use crate::buffer::{Allocator, Buffer, Memory};
 use crate::{hal, instances::SceneList};
-use gfx_hal::image::{Kind, Tiling, ViewCapabilities};
+use gfx_hal::image::{Kind, Tiling};
 use glam::*;
 use hal::{
     buffer,
-    command::{self, CommandBuffer},
+    command::{self, CommandBuffer, DescriptorSetOffset},
     device::Device,
     image, memory, pass, pso,
     window::Extent2D,
@@ -53,7 +53,7 @@ impl<B: hal::Backend> GfxMesh<B> {
             / non_coherent_alignment)
             * non_coherent_alignment;
 
-        // TODO: We should use staging bufferes to transfer data to vertex buffers
+        // TODO: We should use staging buffers to transfer data to vertex buffers
         let mut buffer = allocator.allocate_bytes(
             padded_buffer_len as usize,
             buffer::Usage::VERTEX,
@@ -121,14 +121,13 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             },
                         },
                         count: 1,
-                        stage_flags: pso::ShaderStageFlags::VERTEX
-                            | pso::ShaderStageFlags::FRAGMENT,
+                        stage_flags: pso::ShaderStageFlags::VERTEX,
                         immutable_samplers: false,
                     }],
                     &[],
                 )
             }
-                .expect("Can't create descriptor set layout"),
+            .expect("Can't create descriptor set layout"),
         );
 
         let mut desc_pool = ManuallyDrop::new(
@@ -147,7 +146,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     pso::DescriptorPoolCreateFlags::empty(),
                 )
             }
-                .expect("Can't create descriptor pool"),
+            .expect("Can't create descriptor pool"),
         );
         let desc_set = unsafe { desc_pool.allocate_set(&set_layout) }.unwrap();
 
@@ -190,7 +189,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         &[],
                     )
                 }
-                    .expect("Can't create render pass"),
+                .expect("Can't create render pass"),
             )
         };
 
@@ -198,7 +197,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             unsafe {
                 device.create_pipeline_layout(vec![&*set_layout, &*scene_list.set_layout], &[])
             }
-                .expect("Can't create pipeline layout"),
+            .expect("Can't create pipeline layout"),
         );
 
         let pipeline = {
@@ -400,7 +399,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 device.destroy_shader_module(fs_module);
             }
 
-            ManuallyDrop::new(pipeline.unwrap())
+            match pipeline {
+                Ok(pipeline) => ManuallyDrop::new(pipeline),
+                Err(e) => panic!("Could not compile pipeline {}", e),
+            }
         };
 
         let uniform_buffer = allocator.allocate_bytes(
@@ -408,7 +410,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
             hal::buffer::Usage::UNIFORM,
             hal::memory::Properties::CPU_VISIBLE,
         );
-        // desc_set
 
         let write = vec![pso::DescriptorSetWrite {
             set: &desc_set,
@@ -425,7 +426,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         }
 
         let (mut depth_image, req) = unsafe {
-            let mut image = device
+            let image = device
                 .create_image(
                     Kind::D2(width, height, 1, 1),
                     1,
@@ -441,7 +442,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
         };
         let depth_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL);
         let depth_image_view = unsafe {
-            device.bind_image_memory(depth_memory.borrow(), 0, &mut depth_image);
+            device
+                .bind_image_memory(depth_memory.borrow(), 0, &mut depth_image)
+                .unwrap();
 
             device
                 .create_image_view(
@@ -561,15 +564,14 @@ impl<B: hal::Backend> RenderPipeline<B> {
             command::SubpassContents::Inline,
         );
 
-        cmd_buffer.bind_graphics_descriptor_sets(
-            &self.pipeline_layout,
-            1,
-            vec![&scene.desc_set],
-            &[0],
-        );
-
-        scene.iter_instances(|buffer, instance, range| {
+        scene.iter_instances(|buffer, offset, instance, range| {
             cmd_buffer.bind_vertex_buffers(0, Some((buffer, buffer::SubRange::WHOLE)));
+            cmd_buffer.bind_graphics_descriptor_sets(
+                &self.pipeline_layout,
+                1,
+                vec![&scene.desc_set],
+                &[offset as DescriptorSetOffset],
+            );
             cmd_buffer.draw(range, instance.id..(instance.id + 1));
         });
 
@@ -594,7 +596,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
             }
         }
 
-        let allocate = self.depth_memory.len() < (width * height) as usize * std::mem::size_of::<f32>();
+        let allocate =
+            self.depth_memory.len() < (width * height) as usize * std::mem::size_of::<f32>();
 
         let (depth_image, depth_image_view) = unsafe {
             let mut image = self
