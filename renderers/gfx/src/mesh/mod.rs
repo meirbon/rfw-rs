@@ -168,7 +168,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         },
                         pso::DescriptorSetLayoutBinding {
                             binding: 1,
-                            ty: pso::DescriptorType::Sampler,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
+                            },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
                             immutable_samplers: false,
@@ -176,9 +178,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 2,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled {
-                                    with_sampler: false,
-                                },
+                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -187,9 +187,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 3,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled {
-                                    with_sampler: false,
-                                },
+                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -198,9 +196,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 4,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled {
-                                    with_sampler: false,
-                                },
+                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -209,20 +205,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 5,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled {
-                                    with_sampler: false,
-                                },
-                            },
-                            count: 1,
-                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
-                            immutable_samplers: false,
-                        },
-                        pso::DescriptorSetLayoutBinding {
-                            binding: 6,
-                            ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled {
-                                    with_sampler: false,
-                                },
+                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
