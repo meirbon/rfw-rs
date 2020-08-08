@@ -147,6 +147,20 @@ impl Texture {
         }
     }
 
+    pub fn texel_count(width: u32, height: u32, levels: usize) -> usize {
+        let mut w = width;
+        let mut h = height;
+        let mut needed = 0;
+
+        for _ in 0..levels {
+            needed += w * h;
+            w >>= 1;
+            h >>= 1;
+        }
+
+        needed as usize
+    }
+
     fn required_texel_count(&self, levels: usize) -> usize {
         let mut w = self.width;
         let mut h = self.height;
@@ -281,7 +295,7 @@ impl Texture {
     }
 
     /// Resizes texture into given dimensions, this is an expensive operation.
-    pub fn resized(&self, width: usize, height: usize) -> Texture {
+    pub fn resized(&self, width: u32, height: u32) -> Texture {
         let mut image: image::ImageBuffer<image::Bgra<u8>, Vec<u8>> =
             image::ImageBuffer::new(self.width, self.height);
         image.copy_from_slice(unsafe {
@@ -290,14 +304,10 @@ impl Texture {
                 (self.width * self.height) as usize * std::mem::size_of::<u32>(),
             )
         });
-        let image = image::imageops::resize(
-            &image,
-            width as u32,
-            height as u32,
-            image::imageops::FilterType::Nearest,
-        );
+        let image =
+            image::imageops::resize(&image, width, height, image::imageops::FilterType::Nearest);
 
-        let mut data = vec![0; width * height];
+        let mut data = vec![0; (width * height) as usize];
         data.copy_from_slice(unsafe {
             std::slice::from_raw_parts(image.as_ptr() as *const u32, (width * height) as usize)
         });

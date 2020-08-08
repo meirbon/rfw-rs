@@ -1104,7 +1104,8 @@ impl Renderer for RayTracer {
                 {
                     t.clone()
                 } else {
-                    let mut texture = t.resized(Self::TEXTURE_WIDTH, Self::TEXTURE_HEIGHT);
+                    let mut texture =
+                        t.resized(Self::TEXTURE_WIDTH as u32, Self::TEXTURE_HEIGHT as u32);
                     texture.generate_mipmaps(Texture::MIP_LEVELS);
                     texture
                 }
@@ -1806,7 +1807,11 @@ impl Renderer for RayTracer {
         self.area_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);
     }
 
-    fn set_directional_lights(&mut self, _changed: &BitVec, lights: &[rfw_scene::DirectionalLight]) {
+    fn set_directional_lights(
+        &mut self,
+        _changed: &BitVec,
+        lights: &[rfw_scene::DirectionalLight],
+    ) {
         self.light_counts[LightBindings::DirectionalLights as usize] = lights.len();
         self.directional_lights.resize(&self.device, lights.len());
         self.directional_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights);

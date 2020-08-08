@@ -10,6 +10,11 @@ pub use gfx_backend_metal as backend;
 pub use gfx_hal as hal;
 
 use buffer::Allocator;
+use gfx_hal::format::{Aspects, Format, Swizzle};
+use gfx_hal::image::{
+    Kind, Layer, Level, SubresourceRange, Tiling, Usage, ViewCapabilities, ViewKind,
+};
+use gfx_hal::memory::Properties;
 use hal::prelude::*;
 use hal::{
     adapter::PhysicalDevice,
@@ -34,7 +39,14 @@ use window::Extent2D;
 
 mod buffer;
 mod instances;
+mod materials;
 mod mesh;
+
+use crate::hal::device::OutOfMemory;
+use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
+use buffer::*;
+use std::borrow::Borrow;
+use std::sync::Mutex;
 
 #[derive(Debug, Copy, Clone)]
 pub enum GfxError {
@@ -61,9 +73,97 @@ impl std::error::Error for GfxError {}
 
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
+pub struct Queue<B: hal::Backend> {
+    queue_group: ManuallyDrop<QueueGroup<B>>,
+}
+
+impl<B: hal::Backend> Queue<B> {
+    pub fn new(group: QueueGroup<B>) -> Self {
+        Self {
+            queue_group: ManuallyDrop::new(group),
+        }
+    }
+
+    pub fn submit<'a, T, Ic, S, Iw, Is>(
+        &mut self,
+        submission: Submission<Ic, Iw, Is>,
+        fence: Option<&B::Fence>,
+    ) where
+        T: 'a + Borrow<B::CommandBuffer>,
+        Ic: IntoIterator<Item = &'a T>,
+        S: 'a + Borrow<B::Semaphore>,
+        Iw: IntoIterator<Item = (&'a S, pso::PipelineStage)>,
+        Is: IntoIterator<Item = &'a S>,
+    {
+        unsafe { self.queue_group.queues[0].submit(submission, fence) }
+    }
+
+    /// Simplified version of `submit` that doesn't expect any semaphores.
+    pub fn submit_without_semaphores<'a, T, Ic>(
+        &mut self,
+        command_buffers: Ic,
+        fence: Option<&B::Fence>,
+    ) where
+        T: 'a + Borrow<B::CommandBuffer>,
+        Ic: IntoIterator<Item = &'a T>,
+    {
+        let submission = Submission {
+            command_buffers,
+            wait_semaphores: iter::empty(),
+            signal_semaphores: iter::empty(),
+        };
+        self.submit::<_, _, B::Semaphore, _, _>(submission, fence)
+    }
+
+    /// Presents the result of the queue to the given swapchains, after waiting on all the
+    /// semaphores given in `wait_semaphores`. A given swapchain must not appear in this
+    /// list more than once.
+    ///
+    /// Unsafe for the same reasons as `submit()`.
+    pub fn present<'a, W, Is, S, Iw>(
+        &mut self,
+        swapchains: Is,
+        wait_semaphores: Iw,
+    ) -> Result<Option<Suboptimal>, PresentError>
+    where
+        Self: Sized,
+        W: 'a + Borrow<B::Swapchain>,
+        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
+        S: 'a + Borrow<B::Semaphore>,
+        Iw: IntoIterator<Item = &'a S>,
+    {
+        unsafe { self.queue_group.queues[0].present(swapchains, wait_semaphores) }
+    }
+
+    pub fn present_without_semaphores<'a, W, Is>(
+        &mut self,
+        swapchains: Is,
+    ) -> Result<Option<Suboptimal>, PresentError>
+    where
+        Self: Sized,
+        W: 'a + Borrow<B::Swapchain>,
+        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
+    {
+        unsafe { self.queue_group.queues[0].present_without_semaphores(swapchains) }
+    }
+
+    pub fn present_surface(
+        &mut self,
+        surface: &mut B::Surface,
+        image: <B::Surface as PresentationSurface<B>>::SwapchainImage,
+        wait_semaphore: Option<&B::Semaphore>,
+    ) -> Result<Option<Suboptimal>, PresentError> {
+        unsafe { self.queue_group.queues[0].present_surface(surface, image, wait_semaphore) }
+    }
+
+    pub fn wait_idle(&mut self) -> Result<(), OutOfMemory> {
+        self.queue_group.queues[0].wait_idle()
+    }
+}
+
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
-    queue_group: ManuallyDrop<QueueGroup<B>>,
+    queue: Arc<Mutex<Queue<B>>>,
     device: Arc<B::Device>,
     surface: ManuallyDrop<B::Surface>,
     adapter: hal::adapter::Adapter<B>,
@@ -76,6 +176,7 @@ pub struct GfxRenderer<B: hal::Backend> {
     frame: usize,
     frames_in_flight: usize,
     dimensions: Extent2D,
+    allocator: Allocator<B>,
 
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
@@ -99,12 +200,14 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         let mut adapters = instance.enumerate_adapters();
         let mut adapter_index: Option<usize> = None;
+        // Attempt to find a discrete GPU first (fastest option)
         for (i, adapter) in adapters.iter().enumerate() {
             if adapter.info.device_type == hal::adapter::DeviceType::DiscreteGpu {
                 adapter_index = Some(i);
             }
         }
 
+        // If we did not find a GPU, attempt to find an integrated GPU
         if adapter_index.is_none() {
             for (i, adapter) in adapters.iter().enumerate() {
                 if adapter.info.device_type == hal::adapter::DeviceType::IntegratedGpu {
@@ -114,9 +217,10 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }
 
         if adapter_index.is_none() {
-            return Err(Box::new(GfxError::SurfaceError));
+            return Err(Box::new(GfxError::NoDevice));
         }
 
+        // Retrieve the picked adapter
         let adapter = adapters.remove(adapter_index.unwrap());
         println!("Picked adapter: {}", adapter.info.name);
 
@@ -125,7 +229,9 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             .queue_families
             .iter()
             .find(|family| {
-                surface.supports_queue_family(family) && family.queue_type().supports_graphics()
+                surface.supports_queue_family(family)
+                    && family.queue_type().supports_graphics()
+                    && family.queue_type().supports_compute()
             })
             .unwrap();
         let mut gpu = unsafe {
@@ -151,7 +257,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let mut cmd_buffers = Vec::with_capacity(frames_in_flight);
 
         cmd_pools.push(command_pool);
-        for _ in 1..frames_in_flight {
+        for _ in 0..frames_in_flight {
             unsafe {
                 cmd_pools.push(
                     device
@@ -216,9 +322,14 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let allocator = Allocator::new(device.clone(), &adapter);
 
         let scene_list = SceneList::new(device.clone(), allocator.clone());
+        let queue = Arc::new(Mutex::new(Queue {
+            queue_group: ManuallyDrop::new(queue_group),
+        }));
+
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
-            allocator,
+            allocator.clone(),
+            queue.clone(),
             format,
             width as u32,
             height as u32,
@@ -227,7 +338,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         Ok(Box::new(Self {
             instance,
-            queue_group: ManuallyDrop::new(queue_group),
+            queue,
             device,
             surface: ManuallyDrop::new(surface),
             adapter,
@@ -243,6 +354,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 width: width as u32,
                 height: height as u32,
             },
+            allocator,
             scene_list,
             mesh_renderer,
         }))
@@ -260,12 +372,14 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
     fn set_materials(
         &mut self,
-        _materials: &[rfw_scene::Material],
-        _device_materials: &[rfw_scene::DeviceMaterial],
+        materials: &[rfw_scene::Material],
+        device_materials: &[rfw_scene::DeviceMaterial],
     ) {
     }
 
-    fn set_textures(&mut self, _textures: &[rfw_scene::Texture]) {}
+    fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
+        self.mesh_renderer.set_textures(textures);
+    }
 
     fn synchronize(&mut self) {
         self.scene_list.synchronize();
@@ -328,22 +442,31 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 signal_semaphores: iter::once(&self.submission_complete_semaphores[frame_idx]),
             };
 
-            self.queue_group.queues[0].submit(
-                submission,
-                Some(&self.submission_complete_fences[frame_idx]),
-            );
+            let result = if let Ok(mut queue) = self.queue.lock() {
+                queue.submit(
+                    submission,
+                    Some(&self.submission_complete_fences[frame_idx]),
+                );
 
-            // present frame
-            let result = self.queue_group.queues[0].present_surface(
-                &mut self.surface,
-                surface_image,
-                Some(&self.submission_complete_semaphores[frame_idx]),
-            );
+                // present frame
+                Some(queue.queue_group.queues[0].present_surface(
+                    &mut self.surface,
+                    surface_image,
+                    Some(&self.submission_complete_semaphores[frame_idx]),
+                ))
+            } else {
+                None
+            };
 
             self.device.destroy_framebuffer(framebuffer);
 
-            if result.is_err() {
-                self.recreate_swapchain();
+            match result {
+                Some(result) => {
+                    if result.is_err() {
+                        self.recreate_swapchain();
+                    }
+                }
+                _ => {}
             }
         }
 

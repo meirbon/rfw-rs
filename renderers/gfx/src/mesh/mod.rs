@@ -1,5 +1,9 @@
 use crate::buffer::{Allocator, Buffer, Memory};
-use crate::{hal, instances::SceneList};
+use crate::hal::format::{Aspects, Format};
+use crate::hal::memory::Segment;
+use crate::hal::pool::CommandPool;
+use crate::materials::SceneTexture;
+use crate::{hal, instances::SceneList, Queue};
 use gfx_hal::image::{Kind, Tiling};
 use glam::*;
 use hal::{
@@ -13,6 +17,7 @@ use pass::Subpass;
 use pso::*;
 use rfw_scene::{Mesh, VertexData};
 use shared::BytesConversion;
+use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
 
 pub mod anim;
@@ -90,9 +95,13 @@ pub struct RenderPipeline<B: hal::Backend> {
     pipeline_layout: ManuallyDrop<B::PipelineLayout>,
     render_pass: ManuallyDrop<B::RenderPass>,
     uniform_buffer: Buffer<B>,
-    depth_image: Option<ManuallyDrop<B::Image>>,
-    depth_image_view: Option<ManuallyDrop<B::ImageView>>,
+    depth_image: ManuallyDrop<B::Image>,
+    depth_image_view: ManuallyDrop<B::ImageView>,
     depth_memory: Memory<B>,
+
+    textures: Vec<SceneTexture<B>>,
+    cmd_pool: ManuallyDrop<B::CommandPool>,
+    queue: Arc<Mutex<Queue<B>>>,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -104,6 +113,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
     pub fn new(
         device: Arc<B::Device>,
         allocator: Allocator<B>,
+        queue: Arc<Mutex<Queue<B>>>,
         format: hal::format::Format,
         width: u32,
         height: u32,
@@ -461,6 +471,19 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .unwrap()
         };
 
+        let cmd_pool = unsafe {
+            device
+                .create_command_pool(
+                    queue
+                        .lock()
+                        .expect("Could not lock queue")
+                        .queue_group
+                        .family,
+                    hal::pool::CommandPoolCreateFlags::empty(),
+                )
+                .expect("Can't create command pool")
+        };
+
         Self {
             device,
             allocator,
@@ -471,9 +494,13 @@ impl<B: hal::Backend> RenderPipeline<B> {
             pipeline_layout,
             render_pass,
             uniform_buffer,
-            depth_image: Some(ManuallyDrop::new(depth_image)),
-            depth_image_view: Some(ManuallyDrop::new(depth_image_view)),
+            depth_image: ManuallyDrop::new(depth_image),
+            depth_image_view: ManuallyDrop::new(depth_image_view),
             depth_memory,
+
+            queue,
+            cmd_pool: ManuallyDrop::new(cmd_pool),
+            textures: Vec::new(),
         }
     }
 
@@ -485,10 +512,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         self.device
             .create_framebuffer(
                 &self.render_pass,
-                vec![
-                    surface_image.borrow(),
-                    self.depth_image_view.as_ref().unwrap(),
-                ],
+                vec![surface_image.borrow(), &self.depth_image_view],
                 hal::image::Extent {
                     width: dimensions.width,
                     height: dimensions.height,
@@ -579,21 +603,11 @@ impl<B: hal::Backend> RenderPipeline<B> {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-        let mut image = None;
-        let mut image_view = None;
-
-        std::mem::swap(&mut image, &mut self.depth_image);
-        std::mem::swap(&mut image_view, &mut self.depth_image_view);
-
         unsafe {
-            if let Some(view) = image_view {
-                self.device
-                    .destroy_image_view(ManuallyDrop::into_inner(view));
-            }
-
-            if let Some(image) = image {
-                self.device.destroy_image(ManuallyDrop::into_inner(image));
-            }
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(ptr::read(&self.depth_image_view)));
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.depth_image)));
         }
 
         let allocate =
@@ -641,8 +655,103 @@ impl<B: hal::Backend> RenderPipeline<B> {
             (image, image_view)
         };
 
-        self.depth_image = Some(ManuallyDrop::new(depth_image));
-        self.depth_image_view = Some(ManuallyDrop::new(depth_image_view));
+        self.depth_image = ManuallyDrop::new(depth_image);
+        self.depth_image_view = ManuallyDrop::new(depth_image_view);
+    }
+
+    pub fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
+        let mut texels = 0;
+        let textures: Vec<_> = textures
+            .iter()
+            .map(|t| {
+                let mut t = t.clone();
+                t.generate_mipmaps(5);
+                t
+            })
+            .collect();
+        self.textures = textures
+            .iter()
+            .map(|t| {
+                texels += t.data.len();
+                SceneTexture::new(
+                    self.device.clone(),
+                    &self.allocator,
+                    t.width,
+                    t.height,
+                    t.mip_levels,
+                    Format::Bgra8Unorm,
+                )
+            })
+            .collect();
+
+        let mut staging_buffer = self.allocator.allocate_bytes(
+            texels * std::mem::size_of::<u32>(),
+            hal::buffer::Usage::TRANSFER_SRC,
+            hal::memory::Properties::CPU_VISIBLE,
+        );
+
+        let mut cmd_buffer = unsafe {
+            let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Secondary);
+
+            cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
+            cmd_buffer
+        };
+
+        if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
+            let mut byte_offset = 0;
+            for (i, t) in textures.iter().enumerate() {
+                let bytes = t.data.as_bytes();
+                mapping.as_slice()[byte_offset..(byte_offset + bytes.len())].copy_from_slice(bytes);
+                byte_offset += bytes.len();
+            }
+        }
+
+        let mut byte_offset = 0;
+        for (i, t) in textures.iter().enumerate() {
+            let mut offset = 0;
+            for m in 0..t.mip_levels {
+                let (width, height) = t.mip_level_width_height(m as usize);
+                unsafe {
+                    cmd_buffer.copy_buffer_to_image(
+                        staging_buffer.borrow(),
+                        self.textures[i].borrow(),
+                        hal::image::Layout::TransferDstOptimal,
+                        std::iter::once(&hal::command::BufferImageCopy {
+                            buffer_offset: byte_offset as hal::buffer::Offset,
+                            /// Width of a buffer 'row' in texels.
+                            buffer_width: width as u32,
+                            /// Height of a buffer 'image slice' in texels.
+                            buffer_height: height as u32,
+                            /// The image subresource.
+                            image_layers: hal::image::SubresourceLayers {
+                                layers: 0..1,
+                                aspects: Aspects::COLOR,
+                                level: m as hal::image::Level,
+                            },
+                            /// The offset of the portion of the image to copy.
+                            image_offset: hal::image::Offset { x: 0, y: 0, z: 0 },
+                            /// Size of the portion of the image to copy.
+                            image_extent: hal::image::Extent {
+                                width: width as u32,
+                                height: height as u32,
+                                depth: 1,
+                            },
+                        }),
+                    );
+                }
+
+                byte_offset += width * height * std::mem::size_of::<u32>();
+                offset += width * height * std::mem::size_of::<u32>();
+            }
+        }
+
+        unsafe {
+            cmd_buffer.finish();
+        }
+
+        let mut queue = self.queue.lock().expect("Could not get queue lock");
+
+        queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
     }
 }
 
@@ -651,20 +760,15 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
         self.device.wait_idle().unwrap();
 
         unsafe {
-            let mut image = None;
-            let mut image_view = None;
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(ptr::read(&self.depth_image_view)));
 
-            std::mem::swap(&mut image, &mut self.depth_image);
-            std::mem::swap(&mut image_view, &mut self.depth_image_view);
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.depth_image)));
 
-            if let Some(view) = image_view {
-                self.device
-                    .destroy_image_view(ManuallyDrop::into_inner(view));
-            }
-
-            if let Some(image) = image {
-                self.device.destroy_image(ManuallyDrop::into_inner(image));
-            }
+            self.textures.clear();
+            self.device
+                .destroy_command_pool(ManuallyDrop::into_inner(ptr::read(&self.cmd_pool)));
 
             self.device
                 .destroy_descriptor_pool(ManuallyDrop::into_inner(ptr::read(&self.desc_pool)));
