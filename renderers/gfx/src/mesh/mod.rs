@@ -16,7 +16,7 @@ use hal::{
 };
 use pass::Subpass;
 use pso::*;
-use rfw_scene::{DeviceMaterial, Mesh, VertexData};
+use rfw_scene::{DeviceMaterial, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
 use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
@@ -26,6 +26,7 @@ pub mod anim;
 #[derive(Debug, Clone)]
 pub struct GfxMesh<B: hal::Backend> {
     pub buffer: Option<Arc<Buffer<B>>>,
+    pub sub_meshes: Vec<VertexMesh>,
     vertices: usize,
 }
 
@@ -33,6 +34,7 @@ impl<B: hal::Backend> Default for GfxMesh<B> {
     fn default() -> Self {
         Self {
             buffer: None,
+            sub_meshes: Vec::new(),
             vertices: 0,
         }
     }
@@ -74,6 +76,7 @@ impl<B: hal::Backend> GfxMesh<B> {
         }
 
         self.vertices = mesh.vertices.len();
+        self.sub_meshes = mesh.meshes.clone();
         self.buffer = Some(Arc::new(buffer));
     }
 
@@ -104,9 +107,11 @@ pub struct RenderPipeline<B: hal::Backend> {
     cmd_pool: ManuallyDrop<B::CommandPool>,
     queue: Arc<Mutex<Queue<B>>>,
 
+    mat_desc_pool: ManuallyDrop<B::DescriptorPool>,
     mat_set_layout: ManuallyDrop<B::DescriptorSetLayout>,
     mat_sets: Vec<B::DescriptorSet>,
     material_buffer: Buffer<B>,
+    tex_sampler: ManuallyDrop<B::Sampler>,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -142,7 +147,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     &[],
                 )
             }
-                .expect("Can't create descriptor set layout"),
+            .expect("Can't create descriptor set layout"),
         );
 
         let mat_set_layout = ManuallyDrop::new(
@@ -154,7 +159,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             ty: pso::DescriptorType::Buffer {
                                 ty: pso::BufferDescriptorType::Uniform,
                                 format: pso::BufferDescriptorFormat::Structured {
-                                    dynamic_offset: true,
+                                    dynamic_offset: false,
                                 },
                             },
                             count: 1,
@@ -227,23 +232,33 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     &[],
                 )
             }
-                .expect("Can't create descriptor set layout"),
+            .expect("Can't create descriptor set layout"),
         );
 
         let mut desc_pool = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_pool(
+                    1, // sets
+                    &[pso::DescriptorRangeDesc {
+                        ty: pso::DescriptorType::Buffer {
+                            ty: pso::BufferDescriptorType::Uniform,
+                            format: pso::BufferDescriptorFormat::Structured {
+                                dynamic_offset: false,
+                            },
+                        },
+                        count: 1,
+                    }],
+                    pso::DescriptorPoolCreateFlags::empty(),
+                )
+            }
+            .expect("Can't create descriptor pool"),
+        );
+
+        let mut mat_desc_pool = ManuallyDrop::new(
+            unsafe {
+                device.create_descriptor_pool(
                     512, // sets
                     &[
-                        pso::DescriptorRangeDesc {
-                            ty: pso::DescriptorType::Buffer {
-                                ty: pso::BufferDescriptorType::Uniform,
-                                format: pso::BufferDescriptorFormat::Structured {
-                                    dynamic_offset: false,
-                                },
-                            },
-                            count: 1,
-                        },
                         pso::DescriptorRangeDesc {
                             ty: pso::DescriptorType::Buffer {
                                 ty: pso::BufferDescriptorType::Uniform,
@@ -265,7 +280,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     pso::DescriptorPoolCreateFlags::empty(),
                 )
             }
-                .expect("Can't create descriptor pool"),
+            .expect("Can't create descriptor pool"),
         );
         let desc_set = unsafe { desc_pool.allocate_set(&set_layout) }.unwrap();
 
@@ -308,15 +323,18 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         &[],
                     )
                 }
-                    .expect("Can't create render pass"),
+                .expect("Can't create render pass"),
             )
         };
 
         let pipeline_layout = ManuallyDrop::new(
             unsafe {
-                device.create_pipeline_layout(vec![&*set_layout, &*scene_list.set_layout], &[])
+                device.create_pipeline_layout(
+                    vec![&*set_layout, &*scene_list.set_layout, &*mat_set_layout],
+                    &[],
+                )
             }
-                .expect("Can't create pipeline layout"),
+            .expect("Can't create pipeline layout"),
         );
 
         let pipeline = {
@@ -600,6 +618,41 @@ impl<B: hal::Backend> RenderPipeline<B> {
             hal::memory::Properties::DEVICE_LOCAL,
         );
 
+        let tex_sampler = ManuallyDrop::new(unsafe {
+            device
+                .create_sampler(&hal::image::SamplerDesc {
+                    min_filter: hal::image::Filter::Linear,
+                    /// Magnification filter method to use.
+                    mag_filter: hal::image::Filter::Nearest,
+                    /// Mip filter method to use.
+                    mip_filter: hal::image::Filter::Nearest,
+                    /// Wrapping mode for each of the U, V, and W axis (S, T, and R in OpenGL
+                    /// speak).
+                    wrap_mode: (
+                        hal::image::WrapMode::Tile,
+                        hal::image::WrapMode::Tile,
+                        hal::image::WrapMode::Tile,
+                    ),
+                    /// This bias is added to every computed mipmap level (N + lod_bias). For
+                    /// example, if it would select mipmap level 2 and lod_bias is 1, it will
+                    /// use mipmap level 3.
+                    lod_bias: hal::image::Lod(0.0),
+                    /// This range is used to clamp LOD level used for sampling.
+                    lod_range: hal::image::Lod(0.0)
+                        ..hal::image::Lod(rfw_scene::Texture::MIP_LEVELS as f32),
+                    /// Comparison mode, used primary for a shadow map.
+                    comparison: None,
+                    /// Border color is used when one of the wrap modes is set to border.
+                    border: hal::image::PackedColor::from([0.0; 4]),
+                    /// Specifies whether the texture coordinates are normalized.
+                    normalized: false,
+                    /// Anisotropic filtering.
+                    /// Can be `Some(_)` only if `Features::SAMPLER_ANISOTROPY` is enabled.
+                    anisotropy_clamp: Some(8),
+                })
+                .unwrap()
+        });
+
         Self {
             device,
             allocator,
@@ -617,9 +670,12 @@ impl<B: hal::Backend> RenderPipeline<B> {
             queue,
             cmd_pool: ManuallyDrop::new(cmd_pool),
             textures: Vec::new(),
+
+            mat_desc_pool,
             mat_set_layout,
             mat_sets: Vec::new(),
             material_buffer,
+            tex_sampler,
         }
     }
 
@@ -707,7 +763,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             command::SubpassContents::Inline,
         );
 
-        scene.iter_instances(|buffer, offset, instance, range| {
+        scene.iter_instances(|buffer, offset, instance| {
             cmd_buffer.bind_vertex_buffers(0, Some((buffer, buffer::SubRange::WHOLE)));
             cmd_buffer.bind_graphics_descriptor_sets(
                 &self.pipeline_layout,
@@ -715,7 +771,16 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 vec![&scene.desc_set],
                 &[offset as DescriptorSetOffset],
             );
-            cmd_buffer.draw(range, instance.id..(instance.id + 1));
+
+            for mesh in &instance.meshes {
+                cmd_buffer.bind_graphics_descriptor_sets(
+                    &self.pipeline_layout,
+                    2,
+                    std::iter::once(&self.mat_sets[mesh.mat_id as usize]),
+                    &[],
+                );
+                cmd_buffer.draw(mesh.first..mesh.last, instance.id..(instance.id + 1));
+            }
         });
 
         cmd_buffer.end_render_pass();
@@ -903,7 +968,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             }
         }
 
-        unsafe {
+        let cmd_buffer = unsafe {
             let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
 
             cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
@@ -918,11 +983,106 @@ impl<B: hal::Backend> RenderPipeline<B> {
             );
 
             cmd_buffer.finish();
+            cmd_buffer
+        };
 
-            if let Ok(mut queue) = self.queue.lock() {
-                queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-                queue.wait_idle();
-            }
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+        }
+
+        unsafe {
+            self.mat_desc_pool.reset();
+            self.mat_sets = materials
+                .iter()
+                .map(|_| unsafe { self.mat_desc_pool.allocate_set(&self.mat_set_layout) }.unwrap())
+                .collect();
+
+            let mut writes = Vec::with_capacity(self.mat_sets.len() * 6);
+            let sampler = ManuallyDrop::into_inner(ptr::read(&self.tex_sampler));
+            self.mat_sets
+                .iter()
+                .zip(materials.iter().enumerate())
+                .for_each(|(set, (i, mat))| {
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 0,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::Buffer(
+                            self.material_buffer.borrow(),
+                            hal::buffer::SubRange {
+                                offset: (i * 256) as _,
+                                size: Some(std::mem::size_of::<DeviceMaterial>() as _),
+                            },
+                        )),
+                    });
+
+                    // Texture 0
+                    let tex = &self.textures[mat.diffuse_map.max(0) as usize];
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 1,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                            tex.view(),
+                            hal::image::Layout::ShaderReadOnlyOptimal,
+                            &sampler,
+                        )),
+                    });
+                    // Texture 1
+                    let tex = &self.textures[mat.normal_map.max(0) as usize];
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 2,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                            tex.view(),
+                            hal::image::Layout::ShaderReadOnlyOptimal,
+                            &sampler,
+                        )),
+                    });
+                    // Texture 2
+                    let tex = &self.textures[mat.roughness_map.max(0) as usize];
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 3,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                            tex.view(),
+                            hal::image::Layout::ShaderReadOnlyOptimal,
+                            &sampler,
+                        )),
+                    });
+                    // Texture 3
+                    let tex = &self.textures[mat.emissive_map.max(0) as usize];
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 4,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                            tex.view(),
+                            hal::image::Layout::ShaderReadOnlyOptimal,
+                            &sampler,
+                        )),
+                    });
+                    // Texture 4
+                    let tex = &self.textures[mat.sheen_map.max(0) as usize];
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 5,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                            tex.view(),
+                            hal::image::Layout::ShaderReadOnlyOptimal,
+                            &sampler,
+                        )),
+                    });
+                });
+
+            self.device.write_descriptor_sets(writes);
+        }
+
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.wait_idle();
         }
     }
 }
@@ -945,6 +1105,9 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
             self.device
                 .destroy_descriptor_pool(ManuallyDrop::into_inner(ptr::read(&self.desc_pool)));
             self.device
+                .destroy_descriptor_pool(ManuallyDrop::into_inner(ptr::read(&self.mat_desc_pool)));
+
+            self.device
                 .destroy_descriptor_set_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.set_layout,
                 )));
@@ -952,6 +1115,9 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
                 .destroy_descriptor_set_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.mat_set_layout,
                 )));
+
+            self.device
+                .destroy_sampler(ManuallyDrop::into_inner(ptr::read(&self.tex_sampler)));
 
             self.device
                 .destroy_render_pass(ManuallyDrop::into_inner(ptr::read(&self.render_pass)));

@@ -237,7 +237,10 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let mut gpu = unsafe {
             adapter
                 .physical_device
-                .open(&[(family, &[1.0])], hal::Features::NDC_Y_UP)
+                .open(
+                    &[(family, &[1.0])],
+                    hal::Features::NDC_Y_UP | hal::Features::SAMPLER_ANISOTROPY,
+                )
                 .unwrap()
         };
         let queue_group = gpu.queue_groups.pop().unwrap();

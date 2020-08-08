@@ -12,7 +12,7 @@ use hal::{
 use pso::DescriptorPool;
 use rfw_scene::{
     bvh::{Bounds, AABB},
-    ObjectRef, TrackedStorage,
+    FlaggedStorage, ObjectRef, TrackedStorage, VertexMesh,
 };
 use std::{collections::HashSet, mem::ManuallyDrop, ops::Range, ptr, sync::Arc};
 
@@ -29,10 +29,21 @@ pub struct Instance {
     pub original_bounds: (Vec3A, Vec3A),
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct RenderInstance<'a> {
+#[derive(Debug, Clone)]
+pub struct RenderInstance {
     pub id: u32,
-    pub instance: &'a Instance,
+    pub bounds: AABB,
+    pub meshes: Vec<VertexMesh>,
+}
+
+impl Default for RenderInstance {
+    fn default() -> Self {
+        Self {
+            id: std::u32::MAX,
+            bounds: AABB::empty(),
+            meshes: Vec::new(),
+        }
+    }
 }
 
 impl Instance {
@@ -64,6 +75,7 @@ pub struct SceneList<B: hal::Backend> {
     anim_mesh_instances: TrackedStorage<HashSet<u32>>,
     instance_meshes: TrackedStorage<ObjectRef>,
     instances: TrackedStorage<Instance>,
+    render_instances: FlaggedStorage<RenderInstance>,
     buffer: Buffer<B>,
     pub desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_set: B::DescriptorSet,
@@ -142,6 +154,7 @@ impl<B: hal::Backend> SceneList<B> {
             anim_mesh_instances: TrackedStorage::new(),
             instance_meshes: TrackedStorage::new(),
             instances: TrackedStorage::new(),
+            render_instances: FlaggedStorage::new(),
             buffer,
             desc_pool,
             desc_set,
@@ -161,6 +174,34 @@ impl<B: hal::Backend> SceneList<B> {
                 original_bounds: instance.local_bounds().into(),
             },
         );
+        self.render_instances.overwrite(id);
+
+        self.render_instances[id] = match instance.object_id {
+            ObjectRef::None => RenderInstance::default(),
+            ObjectRef::Static(m_id) => {
+                let meshes = self.meshes[m_id as usize]
+                    .sub_meshes
+                    .iter()
+                    .map(|s| VertexMesh {
+                        bounds: s
+                            .bounds
+                            .transformed(self.instances[id].matrix.to_cols_array()),
+                        first: s.first,
+                        last: s.last,
+                        mat_id: s.mat_id,
+                    })
+                    .collect();
+
+                RenderInstance {
+                    id: id as u32,
+                    meshes,
+                    bounds: self.instances[id].bounds.into(),
+                }
+            }
+            ObjectRef::Animated(m_id) => {
+                todo!();
+            }
+        };
 
         match instance.object_id {
             ObjectRef::None => {}
@@ -252,7 +293,7 @@ impl<B: hal::Backend> SceneList<B> {
 
     pub fn iter_instances<T>(&self, mut render_instance: T)
     where
-        T: FnMut(&B::Buffer, DescriptorSetOffset, RenderInstance<'_>, Range<u32>),
+        T: FnMut(&B::Buffer, DescriptorSetOffset, &RenderInstance),
     {
         self.mesh_instances
             .iter()
@@ -263,16 +304,7 @@ impl<B: hal::Backend> SceneList<B> {
                     set.iter().for_each(|i| {
                         let i = *i as usize;
                         let offset = (std::mem::size_of::<Instance>() * i) as DescriptorSetOffset;
-
-                        render_instance(
-                            buffer,
-                            offset,
-                            RenderInstance {
-                                id: i as u32,
-                                instance: &self.instances[i],
-                            },
-                            0..self.meshes[i].len() as u32,
-                        );
+                        render_instance(buffer, offset, &self.render_instances[i]);
                     });
                 }
             });
