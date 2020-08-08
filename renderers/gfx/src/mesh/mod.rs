@@ -4,6 +4,7 @@ use crate::hal::memory::Segment;
 use crate::hal::pool::CommandPool;
 use crate::materials::SceneTexture;
 use crate::{hal, instances::SceneList, Queue};
+use gfx_hal::command::BufferCopy;
 use gfx_hal::image::{Kind, Tiling};
 use glam::*;
 use hal::{
@@ -15,7 +16,7 @@ use hal::{
 };
 use pass::Subpass;
 use pso::*;
-use rfw_scene::{Mesh, VertexData};
+use rfw_scene::{DeviceMaterial, Mesh, VertexData};
 use shared::BytesConversion;
 use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
@@ -59,7 +60,7 @@ impl<B: hal::Backend> GfxMesh<B> {
             * non_coherent_alignment;
 
         // TODO: We should use staging buffers to transfer data to vertex buffers
-        let mut buffer = allocator.allocate_bytes(
+        let mut buffer = allocator.allocate_buffer(
             padded_buffer_len as usize,
             buffer::Usage::VERTEX,
             memory::Properties::CPU_VISIBLE,
@@ -102,6 +103,10 @@ pub struct RenderPipeline<B: hal::Backend> {
     textures: Vec<SceneTexture<B>>,
     cmd_pool: ManuallyDrop<B::CommandPool>,
     queue: Arc<Mutex<Queue<B>>>,
+
+    mat_set_layout: ManuallyDrop<B::DescriptorSetLayout>,
+    mat_sets: Vec<B::DescriptorSet>,
+    material_buffer: Buffer<B>,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -140,19 +145,123 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .expect("Can't create descriptor set layout"),
         );
 
+        let mat_set_layout = ManuallyDrop::new(
+            unsafe {
+                device.create_descriptor_set_layout(
+                    &[
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 0,
+                            ty: pso::DescriptorType::Buffer {
+                                ty: pso::BufferDescriptorType::Uniform,
+                                format: pso::BufferDescriptorFormat::Structured {
+                                    dynamic_offset: true,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 1,
+                            ty: pso::DescriptorType::Sampler,
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 2,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 3,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 4,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 5,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 6,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                    ],
+                    &[],
+                )
+            }
+            .expect("Can't create descriptor set layout"),
+        );
+
         let mut desc_pool = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_pool(
-                    1, // sets
-                    &[pso::DescriptorRangeDesc {
-                        ty: pso::DescriptorType::Buffer {
-                            ty: pso::BufferDescriptorType::Uniform,
-                            format: pso::BufferDescriptorFormat::Structured {
-                                dynamic_offset: false,
+                    512, // sets
+                    &[
+                        pso::DescriptorRangeDesc {
+                            ty: pso::DescriptorType::Buffer {
+                                ty: pso::BufferDescriptorType::Uniform,
+                                format: pso::BufferDescriptorFormat::Structured {
+                                    dynamic_offset: false,
+                                },
                             },
+                            count: 1,
                         },
-                        count: 1,
-                    }],
+                        pso::DescriptorRangeDesc {
+                            ty: pso::DescriptorType::Buffer {
+                                ty: pso::BufferDescriptorType::Uniform,
+                                format: pso::BufferDescriptorFormat::Structured {
+                                    dynamic_offset: true,
+                                },
+                            },
+                            count: 1,
+                        },
+                        pso::DescriptorRangeDesc {
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 5,
+                        },
+                    ],
                     pso::DescriptorPoolCreateFlags::empty(),
                 )
             }
@@ -415,7 +524,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             }
         };
 
-        let uniform_buffer = allocator.allocate_bytes(
+        let uniform_buffer = allocator.allocate_buffer(
             Self::UNIFORM_CAMERA_SIZE,
             hal::buffer::Usage::UNIFORM,
             hal::memory::Properties::CPU_VISIBLE,
@@ -484,6 +593,13 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .expect("Can't create command pool")
         };
 
+        let material_buffer = allocator.allocate_buffer(
+            // Minimum alignment of dynamic uniform buffers is 256 bytes
+            256 * 32,
+            hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
+            hal::memory::Properties::DEVICE_LOCAL,
+        );
+
         Self {
             device,
             allocator,
@@ -501,6 +617,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
             queue,
             cmd_pool: ManuallyDrop::new(cmd_pool),
             textures: Vec::new(),
+            mat_set_layout,
+            mat_sets: Vec::new(),
+            material_buffer,
         }
     }
 
@@ -684,14 +803,14 @@ impl<B: hal::Backend> RenderPipeline<B> {
             })
             .collect();
 
-        let mut staging_buffer = self.allocator.allocate_bytes(
+        let mut staging_buffer = self.allocator.allocate_buffer(
             texels * std::mem::size_of::<u32>(),
             hal::buffer::Usage::TRANSFER_SRC,
             hal::memory::Properties::CPU_VISIBLE,
         );
 
         let mut cmd_buffer = unsafe {
-            let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Secondary);
+            let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
 
             cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
             cmd_buffer
@@ -753,6 +872,57 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
     }
+
+    pub fn set_materials(&mut self, materials: &[DeviceMaterial]) {
+        if self.material_buffer.len() < materials.len() * 256 {
+            self.material_buffer = self.allocator.allocate_buffer(
+                // Minimum alignment of dynamic uniform buffers is 256 bytes
+                materials.len() * 2 * 256,
+                hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
+                hal::memory::Properties::DEVICE_LOCAL,
+            );
+        }
+
+        let mut staging_buffer = self.allocator.allocate_buffer(
+            materials.len() * 256,
+            hal::buffer::Usage::TRANSFER_SRC,
+            hal::memory::Properties::CPU_VISIBLE,
+        );
+
+        if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
+            let dst = mapping.as_slice();
+            let src = materials.as_bytes();
+            for (i, mat) in materials.iter().enumerate() {
+                let start = i * 256;
+                let end = start + std::mem::size_of::<DeviceMaterial>();
+
+                let src_start = i * std::mem::size_of::<DeviceMaterial>();
+                let src_end = (i + 1) * std::mem::size_of::<DeviceMaterial>();
+                dst[start..end].copy_from_slice(&src[src_start..src_end]);
+            }
+        }
+
+        unsafe {
+            let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
+
+            cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
+            cmd_buffer.copy_buffer(
+                staging_buffer.borrow(),
+                self.material_buffer.borrow(),
+                std::iter::once(&BufferCopy {
+                    size: (materials.len() * 256) as _,
+                    src: 0,
+                    dst: 0,
+                }),
+            );
+
+            cmd_buffer.finish();
+
+            if let Ok(mut queue) = self.queue.lock() {
+                queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+            }
+        }
+    }
 }
 
 impl<B: hal::Backend> Drop for RenderPipeline<B> {
@@ -776,6 +946,11 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
                 .destroy_descriptor_set_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.set_layout,
                 )));
+            self.device
+                .destroy_descriptor_set_layout(ManuallyDrop::into_inner(ptr::read(
+                    &self.mat_set_layout,
+                )));
+
             self.device
                 .destroy_render_pass(ManuallyDrop::into_inner(ptr::read(&self.render_pass)));
             self.device

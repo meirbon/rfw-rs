@@ -75,8 +75,8 @@ impl<B: hal::Backend> SceneList<B> {
     const DEFAULT_CAPACITY: usize = 32;
 
     pub fn new(device: Arc<B::Device>, allocator: Allocator<B>) -> Self {
-        let buffer = allocator.allocate::<Instance>(
-            Self::DEFAULT_CAPACITY,
+        let buffer = allocator.allocate_buffer(
+            std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
             Usage::UNIFORM,
             Properties::CPU_VISIBLE,
         );
@@ -218,8 +218,8 @@ impl<B: hal::Backend> SceneList<B> {
         let copy_size = self.instances.len() * std::mem::size_of::<Instance>();
 
         if copy_size < self.buffer.size_in_bytes {
-            self.buffer = self.allocator.allocate::<Instance>(
-                self.instances.len() * 2,
+            self.buffer = self.allocator.allocate_buffer(
+                self.instances.len() * 2 * std::mem::size_of::<Instance>(),
                 Usage::UNIFORM,
                 Properties::CPU_VISIBLE,
             );
@@ -262,8 +262,7 @@ impl<B: hal::Backend> SceneList<B> {
                     let buffer = buffer.borrow();
                     set.iter().for_each(|i| {
                         let i = *i as usize;
-                        let offset = (std::mem::size_of::<Instance>() * i)
-                            as DescriptorSetOffset;
+                        let offset = (std::mem::size_of::<Instance>() * i) as DescriptorSetOffset;
 
                         render_instance(
                             buffer,

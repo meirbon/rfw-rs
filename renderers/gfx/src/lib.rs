@@ -372,9 +372,10 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
     fn set_materials(
         &mut self,
-        materials: &[rfw_scene::Material],
+        _materials: &[rfw_scene::Material],
         device_materials: &[rfw_scene::DeviceMaterial],
     ) {
+        self.mesh_renderer.set_materials(device_materials);
     }
 
     fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {

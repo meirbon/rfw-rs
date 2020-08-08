@@ -33,7 +33,40 @@ impl<B: hal::Backend> Allocator<B> {
         }
     }
 
-    pub fn allocate_bytes(
+    pub fn allocate(&self, bytes: usize, memory_props: memory::Properties) -> Memory<B> {
+        assert_ne!(bytes, 0);
+        let upload_type = self
+            .memory_props
+            .memory_types
+            .iter()
+            .enumerate()
+            .position(|(_, mem_type)| {
+                // type_mask is a bit field where each bit represents a memory type. If the bit is set
+                // to 1 it means we can use that type for our buffer. So this code finds the first
+                // memory type that has a `1` (or, is allowed), and is visible to the CPU.
+                mem_type.properties.contains(memory_props)
+            })
+            .unwrap()
+            .into();
+
+        let memory = unsafe {
+            ManuallyDrop::new(
+                self.device
+                    .allocate_memory(upload_type, bytes as u64)
+                    .unwrap(),
+            )
+        };
+
+        Memory {
+            device: self.device.clone(),
+            memory,
+            memory_type: upload_type,
+            capacity: bytes,
+            memory_props,
+        }
+    }
+
+    pub fn allocate_buffer(
         &self,
         bytes: usize,
         usage: buffer::Usage,
@@ -78,23 +111,13 @@ impl<B: hal::Backend> Allocator<B> {
             buffer: Some(buffer),
             memory: Memory {
                 device: self.device.clone(),
-                memory: Some(buffer_memory),
+                memory: buffer_memory,
                 memory_type: upload_type,
                 capacity: buffer_req.size as usize,
+                memory_props,
             },
             size_in_bytes: buffer_len as usize,
-            memory_props,
         }
-    }
-
-    pub fn allocate<T: Sized>(
-        &self,
-        count: usize,
-        usage: hal::buffer::Usage,
-        memory_props: memory::Properties,
-    ) -> Buffer<B> {
-        let bytes = count * std::mem::size_of::<T>();
-        self.allocate_bytes(bytes, usage, memory_props)
     }
 
     pub fn allocate_with_reqs(
@@ -122,8 +145,9 @@ impl<B: hal::Backend> Allocator<B> {
 
         Memory {
             device: self.device.clone(),
-            memory: Some(ManuallyDrop::new(memory)),
+            memory: ManuallyDrop::new(memory),
             memory_type: device_type,
+            memory_props,
             capacity: requirements.size as usize,
         }
     }
@@ -135,7 +159,6 @@ pub struct Buffer<B: hal::Backend> {
     buffer: Option<ManuallyDrop<B::Buffer>>,
     memory: Memory<B>,
     pub size_in_bytes: usize,
-    pub memory_props: memory::Properties,
 }
 
 pub enum BufferError {
@@ -149,13 +172,49 @@ pub enum BufferError {
 #[derive(Debug)]
 pub struct Memory<B: hal::Backend> {
     device: Arc<B::Device>,
-    memory: Option<ManuallyDrop<B::Memory>>,
+    memory: ManuallyDrop<B::Memory>,
     memory_type: MemoryTypeId,
+    memory_props: memory::Properties,
     capacity: usize,
 }
 
 #[allow(dead_code)]
 impl<B: hal::Backend> Memory<B> {
+    pub fn map(&mut self, segment: Segment) -> Result<Mapping<B>, BufferError> {
+        if !self.memory_props.contains(memory::Properties::CPU_VISIBLE) {
+            return Err(BufferError::NotMappable);
+        }
+
+        let ptr = unsafe {
+            match self.device.map_memory(&self.memory, segment.clone()) {
+                Ok(mapping) => mapping,
+                Err(e) => match e {
+                    hal::device::MapError::OutOfMemory(a) => match a {
+                        hal::device::OutOfMemory::Host => return Err(BufferError::OutOfHostMemory),
+                        hal::device::OutOfMemory::Device => {
+                            return Err(BufferError::OutOfDeviceMemory);
+                        }
+                    },
+                    hal::device::MapError::OutOfBounds => return Err(BufferError::OutOfBounds),
+                    hal::device::MapError::MappingFailed => return Err(BufferError::MappingFailed),
+                },
+            }
+        };
+
+        let length = match segment.size {
+            Some(size) => (size - segment.offset) as usize,
+            None => self.capacity,
+        };
+
+        Ok(Mapping {
+            device: &self.device,
+            memory: &mut self.memory,
+            ptr,
+            length,
+            segment,
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.capacity
     }
@@ -165,26 +224,23 @@ impl<B: hal::Backend> Memory<B> {
     }
 
     pub fn borrow(&self) -> &B::Memory {
-        self.memory.as_ref().unwrap()
+        &self.memory
     }
 
     pub fn as_ref(&self) -> &B::Memory {
-        self.memory.as_ref().unwrap()
+        &self.memory
     }
 
     pub fn as_mut(&mut self) -> &mut B::Memory {
-        self.memory.as_mut().unwrap()
+        &mut self.memory
     }
 }
 
 impl<B: hal::Backend> Drop for Memory<B> {
     fn drop(&mut self) {
         unsafe {
-            let mut mem = None;
-            std::mem::swap(&mut mem, &mut self.memory);
-            if let Some(mem) = mem {
-                self.device.free_memory(ManuallyDrop::into_inner(mem));
-            }
+            self.device
+                .free_memory(ManuallyDrop::into_inner(std::ptr::read(&self.memory)));
         }
     }
 }
@@ -233,10 +289,6 @@ impl<'a, B: hal::Backend> Drop for Mapping<'a, B> {
 #[allow(dead_code)]
 impl<B: hal::Backend> Buffer<B> {
     pub fn map(&mut self, segment: Segment) -> Result<Mapping<B>, BufferError> {
-        if !self.memory_props.contains(memory::Properties::CPU_VISIBLE) {
-            return Err(BufferError::NotMappable);
-        }
-
         let ptr = unsafe {
             match self
                 .device
@@ -268,6 +320,10 @@ impl<B: hal::Backend> Buffer<B> {
             length,
             segment,
         })
+    }
+
+    pub fn len(&self) -> usize {
+        self.size_in_bytes
     }
 
     pub fn borrow(&self) -> &B::Buffer {
