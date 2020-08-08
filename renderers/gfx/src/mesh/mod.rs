@@ -142,7 +142,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     &[],
                 )
             }
-            .expect("Can't create descriptor set layout"),
+                .expect("Can't create descriptor set layout"),
         );
 
         let mat_set_layout = ManuallyDrop::new(
@@ -227,7 +227,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     &[],
                 )
             }
-            .expect("Can't create descriptor set layout"),
+                .expect("Can't create descriptor set layout"),
         );
 
         let mut desc_pool = ManuallyDrop::new(
@@ -265,7 +265,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     pso::DescriptorPoolCreateFlags::empty(),
                 )
             }
-            .expect("Can't create descriptor pool"),
+                .expect("Can't create descriptor pool"),
         );
         let desc_set = unsafe { desc_pool.allocate_set(&set_layout) }.unwrap();
 
@@ -308,7 +308,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         &[],
                     )
                 }
-                .expect("Can't create render pass"),
+                    .expect("Can't create render pass"),
             )
         };
 
@@ -316,7 +316,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             unsafe {
                 device.create_pipeline_layout(vec![&*set_layout, &*scene_list.set_layout], &[])
             }
-            .expect("Can't create pipeline layout"),
+                .expect("Can't create pipeline layout"),
         );
 
         let pipeline = {
@@ -871,6 +871,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let mut queue = self.queue.lock().expect("Could not get queue lock");
 
         queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+        queue.wait_idle();
     }
 
     pub fn set_materials(&mut self, materials: &[DeviceMaterial]) {
@@ -920,6 +921,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
             if let Ok(mut queue) = self.queue.lock() {
                 queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+                queue.wait_idle();
             }
         }
     }
