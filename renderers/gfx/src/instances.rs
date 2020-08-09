@@ -6,13 +6,12 @@ use crate::hal::pool::CommandPool;
 use crate::hal::{buffer, memory};
 use crate::mesh::anim::GfxAnimMesh;
 use crate::{buffer::*, mesh::GfxMesh};
-use gfx_hal::buffer::State;
-use gfx_hal::command::{BufferCopy, CommandBufferFlags};
-use gfx_hal::memory::{Barrier, Dependencies};
-use gfx_hal::pso::PipelineStage;
+use hal::buffer::State;
+use hal::command::{BufferCopy, CommandBufferFlags};
+use hal::memory::{Barrier, Dependencies};
+use hal::pso::PipelineStage;
 use hal::{
     buffer::{SubRange, Usage},
-    command::DescriptorSetOffset,
     device::Device,
     memory::{Properties, Segment},
     pso,
@@ -24,8 +23,7 @@ use rfw_scene::{
 };
 use shared::BytesConversion;
 use std::sync::Mutex;
-use std::thread::JoinHandle;
-use std::{collections::HashSet, mem::ManuallyDrop, ops::Range, ptr, sync::Arc};
+use std::{collections::HashSet, mem::ManuallyDrop, ptr, sync::Arc};
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -76,6 +74,7 @@ impl Default for Instance {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum TaskResult<B: hal::Backend> {
     Mesh(GfxMesh<B>, Option<Arc<Buffer<B>>>),
@@ -276,7 +275,7 @@ impl<B: hal::Backend> SceneList<B> {
             assert_ne!(buffer_len, 0);
 
             // TODO: We should use staging buffers to transfer data to vertex buffers
-            let mut buffer = allocator.allocate_buffer(
+            let buffer = allocator.allocate_buffer(
                 buffer_len as usize,
                 buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
                 memory::Properties::DEVICE_LOCAL,
@@ -512,7 +511,7 @@ impl<B: hal::Backend> SceneList<B> {
     {
         self.mesh_instances
             .iter()
-            .filter(|(m, set)| !set.is_empty())
+            .filter(|(_, set)| !set.is_empty())
             .for_each(|(i, set)| {
                 let mesh = match self.meshes.get(i) {
                     Some(mesh) => mesh,

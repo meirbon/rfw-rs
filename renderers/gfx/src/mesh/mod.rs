@@ -11,7 +11,7 @@ use crate::{hal, instances::SceneList, Queue};
 use glam::*;
 use hal::{
     buffer,
-    command::{self, CommandBuffer, DescriptorSetOffset},
+    command::{self, CommandBuffer},
     device::Device,
     image, memory, pass, pso,
     window::Extent2D,
@@ -19,7 +19,7 @@ use hal::{
 use pass::Subpass;
 use pso::*;
 use rfw_scene::bvh::AABB;
-use rfw_scene::{DeviceMaterial, FrustrumG, Mesh, VertexData, VertexMesh};
+use rfw_scene::{DeviceMaterial, FrustrumG, VertexData, VertexMesh};
 use shared::BytesConversion;
 use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
@@ -884,7 +884,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         let mut byte_offset = 0;
         for (i, t) in textures.iter().enumerate() {
-            let mut offset = 0;
             unsafe {
                 cmd_buffer.pipeline_barrier(
                     PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
@@ -935,7 +934,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 }
 
                 byte_offset += width * height * std::mem::size_of::<u32>();
-                offset += width * height * std::mem::size_of::<u32>();
             }
 
             unsafe {
@@ -996,7 +994,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
             let dst = mapping.as_slice();
             let src = materials.as_bytes();
-            for (i, mat) in materials.iter().enumerate() {
+            for (i, _) in materials.iter().enumerate() {
                 let start = i * aligned_size;
                 let end = start + std::mem::size_of::<DeviceMaterial>();
 

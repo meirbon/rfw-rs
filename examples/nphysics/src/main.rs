@@ -90,6 +90,7 @@ use rfw_system::{
 };
 use shared::utils;
 use std::error::Error;
+use winit::window::Fullscreen;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
@@ -201,6 +202,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut first = true;
 
+    let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -312,7 +314,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                     sphere_forces += (0.0, 50.0, 0.0).into();
                 }
 
+                if fullscreen_timer > 500.0
+                    && key_handler.pressed(KeyCode::LControl)
+                    && key_handler.pressed(KeyCode::F)
+                {
+                    if let None = window.fullscreen() {
+                        window
+                            .set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+                    } else {
+                        window.set_fullscreen(None);
+                    }
+                    fullscreen_timer = 0.0;
+                }
+
                 let elapsed = timer.elapsed_in_millis();
+                fullscreen_timer += elapsed;
                 fps.add_sample(1000.0 / elapsed);
                 let title = format!(
                     "rfw-rs - FPS: {:.2}, render: {:.2}, physics: {:.2}, synchronize: {:.2}",

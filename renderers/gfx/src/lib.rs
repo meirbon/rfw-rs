@@ -3,11 +3,6 @@ pub use gfx_backend_vulkan as backend;
 pub use gfx_hal as hal;
 
 use buffer::Allocator;
-use gfx_hal::format::{Aspects, Format, Swizzle};
-use gfx_hal::image::{
-    Kind, Layer, Level, SubresourceRange, Tiling, Usage, ViewCapabilities, ViewKind,
-};
-use gfx_hal::memory::Properties;
 use hal::prelude::*;
 use hal::{
     adapter::PhysicalDevice,

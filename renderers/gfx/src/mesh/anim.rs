@@ -1,11 +1,8 @@
 use crate::buffer::Buffer;
 use crate::hal;
-use hal::{adapter::PhysicalDevice, buffer, device::Device, memory};
 use rfw_scene::bvh::AABB;
-use rfw_scene::{Mesh, VertexData, VertexMesh};
-use std::iter;
-use std::mem::{self, ManuallyDrop};
-use std::{ptr, sync::Arc};
+use rfw_scene::VertexMesh;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct GfxAnimMesh<B: hal::Backend> {

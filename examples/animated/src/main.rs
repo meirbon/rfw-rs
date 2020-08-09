@@ -25,6 +25,7 @@ use rfw_system::{
     RenderSystem,
 };
 use shared::utils;
+use winit::window::Fullscreen;
 
 pub struct KeyHandler {
     states: HashMap<VirtualKeyCode, bool>,
@@ -174,6 +175,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
 
+    let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -267,7 +269,21 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     pos_change -= (0.0, 1.0, 0.0).into();
                 }
 
+                if fullscreen_timer > 500.0
+                    && key_handler.pressed(KeyCode::LControl)
+                    && key_handler.pressed(KeyCode::F)
+                {
+                    if let None = window.fullscreen() {
+                        window
+                            .set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+                    } else {
+                        window.set_fullscreen(None);
+                    }
+                    fullscreen_timer = 0.0;
+                }
+
                 let elapsed = timer.elapsed_in_millis();
+                fullscreen_timer += elapsed;
                 fps.add_sample(1000.0 / elapsed);
                 let title = format!(
                     "rfw-rs - FPS: {:.2}, render: {:.2} ms, synchronize: {:.2} ms",

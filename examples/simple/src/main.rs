@@ -70,12 +70,9 @@ impl MouseButtonHandler {
 
 use crate::utils::Timer;
 use glam::*;
-use rfw_system::{
-    scene::Camera,
-    scene::{renderers::RenderMode, LoadResult},
-    RenderSystem,
-};
+use rfw_system::{scene::renderers::RenderMode, scene::Camera, RenderSystem};
 use shared::utils;
+use winit::window::Fullscreen;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
@@ -109,20 +106,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    // let _pica = renderer.load("models/pica/scene.gltf")?;
+    let _pica = renderer.load("models/pica/scene.gltf")?;
     // let object = renderer.load("models/cbox.obj")?;
 
-    let object = renderer.load("models/sponza/sponza.obj")?;
-    let _ = if let LoadResult::Object(id) = object {
-        renderer.get_instance_mut(renderer.create_instance(id)?, |instance| {
-            instance.unwrap().scale(Vec3::splat(0.1));
-        });
-    } else {
-        panic!("Could not load object");
-    };
+    // let object = renderer.load("models/sponza/sponza.obj")?;
+    // let _ = if let rfw_scene::LoadResult::Object(id) = object {
+    //     renderer.get_instance_mut(renderer.create_instance(id)?, |instance| {
+    //         instance.unwrap().scale(Vec3::splat(0.1));
+    //     });
+    // } else {
+    //     panic!("Could not load object");
+    // };
 
     renderer.synchronize();
 
+    let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -182,7 +180,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pos_change -= (0.0, 1.0, 0.0).into();
                 }
 
+                if fullscreen_timer > 500.0
+                    && key_handler.pressed(KeyCode::LControl)
+                    && key_handler.pressed(KeyCode::F)
+                {
+                    if let None = window.fullscreen() {
+                        window
+                            .set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+                    } else {
+                        window.set_fullscreen(None);
+                    }
+                    fullscreen_timer = 0.0;
+                }
+
                 let elapsed = timer.elapsed_in_millis();
+                fullscreen_timer += elapsed;
                 fps.add_sample(1000.0 / elapsed);
                 let title = format!("rfw-rs - FPS: {:.2}", fps.get_average());
                 window.set_title(title.as_str());

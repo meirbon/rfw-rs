@@ -1,20 +1,16 @@
 use std::mem::ManuallyDrop;
 
 use crate::buffer::*;
-use crate::{hal, Queue};
-
-use crate::hal::buffer;
-use crate::hal::command::{BufferImageCopy, CommandBuffer};
-use crate::hal::device::Device;
-use crate::hal::format::{Aspects, Format, Swizzle};
-use crate::hal::image::{
-    Kind, Layer, Level, SubresourceRange, Tiling, Usage, ViewCapabilities, ViewKind,
-};
-use crate::hal::memory::Properties;
+use crate::hal;
+use hal::device::Device;
+use hal::format::{Aspects, Format, Swizzle};
+use hal::image::{Kind, Level, SubresourceRange, Tiling, Usage, ViewCapabilities, ViewKind};
+use hal::memory::Properties;
 use hal::Backend;
 use shared::BytesConversion;
 use std::sync::Arc;
 
+#[allow(dead_code)]
 pub struct SceneTexture<B: Backend> {
     device: Arc<B::Device>,
     texture: Option<ManuallyDrop<B::Image>>,

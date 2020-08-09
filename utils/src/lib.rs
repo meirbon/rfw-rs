@@ -71,7 +71,6 @@ impl<T: 'static + Debug + Sized + Send + Sync> TaskPool<T> {
 
     pub fn take_finished(&self) -> FinishedIter<'_, T> {
         FinishedIter {
-            jobs: self.jobs.clone(),
             receiver: &self.receiver,
         }
     }
@@ -96,7 +95,6 @@ impl<'a, T: 'static + Debug + Sized + Send + Sync> Iterator for SyncIter<'a, T> 
 }
 
 pub struct FinishedIter<'a, T: 'static + Debug + Sized + Send + Sync> {
-    jobs: Arc<AtomicUsize>,
     receiver: &'a Receiver<T>,
 }
 
