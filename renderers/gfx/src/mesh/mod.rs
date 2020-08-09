@@ -214,7 +214,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .expect("Can't create descriptor pool"),
         );
 
-        let mut mat_desc_pool = ManuallyDrop::new(
+        let mat_desc_pool = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_pool(
                     256, // sets
@@ -1012,12 +1012,12 @@ impl<B: hal::Backend> RenderPipeline<B> {
             self.mat_sets = materials
                 .iter()
                 .enumerate()
-                .map(|(i, _)| {
-                    match unsafe { self.mat_desc_pool.allocate_set(&self.mat_set_layout) } {
+                .map(
+                    |(i, _)| match self.mat_desc_pool.allocate_set(&self.mat_set_layout) {
                         Ok(set) => set,
                         Err(e) => panic!("Could not allocate set {}, err: {}", i, e),
-                    }
-                })
+                    },
+                )
                 .collect();
 
             let mut writes = Vec::with_capacity(self.mat_sets.len() * 7);

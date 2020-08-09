@@ -1,8 +1,5 @@
-#[cfg(any(target_os = "windows", target_os = "unix"))]
 pub use gfx_backend_vulkan as backend;
 
-#[cfg(target_os = "macos")]
-pub use gfx_backend_metal as backend;
 pub use gfx_hal as hal;
 
 use buffer::Allocator;
@@ -172,7 +169,6 @@ pub struct GfxRenderer<B: hal::Backend> {
     frame: usize,
     frames_in_flight: usize,
     dimensions: Extent2D,
-    allocator: Allocator<B>,
 
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
@@ -327,7 +323,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
-            allocator.clone(),
+            allocator,
             queue.clone(),
             format,
             width as u32,
@@ -353,7 +349,6 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 width: width as u32,
                 height: height as u32,
             },
-            allocator,
             scene_list,
             mesh_renderer,
         }))

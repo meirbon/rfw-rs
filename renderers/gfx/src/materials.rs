@@ -13,7 +13,7 @@ use crate::hal::image::{
 use crate::hal::memory::Properties;
 use hal::Backend;
 use shared::BytesConversion;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub struct SceneTexture<B: Backend> {
     device: Arc<B::Device>,

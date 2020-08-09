@@ -32,8 +32,5 @@ shared = { path = "../shared" }
 version = "0.5"
 features = ["x11"]
 
-[target.'cfg(any(target_os = "macos", all(target_os = "ios", target_arch = "aarch64")))'.dependencies.gfx-backend-metal]
-version = "0.5"
-
 [build-dependencies]
 shared = { path = "../shared" }
