@@ -1,13 +1,14 @@
 use crossbeam::{channel, Receiver, Sender};
-use futures::task::SpawnExt;
 use std::fmt::Debug;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+use threadpool::ThreadPool;
 
 #[derive(Debug)]
 pub struct TaskPool<T: 'static + Debug + Sized + Send + Sync> {
-    executor: futures_executor::ThreadPool,
+    executor: ThreadPool,
     jobs: Arc<AtomicUsize>,
     receiver: Receiver<T>,
     sender: Sender<T>,
@@ -35,10 +36,7 @@ impl<T: 'static + Debug + Sized + Send + Sync> Default for TaskPool<T> {
         let (sender, receiver) = channel::unbounded();
 
         Self {
-            executor: futures_executor::ThreadPoolBuilder::new()
-                .pool_size(num_cpus::get())
-                .create()
-                .unwrap(),
+            executor: ThreadPool::new(num_cpus::get()),
             jobs: Arc::new(AtomicUsize::new(0)),
             receiver,
             sender,
@@ -49,10 +47,7 @@ impl<T: 'static + Debug + Sized + Send + Sync> Default for TaskPool<T> {
 impl<T: 'static + Debug + Sized + Send + Sync> TaskPool<T> {
     pub fn new(nr_threads: usize) -> Self {
         Self {
-            executor: futures_executor::ThreadPoolBuilder::new()
-                .pool_size(nr_threads)
-                .create()
-                .unwrap(),
+            executor: ThreadPool::new(nr_threads),
             ..Default::default()
         }
     }
@@ -61,24 +56,60 @@ impl<T: 'static + Debug + Sized + Send + Sync> TaskPool<T> {
     where
         F: FnOnce(Finish<T>) + Send + 'static,
     {
-        self.jobs.fetch_add(1, Ordering::AcqRel);
-
         let jobs = self.jobs.clone();
         let sender = self.sender.clone();
-        self.executor
-            .spawn(async move { job(Finish { sender, jobs }) })
-            .unwrap();
+        self.executor.execute(move || job(Finish { sender, jobs }));
+        self.jobs.fetch_add(1, Ordering::AcqRel);
     }
 
-    pub fn sync<F>(&mut self, mut cb: F)
-    where
-        F: FnMut(T),
-    {
+    pub fn sync(&self) -> SyncIter<'_, T> {
+        SyncIter {
+            jobs: self.jobs.clone(),
+            receiver: &self.receiver,
+        }
+    }
+
+    pub fn take_finished(&self) -> FinishedIter<'_, T> {
+        FinishedIter {
+            jobs: self.jobs.clone(),
+            receiver: &self.receiver,
+        }
+    }
+}
+
+pub struct SyncIter<'a, T: 'static + Debug + Sized + Send + Sync> {
+    jobs: Arc<AtomicUsize>,
+    receiver: &'a Receiver<T>,
+}
+
+impl<'a, T: 'static + Debug + Sized + Send + Sync> Iterator for SyncIter<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
         while self.jobs.load(Ordering::Acquire) != 0 || !self.receiver.is_empty() {
             if let Ok(val) = self.receiver.try_recv() {
-                cb(val)
+                return Some(val);
             }
         }
+        None
+    }
+}
+
+pub struct FinishedIter<'a, T: 'static + Debug + Sized + Send + Sync> {
+    jobs: Arc<AtomicUsize>,
+    receiver: &'a Receiver<T>,
+}
+
+impl<'a, T: 'static + Debug + Sized + Send + Sync> Iterator for FinishedIter<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while !self.receiver.is_empty() {
+            if let Ok(val) = self.receiver.try_recv() {
+                return Some(val);
+            }
+        }
+        None
     }
 }
 

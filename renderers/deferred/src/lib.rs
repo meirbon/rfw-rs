@@ -11,10 +11,13 @@ use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
     renderers::{RenderMode, Renderer, Setting, SettingValue},
-    AnimatedMesh, BitVec, Camera, DeviceMaterial, Instance, ObjectRef, Texture, TrackedStorage,
+    AnimatedMesh, BitVec, Camera, DeviceMaterial, FlaggedStorage, Instance, ObjectRef, Texture,
+    TrackedStorage, VertexMesh,
 };
+use rfw_utils::TaskPool;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 mod instance;
 mod light;
@@ -24,8 +27,14 @@ mod pass;
 mod pipeline;
 mod skin;
 
+#[derive(Debug, Clone)]
+pub enum TaskResult {
+    Mesh(usize, DeferredMesh),
+    AnimMesh(usize, DeferredAnimMesh),
+}
+
 pub struct Deferred {
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
@@ -59,6 +68,10 @@ pub struct Deferred {
     debug_view: output::DeferredView,
     lights_changed: bool,
     materials_changed: bool,
+
+    mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
+    anim_mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
+    task_pool: TaskPool<TaskResult>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -262,7 +275,7 @@ impl Renderer for Deferred {
         let blit_pass = pass::BlitPass::new(&device, &output);
 
         Ok(Box::new(Self {
-            device,
+            device: Arc::new(device),
             queue,
             surface,
             swap_chain,
@@ -293,39 +306,59 @@ impl Renderer for Deferred {
             debug_view: output::DeferredView::Output,
             lights_changed: true,
             materials_changed: true,
+
+            mesh_bounds: FlaggedStorage::new(),
+            anim_mesh_bounds: FlaggedStorage::new(),
+            task_pool: TaskPool::default(),
         }))
     }
 
     fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
-        self.meshes
-            .overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
+        self.mesh_bounds
+            .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
+        let device = self.device.clone();
+        let mesh = mesh.clone();
+        self.task_pool.push(move |finish| {
+            let mesh = mesh::DeferredMesh::new(&device, &mesh);
+            finish.send(TaskResult::Mesh(id, mesh));
+        });
     }
 
     fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        self.anim_meshes
-            .overwrite(id, mesh::DeferredAnimMesh::new(&self.device, mesh));
+        self.anim_mesh_bounds
+            .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
+        let device = self.device.clone();
+        let mesh = mesh.clone();
+        self.task_pool.push(move |finish| {
+            let mesh = mesh::DeferredAnimMesh::new(&device, &mesh);
+            finish.send(TaskResult::AnimMesh(id, mesh));
+        });
     }
 
     fn set_instance(&mut self, id: usize, instance: &Instance) {
         match instance.object_id {
             ObjectRef::None => {
-                self.instances
-                    .set(&self.device, id, instance.clone(), &DeferredMesh::default());
+                self.instances.set(
+                    &self.device,
+                    id,
+                    instance.clone(),
+                    &(AABB::empty(), Vec::new()),
+                );
             }
             ObjectRef::Static(mesh_id) => {
                 self.instances.set(
                     &self.device,
                     id,
                     instance.clone(),
-                    &self.meshes[mesh_id as usize],
+                    &self.mesh_bounds[mesh_id as usize],
                 );
             }
             ObjectRef::Animated(mesh_id) => {
-                self.instances.set_animated(
+                self.instances.set(
                     &self.device,
                     id,
                     instance.clone(),
-                    &self.anim_meshes[mesh_id as usize],
+                    &self.anim_mesh_bounds[mesh_id as usize],
                 );
             }
         }
@@ -510,6 +543,21 @@ impl Renderer for Deferred {
     }
 
     fn synchronize(&mut self) {
+        {
+            let meshes = &mut self.meshes;
+            let anim_meshes = &mut self.anim_meshes;
+            for result in self.task_pool.sync() {
+                match result {
+                    TaskResult::Mesh(id, mesh) => {
+                        meshes.overwrite(id, mesh);
+                    }
+                    TaskResult::AnimMesh(id, mesh) => {
+                        anim_meshes.overwrite(id, mesh);
+                    }
+                }
+            }
+        }
+
         let update = Self::record_update(
             &self.device,
             &self.queue,

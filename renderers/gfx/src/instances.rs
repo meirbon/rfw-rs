@@ -6,6 +6,10 @@ use crate::hal::pool::CommandPool;
 use crate::hal::{buffer, memory};
 use crate::mesh::anim::GfxAnimMesh;
 use crate::{buffer::*, mesh::GfxMesh};
+use gfx_hal::buffer::State;
+use gfx_hal::command::{BufferCopy, CommandBufferFlags};
+use gfx_hal::memory::{Barrier, Dependencies};
+use gfx_hal::pso::PipelineStage;
 use hal::{
     buffer::{SubRange, Usage},
     command::DescriptorSetOffset,
@@ -72,6 +76,12 @@ impl Default for Instance {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum TaskResult<B: hal::Backend> {
+    Mesh(GfxMesh<B>, Option<Arc<Buffer<B>>>),
+    AnimMesh(GfxAnimMesh<B>, Option<Arc<Buffer<B>>>),
+}
+
 #[derive(Debug)]
 pub struct SceneList<B: hal::Backend> {
     device: Arc<B::Device>,
@@ -79,18 +89,19 @@ pub struct SceneList<B: hal::Backend> {
     queue: Arc<Mutex<Queue<B>>>,
     cmd_pool: ManuallyDrop<B::CommandPool>,
     meshes: TrackedStorage<GfxMesh<B>>,
-    anim_meshes: TrackedStorage<GfxMesh<B>>,
+    anim_meshes: TrackedStorage<GfxAnimMesh<B>>,
     mesh_instances: TrackedStorage<HashSet<u32>>,
     anim_mesh_instances: TrackedStorage<HashSet<u32>>,
     instance_meshes: TrackedStorage<ObjectRef>,
     instances: TrackedStorage<Instance>,
     render_instances: FlaggedStorage<RenderInstance>,
-    buffer: Buffer<B>,
+    instance_buffer: Buffer<B>,
+    staging_buffer: Buffer<B>,
 
     pub desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_set: B::DescriptorSet,
     pub set_layout: ManuallyDrop<B::DescriptorSetLayout>,
-    task_pool: rfw_utils::TaskPool<(GfxMesh<B>, Option<Buffer<B>>)>,
+    task_pool: rfw_utils::TaskPool<TaskResult<B>>,
 }
 
 #[allow(dead_code)]
@@ -102,9 +113,14 @@ impl<B: hal::Backend> SceneList<B> {
         allocator: Allocator<B>,
         queue: Arc<Mutex<Queue<B>>>,
     ) -> Self {
-        let buffer = allocator.allocate_buffer(
+        let instance_buffer = allocator.allocate_buffer(
             std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
-            Usage::UNIFORM,
+            Usage::STORAGE | Usage::TRANSFER_DST,
+            Properties::DEVICE_LOCAL,
+        );
+        let staging_buffer = allocator.allocate_buffer(
+            std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
+            Usage::TRANSFER_SRC,
             Properties::CPU_VISIBLE,
         );
 
@@ -114,9 +130,9 @@ impl<B: hal::Backend> SceneList<B> {
                     &[pso::DescriptorSetLayoutBinding {
                         binding: 0,
                         ty: pso::DescriptorType::Buffer {
-                            ty: pso::BufferDescriptorType::Uniform,
+                            ty: pso::BufferDescriptorType::Storage { read_only: true },
                             format: pso::BufferDescriptorFormat::Structured {
-                                dynamic_offset: true,
+                                dynamic_offset: false,
                             },
                         },
                         count: 1,
@@ -135,9 +151,9 @@ impl<B: hal::Backend> SceneList<B> {
                     1, // sets
                     &[pso::DescriptorRangeDesc {
                         ty: pso::DescriptorType::Buffer {
-                            ty: pso::BufferDescriptorType::Uniform,
+                            ty: pso::BufferDescriptorType::Storage { read_only: true },
                             format: pso::BufferDescriptorFormat::Structured {
-                                dynamic_offset: true,
+                                dynamic_offset: false,
                             },
                         },
                         count: 1,
@@ -153,7 +169,10 @@ impl<B: hal::Backend> SceneList<B> {
             set: &desc_set,
             binding: 0,
             array_offset: 0,
-            descriptors: Some(pso::Descriptor::Buffer(buffer.borrow(), SubRange::WHOLE)),
+            descriptors: Some(pso::Descriptor::Buffer(
+                instance_buffer.borrow(),
+                SubRange::WHOLE,
+            )),
         }];
 
         unsafe {
@@ -184,7 +203,8 @@ impl<B: hal::Backend> SceneList<B> {
             instance_meshes: TrackedStorage::new(),
             instances: TrackedStorage::new(),
             render_instances: FlaggedStorage::new(),
-            buffer,
+            instance_buffer,
+            staging_buffer,
             desc_pool,
             desc_set,
             set_layout,
@@ -204,12 +224,14 @@ impl<B: hal::Backend> SceneList<B> {
                 original_bounds: instance.local_bounds().into(),
             },
         );
-        self.render_instances.overwrite(id);
-        self.render_instances[id] = RenderInstance {
-            id: id as u32,
-            meshes: Vec::new(),
-            bounds: AABB::empty(),
-        };
+        self.render_instances.overwrite_val(
+            id,
+            RenderInstance {
+                id: id as u32,
+                meshes: Vec::new(),
+                bounds: AABB::empty(),
+            },
+        );
 
         match instance.object_id {
             ObjectRef::None => {}
@@ -246,7 +268,7 @@ impl<B: hal::Backend> SceneList<B> {
 
         self.task_pool.push(move |sender| {
             if mesh.vertices.is_empty() {
-                sender.send((GfxMesh::default(), None));
+                sender.send(TaskResult::Mesh(GfxMesh::default(), None));
                 return;
             }
 
@@ -291,7 +313,7 @@ impl<B: hal::Backend> SceneList<B> {
                     .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
             }
 
-            sender.send((
+            sender.send(TaskResult::Mesh(
                 GfxMesh {
                     id,
                     sub_meshes: mesh.meshes.clone(),
@@ -299,84 +321,70 @@ impl<B: hal::Backend> SceneList<B> {
                     vertices: mesh.vertices.len(),
                     bounds: mesh.bounds,
                 },
-                Some(staging_buffer),
+                Some(Arc::new(staging_buffer)),
             ))
         });
     }
 
     pub fn synchronize(&mut self) {
+        self.queue.lock().unwrap().wait_idle().unwrap();
+        // let meshes = &mut self.meshes;
+        // let anim_meshes = &mut self.anim_meshes;
+        // let mesh_instances = &mut self.mesh_instances;
+        // let instances = &mut self.instances;
+        // let render_instances = &mut self.render_instances;
+        // let instance_meshes = &self.instance_meshes;
+
+        let task_pool = &self.task_pool;
+        for result in task_pool.sync() {
+            match result {
+                TaskResult::Mesh(new_mesh, _) => {
+                    let id = new_mesh.id as usize;
+                    self.meshes.overwrite(id, new_mesh);
+                    let mesh = &self.meshes[id];
+
+                    if let Some(set) = self.mesh_instances.get(mesh.id) {
+                        for instance_id in set.iter() {
+                            let instance_id = *instance_id as usize;
+                            self.instances.trigger_changed(instance_id);
+                        }
+                    }
+                }
+                TaskResult::AnimMesh(new_mesh, _) => {
+                    let id = new_mesh.id as usize;
+                    self.anim_meshes.overwrite(id, new_mesh);
+                    let mesh = &self.meshes[id];
+
+                    if let Some(set) = self.mesh_instances.get(mesh.id) {
+                        for instance_id in set.iter() {
+                            let instance_id = *instance_id as usize;
+                            self.instances.trigger_changed(instance_id);
+                        }
+                    }
+                }
+            }
+        }
+
         if !self.instances.any_changed() {
             return;
         }
 
-        let copy_size = self.instances.len() * std::mem::size_of::<Instance>();
-
-        if copy_size < self.buffer.size_in_bytes {
-            self.buffer = self.allocator.allocate_buffer(
-                self.instances.len() * 2 * std::mem::size_of::<Instance>(),
-                Usage::UNIFORM,
-                Properties::CPU_VISIBLE,
-            );
-
-            let write = vec![pso::DescriptorSetWrite {
-                set: &self.desc_set,
-                binding: 0,
-                array_offset: 0,
-                descriptors: Some(pso::Descriptor::Buffer(
-                    self.buffer.borrow(),
-                    SubRange::WHOLE,
-                )),
-            }];
-
-            unsafe {
-                self.device.write_descriptor_sets(write);
-            }
-        }
-
-        if let Ok(mapping) = self.buffer.map(Segment::ALL) {
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    self.instances.as_ptr() as *const u8,
-                    mapping.as_ptr(),
-                    copy_size,
-                );
-            }
-        }
-
-        self.queue.lock().unwrap().wait_idle().unwrap();
-        let task_pool = &mut self.task_pool;
-        let meshes = &mut self.meshes;
-        let mesh_instances = &mut self.mesh_instances;
         let instances = &mut self.instances;
-        let render_instances = &mut self.render_instances;
-        let instance_meshes = &self.instance_meshes;
 
-        task_pool.sync(|(new_mesh, _)| {
-            let id = new_mesh.id as usize;
-            meshes.overwrite(id, new_mesh);
-            let mesh = &meshes[id];
-
-            if let Some(set) = mesh_instances.get(mesh.id) {
-                for instance_id in set.iter() {
-                    let instance_id = *instance_id as usize;
-                    instances.trigger_changed(instance_id);
-                }
-            }
-        });
-
-        instances.iter_changed_mut().for_each(|(i, inst)| {
-            let (mut aabb, meshes) = match instance_meshes[i] {
+        for (i, inst) in instances.iter_changed_mut() {
+            let matrix = inst.matrix.to_cols_array();
+            let (mut aabb, meshes) = match self.instance_meshes[i] {
                 ObjectRef::None => {
                     let vec: Vec<VertexMesh> = Vec::new();
                     (AABB::empty(), vec)
                 }
                 ObjectRef::Static(m_id) => {
-                    let mesh = &meshes[m_id as usize];
+                    let mesh = &self.meshes[m_id as usize];
                     let sub_meshes: Vec<VertexMesh> = mesh
                         .sub_meshes
                         .iter()
                         .map(|s| VertexMesh {
-                            bounds: s.bounds.transformed(inst.matrix.to_cols_array()),
+                            bounds: s.bounds.transformed(matrix),
                             first: s.first,
                             last: s.last,
                             mat_id: s.mat_id,
@@ -386,12 +394,12 @@ impl<B: hal::Backend> SceneList<B> {
                     (mesh.bounds.clone(), sub_meshes)
                 }
                 ObjectRef::Animated(m_id) => {
-                    let mesh = &meshes[m_id as usize];
+                    let mesh = &self.anim_meshes[m_id as usize];
                     let sub_meshes: Vec<VertexMesh> = mesh
                         .sub_meshes
                         .iter()
                         .map(|s| VertexMesh {
-                            bounds: s.bounds.transformed(inst.matrix.to_cols_array()),
+                            bounds: s.bounds.transformed(matrix),
                             first: s.first,
                             last: s.last,
                             mat_id: s.mat_id,
@@ -402,37 +410,123 @@ impl<B: hal::Backend> SceneList<B> {
                 }
             };
 
-            aabb.transform(inst.matrix.to_cols_array());
+            aabb.transform(matrix);
 
             inst.set_bounds(aabb.clone());
-            render_instances.overwrite(i);
-            render_instances[i] = RenderInstance {
-                id: i as u32,
-                meshes,
-                bounds: aabb,
-            };
-        });
+            self.render_instances.overwrite_val(
+                i,
+                RenderInstance {
+                    id: i as u32,
+                    meshes,
+                    bounds: aabb,
+                },
+            );
+        }
+
+        let copy_size = self.instances.len() * std::mem::size_of::<Instance>();
+        if copy_size > self.instance_buffer.size_in_bytes {
+            self.instance_buffer = self.allocator.allocate_buffer(
+                self.instances.len() * 2 * std::mem::size_of::<Instance>(),
+                Usage::STORAGE | Usage::TRANSFER_DST,
+                Properties::DEVICE_LOCAL,
+            );
+
+            self.staging_buffer = self.allocator.allocate_buffer(
+                self.instances.len() * 2 * std::mem::size_of::<Instance>(),
+                Usage::TRANSFER_SRC,
+                Properties::CPU_VISIBLE,
+            );
+
+            let write = vec![pso::DescriptorSetWrite {
+                set: &self.desc_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(pso::Descriptor::Buffer(
+                    self.instance_buffer.borrow(),
+                    SubRange::WHOLE,
+                )),
+            }];
+
+            unsafe {
+                self.device.write_descriptor_sets(write);
+            }
+        }
+
+        let length = if let Ok(mapping) = self.staging_buffer.map(Segment::ALL) {
+            let instances = unsafe { self.instances.as_slice() };
+            let src = instances.as_bytes();
+            let length = src.len();
+            let slice = mapping.as_slice();
+            slice[0..length].copy_from_slice(src);
+            length
+        } else {
+            0
+        };
+
+        if length > 0 {
+            unsafe {
+                let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
+                cmd_buffer.begin_primary(CommandBufferFlags::empty());
+                cmd_buffer.pipeline_barrier(
+                    PipelineStage::BOTTOM_OF_PIPE..PipelineStage::TRANSFER,
+                    Dependencies::empty(),
+                    std::iter::once(&Barrier::Buffer {
+                        families: None,
+                        range: SubRange::WHOLE,
+                        states: State::SHADER_READ..State::HOST_WRITE,
+                        target: self.instance_buffer.borrow(),
+                    }),
+                );
+                cmd_buffer.copy_buffer(
+                    self.staging_buffer.borrow(),
+                    self.instance_buffer.borrow(),
+                    std::iter::once(&BufferCopy {
+                        src: 0,
+                        dst: 0,
+                        size: length as hal::buffer::Offset,
+                    }),
+                );
+                cmd_buffer.pipeline_barrier(
+                    PipelineStage::TRANSFER..PipelineStage::TOP_OF_PIPE,
+                    Dependencies::empty(),
+                    std::iter::once(&Barrier::Buffer {
+                        families: None,
+                        range: SubRange::WHOLE,
+                        states: State::HOST_WRITE..State::SHADER_READ,
+                        target: self.instance_buffer.borrow(),
+                    }),
+                );
+                cmd_buffer.finish();
+                if let Ok(mut queue) = self.queue.lock() {
+                    queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+                }
+            }
+        }
+
+        self.instances.reset_changed();
     }
 
     pub fn iter_instances<T>(&self, mut render_instance: T)
     where
-        T: FnMut(&B::Buffer, DescriptorSetOffset, &RenderInstance),
+        T: FnMut(&B::Buffer, &RenderInstance),
     {
         self.mesh_instances
             .iter()
-            .filter(|(_, set)| !set.is_empty())
+            .filter(|(m, set)| !set.is_empty())
             .for_each(|(i, set)| {
-                if let Some(mesh) = self.meshes.get(i) {
-                    if let Some(buffer) = &self.meshes[i].buffer {
-                        let buffer = buffer.borrow();
-                        set.iter().for_each(|i| {
-                            let i = *i as usize;
-                            let offset =
-                                (std::mem::size_of::<Instance>() * i) as DescriptorSetOffset;
-                            render_instance(buffer, offset, &self.render_instances[i]);
-                        });
-                    }
-                }
+                let mesh = match self.meshes.get(i) {
+                    Some(mesh) => mesh,
+                    None => return,
+                };
+                let buffer = match mesh.buffer.as_ref() {
+                    Some(buffer) => buffer,
+                    None => return,
+                };
+
+                set.iter().for_each(|inst| {
+                    let inst = *inst as usize;
+                    render_instance(buffer.borrow(), &self.render_instances[inst]);
+                });
             });
     }
 }

@@ -19,7 +19,7 @@ use hal::{
 use pass::Subpass;
 use pso::*;
 use rfw_scene::bvh::AABB;
-use rfw_scene::{DeviceMaterial, Mesh, VertexData, VertexMesh};
+use rfw_scene::{DeviceMaterial, FrustrumG, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
 use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
@@ -709,6 +709,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         frame_buffer: &B::Framebuffer,
         viewport: &Viewport,
         scene: &SceneList<B>,
+        frustrum: &FrustrumG,
     ) {
         cmd_buffer.bind_graphics_pipeline(&self.pipeline);
         cmd_buffer.bind_graphics_descriptor_sets(
@@ -738,16 +739,31 @@ impl<B: hal::Backend> RenderPipeline<B> {
             command::SubpassContents::Inline,
         );
 
-        scene.iter_instances(|buffer, offset, instance| {
-            cmd_buffer.bind_vertex_buffers(0, Some((buffer, buffer::SubRange::WHOLE)));
-            cmd_buffer.bind_graphics_descriptor_sets(
-                &self.pipeline_layout,
-                1,
-                std::iter::once(&scene.desc_set),
-                &[offset as DescriptorSetOffset],
-            );
+        cmd_buffer.bind_graphics_descriptor_sets(
+            &self.pipeline_layout,
+            1,
+            std::iter::once(&scene.desc_set),
+            &[],
+        );
 
-            for mesh in &instance.meshes {
+        scene.iter_instances(|buffer, instance| {
+            if !frustrum.aabb_in_frustrum(&instance.bounds).should_render() {
+                return;
+            }
+
+            let iter = instance
+                .meshes
+                .iter()
+                .filter(|m| frustrum.aabb_in_frustrum(&m.bounds).should_render());
+
+            let mut first = true;
+
+            iter.for_each(|mesh| {
+                if first {
+                    cmd_buffer.bind_vertex_buffers(0, Some((buffer, buffer::SubRange::WHOLE)));
+                    first = false;
+                }
+
                 cmd_buffer.bind_graphics_descriptor_sets(
                     &self.pipeline_layout,
                     2,
@@ -759,7 +775,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     &[],
                 );
                 cmd_buffer.draw(mesh.first..mesh.last, instance.id..(instance.id + 1));
-            }
+            });
         });
 
         cmd_buffer.end_render_pass();

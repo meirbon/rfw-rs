@@ -100,6 +100,23 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         self.active.set(index, true);
     }
 
+    pub fn overwrite_val(&mut self, index: usize, val: T) {
+        if index >= self.len() {
+            let last_len = self.len();
+            let new_len = (index + 1) * 2;
+            self.active.resize(new_len, false);
+            self.storage.resize((index + 1) * 2, T::default());
+            self.storage_ptr = index + 1;
+
+            for i in last_len..new_len {
+                self.empty_slots.push(i as u32);
+            }
+        }
+
+        self.active.set(index, true);
+        self.storage[index] = val;
+    }
+
     pub fn allocate(&mut self) -> usize {
         while let Some(index) = self.empty_slots.pop() {
             if !self.active.get(index as usize).unwrap() {

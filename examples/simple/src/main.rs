@@ -109,8 +109,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut fps = utils::Averager::new();
     let mut resized = false;
 
-    let object = renderer.load("models/sponza/sponza.obj")?;
+    // let _pica = renderer.load("models/pica/scene.gltf")?;
     // let object = renderer.load("models/cbox.obj")?;
+
+    let object = renderer.load("models/sponza/sponza.obj")?;
     let _ = if let LoadResult::Object(id) = object {
         renderer.get_instance_mut(renderer.create_instance(id)?, |instance| {
             instance.unwrap().scale(Vec3::splat(0.1));

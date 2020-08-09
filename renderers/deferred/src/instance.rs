@@ -1,7 +1,7 @@
 use super::mesh::DeferredMesh;
 use crate::mesh::DeferredAnimMesh;
 use glam::*;
-use rfw_scene::{Instance, ObjectRef, TrackedStorage};
+use rfw_scene::{Instance, ObjectRef, TrackedStorage, VertexMesh};
 use rtbvh::{Bounds, AABB};
 
 pub struct DeviceInstances {
@@ -63,34 +63,16 @@ pub struct InstanceBounds {
 }
 
 impl InstanceBounds {
-    pub fn new(instance: &Instance, mesh: &DeferredMesh) -> Self {
+    pub fn new(instance: &Instance, bounds: &(AABB, Vec<VertexMesh>)) -> Self {
         let transform = instance.get_transform();
         let root_bounds = instance.bounds();
-        let mesh_bounds: Vec<AABB> = mesh
-            .sub_meshes
+        let mesh_bounds: Vec<AABB> = bounds
+            .1
             .iter()
             .map(|m| m.bounds.transformed(transform.to_cols_array()))
             .collect();
 
-        assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
-
-        InstanceBounds {
-            root_bounds,
-            mesh_bounds,
-            changed: true,
-        }
-    }
-
-    pub fn new_animated(instance: &Instance, mesh: &DeferredAnimMesh) -> Self {
-        let transform = instance.get_transform();
-        let root_bounds = instance.bounds();
-        let mesh_bounds: Vec<AABB> = mesh
-            .sub_meshes
-            .iter()
-            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-            .collect();
-
-        assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
+        assert_eq!(bounds.1.len(), mesh_bounds.len());
 
         InstanceBounds {
             root_bounds,
@@ -135,35 +117,13 @@ impl InstanceList {
         device: &wgpu::Device,
         id: usize,
         instance: Instance,
-        mesh: &DeferredMesh,
+        bounds: &(AABB, Vec<VertexMesh>),
     ) {
         self.instances.overwrite(id, instance);
         if id <= self.bounds.len() {
-            self.bounds.push(InstanceBounds::new(&instance, mesh));
+            self.bounds.push(InstanceBounds::new(&instance, bounds));
         } else {
-            self.bounds[id] = InstanceBounds::new(&instance, mesh);
-        }
-
-        if self.device_instances.len() <= id {
-            self.device_instances =
-                DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
-            self.instances.trigger_changed_all();
-        }
-    }
-
-    pub fn set_animated(
-        &mut self,
-        device: &wgpu::Device,
-        id: usize,
-        instance: Instance,
-        mesh: &DeferredAnimMesh,
-    ) {
-        self.instances.overwrite(id, instance);
-        if id <= self.bounds.len() {
-            self.bounds
-                .push(InstanceBounds::new_animated(&instance, mesh));
-        } else {
-            self.bounds[id] = InstanceBounds::new_animated(&instance, mesh);
+            self.bounds[id] = InstanceBounds::new(&instance, bounds);
         }
 
         if self.device_instances.len() <= id {

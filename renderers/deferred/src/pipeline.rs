@@ -144,6 +144,7 @@ impl RenderPipeline {
         let anim_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &[uniform_layout, instance_layout, texture_layout, skin_layout],
         });
+
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: &anim_layout,
             vertex_stage: wgpu::ProgrammableStageDescriptor {

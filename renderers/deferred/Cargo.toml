@@ -21,6 +21,7 @@ crossbeam = "0.7"
 wgpu = "0.5"
 futures = "0.3"
 wgpu_glyph = "0.9"
+rfw-utils = { path = "../../utils" }
 
 [build-dependencies]
 shared = { path = "../shared" }

@@ -427,8 +427,13 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             cmd_buffer.set_viewports(0, &[self.viewport.clone()]);
             cmd_buffer.set_scissors(0, &[self.viewport.rect]);
 
-            self.mesh_renderer
-                .draw(cmd_buffer, &framebuffer, &self.viewport, &self.scene_list);
+            self.mesh_renderer.draw(
+                cmd_buffer,
+                &framebuffer,
+                &self.viewport,
+                &self.scene_list,
+                &camera.calculate_frustrum(),
+            );
             cmd_buffer.finish();
 
             let submission = Submission {
