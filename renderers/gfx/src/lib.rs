@@ -1,12 +1,11 @@
-#[cfg(all(not(feature = "dx12"), any(target_os = "windows", target_os = "unix")))]
+// #[cfg(all(not(feature = "dx12"), any(target_os = "windows", target_os = "unix")))]
 pub use gfx_backend_vulkan as backend;
 
-#[cfg(feature = "dx12")]
-pub use gfx_backend_dx12 as backend;
+// #[cfg(feature = "dx12")]
+// pub use gfx_backend_dx12 as backend;
 
-#[cfg(target_os = "macos")]
-pub use gfx_backend_metal as backend;
-
+// #[cfg(target_os = "macos")]
+// pub use gfx_backend_metal as backend;
 pub use gfx_hal as hal;
 
 use buffer::Allocator;
@@ -44,7 +43,6 @@ mod mesh;
 
 use crate::hal::device::OutOfMemory;
 use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
-use buffer::*;
 use std::borrow::Borrow;
 use std::sync::Mutex;
 

@@ -1,11 +1,13 @@
 use crate::buffer::{Allocator, Buffer, Memory};
+use crate::hal::command::BufferCopy;
 use crate::hal::format::{Aspects, Format};
+use crate::hal::image::{Access, Kind, Layout, Level, SubresourceRange, Tiling};
 use crate::hal::memory::Segment;
+use crate::hal::memory::{Barrier, Dependencies};
 use crate::hal::pool::CommandPool;
 use crate::materials::SceneTexture;
 use crate::{hal, instances::SceneList, Queue};
-use gfx_hal::command::BufferCopy;
-use gfx_hal::image::{Kind, Tiling};
+
 use glam::*;
 use hal::{
     buffer,
@@ -168,9 +170,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         },
                         pso::DescriptorSetLayoutBinding {
                             binding: 1,
-                            ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
-                            },
+                            ty: pso::DescriptorType::Sampler,
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
                             immutable_samplers: false,
@@ -178,7 +178,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 2,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -187,7 +189,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 3,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -196,7 +200,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 4,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -205,7 +211,20 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         pso::DescriptorSetLayoutBinding {
                             binding: 5,
                             ty: pso::DescriptorType::Image {
-                                ty: pso::ImageDescriptorType::Sampled { with_sampler: true },
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 6,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
                             },
                             count: 1,
                             stage_flags: pso::ShaderStageFlags::FRAGMENT,
@@ -240,16 +259,20 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let mut mat_desc_pool = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_pool(
-                    512, // sets
+                    256, // sets
                     &[
                         pso::DescriptorRangeDesc {
                             ty: pso::DescriptorType::Buffer {
                                 ty: pso::BufferDescriptorType::Uniform,
                                 format: pso::BufferDescriptorFormat::Structured {
-                                    dynamic_offset: true,
+                                    dynamic_offset: false,
                                 },
                             },
-                            count: 1,
+                            count: 256,
+                        },
+                        pso::DescriptorRangeDesc {
+                            ty: pso::DescriptorType::Sampler,
+                            count: 256,
                         },
                         pso::DescriptorRangeDesc {
                             ty: pso::DescriptorType::Image {
@@ -257,10 +280,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                                     with_sampler: false,
                                 },
                             },
-                            count: 5,
+                            count: 256 * 5,
                         },
                     ],
-                    pso::DescriptorPoolCreateFlags::empty(),
+                    pso::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
                 )
             }
             .expect("Can't create descriptor pool"),
@@ -751,7 +774,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             cmd_buffer.bind_graphics_descriptor_sets(
                 &self.pipeline_layout,
                 1,
-                vec![&scene.desc_set],
+                std::iter::once(&scene.desc_set),
                 &[offset as DescriptorSetOffset],
             );
 
@@ -759,7 +782,11 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 cmd_buffer.bind_graphics_descriptor_sets(
                     &self.pipeline_layout,
                     2,
-                    std::iter::once(&self.mat_sets[mesh.mat_id as usize]),
+                    std::iter::once(
+                        self.mat_sets
+                            .get(mesh.mat_id as usize)
+                            .expect(format!("Could not get material set {}", mesh.mat_id).as_str()),
+                    ),
                     &[],
                 );
                 cmd_buffer.draw(mesh.first..mesh.last, instance.id..(instance.id + 1));
@@ -876,6 +903,24 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let mut byte_offset = 0;
         for (i, t) in textures.iter().enumerate() {
             let mut offset = 0;
+            unsafe {
+                cmd_buffer.pipeline_barrier(
+                    PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
+                    Dependencies::empty(),
+                    std::iter::once(&Barrier::Image {
+                        range: SubresourceRange {
+                            aspects: Aspects::COLOR,
+                            layers: 0..1,
+                            levels: 0..(t.mip_levels as Level),
+                        },
+                        families: None,
+                        states: (Access::empty(), Layout::Undefined)
+                            ..(Access::TRANSFER_WRITE, Layout::TransferDstOptimal),
+                        target: self.textures[i].borrow(),
+                    }),
+                );
+            }
+
             for m in 0..t.mip_levels {
                 let (width, height) = t.mip_level_width_height(m as usize);
                 unsafe {
@@ -910,6 +955,24 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 byte_offset += width * height * std::mem::size_of::<u32>();
                 offset += width * height * std::mem::size_of::<u32>();
             }
+
+            unsafe {
+                cmd_buffer.pipeline_barrier(
+                    PipelineStage::TRANSFER..PipelineStage::FRAGMENT_SHADER,
+                    Dependencies::empty(),
+                    std::iter::once(&Barrier::Image {
+                        range: SubresourceRange {
+                            aspects: Aspects::COLOR,
+                            layers: 0..1,
+                            levels: 0..(t.mip_levels as Level),
+                        },
+                        families: None,
+                        states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
+                            ..(Access::SHADER_READ, Layout::ShaderReadOnlyOptimal),
+                        target: self.textures[i].borrow(),
+                    }),
+                );
+            }
         }
 
         unsafe {
@@ -919,7 +982,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let mut queue = self.queue.lock().expect("Could not get queue lock");
 
         queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-        queue.wait_idle();
+        queue.wait_idle().unwrap();
     }
 
     pub fn set_materials(&mut self, materials: &[DeviceMaterial]) {
@@ -974,13 +1037,23 @@ impl<B: hal::Backend> RenderPipeline<B> {
         }
 
         unsafe {
-            self.mat_desc_pool.reset();
+            if !self.mat_sets.is_empty() {
+                let mut sets = Vec::new();
+                std::mem::swap(&mut sets, &mut self.mat_sets);
+                self.mat_desc_pool.free_sets(sets);
+            }
             self.mat_sets = materials
                 .iter()
-                .map(|_| unsafe { self.mat_desc_pool.allocate_set(&self.mat_set_layout) }.unwrap())
+                .enumerate()
+                .map(|(i, _)| {
+                    match unsafe { self.mat_desc_pool.allocate_set(&self.mat_set_layout) } {
+                        Ok(set) => set,
+                        Err(e) => panic!("Could not allocate set {}, err: {}", i, e),
+                    }
+                })
                 .collect();
 
-            let mut writes = Vec::with_capacity(self.mat_sets.len() * 6);
+            let mut writes = Vec::with_capacity(self.mat_sets.len() * 7);
             let sampler = ManuallyDrop::into_inner(ptr::read(&self.tex_sampler));
             self.mat_sets
                 .iter()
@@ -999,64 +1072,66 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         )),
                     });
 
-                    // Texture 0
-                    let tex = &self.textures[mat.diffuse_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 1,
                         array_offset: 0,
-                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                        descriptors: Some(pso::Descriptor::Sampler(&sampler)),
+                    });
+
+                    // Texture 0
+                    let tex = &self.textures[mat.diffuse_map.max(0) as usize];
+                    writes.push(pso::DescriptorSetWrite {
+                        set,
+                        binding: 2,
+                        array_offset: 0,
+                        descriptors: Some(pso::Descriptor::Image(
                             tex.view(),
-                            hal::image::Layout::ShaderReadOnlyOptimal,
-                            &sampler,
+                            image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 1
                     let tex = &self.textures[mat.normal_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
-                        binding: 2,
+                        binding: 3,
                         array_offset: 0,
-                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                        descriptors: Some(pso::Descriptor::Image(
                             tex.view(),
-                            hal::image::Layout::ShaderReadOnlyOptimal,
-                            &sampler,
+                            image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 2
                     let tex = &self.textures[mat.roughness_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
-                        binding: 3,
+                        binding: 4,
                         array_offset: 0,
-                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                        descriptors: Some(pso::Descriptor::Image(
                             tex.view(),
-                            hal::image::Layout::ShaderReadOnlyOptimal,
-                            &sampler,
+                            image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 3
                     let tex = &self.textures[mat.emissive_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
-                        binding: 4,
+                        binding: 5,
                         array_offset: 0,
-                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                        descriptors: Some(pso::Descriptor::Image(
                             tex.view(),
-                            hal::image::Layout::ShaderReadOnlyOptimal,
-                            &sampler,
+                            image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 4
                     let tex = &self.textures[mat.sheen_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
-                        binding: 5,
+                        binding: 6,
                         array_offset: 0,
-                        descriptors: Some(pso::Descriptor::CombinedImageSampler(
+                        descriptors: Some(pso::Descriptor::Image(
                             tex.view(),
-                            hal::image::Layout::ShaderReadOnlyOptimal,
-                            &sampler,
+                            image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                 });
@@ -1065,7 +1140,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         }
 
         if let Ok(mut queue) = self.queue.lock() {
-            queue.wait_idle();
+            queue.wait_idle().unwrap();
         }
     }
 }

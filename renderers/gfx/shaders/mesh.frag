@@ -13,11 +13,12 @@ layout(location = 5) in vec3 T;
 layout(location = 6) in vec3 B;
 
 layout(set = 2, binding = 0) uniform Materials { Material Mat; };
-layout(set = 2, binding = 1) uniform sampler2D AlbedoT;
-layout(set = 2, binding = 2) uniform sampler2D NormalT;
-layout(set = 2, binding = 3) uniform sampler2D RoughnessT;
-layout(set = 2, binding = 4) uniform sampler2D EmissiveT;
-layout(set = 2, binding = 5) uniform sampler2D SheenT;
+layout(set = 2, binding = 1) uniform sampler Sampler;
+layout(set = 2, binding = 2) uniform texture2D AlbedoT;
+layout(set = 2, binding = 3) uniform texture2D NormalT;
+layout(set = 2, binding = 4) uniform texture2D RoughnessT;
+layout(set = 2, binding = 5) uniform texture2D EmissiveT;
+layout(set = 2, binding = 6) uniform texture2D SheenT;
 
 layout(location = 0) out vec4 target0;
 
@@ -26,7 +27,7 @@ void main() {
 
     const uint flags = Mat.flags;
     if (HAS_DIFFUSE_MAP(flags)) {
-        vec4 t_color = texture(AlbedoT, TUV).rgba;
+        vec4 t_color = texture(sampler2D(AlbedoT, Sampler), TUV).rgba;
         if (t_color.a < 0.5) {
             discard;
         }
