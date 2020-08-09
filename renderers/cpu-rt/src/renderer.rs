@@ -660,7 +660,7 @@ impl Renderer for RayTracer {
         self.skybox = Some(skybox);
     }
 
-    fn set_skin(&mut self, id: usize, _skin: &Skin) {}
+    fn set_skin(&mut self, _id: usize, _skin: &Skin) {}
 
     fn get_settings(&self) -> Vec<rfw_system::scene::renderers::Setting> {
         Vec::new()

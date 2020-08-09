@@ -18,6 +18,7 @@ use hal::{
 };
 use pass::Subpass;
 use pso::*;
+use rfw_scene::bvh::AABB;
 use rfw_scene::{DeviceMaterial, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
 use std::sync::Mutex;
@@ -27,23 +28,34 @@ pub mod anim;
 
 #[derive(Debug, Clone)]
 pub struct GfxMesh<B: hal::Backend> {
+    pub id: usize,
     pub buffer: Option<Arc<Buffer<B>>>,
     pub sub_meshes: Vec<VertexMesh>,
     pub vertices: usize,
+    pub bounds: AABB,
 }
 
 impl<B: hal::Backend> Default for GfxMesh<B> {
     fn default() -> Self {
         Self {
+            id: 0,
             buffer: None,
             sub_meshes: Vec::new(),
             vertices: 0,
+            bounds: AABB::empty(),
         }
     }
 }
 
 #[allow(dead_code)]
 impl<B: hal::Backend> GfxMesh<B> {
+    pub fn default_id(id: usize) -> Self {
+        Self {
+            id,
+            ..Self::default()
+        }
+    }
+
     pub fn valid(&self) -> bool {
         self.buffer.is_some()
     }
@@ -761,9 +773,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.depth_image)));
         }
 
-        let allocate =
-            self.depth_memory.len() < (width * height) as usize * std::mem::size_of::<f32>();
-
         let (depth_image, depth_image_view) = unsafe {
             let mut image = self
                 .device
@@ -778,7 +787,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .expect("Could not create depth image.");
 
             let req = self.device.get_image_requirements(&image);
-            if allocate {
+            if req.size > self.depth_memory.len() as _ {
                 self.depth_memory = self
                     .allocator
                     .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL);

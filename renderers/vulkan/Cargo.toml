@@ -1,5 +1,5 @@
 [package]
-name = "rfw_vulkan"
+name = "rfw-vulkan"
 version = "0.1.0"
 authors = ["meir"]
 edition = "2018"
@@ -12,7 +12,7 @@ ash = "0.31"
 ash-window = "0.4"
 glam = "0.8"
 shared = { path = "../shared" }
-rfw_scene = { path = "../../scene" }
+rfw-scene = { path = "../../scene" }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["windef", "winuser"] }

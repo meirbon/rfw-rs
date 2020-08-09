@@ -19,7 +19,7 @@ wgpu = "0.5"
 futures = "0.3"
 wgpu_glyph = "0.9"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
-rfw_system = { path = "../../system" }
+rfw-system = { path = "../../system" }
 shared = { path = "../shared" }
 
 [build-dependencies]

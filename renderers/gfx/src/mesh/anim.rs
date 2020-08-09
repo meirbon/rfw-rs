@@ -6,7 +6,7 @@ use std::mem::{self, ManuallyDrop};
 use std::{ptr, sync::Arc};
 
 #[derive(Debug)]
-pub struct GfxMesh<B: hal::Backend> {
+pub struct GfxAnimMesh<B: hal::Backend> {
     pub device: Option<Arc<B::Device>>,
     pub memory: Option<ManuallyDrop<B::Memory>>,
     pub buffer: Option<ManuallyDrop<B::Buffer>>,
@@ -14,7 +14,7 @@ pub struct GfxMesh<B: hal::Backend> {
     vertices: usize,
 }
 
-impl<B: hal::Backend> Default for GfxMesh<B> {
+impl<B: hal::Backend> Default for GfxAnimMesh<B> {
     fn default() -> Self {
         Self {
             device: None,
@@ -27,7 +27,7 @@ impl<B: hal::Backend> Default for GfxMesh<B> {
 }
 
 #[allow(dead_code)]
-impl<B: hal::Backend> GfxMesh<B> {
+impl<B: hal::Backend> GfxAnimMesh<B> {
     pub fn new(device: Arc<B::Device>, adapter: &hal::adapter::Adapter<B>, mesh: &Mesh) -> Self {
         let mut m = Self::default();
         m.init(device);
@@ -113,7 +113,7 @@ impl<B: hal::Backend> GfxMesh<B> {
     }
 }
 
-impl<B: hal::Backend> Drop for GfxMesh<B> {
+impl<B: hal::Backend> Drop for GfxAnimMesh<B> {
     fn drop(&mut self) {
         if let Some(device) = self.device.as_ref() {
             let mut buf = None;

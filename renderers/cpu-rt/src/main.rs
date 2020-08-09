@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let quad = renderer.add_object(quad)?;
     let _quad_inst = renderer.create_instance(quad);
 
-    let pica = match renderer.load("models/pica/scene.gltf")? {
+    let _pica = match renderer.load("models/pica/scene.gltf")? {
         LoadResult::Scene(root_nodes) => root_nodes,
         LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
