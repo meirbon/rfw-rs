@@ -24,6 +24,7 @@ layout(location = 0) out vec4 target0;
 
 void main() {
     vec4 color = Mat.color;
+    vec3 normal = N;
 
     const uint flags = Mat.flags;
     if (HAS_DIFFUSE_MAP(flags)) {
@@ -33,6 +34,13 @@ void main() {
         }
         color = t_color;
     }
+
+    if (HAS_NORMAL_MAP(flags)) {
+        const vec3 n = (texture (sampler2D(NormalT, Sampler), TUV).rgb - 0.5) * 2.0;
+        normal = normalize(mat3(T, B, normal) * n);
+    }
+
+    color = vec4(normal, 1.0);
 
     target0 = color;
 }

@@ -1,6 +1,9 @@
-use crate::hal;
+use crate::{hal, Queue};
 use glam::*;
 
+use crate::hal::command::CommandBuffer;
+use crate::hal::pool::CommandPool;
+use crate::hal::{buffer, memory};
 use crate::{buffer::*, mesh::GfxMesh};
 use hal::{
     buffer::{SubRange, Usage},
@@ -12,8 +15,10 @@ use hal::{
 use pso::DescriptorPool;
 use rfw_scene::{
     bvh::{Bounds, AABB},
-    FlaggedStorage, ObjectRef, TrackedStorage, VertexMesh,
+    FlaggedStorage, ObjectRef, TrackedStorage, VertexData, VertexMesh,
 };
+use shared::BytesConversion;
+use std::sync::Mutex;
 use std::{collections::HashSet, mem::ManuallyDrop, ops::Range, ptr, sync::Arc};
 
 #[derive(Debug, Clone)]
@@ -69,6 +74,8 @@ impl Default for Instance {
 pub struct SceneList<B: hal::Backend> {
     device: Arc<B::Device>,
     allocator: Allocator<B>,
+    queue: Arc<Mutex<Queue<B>>>,
+    cmd_pool: ManuallyDrop<B::CommandPool>,
     meshes: TrackedStorage<GfxMesh<B>>,
     anim_meshes: TrackedStorage<GfxMesh<B>>,
     mesh_instances: TrackedStorage<HashSet<u32>>,
@@ -77,6 +84,7 @@ pub struct SceneList<B: hal::Backend> {
     instances: TrackedStorage<Instance>,
     render_instances: FlaggedStorage<RenderInstance>,
     buffer: Buffer<B>,
+
     pub desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_set: B::DescriptorSet,
     pub set_layout: ManuallyDrop<B::DescriptorSetLayout>,
@@ -86,7 +94,11 @@ pub struct SceneList<B: hal::Backend> {
 impl<B: hal::Backend> SceneList<B> {
     const DEFAULT_CAPACITY: usize = 32;
 
-    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>) -> Self {
+    pub fn new(
+        device: Arc<B::Device>,
+        allocator: Allocator<B>,
+        queue: Arc<Mutex<Queue<B>>>,
+    ) -> Self {
         let buffer = allocator.allocate_buffer(
             std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
             Usage::UNIFORM,
@@ -144,10 +156,24 @@ impl<B: hal::Backend> SceneList<B> {
         unsafe {
             device.write_descriptor_sets(write);
         }
+        let cmd_pool = ManuallyDrop::new(unsafe {
+            device
+                .create_command_pool(
+                    queue
+                        .lock()
+                        .expect("Could not lock queue")
+                        .queue_group
+                        .family,
+                    hal::pool::CommandPoolCreateFlags::empty(),
+                )
+                .expect("Can't create command pool")
+        });
 
         Self {
             device,
             allocator,
+            queue,
+            cmd_pool,
             meshes: TrackedStorage::new(),
             anim_meshes: TrackedStorage::new(),
             mesh_instances: TrackedStorage::new(),
@@ -231,7 +257,63 @@ impl<B: hal::Backend> SceneList<B> {
     }
 
     pub fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
-        let new_mesh = GfxMesh::new(&self.allocator, mesh);
+        // let new_mesh = GfxMesh::new(&self.allocator, mesh);
+
+        let (new_mesh, staging) = if mesh.vertices.is_empty() {
+            (GfxMesh::default(), None)
+        } else {
+            let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
+            assert_ne!(buffer_len, 0);
+
+            // TODO: We should use staging buffers to transfer data to vertex buffers
+            let mut buffer = self.allocator.allocate_buffer(
+                buffer_len as usize,
+                buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
+                memory::Properties::DEVICE_LOCAL,
+            );
+
+            let mut staging_buffer = self.allocator.allocate_buffer(
+                buffer_len as usize,
+                buffer::Usage::TRANSFER_SRC,
+                memory::Properties::CPU_VISIBLE,
+            );
+
+            if let Ok(mapping) = staging_buffer.map(memory::Segment {
+                offset: 0,
+                size: Some(buffer_len),
+            }) {
+                mapping.as_slice().copy_from_slice(mesh.vertices.as_bytes());
+            }
+
+            unsafe {
+                let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
+                cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
+                cmd_buffer.copy_buffer(
+                    staging_buffer.borrow(),
+                    buffer.borrow(),
+                    std::iter::once(&hal::command::BufferCopy {
+                        size: buffer_len as _,
+                        src: 0,
+                        dst: 0,
+                    }),
+                );
+                cmd_buffer.finish();
+                self.queue
+                    .lock()
+                    .unwrap()
+                    .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+            }
+
+            (
+                GfxMesh {
+                    sub_meshes: mesh.meshes.clone(),
+                    buffer: Some(Arc::new(buffer)),
+                    vertices: mesh.vertices.len(),
+                },
+                Some(staging_buffer),
+            )
+        };
+
         match self.meshes.get_mut(id) {
             Some(m) => {
                 *m = new_mesh;
@@ -248,6 +330,11 @@ impl<B: hal::Backend> SceneList<B> {
             None => {
                 self.meshes.overwrite(id, new_mesh);
             }
+        }
+
+        if let Some(_) = staging {
+            // TODO: We should use better synchronization tools than waiting for an idle queue
+            self.queue.lock().unwrap().wait_idle().unwrap();
         }
     }
 
@@ -322,6 +409,9 @@ impl<B: hal::Backend> Drop for SceneList<B> {
                 .destroy_descriptor_set_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.set_layout,
                 )));
+
+            self.device
+                .destroy_command_pool(ManuallyDrop::into_inner(ptr::read(&self.cmd_pool)));
         }
     }
 }

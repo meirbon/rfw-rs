@@ -143,18 +143,18 @@ impl Display for Material {
 #[repr(C)]
 pub struct DeviceMaterial {
     pub color: [f32; 4],      // 16
-    pub absorption: [f32; 4], // 16
-    pub specular: [f32; 4],   // 32
-    pub parameters: [u32; 4], // 48
+    pub absorption: [f32; 4], // 32
+    pub specular: [f32; 4],   // 48
+    pub parameters: [u32; 4], // 64
 
-    pub flags: u32,         // 52
-    pub diffuse_map: i32,   // 56
-    pub normal_map: i32,    // 60
-    pub roughness_map: i32, // 64
+    pub flags: u32,         // 68
+    pub diffuse_map: i32,   // 72
+    pub normal_map: i32,    // 76
+    pub roughness_map: i32, // 80
 
-    pub emissive_map: i32, // 68
-    pub sheen_map: i32,    // 72
-    pub _dummy: [i32; 2],  // 80
+    pub emissive_map: i32, // 84
+    pub sheen_map: i32,    // 88
+    pub _dummy: [i32; 2],  // 96
 }
 
 impl Default for DeviceMaterial {

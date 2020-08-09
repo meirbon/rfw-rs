@@ -1,11 +1,8 @@
-// #[cfg(all(not(feature = "dx12"), any(target_os = "windows", target_os = "unix")))]
+#[cfg(any(target_os = "windows", target_os = "unix"))]
 pub use gfx_backend_vulkan as backend;
 
-// #[cfg(feature = "dx12")]
-// pub use gfx_backend_dx12 as backend;
-
-// #[cfg(target_os = "macos")]
-// pub use gfx_backend_metal as backend;
+#[cfg(target_os = "macos")]
+pub use gfx_backend_metal as backend;
 pub use gfx_hal as hal;
 
 use buffer::Allocator;
@@ -71,6 +68,7 @@ impl std::error::Error for GfxError {}
 
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
+#[derive(Debug)]
 pub struct Queue<B: hal::Backend> {
     queue_group: ManuallyDrop<QueueGroup<B>>,
 }
@@ -321,11 +319,11 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         let device = Arc::new(device);
         let allocator = Allocator::new(device.clone(), &adapter);
-
-        let scene_list = SceneList::new(device.clone(), allocator.clone());
         let queue = Arc::new(Mutex::new(Queue {
             queue_group: ManuallyDrop::new(queue_group),
         }));
+
+        let scene_list = SceneList::new(device.clone(), allocator.clone(), queue.clone());
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),

@@ -81,28 +81,33 @@ impl<B: hal::Backend> Allocator<B> {
 
         let buffer_req = unsafe { self.device.get_buffer_requirements(&buffer) };
 
-        let upload_type = self
-            .memory_props
-            .memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, mem_type)| {
-                // type_mask is a bit field where each bit represents a memory type. If the bit is set
-                // to 1 it means we can use that type for our buffer. So this code finds the first
-                // memory type that has a `1` (or, is allowed), and is visible to the CPU.
-                buffer_req.type_mask & (1 << id) != 0 && mem_type.properties.contains(memory_props)
-            })
-            .unwrap()
+        let upload_type =
+            match self
+                .memory_props
+                .memory_types
+                .iter()
+                .enumerate()
+                .position(|(id, mem_type)| {
+                    // type_mask is a bit field where each bit represents a memory type. If the bit is set
+                    // to 1 it means we can use that type for our buffer. So this code finds the first
+                    // memory type that has a `1` (or, is allowed), and is visible to the CPU.
+                    buffer_req.type_mask & (1 << id) != 0
+                        && mem_type.properties.contains(memory_props)
+                }) {
+                Some(i) => i,
+                None => panic!("Could not memory with requested properties"),
+            }
             .into();
 
         let buffer_memory = unsafe {
-            let memory = self
-                .device
-                .allocate_memory(upload_type, buffer_req.size)
-                .unwrap();
-            self.device
-                .bind_buffer_memory(&memory, 0, &mut buffer)
-                .unwrap();
+            let memory = match self.device.allocate_memory(upload_type, buffer_req.size) {
+                Ok(mem) => mem,
+                Err(e) => panic!("Could not allocate buffer memory: {}", e),
+            };
+            match self.device.bind_buffer_memory(&memory, 0, &mut buffer) {
+                Ok(_) => {}
+                Err(e) => panic!("Could not bind buffer memory: {}", e),
+            };
             ManuallyDrop::new(memory)
         };
 

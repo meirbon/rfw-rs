@@ -29,7 +29,7 @@ pub mod anim;
 pub struct GfxMesh<B: hal::Backend> {
     pub buffer: Option<Arc<Buffer<B>>>,
     pub sub_meshes: Vec<VertexMesh>,
-    vertices: usize,
+    pub vertices: usize,
 }
 
 impl<B: hal::Backend> Default for GfxMesh<B> {
@@ -44,48 +44,6 @@ impl<B: hal::Backend> Default for GfxMesh<B> {
 
 #[allow(dead_code)]
 impl<B: hal::Backend> GfxMesh<B> {
-    pub fn new(allocator: &Allocator<B>, mesh: &Mesh) -> Self {
-        let mut m = Self::default();
-        m.set_data(allocator, mesh);
-        m
-    }
-
-    pub fn set_data(&mut self, allocator: &Allocator<B>, mesh: &Mesh) {
-        if mesh.vertices.is_empty() {
-            *self = Self::default();
-        }
-
-        let non_coherent_alignment = allocator.limits.non_coherent_atom_size as u64;
-
-        let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
-        assert_ne!(buffer_len, 0);
-        let padded_buffer_len = ((buffer_len + non_coherent_alignment - 1)
-            / non_coherent_alignment)
-            * non_coherent_alignment;
-
-        // TODO: We should use staging buffers to transfer data to vertex buffers
-        let mut buffer = allocator.allocate_buffer(
-            padded_buffer_len as usize,
-            buffer::Usage::VERTEX,
-            memory::Properties::CPU_VISIBLE,
-        );
-
-        if let Ok(mapping) = buffer.map(memory::Segment {
-            offset: 0,
-            size: Some(buffer_len),
-        }) {
-            mapping.as_slice().copy_from_slice(mesh.vertices.as_bytes());
-        }
-
-        self.vertices = mesh.vertices.len();
-        self.sub_meshes = mesh.meshes.clone();
-        self.buffer = Some(Arc::new(buffer));
-    }
-
-    pub fn len(&self) -> usize {
-        self.vertices
-    }
-
     pub fn valid(&self) -> bool {
         self.buffer.is_some()
     }
@@ -618,8 +576,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         };
 
         let material_buffer = allocator.allocate_buffer(
-            // Minimum alignment of dynamic uniform buffers is 256 bytes
-            256 * 32,
+            std::mem::size_of::<DeviceMaterial>() * 32,
             hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
             hal::memory::Properties::DEVICE_LOCAL,
         );
@@ -651,7 +608,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     /// Border color is used when one of the wrap modes is set to border.
                     border: hal::image::PackedColor::from([0.0; 4]),
                     /// Specifies whether the texture coordinates are normalized.
-                    normalized: false,
+                    normalized: true,
                     /// Anisotropic filtering.
                     /// Can be `Some(_)` only if `Features::SAMPLER_ANISOTROPY` is enabled.
                     anisotropy_clamp: Some(8),
@@ -986,17 +943,27 @@ impl<B: hal::Backend> RenderPipeline<B> {
     }
 
     pub fn set_materials(&mut self, materials: &[DeviceMaterial]) {
-        if self.material_buffer.len() < materials.len() * 256 {
+        let aligned_size = {
+            let minimum_alignment =
+                self.allocator.limits.min_uniform_buffer_offset_alignment as usize;
+            let mut size = minimum_alignment;
+            while size < std::mem::size_of::<DeviceMaterial>() {
+                size += minimum_alignment;
+            }
+            size
+        };
+
+        if self.material_buffer.len() < materials.len() * aligned_size {
             self.material_buffer = self.allocator.allocate_buffer(
                 // Minimum alignment of dynamic uniform buffers is 256 bytes
-                materials.len() * 2 * 256,
+                materials.len() * 2 * aligned_size,
                 hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
                 hal::memory::Properties::DEVICE_LOCAL,
             );
         }
 
         let mut staging_buffer = self.allocator.allocate_buffer(
-            materials.len() * 256,
+            materials.len() * aligned_size,
             hal::buffer::Usage::TRANSFER_SRC,
             hal::memory::Properties::CPU_VISIBLE,
         );
@@ -1005,7 +972,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             let dst = mapping.as_slice();
             let src = materials.as_bytes();
             for (i, mat) in materials.iter().enumerate() {
-                let start = i * 256;
+                let start = i * aligned_size;
                 let end = start + std::mem::size_of::<DeviceMaterial>();
 
                 let src_start = i * std::mem::size_of::<DeviceMaterial>();
@@ -1022,7 +989,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 staging_buffer.borrow(),
                 self.material_buffer.borrow(),
                 std::iter::once(&BufferCopy {
-                    size: (materials.len() * 256) as _,
+                    size: (materials.len() * aligned_size) as _,
                     src: 0,
                     dst: 0,
                 }),
@@ -1066,7 +1033,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         descriptors: Some(pso::Descriptor::Buffer(
                             self.material_buffer.borrow(),
                             hal::buffer::SubRange {
-                                offset: (i * 256) as _,
+                                offset: (i * aligned_size) as _,
                                 size: Some(std::mem::size_of::<DeviceMaterial>() as _),
                             },
                         )),
