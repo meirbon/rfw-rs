@@ -235,6 +235,22 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
         self.storage.as_mut_ptr()
     }
+
+    pub fn take(&mut self, index: usize) -> Option<T> {
+        match self.active.get(index) {
+            Some(val) => {
+                if *val {
+                    self.active.set(index, false);
+                    let mut replacement = T::default();
+                    std::mem::swap(&mut replacement, &mut self.storage[index]);
+                    Some(replacement)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
 }
 
 impl<T: Default + Clone + std::fmt::Debug> From<&[T]> for FlaggedStorage<T> {
@@ -514,6 +530,16 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
 
     pub unsafe fn as_mut_slice(&mut self) -> &mut [T] {
         self.storage.as_mut_slice()
+    }
+
+    pub fn take(&mut self, index: usize) -> Option<T> {
+        match self.storage.take(index) {
+            Some(val) => {
+                self.changed.set(index, false);
+                Some(val)
+            }
+            None => None,
+        }
     }
 }
 

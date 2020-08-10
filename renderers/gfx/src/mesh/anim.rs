@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub struct GfxAnimMesh<B: hal::Backend> {
     pub id: usize,
     pub buffer: Option<Arc<Buffer<B>>>,
-    pub anim_buffer: Option<Arc<Buffer<B>>>,
+    pub anim_offset: usize,
     pub sub_meshes: Vec<VertexMesh>,
     pub vertices: usize,
     pub bounds: AABB,
@@ -19,7 +19,7 @@ impl<B: hal::Backend> Default for GfxAnimMesh<B> {
         Self {
             id: 0,
             buffer: None,
-            anim_buffer: None,
+            anim_offset: 0,
             sub_meshes: Vec::new(),
             vertices: 0,
             bounds: AABB::empty(),

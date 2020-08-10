@@ -29,6 +29,7 @@ mod buffer;
 mod instances;
 mod materials;
 mod mesh;
+mod skinning;
 
 use crate::hal::device::OutOfMemory;
 use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
@@ -152,6 +153,7 @@ impl<B: hal::Backend> Queue<B> {
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
     queue: Arc<Mutex<Queue<B>>>,
+    transfer_queue: Arc<Mutex<Queue<B>>>,
     device: Arc<B::Device>,
     surface: ManuallyDrop<B::Surface>,
     adapter: hal::adapter::Adapter<B>,
@@ -221,20 +223,55 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                     && family.queue_type().supports_compute()
             })
             .unwrap();
-        let mut gpu = unsafe {
-            adapter
-                .physical_device
-                .open(
-                    &[(family, &[1.0])],
-                    hal::Features::NDC_Y_UP | hal::Features::SAMPLER_ANISOTROPY,
-                )
-                .unwrap()
+
+        let transfer_family = adapter
+            .queue_families
+            .iter()
+            .find(|family| family.queue_type().supports_transfer() && family.id() != family.id());
+        let (queue, transfer_queue, device) = if let Some(transfer_family) = transfer_family {
+            let mut gpu = unsafe {
+                adapter
+                    .physical_device
+                    .open(
+                        &[(family, &[1.0]), (&transfer_family, &[0.8])],
+                        hal::Features::NDC_Y_UP | hal::Features::SAMPLER_ANISOTROPY,
+                    )
+                    .unwrap()
+            };
+            let queue_group = gpu.queue_groups.pop().unwrap();
+            let transfer_queue_group = gpu.queue_groups.pop().unwrap();
+            let device = gpu.device;
+            let queue = Arc::new(Mutex::new(Queue {
+                queue_group: ManuallyDrop::new(queue_group),
+            }));
+            let transfer_queue = Arc::new(Mutex::new(Queue {
+                queue_group: ManuallyDrop::new(transfer_queue_group),
+            }));
+            (queue, transfer_queue, device)
+        } else {
+            let mut gpu = unsafe {
+                adapter
+                    .physical_device
+                    .open(
+                        &[(family, &[1.0])],
+                        hal::Features::NDC_Y_UP | hal::Features::SAMPLER_ANISOTROPY,
+                    )
+                    .unwrap()
+            };
+            let queue_group = gpu.queue_groups.pop().unwrap();
+            let device = gpu.device;
+            let queue = Arc::new(Mutex::new(Queue {
+                queue_group: ManuallyDrop::new(queue_group),
+            }));
+            let transfer_queue = queue.clone();
+            (queue, transfer_queue, device)
         };
-        let queue_group = gpu.queue_groups.pop().unwrap();
-        let device = gpu.device;
 
         let command_pool = unsafe {
-            device.create_command_pool(queue_group.family, pool::CommandPoolCreateFlags::empty())
+            device.create_command_pool(
+                queue.lock().unwrap().queue_group.family,
+                pool::CommandPoolCreateFlags::empty(),
+            )
         }
         .expect("Can't create command pool");
 
@@ -252,7 +289,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 cmd_pools.push(
                     device
                         .create_command_pool(
-                            queue_group.family,
+                            queue.lock().unwrap().queue_group.family,
                             pool::CommandPoolCreateFlags::empty(),
                         )
                         .expect("Can't create command pool"),
@@ -310,16 +347,13 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         let device = Arc::new(device);
         let allocator = Allocator::new(device.clone(), &adapter);
-        let queue = Arc::new(Mutex::new(Queue {
-            queue_group: ManuallyDrop::new(queue_group),
-        }));
 
-        let scene_list = SceneList::new(device.clone(), allocator.clone(), queue.clone());
+        let scene_list = SceneList::new(device.clone(), allocator.clone(), transfer_queue.clone());
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
             allocator,
-            queue.clone(),
+            transfer_queue.clone(),
             format,
             width as u32,
             height as u32,
@@ -329,6 +363,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         Ok(Box::new(Self {
             instance,
             queue,
+            transfer_queue,
             device,
             surface: ManuallyDrop::new(surface),
             adapter,
@@ -353,7 +388,9 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         self.scene_list.set_mesh(id, mesh);
     }
 
-    fn set_animated_mesh(&mut self, _id: usize, _mesh: &rfw_scene::AnimatedMesh) {}
+    fn set_animated_mesh(&mut self, id: usize, mesh: &rfw_scene::AnimatedMesh) {
+        self.scene_list.set_anim_mesh(id, mesh);
+    }
 
     fn set_instance(&mut self, id: usize, instance: &rfw_scene::Instance) {
         self.scene_list.set_instance(id, instance);
@@ -372,7 +409,18 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     }
 
     fn synchronize(&mut self) {
-        self.scene_list.synchronize();
+        if let Ok(mut queue) = self.transfer_queue.lock() {
+            queue.wait_idle().unwrap();
+        }
+
+        let scene_list = &mut self.scene_list;
+        let mesh_renderer = &mut self.mesh_renderer;
+
+        let task1 = async { scene_list.synchronize() };
+        let task2 = async { mesh_renderer.synchronize() };
+
+        futures::executor::block_on(task1);
+        futures::executor::block_on(task2);
     }
 
     fn render(&mut self, camera: &rfw_scene::Camera, _mode: rfw_scene::RenderMode) {
@@ -503,7 +551,9 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
     fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
 
-    fn set_skin(&mut self, _id: usize, _skin: &rfw_scene::graph::Skin) {}
+    fn set_skin(&mut self, id: usize, skin: &rfw_scene::graph::Skin) {
+        self.mesh_renderer.set_skin(id, skin);
+    }
 
     fn get_settings(&self) -> Vec<rfw_scene::Setting> {
         Vec::new()

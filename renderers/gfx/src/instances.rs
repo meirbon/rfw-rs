@@ -19,7 +19,7 @@ use hal::{
 use pso::DescriptorPool;
 use rfw_scene::{
     bvh::{Bounds, AABB},
-    FlaggedStorage, ObjectRef, TrackedStorage, VertexData, VertexMesh,
+    AnimVertexData, FlaggedStorage, ObjectRef, TrackedStorage, VertexData, VertexMesh,
 };
 use shared::BytesConversion;
 use std::sync::Mutex;
@@ -41,14 +41,26 @@ pub struct Instance {
 #[derive(Debug, Clone)]
 pub struct RenderInstance {
     pub id: u32,
+    pub object: ObjectRef,
+    pub skin_id: Option<u32>,
     pub bounds: AABB,
     pub meshes: Vec<VertexMesh>,
+}
+
+#[derive(Debug, Clone)]
+pub enum RenderBuffers<'a, B: hal::Backend> {
+    Static(&'a Buffer<B>),
+    /// Buffer with both vertices and animation data
+    /// the usize is the offset into the buffer for animation data
+    Animated(&'a Buffer<B>, usize),
 }
 
 impl Default for RenderInstance {
     fn default() -> Self {
         Self {
             id: std::u32::MAX,
+            object: ObjectRef::None,
+            skin_id: None,
             bounds: AABB::empty(),
             meshes: Vec::new(),
         }
@@ -77,8 +89,8 @@ impl Default for Instance {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum TaskResult<B: hal::Backend> {
-    Mesh(GfxMesh<B>, Option<Arc<Buffer<B>>>),
-    AnimMesh(GfxAnimMesh<B>, Option<Arc<Buffer<B>>>),
+    Mesh(GfxMesh<B>, Option<Arc<Buffer<B>>>, B::CommandBuffer),
+    AnimMesh(GfxAnimMesh<B>, Option<Arc<Buffer<B>>>, B::CommandBuffer),
 }
 
 #[derive(Debug)]
@@ -87,11 +99,10 @@ pub struct SceneList<B: hal::Backend> {
     allocator: Allocator<B>,
     queue: Arc<Mutex<Queue<B>>>,
     cmd_pool: ManuallyDrop<B::CommandPool>,
-    meshes: TrackedStorage<GfxMesh<B>>,
-    anim_meshes: TrackedStorage<GfxAnimMesh<B>>,
-    mesh_instances: TrackedStorage<HashSet<u32>>,
-    anim_mesh_instances: TrackedStorage<HashSet<u32>>,
-    instance_meshes: TrackedStorage<ObjectRef>,
+    meshes: FlaggedStorage<GfxMesh<B>>,
+    anim_meshes: FlaggedStorage<GfxAnimMesh<B>>,
+    mesh_instances: FlaggedStorage<HashSet<u32>>,
+    anim_mesh_instances: FlaggedStorage<HashSet<u32>>,
     instances: TrackedStorage<Instance>,
     render_instances: FlaggedStorage<RenderInstance>,
     instance_buffer: Buffer<B>,
@@ -169,7 +180,7 @@ impl<B: hal::Backend> SceneList<B> {
             binding: 0,
             array_offset: 0,
             descriptors: Some(pso::Descriptor::Buffer(
-                instance_buffer.borrow(),
+                instance_buffer.buffer(),
                 SubRange::WHOLE,
             )),
         }];
@@ -195,11 +206,10 @@ impl<B: hal::Backend> SceneList<B> {
             allocator,
             queue,
             cmd_pool,
-            meshes: TrackedStorage::new(),
-            anim_meshes: TrackedStorage::new(),
-            mesh_instances: TrackedStorage::new(),
-            anim_mesh_instances: TrackedStorage::new(),
-            instance_meshes: TrackedStorage::new(),
+            meshes: FlaggedStorage::new(),
+            anim_meshes: FlaggedStorage::new(),
+            mesh_instances: FlaggedStorage::new(),
+            anim_mesh_instances: FlaggedStorage::new(),
             instances: TrackedStorage::new(),
             render_instances: FlaggedStorage::new(),
             instance_buffer,
@@ -212,26 +222,22 @@ impl<B: hal::Backend> SceneList<B> {
     }
 
     pub fn set_instance(&mut self, id: usize, instance: &rfw_scene::Instance) {
-        self.instance_meshes.overwrite(id, instance.object_id);
-        self.instances.overwrite(
-            id,
-            Instance {
-                matrix: instance.get_transform(),
-                inverse_matrix: instance.get_inverse_transform(),
-                normal_matrix: instance.get_normal_transform(),
-                bounds: instance.bounds().into(),
-                original_bounds: instance.local_bounds().into(),
-            },
-        );
-        self.render_instances.overwrite_val(
-            id,
-            RenderInstance {
-                id: id as u32,
-                meshes: Vec::new(),
-                bounds: AABB::empty(),
-            },
-        );
+        // Remove old instance in mesh instance list
+        if let Some(inst) = self.render_instances.get(id) {
+            match inst.object {
+                ObjectRef::None => {}
+                ObjectRef::Static(mesh_id) => {
+                    let mesh_id = mesh_id as usize;
+                    self.mesh_instances[mesh_id].remove(&(id as u32));
+                }
+                ObjectRef::Animated(mesh_id) => {
+                    let mesh_id = mesh_id as usize;
+                    self.anim_mesh_instances[mesh_id].remove(&(id as u32));
+                }
+            }
+        }
 
+        // Add instance to object list
         match instance.object_id {
             ObjectRef::None => {}
             ObjectRef::Static(mesh_id) => match self.mesh_instances.get_mut(mesh_id as usize) {
@@ -241,7 +247,7 @@ impl<B: hal::Backend> SceneList<B> {
                 None => {
                     let mut set = HashSet::new();
                     set.insert(id as u32);
-                    self.mesh_instances.overwrite(id, set);
+                    self.mesh_instances.overwrite_val(mesh_id as usize, set);
                 }
             },
             ObjectRef::Animated(mesh_id) => {
@@ -252,29 +258,52 @@ impl<B: hal::Backend> SceneList<B> {
                     None => {
                         let mut set = HashSet::new();
                         set.insert(id as u32);
-                        self.anim_mesh_instances.overwrite(id, set);
+                        self.anim_mesh_instances
+                            .overwrite_val(mesh_id as usize, set);
                     }
                 }
             }
         }
+
+        // Update instance data
+        self.instances.overwrite(
+            id,
+            Instance {
+                matrix: instance.get_transform(),
+                inverse_matrix: instance.get_inverse_transform(),
+                normal_matrix: instance.get_normal_transform(),
+                bounds: instance.bounds().into(),
+                original_bounds: instance.local_bounds().into(),
+            },
+        );
+
+        self.render_instances.overwrite_val(
+            id,
+            RenderInstance {
+                id: id as u32,
+                object: instance.object_id,
+                skin_id: instance.skin_id,
+                meshes: Vec::new(),
+                bounds: AABB::empty(),
+            },
+        );
     }
 
     pub fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
+        if mesh.vertices.is_empty() {
+            self.meshes.overwrite_val(id, GfxMesh::default_id(id));
+            return;
+        }
+
         let mesh = mesh.clone();
         let queue = self.queue.clone();
         let allocator = self.allocator.clone();
         let mut cmd_buffer = unsafe { self.cmd_pool.allocate_one(hal::command::Level::Primary) };
 
         self.task_pool.push(move |sender| {
-            if mesh.vertices.is_empty() {
-                sender.send(TaskResult::Mesh(GfxMesh::default(), None));
-                return;
-            }
-
             let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
             assert_ne!(buffer_len, 0);
 
-            // TODO: We should use staging buffers to transfer data to vertex buffers
             let buffer = allocator.allocate_buffer(
                 buffer_len as usize,
                 buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
@@ -297,8 +326,8 @@ impl<B: hal::Backend> SceneList<B> {
             unsafe {
                 cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
                 cmd_buffer.copy_buffer(
-                    staging_buffer.borrow(),
-                    buffer.borrow(),
+                    staging_buffer.buffer(),
+                    buffer.buffer(),
                     std::iter::once(&hal::command::BufferCopy {
                         size: buffer_len as _,
                         src: 0,
@@ -321,25 +350,97 @@ impl<B: hal::Backend> SceneList<B> {
                     bounds: mesh.bounds,
                 },
                 Some(Arc::new(staging_buffer)),
+                cmd_buffer,
+            ))
+        });
+    }
+
+    pub fn set_anim_mesh(&mut self, id: usize, anim_mesh: &rfw_scene::AnimatedMesh) {
+        if anim_mesh.vertices.is_empty() {
+            self.anim_meshes
+                .overwrite_val(id, GfxAnimMesh::default_id(id));
+            return;
+        }
+
+        let anim_mesh = anim_mesh.clone();
+        let queue = self.queue.clone();
+        let allocator = self.allocator.clone();
+        let mut cmd_buffer = unsafe { self.cmd_pool.allocate_one(hal::command::Level::Primary) };
+
+        self.task_pool.push(move |sender| {
+            let buffer_len = (anim_mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
+            let anim_buffer_len =
+                (anim_mesh.anim_vertex_data.len() * std::mem::size_of::<AnimVertexData>()) as u64;
+            assert_ne!(buffer_len, 0);
+            assert_ne!(anim_buffer_len, 0);
+
+            let buffer = allocator.allocate_buffer(
+                buffer_len as usize + anim_buffer_len as usize,
+                buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
+                memory::Properties::DEVICE_LOCAL,
+            );
+
+            let mut staging_buffer = allocator.allocate_buffer(
+                (buffer_len + anim_buffer_len) as usize,
+                buffer::Usage::TRANSFER_SRC,
+                memory::Properties::CPU_VISIBLE,
+            );
+
+            if let Ok(mapping) = staging_buffer.map(memory::Segment {
+                offset: 0,
+                size: Some(buffer_len + anim_buffer_len),
+            }) {
+                let buffer_len = buffer_len as usize;
+                let anim_buffer_len = anim_buffer_len as usize;
+
+                mapping.as_slice()[0..buffer_len].copy_from_slice(anim_mesh.vertices.as_bytes());
+                mapping.as_slice()[buffer_len..(buffer_len + anim_buffer_len)]
+                    .copy_from_slice(anim_mesh.anim_vertex_data.as_bytes());
+            }
+
+            unsafe {
+                cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
+                cmd_buffer.copy_buffer(
+                    staging_buffer.buffer(),
+                    buffer.buffer(),
+                    std::iter::once(&hal::command::BufferCopy {
+                        size: (buffer_len + anim_buffer_len) as _,
+                        src: 0,
+                        dst: 0,
+                    }),
+                );
+                cmd_buffer.finish();
+                queue
+                    .lock()
+                    .unwrap()
+                    .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+            }
+
+            sender.send(TaskResult::AnimMesh(
+                GfxAnimMesh {
+                    id,
+                    sub_meshes: anim_mesh.meshes.clone(),
+                    buffer: Some(Arc::new(buffer)),
+                    anim_offset: buffer_len as usize,
+                    vertices: anim_mesh.vertices.len(),
+                    bounds: anim_mesh.bounds,
+                },
+                Some(Arc::new(staging_buffer)),
+                cmd_buffer,
             ))
         });
     }
 
     pub fn synchronize(&mut self) {
         self.queue.lock().unwrap().wait_idle().unwrap();
-        // let meshes = &mut self.meshes;
-        // let anim_meshes = &mut self.anim_meshes;
-        // let mesh_instances = &mut self.mesh_instances;
-        // let instances = &mut self.instances;
-        // let render_instances = &mut self.render_instances;
-        // let instance_meshes = &self.instance_meshes;
 
+        let mut to_free = Vec::new();
         let task_pool = &self.task_pool;
         for result in task_pool.sync() {
             match result {
-                TaskResult::Mesh(new_mesh, _) => {
+                TaskResult::Mesh(new_mesh, _, cmd_buffer) => {
                     let id = new_mesh.id as usize;
-                    self.meshes.overwrite(id, new_mesh);
+                    self.meshes.overwrite_val(id, new_mesh);
                     let mesh = &self.meshes[id];
 
                     if let Some(set) = self.mesh_instances.get(mesh.id) {
@@ -348,20 +449,26 @@ impl<B: hal::Backend> SceneList<B> {
                             self.instances.trigger_changed(instance_id);
                         }
                     }
+                    to_free.push(cmd_buffer);
                 }
-                TaskResult::AnimMesh(new_mesh, _) => {
+                TaskResult::AnimMesh(new_mesh, _, cmd_buffer) => {
                     let id = new_mesh.id as usize;
-                    self.anim_meshes.overwrite(id, new_mesh);
-                    let mesh = &self.meshes[id];
+                    self.anim_meshes.overwrite_val(id, new_mesh);
+                    let mesh = &self.anim_meshes[id];
 
-                    if let Some(set) = self.mesh_instances.get(mesh.id) {
+                    if let Some(set) = self.anim_mesh_instances.get(mesh.id) {
                         for instance_id in set.iter() {
                             let instance_id = *instance_id as usize;
                             self.instances.trigger_changed(instance_id);
                         }
                     }
+                    to_free.push(cmd_buffer);
                 }
             }
+        }
+
+        unsafe {
+            self.cmd_pool.free(to_free);
         }
 
         if !self.instances.any_changed() {
@@ -370,56 +477,56 @@ impl<B: hal::Backend> SceneList<B> {
 
         let instances = &mut self.instances;
 
-        for (i, inst) in instances.iter_changed_mut() {
+        for (i, inst) in instances.iter_mut() {
             let matrix = inst.matrix.to_cols_array();
-            let (mut aabb, meshes) = match self.instance_meshes[i] {
+            let (mut aabb, meshes) = match self.render_instances[i].object {
                 ObjectRef::None => {
                     let vec: Vec<VertexMesh> = Vec::new();
                     (AABB::empty(), vec)
                 }
                 ObjectRef::Static(m_id) => {
-                    let mesh = &self.meshes[m_id as usize];
-                    let sub_meshes: Vec<VertexMesh> = mesh
-                        .sub_meshes
-                        .iter()
-                        .map(|s| VertexMesh {
-                            bounds: s.bounds.transformed(matrix),
-                            first: s.first,
-                            last: s.last,
-                            mat_id: s.mat_id,
-                        })
-                        .collect::<Vec<_>>();
+                    if let Some(mesh) = self.meshes.get(m_id as usize) {
+                        let sub_meshes: Vec<VertexMesh> = mesh
+                            .sub_meshes
+                            .iter()
+                            .map(|s| VertexMesh {
+                                bounds: s.bounds.transformed(matrix),
+                                first: s.first,
+                                last: s.last,
+                                mat_id: s.mat_id,
+                            })
+                            .collect::<Vec<_>>();
 
-                    (mesh.bounds.clone(), sub_meshes)
+                        (mesh.bounds.clone(), sub_meshes)
+                    } else {
+                        (AABB::empty(), Vec::new())
+                    }
                 }
                 ObjectRef::Animated(m_id) => {
-                    let mesh = &self.anim_meshes[m_id as usize];
-                    let sub_meshes: Vec<VertexMesh> = mesh
-                        .sub_meshes
-                        .iter()
-                        .map(|s| VertexMesh {
-                            bounds: s.bounds.transformed(matrix),
-                            first: s.first,
-                            last: s.last,
-                            mat_id: s.mat_id,
-                        })
-                        .collect::<Vec<_>>();
+                    if let Some(anim_mesh) = self.anim_meshes.get(m_id as usize) {
+                        let sub_meshes: Vec<VertexMesh> = anim_mesh
+                            .sub_meshes
+                            .iter()
+                            .map(|s| VertexMesh {
+                                bounds: s.bounds.transformed(matrix),
+                                first: s.first,
+                                last: s.last,
+                                mat_id: s.mat_id,
+                            })
+                            .collect::<Vec<_>>();
 
-                    (mesh.bounds.clone(), sub_meshes)
+                        (anim_mesh.bounds.clone(), sub_meshes)
+                    } else {
+                        (AABB::empty(), Vec::new())
+                    }
                 }
             };
 
             aabb.transform(matrix);
 
             inst.set_bounds(aabb.clone());
-            self.render_instances.overwrite_val(
-                i,
-                RenderInstance {
-                    id: i as u32,
-                    meshes,
-                    bounds: aabb,
-                },
-            );
+            self.render_instances[i].meshes = meshes;
+            self.render_instances[i].bounds = aabb;
         }
 
         let copy_size = self.instances.len() * std::mem::size_of::<Instance>();
@@ -441,7 +548,7 @@ impl<B: hal::Backend> SceneList<B> {
                 binding: 0,
                 array_offset: 0,
                 descriptors: Some(pso::Descriptor::Buffer(
-                    self.instance_buffer.borrow(),
+                    self.instance_buffer.buffer(),
                     SubRange::WHOLE,
                 )),
             }];
@@ -473,12 +580,12 @@ impl<B: hal::Backend> SceneList<B> {
                         families: None,
                         range: SubRange::WHOLE,
                         states: State::SHADER_READ..State::HOST_WRITE,
-                        target: self.instance_buffer.borrow(),
+                        target: self.instance_buffer.buffer(),
                     }),
                 );
                 cmd_buffer.copy_buffer(
-                    self.staging_buffer.borrow(),
-                    self.instance_buffer.borrow(),
+                    self.staging_buffer.buffer(),
+                    self.instance_buffer.buffer(),
                     std::iter::once(&BufferCopy {
                         src: 0,
                         dst: 0,
@@ -492,7 +599,7 @@ impl<B: hal::Backend> SceneList<B> {
                         families: None,
                         range: SubRange::WHOLE,
                         states: State::HOST_WRITE..State::SHADER_READ,
-                        target: self.instance_buffer.borrow(),
+                        target: self.instance_buffer.buffer(),
                     }),
                 );
                 cmd_buffer.finish();
@@ -507,25 +614,48 @@ impl<B: hal::Backend> SceneList<B> {
 
     pub fn iter_instances<T>(&self, mut render_instance: T)
     where
-        T: FnMut(&B::Buffer, &RenderInstance),
+        T: FnMut(&RenderBuffers<'_, B>, &RenderInstance),
     {
         self.mesh_instances
             .iter()
             .filter(|(_, set)| !set.is_empty())
             .for_each(|(i, set)| {
-                let mesh = match self.meshes.get(i) {
-                    Some(mesh) => mesh,
-                    None => return,
-                };
-                let buffer = match mesh.buffer.as_ref() {
-                    Some(buffer) => buffer,
-                    None => return,
+                let buffer = if let Some(mesh) = self.meshes.get(i) {
+                    match mesh.buffer.as_ref() {
+                        Some(buffer) => Some(RenderBuffers::Static(buffer)),
+                        None => None,
+                    }
+                } else {
+                    None
                 };
 
-                set.iter().for_each(|inst| {
-                    let inst = *inst as usize;
-                    render_instance(buffer.borrow(), &self.render_instances[inst]);
-                });
+                if let Some(buffer) = buffer {
+                    set.iter().for_each(|inst| {
+                        let inst = *inst as usize;
+                        render_instance(&buffer, &self.render_instances[inst]);
+                    });
+                }
+            });
+
+        self.anim_mesh_instances
+            .iter()
+            .filter(|(_, set)| !set.is_empty())
+            .for_each(|(i, set)| {
+                let buffer = if let Some(mesh) = self.anim_meshes.get(i) {
+                    match mesh.buffer.as_ref() {
+                        Some(buffer) => Some(RenderBuffers::Animated(buffer, mesh.anim_offset)),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(buffer) = buffer {
+                    set.iter().for_each(|inst| {
+                        let inst = *inst as usize;
+                        render_instance(&buffer, &self.render_instances[inst]);
+                    });
+                }
             });
     }
 }

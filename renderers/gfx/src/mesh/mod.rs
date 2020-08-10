@@ -8,6 +8,8 @@ use crate::hal::pool::CommandPool;
 use crate::materials::SceneTexture;
 use crate::{hal, instances::SceneList, Queue};
 
+use crate::instances::RenderBuffers;
+use crate::skinning::SkinList;
 use glam::*;
 use hal::{
     buffer,
@@ -19,7 +21,7 @@ use hal::{
 use pass::Subpass;
 use pso::*;
 use rfw_scene::bvh::AABB;
-use rfw_scene::{DeviceMaterial, FrustrumG, VertexData, VertexMesh};
+use rfw_scene::{AnimVertexData, DeviceMaterial, FrustrumG, VertexData, VertexMesh};
 use shared::BytesConversion;
 use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
@@ -68,6 +70,7 @@ pub struct RenderPipeline<B: hal::Backend> {
     desc_set: B::DescriptorSet,
     set_layout: ManuallyDrop<B::DescriptorSetLayout>,
     pipeline: ManuallyDrop<B::GraphicsPipeline>,
+    anim_pipeline: ManuallyDrop<B::GraphicsPipeline>,
     pipeline_layout: ManuallyDrop<B::PipelineLayout>,
     render_pass: ManuallyDrop<B::RenderPass>,
     uniform_buffer: Buffer<B>,
@@ -84,6 +87,8 @@ pub struct RenderPipeline<B: hal::Backend> {
     mat_sets: Vec<B::DescriptorSet>,
     material_buffer: Buffer<B>,
     tex_sampler: ManuallyDrop<B::Sampler>,
+
+    skins: SkinList<B>,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -101,6 +106,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
         height: u32,
         scene_list: &SceneList<B>,
     ) -> Self {
+        let skins = SkinList::new(device.clone(), allocator.clone(), queue.clone());
+
         let set_layout = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_set_layout(
@@ -306,7 +313,12 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let pipeline_layout = ManuallyDrop::new(
             unsafe {
                 device.create_pipeline_layout(
-                    vec![&*set_layout, &*scene_list.set_layout, &*mat_set_layout],
+                    vec![
+                        &*set_layout,
+                        &*scene_list.set_layout,
+                        &*mat_set_layout,
+                        &*skins.desc_layout,
+                    ],
                     &[],
                 )
             }
@@ -518,6 +530,239 @@ impl<B: hal::Backend> RenderPipeline<B> {
             }
         };
 
+        let anim_pipeline = {
+            let ms_module = {
+                let spirv = include_bytes!("../../shaders/mesh_anim.vert.spv");
+                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
+            };
+
+            let fs_module = {
+                let spirv = include_bytes!("../../shaders/mesh.frag.spv");
+                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
+            };
+
+            let pipeline = {
+                let (ms_entry, fs_entry) = (
+                    pso::EntryPoint {
+                        entry: "main",
+                        module: &ms_module,
+                        specialization: pso::Specialization::default(),
+                    },
+                    pso::EntryPoint {
+                        entry: "main",
+                        module: &fs_module,
+                        specialization: pso::Specialization::default(),
+                    },
+                );
+
+                let subpass = Subpass {
+                    index: 0,
+                    main_pass: &*render_pass,
+                };
+
+                let pipeline_desc = pso::GraphicsPipelineDesc {
+                    /// A set of graphics shaders to use for the pipeline.
+                    shaders: GraphicsShaderSet {
+                        vertex: ms_entry,
+                        fragment: Some(fs_entry),
+                        hull: None,
+                        domain: None,
+                        geometry: None,
+                    },
+                    // Rasterizer setup
+                    rasterizer: pso::Rasterizer {
+                        /// How to rasterize this primitive.
+                        polygon_mode: pso::PolygonMode::Fill,
+                        /// Which face should be culled.
+                        cull_face: pso::Face::BACK,
+                        /// Which vertex winding is considered to be the front face for culling.
+                        front_face: pso::FrontFace::CounterClockwise,
+                        /// Whether or not to enable depth clamping; when enabled, instead of
+                        /// fragments being omitted when they are outside the bounds of the z-plane,
+                        /// they will be clamped to the min or max z value.
+                        depth_clamping: false,
+                        /// What depth bias, if any, to use for the drawn primitives.
+                        depth_bias: None,
+                        /// Controls how triangles will be rasterized depending on their overlap with pixels.
+                        conservative: false,
+                        /// Controls width of rasterized line segments.
+                        line_width: State::Dynamic,
+                    },
+                    vertex_buffers: vec![
+                        VertexBufferDesc {
+                            binding: 0 as BufferIndex,
+                            stride: std::mem::size_of::<VertexData>() as ElemStride,
+                            rate: VertexInputRate::Vertex,
+                        },
+                        VertexBufferDesc {
+                            binding: 1 as BufferIndex,
+                            stride: std::mem::size_of::<AnimVertexData>() as ElemStride,
+                            rate: VertexInputRate::Vertex,
+                        },
+                    ],
+                    // Vertex attributes (IA)
+                    attributes: vec![
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 0 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 0 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::Rgba32Sfloat,
+                                offset: 0,
+                            },
+                        },
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 1 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 0 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::Rgb32Sfloat,
+                                offset: 16,
+                            },
+                        },
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 2 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 0 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::R32Uint,
+                                offset: 28,
+                            },
+                        },
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 3 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 0 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::Rg32Sfloat,
+                                offset: 32,
+                            },
+                        },
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 4 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 0 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::Rgba32Sfloat,
+                                offset: 40,
+                            },
+                        },
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 5 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 1 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::Rgba32Uint,
+                                offset: 0,
+                            },
+                        },
+                        AttributeDesc {
+                            /// Vertex array location
+                            location: 6 as Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 1 as BufferIndex,
+                            /// Attribute element description.
+                            element: Element {
+                                format: hal::format::Format::Rgba32Sfloat,
+                                offset: 16,
+                            },
+                        },
+                    ],
+                    // Input assembler attributes, describes how
+                    // vertices are assembled into primitives (such as triangles).
+                    input_assembler: InputAssemblerDesc {
+                        /// Type of the primitive
+                        primitive: Primitive::TriangleList,
+                        /// When adjacency information is enabled, every even-numbered vertex
+                        /// (every other starting from the first) represents an additional
+                        /// vertex for the primitive, while odd-numbered vertices (every other starting from the
+                        /// second) represent adjacent vertices.
+                        ///
+                        /// For example, with `[a, b, c, d, e, f, g, h]`, `[a, c,
+                        /// e, g]` form a triangle strip, and `[b, d, f, h]` are the adjacent vertices, where `b`, `d`,
+                        /// and `f` are adjacent to the first triangle in the strip, and `d`, `f`, and `h` are adjacent
+                        /// to the second.
+                        with_adjacency: false,
+                        /// Describes whether or not primitive restart is supported for
+                        /// an input assembler. Primitive restart is a feature that
+                        /// allows a mark to be placed in an index buffer where it is
+                        /// is "broken" into multiple pieces of geometry.
+                        ///
+                        /// See <https://www.khronos.org/opengl/wiki/Vertex_Rendering#Primitive_Restart>
+                        /// for more detail.
+                        restart_index: None,
+                    },
+                    // Description of how blend operations should be performed.
+                    blender: BlendDesc {
+                        /// The logic operation to apply to the blending equation, if any.
+                        logic_op: None,
+                        /// Which color targets to apply the blending operation to.
+                        targets: vec![pso::ColorBlendDesc {
+                            mask: pso::ColorMask::ALL,
+                            blend: None,
+                        }],
+                    },
+                    // Depth stencil (DSV)
+                    depth_stencil: DepthStencilDesc {
+                        depth: Some(DepthTest {
+                            fun: Comparison::LessEqual,
+                            write: true,
+                        }),
+                        depth_bounds: false,
+                        stencil: None,
+                    },
+                    // Multisampling.
+                    multisampling: Some(Multisampling {
+                        rasterization_samples: 1 as image::NumSamples,
+                        sample_shading: None,
+                        sample_mask: !0,
+                        /// Toggles alpha-to-coverage multisampling, which can produce nicer edges
+                        /// when many partially-transparent polygons are overlapping.
+                        /// See [here]( https://msdn.microsoft.com/en-us/library/windows/desktop/bb205072(v=vs.85).aspx#Alpha_To_Coverage) for a full description.
+                        alpha_coverage: false,
+                        alpha_to_one: false,
+                    }),
+                    // Static pipeline states.
+                    baked_states: BakedStates::default(),
+                    // Pipeline layout.
+                    layout: &*pipeline_layout,
+                    // Subpass in which the pipeline can be executed.
+                    subpass,
+                    // Options that may be set to alter pipeline properties.
+                    flags: PipelineCreationFlags::empty(),
+                    /// The parent pipeline, which may be
+                    /// `BasePipeline::None`.
+                    parent: BasePipeline::None,
+                };
+
+                unsafe { device.create_graphics_pipeline(&pipeline_desc, None) }
+            };
+
+            unsafe {
+                device.destroy_shader_module(ms_module);
+            }
+            unsafe {
+                device.destroy_shader_module(fs_module);
+            }
+
+            match pipeline {
+                Ok(pipeline) => ManuallyDrop::new(pipeline),
+                Err(e) => panic!("Could not compile animation pipeline {}", e),
+            }
+        };
+
         let uniform_buffer = allocator.allocate_buffer(
             Self::UNIFORM_CAMERA_SIZE,
             hal::buffer::Usage::UNIFORM,
@@ -529,7 +774,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             binding: 0,
             array_offset: 0,
             descriptors: Some(pso::Descriptor::Buffer(
-                uniform_buffer.borrow(),
+                uniform_buffer.buffer(),
                 hal::buffer::SubRange::WHOLE,
             )),
         }];
@@ -635,6 +880,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             desc_set,
             set_layout,
             pipeline,
+            anim_pipeline,
             pipeline_layout,
             render_pass,
             uniform_buffer,
@@ -651,6 +897,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             mat_sets: Vec::new(),
             material_buffer,
             tex_sampler,
+            skins,
         }
     }
 
@@ -711,14 +958,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
         scene: &SceneList<B>,
         frustrum: &FrustrumG,
     ) {
-        cmd_buffer.bind_graphics_pipeline(&self.pipeline);
-        cmd_buffer.bind_graphics_descriptor_sets(
-            &self.pipeline_layout,
-            0,
-            std::iter::once(&self.desc_set),
-            &[],
-        );
-
         cmd_buffer.begin_render_pass(
             &self.render_pass,
             frame_buffer,
@@ -739,13 +978,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
             command::SubpassContents::Inline,
         );
 
-        cmd_buffer.bind_graphics_descriptor_sets(
-            &self.pipeline_layout,
-            1,
-            std::iter::once(&scene.desc_set),
-            &[],
-        );
-
         scene.iter_instances(|buffer, instance| {
             if !frustrum.aabb_in_frustrum(&instance.bounds).should_render() {
                 return;
@@ -760,7 +992,85 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
             iter.for_each(|mesh| {
                 if first {
-                    cmd_buffer.bind_vertex_buffers(0, Some((buffer, buffer::SubRange::WHOLE)));
+                    cmd_buffer.bind_graphics_descriptor_sets(
+                        &self.pipeline_layout,
+                        0,
+                        std::iter::once(&self.desc_set),
+                        &[],
+                    );
+
+                    cmd_buffer.bind_graphics_descriptor_sets(
+                        &self.pipeline_layout,
+                        1,
+                        std::iter::once(&scene.desc_set),
+                        &[],
+                    );
+
+                    match buffer {
+                        RenderBuffers::Static(buffer) => {
+                            cmd_buffer.bind_graphics_pipeline(&self.pipeline);
+                            cmd_buffer.bind_vertex_buffers(
+                                0,
+                                std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
+                            );
+                        }
+                        RenderBuffers::Animated(buffer, anim_offset) => {
+                            if let Some(skin_id) = instance.skin_id {
+                                let skin_id = skin_id as usize;
+                                if let Some(skin_set) = self.skins.get_set(skin_id) {
+                                    cmd_buffer.bind_graphics_pipeline(&self.anim_pipeline);
+                                    cmd_buffer.bind_graphics_descriptor_sets(
+                                        &self.pipeline_layout,
+                                        1,
+                                        std::iter::once(&scene.desc_set),
+                                        &[],
+                                    );
+                                    cmd_buffer.bind_graphics_descriptor_sets(
+                                        &self.pipeline_layout,
+                                        3,
+                                        std::iter::once(skin_set),
+                                        &[],
+                                    );
+
+                                    cmd_buffer.bind_vertex_buffers(
+                                        0,
+                                        std::iter::once((
+                                            buffer.buffer(),
+                                            buffer::SubRange {
+                                                size: Some(*anim_offset as buffer::Offset),
+                                                offset: 0,
+                                            },
+                                        )),
+                                    );
+                                    cmd_buffer.bind_vertex_buffers(
+                                        1,
+                                        std::iter::once((
+                                            buffer.buffer(),
+                                            buffer::SubRange {
+                                                size: Some(
+                                                    (buffer.size_in_bytes - *anim_offset)
+                                                        as buffer::Offset,
+                                                ),
+                                                offset: *anim_offset as _,
+                                            },
+                                        )),
+                                    );
+                                } else {
+                                    cmd_buffer.bind_graphics_pipeline(&self.pipeline);
+                                    cmd_buffer.bind_vertex_buffers(
+                                        0,
+                                        std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
+                                    );
+                                }
+                            } else {
+                                cmd_buffer.bind_graphics_pipeline(&self.pipeline);
+                                cmd_buffer.bind_vertex_buffers(
+                                    0,
+                                    std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
+                                );
+                            }
+                        }
+                    }
                     first = false;
                 }
 
@@ -875,7 +1185,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
             let mut byte_offset = 0;
-            for (i, t) in textures.iter().enumerate() {
+            for (_, t) in textures.iter().enumerate() {
                 let bytes = t.data.as_bytes();
                 mapping.as_slice()[byte_offset..(byte_offset + bytes.len())].copy_from_slice(bytes);
                 byte_offset += bytes.len();
@@ -884,6 +1194,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         let mut byte_offset = 0;
         for (i, t) in textures.iter().enumerate() {
+            let target = self.textures[i].borrow();
             unsafe {
                 cmd_buffer.pipeline_barrier(
                     PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
@@ -897,7 +1208,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         families: None,
                         states: (Access::empty(), Layout::Undefined)
                             ..(Access::TRANSFER_WRITE, Layout::TransferDstOptimal),
-                        target: self.textures[i].borrow(),
+                        target,
                     }),
                 );
             }
@@ -906,7 +1217,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 let (width, height) = t.mip_level_width_height(m as usize);
                 unsafe {
                     cmd_buffer.copy_buffer_to_image(
-                        staging_buffer.borrow(),
+                        staging_buffer.buffer(),
                         self.textures[i].borrow(),
                         hal::image::Layout::TransferDstOptimal,
                         std::iter::once(&hal::command::BufferImageCopy {
@@ -1009,8 +1320,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
             cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
             cmd_buffer.copy_buffer(
-                staging_buffer.borrow(),
-                self.material_buffer.borrow(),
+                staging_buffer.buffer(),
+                self.material_buffer.buffer(),
                 std::iter::once(&BufferCopy {
                     size: (materials.len() * aligned_size) as _,
                     src: 0,
@@ -1054,7 +1365,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         binding: 0,
                         array_offset: 0,
                         descriptors: Some(pso::Descriptor::Buffer(
-                            self.material_buffer.borrow(),
+                            self.material_buffer.buffer(),
                             hal::buffer::SubRange {
                                 offset: (i * aligned_size) as _,
                                 size: Some(std::mem::size_of::<DeviceMaterial>() as _),
@@ -1133,6 +1444,16 @@ impl<B: hal::Backend> RenderPipeline<B> {
             queue.wait_idle().unwrap();
         }
     }
+
+    #[inline]
+    pub fn set_skin(&mut self, id: usize, skin: &rfw_scene::graph::Skin) {
+        self.skins.set_skin(id, skin);
+    }
+
+    #[inline]
+    pub fn synchronize(&mut self) {
+        self.skins.synchronize();
+    }
 }
 
 impl<B: hal::Backend> Drop for RenderPipeline<B> {
@@ -1171,6 +1492,10 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
                 .destroy_render_pass(ManuallyDrop::into_inner(ptr::read(&self.render_pass)));
             self.device
                 .destroy_graphics_pipeline(ManuallyDrop::into_inner(ptr::read(&self.pipeline)));
+            self.device
+                .destroy_graphics_pipeline(ManuallyDrop::into_inner(ptr::read(
+                    &self.anim_pipeline,
+                )));
             self.device
                 .destroy_pipeline_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.pipeline_layout,

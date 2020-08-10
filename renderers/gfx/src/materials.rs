@@ -7,7 +7,6 @@ use hal::format::{Aspects, Format, Swizzle};
 use hal::image::{Kind, Level, SubresourceRange, Tiling, Usage, ViewCapabilities, ViewKind};
 use hal::memory::Properties;
 use hal::Backend;
-use shared::BytesConversion;
 use std::sync::Arc;
 
 #[allow(dead_code)]

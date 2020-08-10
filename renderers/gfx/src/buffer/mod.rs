@@ -331,7 +331,7 @@ impl<B: hal::Backend> Buffer<B> {
         self.size_in_bytes
     }
 
-    pub fn borrow(&self) -> &B::Buffer {
+    pub fn buffer(&self) -> &B::Buffer {
         self.buffer.as_ref().unwrap()
     }
 

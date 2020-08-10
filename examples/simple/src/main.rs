@@ -68,7 +68,6 @@ impl MouseButtonHandler {
     }
 }
 
-use crate::utils::Timer;
 use glam::*;
 use rfw_system::{scene::renderers::RenderMode, scene::Camera, RenderSystem};
 use shared::utils;
@@ -102,11 +101,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     let renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
     let mut camera =
         Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
-    let mut timer = Timer::new();
+    let mut timer = utils::Timer::new();
+    let mut timer2 = utils::Timer::new();
     let mut fps = utils::Averager::new();
+    let mut render = utils::Averager::new();
+    let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
+    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
+        rfw_system::scene::LoadResult::Scene(root_nodes) => {
+            root_nodes.iter().for_each(|node| {
+                renderer.get_node_mut(*node, |node| {
+                    if let Some(node) = node {
+                        node.set_scale(Vec3::splat(3.0));
+                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                    }
+                });
+            });
+        }
+        rfw_system::scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
     let _pica = renderer.load("models/pica/scene.gltf")?;
+
     // let object = renderer.load("models/cbox.obj")?;
 
     // let object = renderer.load("models/sponza/sponza.obj")?;
@@ -118,7 +134,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     panic!("Could not load object");
     // };
 
+    let app_time = utils::Timer::new();
+
+    timer2.reset();
+    renderer.set_animation_time(0.0);
     renderer.synchronize();
+    synchronize.add_sample(timer2.elapsed_in_millis());
 
     let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
@@ -196,7 +217,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let elapsed = timer.elapsed_in_millis();
                 fullscreen_timer += elapsed;
                 fps.add_sample(1000.0 / elapsed);
-                let title = format!("rfw-rs - FPS: {:.2}", fps.get_average());
+                let title = format!(
+                    "rfw-rs - FPS: {:.2}, render: {:.2} ms, synchronize: {:.2} ms",
+                    fps.get_average(),
+                    render.get_average(),
+                    synchronize.get_average()
+                );
                 window.set_title(title.as_str());
 
                 let elapsed = if key_handler.pressed(KeyCode::LShift) {
@@ -223,8 +249,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     resized = false;
                 }
 
+                timer2.reset();
+                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
+                synchronize.add_sample(timer2.elapsed_in_millis());
+
+                timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);
+                render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
