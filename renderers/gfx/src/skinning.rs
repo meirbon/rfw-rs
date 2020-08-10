@@ -131,20 +131,24 @@ impl<B: hal::Backend> SkinList<B> {
                     if buffer.size_in_bytes
                         < skin.joint_matrices.len() * std::mem::size_of::<Mat4>()
                     {
-                        allocator.allocate_buffer(
-                            skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                            buffer::Usage::UNIFORM,
-                            memory::Properties::CPU_VISIBLE,
-                        )
+                        allocator
+                            .allocate_buffer(
+                                skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
+                                buffer::Usage::UNIFORM,
+                                memory::Properties::CPU_VISIBLE,
+                            )
+                            .unwrap()
                     } else {
                         buffer
                     }
                 } else {
-                    allocator.allocate_buffer(
-                        skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                        buffer::Usage::UNIFORM,
-                        memory::Properties::CPU_VISIBLE,
-                    )
+                    allocator
+                        .allocate_buffer(
+                            skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
+                            buffer::Usage::UNIFORM,
+                            memory::Properties::CPU_VISIBLE,
+                        )
+                        .unwrap()
                 };
 
                 if let Ok(mapping) = buffer.map(memory::Segment::ALL) {
@@ -157,11 +161,13 @@ impl<B: hal::Backend> SkinList<B> {
                     buffer: Some(buffer),
                 }
             } else {
-                let mut buffer = allocator.allocate_buffer(
-                    skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                    buffer::Usage::UNIFORM,
-                    memory::Properties::CPU_VISIBLE,
-                );
+                let mut buffer = allocator
+                    .allocate_buffer(
+                        skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
+                        buffer::Usage::UNIFORM,
+                        memory::Properties::CPU_VISIBLE,
+                    )
+                    .unwrap();
 
                 if let Ok(mapping) = buffer.map(memory::Segment::ALL) {
                     let slice = skin.joint_matrices.as_slice();

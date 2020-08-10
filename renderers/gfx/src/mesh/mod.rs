@@ -763,11 +763,13 @@ impl<B: hal::Backend> RenderPipeline<B> {
             }
         };
 
-        let uniform_buffer = allocator.allocate_buffer(
-            Self::UNIFORM_CAMERA_SIZE,
-            hal::buffer::Usage::UNIFORM,
-            hal::memory::Properties::CPU_VISIBLE,
-        );
+        let uniform_buffer = allocator
+            .allocate_buffer(
+                Self::UNIFORM_CAMERA_SIZE,
+                hal::buffer::Usage::UNIFORM,
+                hal::memory::Properties::CPU_VISIBLE,
+            )
+            .unwrap();
 
         let write = vec![pso::DescriptorSetWrite {
             set: &desc_set,
@@ -798,7 +800,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
             let req = device.get_image_requirements(&image);
             (image, req)
         };
-        let depth_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL);
+        let depth_memory = allocator
+            .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL)
+            .unwrap();
         let depth_image_view = unsafe {
             device
                 .bind_image_memory(depth_memory.borrow(), 0, &mut depth_image)
@@ -832,11 +836,13 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .expect("Can't create command pool")
         };
 
-        let material_buffer = allocator.allocate_buffer(
-            std::mem::size_of::<DeviceMaterial>() * 32,
-            hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
-            hal::memory::Properties::DEVICE_LOCAL,
-        );
+        let material_buffer = allocator
+            .allocate_buffer(
+                std::mem::size_of::<DeviceMaterial>() * 32,
+                hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
+                hal::memory::Properties::DEVICE_LOCAL,
+            )
+            .unwrap();
 
         let tex_sampler = ManuallyDrop::new(unsafe {
             device
@@ -1116,7 +1122,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
             if req.size > self.depth_memory.len() as _ {
                 self.depth_memory = self
                     .allocator
-                    .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL);
+                    .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL)
+                    .unwrap();
             }
 
             self.device
@@ -1170,11 +1177,14 @@ impl<B: hal::Backend> RenderPipeline<B> {
             })
             .collect();
 
-        let mut staging_buffer = self.allocator.allocate_buffer(
-            texels * std::mem::size_of::<u32>(),
-            hal::buffer::Usage::TRANSFER_SRC,
-            hal::memory::Properties::CPU_VISIBLE,
-        );
+        let mut staging_buffer = self
+            .allocator
+            .allocate_buffer(
+                texels * std::mem::size_of::<u32>(),
+                hal::buffer::Usage::TRANSFER_SRC,
+                hal::memory::Properties::CPU_VISIBLE,
+            )
+            .unwrap();
 
         let mut cmd_buffer = unsafe {
             let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
@@ -1288,19 +1298,25 @@ impl<B: hal::Backend> RenderPipeline<B> {
         };
 
         if self.material_buffer.len() < materials.len() * aligned_size {
-            self.material_buffer = self.allocator.allocate_buffer(
-                // Minimum alignment of dynamic uniform buffers is 256 bytes
-                materials.len() * 2 * aligned_size,
-                hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
-                hal::memory::Properties::DEVICE_LOCAL,
-            );
+            self.material_buffer = self
+                .allocator
+                .allocate_buffer(
+                    // Minimum alignment of dynamic uniform buffers is 256 bytes
+                    materials.len() * 2 * aligned_size,
+                    hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
+                    hal::memory::Properties::DEVICE_LOCAL,
+                )
+                .unwrap();
         }
 
-        let mut staging_buffer = self.allocator.allocate_buffer(
-            materials.len() * aligned_size,
-            hal::buffer::Usage::TRANSFER_SRC,
-            hal::memory::Properties::CPU_VISIBLE,
-        );
+        let mut staging_buffer = self
+            .allocator
+            .allocate_buffer(
+                materials.len() * aligned_size,
+                hal::buffer::Usage::TRANSFER_SRC,
+                hal::memory::Properties::CPU_VISIBLE,
+            )
+            .unwrap();
 
         if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
             let dst = mapping.as_slice();

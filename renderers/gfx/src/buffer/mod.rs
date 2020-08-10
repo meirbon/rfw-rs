@@ -1,5 +1,6 @@
 use crate::hal;
 
+use hal::device::OutOfMemory;
 use hal::{adapter::PhysicalDevice, buffer, device::Device, memory, memory::Segment, MemoryTypeId};
 use std::{mem::ManuallyDrop, sync::Arc};
 
@@ -71,12 +72,27 @@ impl<B: hal::Backend> Allocator<B> {
         bytes: usize,
         usage: buffer::Usage,
         memory_props: memory::Properties,
-    ) -> Buffer<B> {
+    ) -> Result<Buffer<B>, AllocationError> {
         assert_ne!(bytes, 0);
         let buffer_len = bytes;
 
         let mut buffer = ManuallyDrop::new(
-            unsafe { self.device.create_buffer(buffer_len as u64, usage) }.unwrap(),
+            match unsafe { self.device.create_buffer(buffer_len as u64, usage) } {
+                Ok(buffer) => buffer,
+                Err(e) => match e {
+                    hal::buffer::CreationError::OutOfMemory(device) => {
+                        return match device {
+                            hal::device::OutOfMemory::Host => Err(AllocationError::OutOfHostMemory),
+                            hal::device::OutOfMemory::Device => {
+                                Err(AllocationError::OutOfDeviceMemory)
+                            }
+                        }
+                    }
+                    hal::buffer::CreationError::UnsupportedUsage { usage } => {
+                        return Err(AllocationError::UnsupportedUsage(usage))
+                    }
+                },
+            },
         );
 
         let buffer_req = unsafe { self.device.get_buffer_requirements(&buffer) };
@@ -111,7 +127,7 @@ impl<B: hal::Backend> Allocator<B> {
             ManuallyDrop::new(memory)
         };
 
-        Buffer {
+        Ok(Buffer {
             device: self.device.clone(),
             buffer: Some(buffer),
             memory: Memory {
@@ -122,14 +138,14 @@ impl<B: hal::Backend> Allocator<B> {
                 memory_props,
             },
             size_in_bytes: buffer_len as usize,
-        }
+        })
     }
 
     pub fn allocate_with_reqs(
         &self,
         requirements: hal::memory::Requirements,
         memory_props: memory::Properties,
-    ) -> Memory<B> {
+    ) -> Result<Memory<B>, AllocationError> {
         let device_type = self
             .memory_props
             .memory_types
@@ -142,19 +158,26 @@ impl<B: hal::Backend> Allocator<B> {
             .unwrap()
             .into();
 
-        let memory = unsafe {
-            self.device
-                .allocate_memory(device_type, requirements.size)
-                .unwrap()
+        let memory = match unsafe { self.device.allocate_memory(device_type, requirements.size) } {
+            Ok(memory) => memory,
+            Err(e) => match e {
+                hal::device::AllocationError::OutOfMemory(device) => match device {
+                    OutOfMemory::Host => return Err(AllocationError::OutOfHostMemory),
+                    OutOfMemory::Device => return Err(AllocationError::OutOfBounds),
+                },
+                hal::device::AllocationError::TooManyObjects => {
+                    return Err(AllocationError::TooManyObjects);
+                }
+            },
         };
 
-        Memory {
+        Ok(Memory {
             device: self.device.clone(),
             memory: ManuallyDrop::new(memory),
             memory_type: device_type,
             memory_props,
             capacity: requirements.size as usize,
-        }
+        })
     }
 }
 
@@ -166,13 +189,36 @@ pub struct Buffer<B: hal::Backend> {
     pub size_in_bytes: usize,
 }
 
-pub enum BufferError {
+#[derive(Debug, Copy, Clone)]
+pub enum AllocationError {
     NotMappable,
     OutOfHostMemory,
     OutOfDeviceMemory,
     OutOfBounds,
     MappingFailed,
+    UnsupportedUsage(hal::buffer::Usage),
+    TooManyObjects,
 }
+
+impl std::fmt::Display for AllocationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                AllocationError::NotMappable => "Buffer is not mappable",
+                AllocationError::OutOfHostMemory => "Out of host memory",
+                AllocationError::OutOfDeviceMemory => "Out of device memory",
+                AllocationError::OutOfBounds => "Out of bounds",
+                AllocationError::MappingFailed => "Mapping failed",
+                AllocationError::UnsupportedUsage(_) => "Usage is unsupported",
+                AllocationError::TooManyObjects => "Too many objects",
+            }
+        )
+    }
+}
+
+impl std::error::Error for AllocationError {}
 
 #[derive(Debug)]
 pub struct Memory<B: hal::Backend> {
@@ -185,9 +231,9 @@ pub struct Memory<B: hal::Backend> {
 
 #[allow(dead_code)]
 impl<B: hal::Backend> Memory<B> {
-    pub fn map(&mut self, segment: Segment) -> Result<Mapping<B>, BufferError> {
+    pub fn map(&mut self, segment: Segment) -> Result<Mapping<B>, AllocationError> {
         if !self.memory_props.contains(memory::Properties::CPU_VISIBLE) {
-            return Err(BufferError::NotMappable);
+            return Err(AllocationError::NotMappable);
         }
 
         let ptr = unsafe {
@@ -195,13 +241,17 @@ impl<B: hal::Backend> Memory<B> {
                 Ok(mapping) => mapping,
                 Err(e) => match e {
                     hal::device::MapError::OutOfMemory(a) => match a {
-                        hal::device::OutOfMemory::Host => return Err(BufferError::OutOfHostMemory),
+                        hal::device::OutOfMemory::Host => {
+                            return Err(AllocationError::OutOfHostMemory)
+                        }
                         hal::device::OutOfMemory::Device => {
-                            return Err(BufferError::OutOfDeviceMemory);
+                            return Err(AllocationError::OutOfDeviceMemory);
                         }
                     },
-                    hal::device::MapError::OutOfBounds => return Err(BufferError::OutOfBounds),
-                    hal::device::MapError::MappingFailed => return Err(BufferError::MappingFailed),
+                    hal::device::MapError::OutOfBounds => return Err(AllocationError::OutOfBounds),
+                    hal::device::MapError::MappingFailed => {
+                        return Err(AllocationError::MappingFailed)
+                    }
                 },
             }
         };
@@ -293,7 +343,7 @@ impl<'a, B: hal::Backend> Drop for Mapping<'a, B> {
 
 #[allow(dead_code)]
 impl<B: hal::Backend> Buffer<B> {
-    pub fn map(&mut self, segment: Segment) -> Result<Mapping<B>, BufferError> {
+    pub fn map(&mut self, segment: Segment) -> Result<Mapping<B>, AllocationError> {
         let ptr = unsafe {
             match self
                 .device
@@ -302,13 +352,17 @@ impl<B: hal::Backend> Buffer<B> {
                 Ok(mapping) => mapping,
                 Err(e) => match e {
                     hal::device::MapError::OutOfMemory(a) => match a {
-                        hal::device::OutOfMemory::Host => return Err(BufferError::OutOfHostMemory),
+                        hal::device::OutOfMemory::Host => {
+                            return Err(AllocationError::OutOfHostMemory)
+                        }
                         hal::device::OutOfMemory::Device => {
-                            return Err(BufferError::OutOfDeviceMemory);
+                            return Err(AllocationError::OutOfDeviceMemory);
                         }
                     },
-                    hal::device::MapError::OutOfBounds => return Err(BufferError::OutOfBounds),
-                    hal::device::MapError::MappingFailed => return Err(BufferError::MappingFailed),
+                    hal::device::MapError::OutOfBounds => return Err(AllocationError::OutOfBounds),
+                    hal::device::MapError::MappingFailed => {
+                        return Err(AllocationError::MappingFailed)
+                    }
                 },
             }
         };

@@ -118,11 +118,13 @@ impl<B: hal::Backend> SceneList<B> {
         allocator: Allocator<B>,
         queue: Arc<Mutex<Queue<B>>>,
     ) -> Self {
-        let instance_buffer = allocator.allocate_buffer(
-            std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
-            Usage::STORAGE | Usage::TRANSFER_DST,
-            Properties::CPU_VISIBLE,
-        );
+        let instance_buffer = allocator
+            .allocate_buffer(
+                std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
+                Usage::STORAGE | Usage::TRANSFER_DST,
+                Properties::CPU_VISIBLE,
+            )
+            .unwrap();
 
         let set_layout = ManuallyDrop::new(
             unsafe {
@@ -293,17 +295,21 @@ impl<B: hal::Backend> SceneList<B> {
             let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
             assert_ne!(buffer_len, 0);
 
-            let buffer = allocator.allocate_buffer(
-                buffer_len as usize,
-                buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
-                memory::Properties::DEVICE_LOCAL,
-            );
+            let buffer = allocator
+                .allocate_buffer(
+                    buffer_len as usize,
+                    buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
+                    memory::Properties::DEVICE_LOCAL,
+                )
+                .unwrap();
 
-            let mut staging_buffer = allocator.allocate_buffer(
-                buffer_len as usize,
-                buffer::Usage::TRANSFER_SRC,
-                memory::Properties::CPU_VISIBLE,
-            );
+            let mut staging_buffer = allocator
+                .allocate_buffer(
+                    buffer_len as usize,
+                    buffer::Usage::TRANSFER_SRC,
+                    memory::Properties::CPU_VISIBLE,
+                )
+                .unwrap();
 
             if let Ok(mapping) = staging_buffer.map(memory::Segment {
                 offset: 0,
@@ -363,17 +369,21 @@ impl<B: hal::Backend> SceneList<B> {
             assert_ne!(buffer_len, 0);
             assert_ne!(anim_buffer_len, 0);
 
-            let buffer = allocator.allocate_buffer(
-                buffer_len as usize + anim_buffer_len as usize,
-                buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
-                memory::Properties::DEVICE_LOCAL,
-            );
+            let buffer = allocator
+                .allocate_buffer(
+                    buffer_len as usize + anim_buffer_len as usize,
+                    buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
+                    memory::Properties::DEVICE_LOCAL,
+                )
+                .unwrap();
 
-            let mut staging_buffer = allocator.allocate_buffer(
-                (buffer_len + anim_buffer_len) as usize,
-                buffer::Usage::TRANSFER_SRC,
-                memory::Properties::CPU_VISIBLE,
-            );
+            let mut staging_buffer = allocator
+                .allocate_buffer(
+                    (buffer_len + anim_buffer_len) as usize,
+                    buffer::Usage::TRANSFER_SRC,
+                    memory::Properties::CPU_VISIBLE,
+                )
+                .unwrap();
 
             if let Ok(mapping) = staging_buffer.map(memory::Segment {
                 offset: 0,
@@ -528,11 +538,14 @@ impl<B: hal::Backend> SceneList<B> {
 
         let copy_size = self.instances.len() * std::mem::size_of::<Instance>();
         if copy_size > self.instance_buffer.size_in_bytes {
-            self.instance_buffer = self.allocator.allocate_buffer(
-                self.instances.len() * 2 * std::mem::size_of::<Instance>(),
-                Usage::STORAGE,
-                Properties::CPU_VISIBLE,
-            );
+            self.instance_buffer = self
+                .allocator
+                .allocate_buffer(
+                    self.instances.len() * 2 * std::mem::size_of::<Instance>(),
+                    Usage::STORAGE,
+                    Properties::CPU_VISIBLE,
+                )
+                .unwrap();
 
             let write = vec![pso::DescriptorSetWrite {
                 set: &self.desc_set,

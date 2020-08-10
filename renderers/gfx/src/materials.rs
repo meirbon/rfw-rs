@@ -39,7 +39,9 @@ impl<B: Backend> SceneTexture<B> {
                 .expect("Could not create texture array image");
 
             let req = device.get_image_requirements(&image);
-            let memory = allocator.allocate_with_reqs(req, Properties::DEVICE_LOCAL);
+            let memory = allocator
+                .allocate_with_reqs(req, Properties::DEVICE_LOCAL)
+                .unwrap();
 
             device
                 .bind_image_memory(memory.borrow(), 0, &mut image)
