@@ -74,8 +74,12 @@ use shared::utils;
 use winit::window::Fullscreen;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut width = 1280;
-    let mut height = 720;
+    futures::executor::block_on(run_application())
+}
+
+async fn run_application() -> Result<(), Box<dyn Error>> {
+    let mut width = 1600;
+    let mut height = 900;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -97,7 +101,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    // let renderer = RenderSystem::<rfw_vulkan::VkRenderer>::new(&window, width, height).unwrap();
     let renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
     let mut camera =
         Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
@@ -108,7 +111,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
-    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
+    let pica = renderer.load_async("models/pica/scene.gltf");
+    let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
+
+    match cesium_man.await? {
         rfw_system::scene::LoadResult::Scene(root_nodes) => {
             root_nodes.iter().for_each(|node| {
                 renderer.get_node_mut(*node, |node| {
@@ -121,18 +127,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         rfw_system::scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
-    let _pica = renderer.load("models/pica/scene.gltf")?;
 
-    // let object = renderer.load("models/cbox.obj")?;
-
-    // let object = renderer.load("models/sponza/sponza.obj")?;
-    // let _ = if let rfw_scene::LoadResult::Object(id) = object {
-    //     renderer.get_instance_mut(renderer.create_instance(id)?, |instance| {
-    //         instance.unwrap().scale(Vec3::splat(0.1));
-    //     });
-    // } else {
-    //     panic!("Could not load object");
-    // };
+    pica.await?;
 
     let app_time = utils::Timer::new();
 

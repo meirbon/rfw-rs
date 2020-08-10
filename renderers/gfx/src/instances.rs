@@ -6,10 +6,6 @@ use crate::hal::pool::CommandPool;
 use crate::hal::{buffer, memory};
 use crate::mesh::anim::GfxAnimMesh;
 use crate::{buffer::*, mesh::GfxMesh};
-use hal::buffer::State;
-use hal::command::{BufferCopy, CommandBufferFlags};
-use hal::memory::{Barrier, Dependencies};
-use hal::pso::PipelineStage;
 use hal::{
     buffer::{SubRange, Usage},
     device::Device,
@@ -106,7 +102,6 @@ pub struct SceneList<B: hal::Backend> {
     instances: TrackedStorage<Instance>,
     render_instances: FlaggedStorage<RenderInstance>,
     instance_buffer: Buffer<B>,
-    staging_buffer: Buffer<B>,
 
     pub desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_set: B::DescriptorSet,
@@ -126,11 +121,6 @@ impl<B: hal::Backend> SceneList<B> {
         let instance_buffer = allocator.allocate_buffer(
             std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
             Usage::STORAGE | Usage::TRANSFER_DST,
-            Properties::DEVICE_LOCAL,
-        );
-        let staging_buffer = allocator.allocate_buffer(
-            std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
-            Usage::TRANSFER_SRC,
             Properties::CPU_VISIBLE,
         );
 
@@ -213,7 +203,6 @@ impl<B: hal::Backend> SceneList<B> {
             instances: TrackedStorage::new(),
             render_instances: FlaggedStorage::new(),
             instance_buffer,
-            staging_buffer,
             desc_pool,
             desc_set,
             set_layout,
@@ -432,11 +421,17 @@ impl<B: hal::Backend> SceneList<B> {
     }
 
     pub fn synchronize(&mut self) {
-        self.queue.lock().unwrap().wait_idle().unwrap();
-
         let mut to_free = Vec::new();
-        let task_pool = &self.task_pool;
-        for result in task_pool.sync() {
+        if self.task_pool.has_jobs() {
+            if let Ok(mut queue) = self.queue.lock() {
+                match queue.wait_idle() {
+                    Ok(_) => {}
+                    Err(e) => eprintln!("error waiting for transfer queue: {}", e),
+                }
+            }
+        }
+
+        for result in self.task_pool.sync() {
             match result {
                 TaskResult::Mesh(new_mesh, _, cmd_buffer) => {
                     let id = new_mesh.id as usize;
@@ -467,8 +462,10 @@ impl<B: hal::Backend> SceneList<B> {
             }
         }
 
-        unsafe {
-            self.cmd_pool.free(to_free);
+        if !to_free.is_empty() {
+            unsafe {
+                self.cmd_pool.free(to_free);
+            }
         }
 
         if !self.instances.any_changed() {
@@ -533,13 +530,7 @@ impl<B: hal::Backend> SceneList<B> {
         if copy_size > self.instance_buffer.size_in_bytes {
             self.instance_buffer = self.allocator.allocate_buffer(
                 self.instances.len() * 2 * std::mem::size_of::<Instance>(),
-                Usage::STORAGE | Usage::TRANSFER_DST,
-                Properties::DEVICE_LOCAL,
-            );
-
-            self.staging_buffer = self.allocator.allocate_buffer(
-                self.instances.len() * 2 * std::mem::size_of::<Instance>(),
-                Usage::TRANSFER_SRC,
+                Usage::STORAGE,
                 Properties::CPU_VISIBLE,
             );
 
@@ -558,55 +549,12 @@ impl<B: hal::Backend> SceneList<B> {
             }
         }
 
-        let length = if let Ok(mapping) = self.staging_buffer.map(Segment::ALL) {
+        if let Ok(mapping) = self.instance_buffer.map(Segment::ALL) {
             let instances = unsafe { self.instances.as_slice() };
             let src = instances.as_bytes();
             let length = src.len();
             let slice = mapping.as_slice();
             slice[0..length].copy_from_slice(src);
-            length
-        } else {
-            0
-        };
-
-        if length > 0 {
-            unsafe {
-                let mut cmd_buffer = self.cmd_pool.allocate_one(hal::command::Level::Primary);
-                cmd_buffer.begin_primary(CommandBufferFlags::empty());
-                cmd_buffer.pipeline_barrier(
-                    PipelineStage::BOTTOM_OF_PIPE..PipelineStage::TRANSFER,
-                    Dependencies::empty(),
-                    std::iter::once(&Barrier::Buffer {
-                        families: None,
-                        range: SubRange::WHOLE,
-                        states: State::SHADER_READ..State::HOST_WRITE,
-                        target: self.instance_buffer.buffer(),
-                    }),
-                );
-                cmd_buffer.copy_buffer(
-                    self.staging_buffer.buffer(),
-                    self.instance_buffer.buffer(),
-                    std::iter::once(&BufferCopy {
-                        src: 0,
-                        dst: 0,
-                        size: length as hal::buffer::Offset,
-                    }),
-                );
-                cmd_buffer.pipeline_barrier(
-                    PipelineStage::TRANSFER..PipelineStage::TOP_OF_PIPE,
-                    Dependencies::empty(),
-                    std::iter::once(&Barrier::Buffer {
-                        families: None,
-                        range: SubRange::WHOLE,
-                        states: State::HOST_WRITE..State::SHADER_READ,
-                        target: self.instance_buffer.buffer(),
-                    }),
-                );
-                cmd_buffer.finish();
-                if let Ok(mut queue) = self.queue.lock() {
-                    queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-                }
-            }
         }
 
         self.instances.reset_changed();

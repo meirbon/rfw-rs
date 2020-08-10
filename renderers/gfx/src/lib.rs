@@ -153,7 +153,6 @@ impl<B: hal::Backend> Queue<B> {
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
     queue: Arc<Mutex<Queue<B>>>,
-    transfer_queue: Arc<Mutex<Queue<B>>>,
     device: Arc<B::Device>,
     surface: ManuallyDrop<B::Surface>,
     adapter: hal::adapter::Adapter<B>,
@@ -363,7 +362,6 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         Ok(Box::new(Self {
             instance,
             queue,
-            transfer_queue,
             device,
             surface: ManuallyDrop::new(surface),
             adapter,
@@ -409,18 +407,11 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     }
 
     fn synchronize(&mut self) {
-        if let Ok(mut queue) = self.transfer_queue.lock() {
-            queue.wait_idle().unwrap();
-        }
-
         let scene_list = &mut self.scene_list;
         let mesh_renderer = &mut self.mesh_renderer;
 
-        let task1 = async { scene_list.synchronize() };
-        let task2 = async { mesh_renderer.synchronize() };
-
-        futures::executor::block_on(task1);
-        futures::executor::block_on(task2);
+        scene_list.synchronize();
+        mesh_renderer.synchronize();
     }
 
     fn render(&mut self, camera: &rfw_scene::Camera, _mode: rfw_scene::RenderMode) {

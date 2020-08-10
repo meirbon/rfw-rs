@@ -3,6 +3,7 @@
         "auxil",
         "repr",
         "signum",
-        "subpass"
+        "subpass",
+        "texels"
     ]
 }

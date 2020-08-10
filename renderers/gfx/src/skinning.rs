@@ -1,7 +1,5 @@
 use crate::buffer::{Allocator, Buffer};
-use crate::hal::command::CommandBuffer;
 use crate::hal::device::Device;
-use crate::hal::pool::CommandPool;
 use crate::hal::pso::DescriptorPool;
 use crate::{hal, Queue};
 use glam::*;
@@ -15,14 +13,12 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub struct GfxSkin<B: hal::Backend> {
-    pub buffer: Option<Arc<Buffer<B>>>,
+    pub buffer: Option<Buffer<B>>,
 }
 
 impl<B: hal::Backend> Clone for GfxSkin<B> {
     fn clone(&self) -> Self {
-        Self {
-            buffer: self.buffer.clone(),
-        }
+        Self { buffer: None }
     }
 }
 
@@ -49,7 +45,7 @@ pub struct SkinList<B: hal::Backend> {
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_layout: ManuallyDrop<B::DescriptorSetLayout>,
     desc_sets: Vec<Option<B::DescriptorSet>>,
-    task_pool: TaskPool<(usize, Buffer<B>, GfxSkin<B>, B::CommandBuffer)>,
+    task_pool: TaskPool<(usize, GfxSkin<B>)>,
 }
 
 impl<B: hal::Backend> SkinList<B> {
@@ -126,87 +122,58 @@ impl<B: hal::Backend> SkinList<B> {
 
     pub fn set_skin(&mut self, id: usize, skin: &rfw_scene::graph::Skin) {
         let allocator = self.allocator.clone();
-        let queue = self.queue.clone();
-        let mut cmd_buffer = unsafe { self.cmd_pool.allocate_one(command::Level::Primary) };
 
         let skin = skin.clone();
         let gfx_skin = self.skins.take(id);
-        self.task_pool.push(move |finish| unsafe {
-            cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
-            let mut staging_buffer = allocator.allocate_buffer(
-                skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                buffer::Usage::TRANSFER_SRC,
-                memory::Properties::CPU_VISIBLE,
-            );
-
-            if let Ok(mapping) = staging_buffer.map(memory::Segment::ALL) {
-                let slice = skin.joint_matrices.as_slice();
-                let bytes = slice.as_bytes();
-                mapping.as_slice()[0..bytes.len()].copy_from_slice(bytes);
-            }
-
+        self.task_pool.push(move |finish| {
             let gfx_skin = if let Some(gfx_skin) = gfx_skin {
-                let buffer = if let Some(buffer) = gfx_skin.buffer {
+                let mut buffer = if let Some(buffer) = gfx_skin.buffer {
                     if buffer.size_in_bytes
                         < skin.joint_matrices.len() * std::mem::size_of::<Mat4>()
                     {
-                        Arc::new(allocator.allocate_buffer(
+                        allocator.allocate_buffer(
                             skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                            buffer::Usage::UNIFORM | buffer::Usage::TRANSFER_DST,
-                            memory::Properties::DEVICE_LOCAL,
-                        ))
+                            buffer::Usage::UNIFORM,
+                            memory::Properties::CPU_VISIBLE,
+                        )
                     } else {
                         buffer
                     }
                 } else {
-                    Arc::new(allocator.allocate_buffer(
+                    allocator.allocate_buffer(
                         skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                        buffer::Usage::UNIFORM | buffer::Usage::TRANSFER_DST,
-                        memory::Properties::DEVICE_LOCAL,
-                    ))
+                        buffer::Usage::UNIFORM,
+                        memory::Properties::CPU_VISIBLE,
+                    )
                 };
 
-                cmd_buffer.copy_buffer(
-                    staging_buffer.buffer(),
-                    buffer.buffer(),
-                    std::iter::once(&command::BufferCopy {
-                        size: (skin.joint_matrices.len() * std::mem::size_of::<Mat4>()) as _,
-                        src: 0,
-                        dst: 0,
-                    }),
-                );
+                if let Ok(mapping) = buffer.map(memory::Segment::ALL) {
+                    let slice = skin.joint_matrices.as_slice();
+                    let bytes = slice.as_bytes();
+                    mapping.as_slice()[0..bytes.len()].copy_from_slice(bytes);
+                }
 
                 GfxSkin {
                     buffer: Some(buffer),
                 }
             } else {
-                let buffer = Arc::new(allocator.allocate_buffer(
+                let mut buffer = allocator.allocate_buffer(
                     skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
-                    buffer::Usage::UNIFORM | buffer::Usage::TRANSFER_DST,
-                    memory::Properties::DEVICE_LOCAL,
-                ));
-
-                cmd_buffer.copy_buffer(
-                    staging_buffer.buffer(),
-                    buffer.buffer(),
-                    std::iter::once(&command::BufferCopy {
-                        size: (skin.joint_matrices.len() * std::mem::size_of::<Mat4>()) as _,
-                        src: 0,
-                        dst: 0,
-                    }),
+                    buffer::Usage::UNIFORM,
+                    memory::Properties::CPU_VISIBLE,
                 );
+
+                if let Ok(mapping) = buffer.map(memory::Segment::ALL) {
+                    let slice = skin.joint_matrices.as_slice();
+                    let bytes = slice.as_bytes();
+                    mapping.as_slice()[0..bytes.len()].copy_from_slice(bytes);
+                }
 
                 GfxSkin {
                     buffer: Some(buffer),
                 }
             };
-
-            cmd_buffer.finish();
-            if let Ok(mut queue) = queue.lock() {
-                queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-            }
-
-            finish.send((id, staging_buffer, gfx_skin, cmd_buffer))
+            finish.send((id, gfx_skin))
         });
     }
 
@@ -221,12 +188,9 @@ impl<B: hal::Backend> SkinList<B> {
     }
 
     pub fn synchronize(&mut self) {
-        let mut to_free = Vec::new();
-        for (id, _, result, cmd_buffer) in self.task_pool.sync() {
-            to_free.push(cmd_buffer);
+        for (id, result) in self.task_pool.sync() {
             self.skins.overwrite(id, result);
         }
-        unsafe { self.cmd_pool.free(to_free) };
 
         self.desc_sets.resize_with(self.skins.len(), || None);
         let mut to_allocate = 0;

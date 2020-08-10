@@ -62,6 +62,10 @@ impl<T: 'static + Debug + Sized + Send + Sync> TaskPool<T> {
         self.jobs.fetch_add(1, Ordering::AcqRel);
     }
 
+    pub fn has_jobs(&self) -> bool {
+        self.jobs.load(Ordering::Acquire) != 0 || !self.receiver.is_empty()
+    }
+
     pub fn sync(&self) -> SyncIter<'_, T> {
         SyncIter {
             jobs: self.jobs.clone(),
