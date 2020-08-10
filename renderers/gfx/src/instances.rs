@@ -123,6 +123,7 @@ impl<B: hal::Backend> SceneList<B> {
                 std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
                 Usage::STORAGE | Usage::TRANSFER_DST,
                 Properties::CPU_VISIBLE,
+                Some(Properties::DEVICE_LOCAL | Properties::CPU_VISIBLE),
             )
             .unwrap();
 
@@ -300,6 +301,7 @@ impl<B: hal::Backend> SceneList<B> {
                     buffer_len as usize,
                     buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
                     memory::Properties::DEVICE_LOCAL,
+                    None,
                 )
                 .unwrap();
 
@@ -308,6 +310,7 @@ impl<B: hal::Backend> SceneList<B> {
                     buffer_len as usize,
                     buffer::Usage::TRANSFER_SRC,
                     memory::Properties::CPU_VISIBLE,
+                    None,
                 )
                 .unwrap();
 
@@ -374,6 +377,7 @@ impl<B: hal::Backend> SceneList<B> {
                     buffer_len as usize + anim_buffer_len as usize,
                     buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
                     memory::Properties::DEVICE_LOCAL,
+                    None,
                 )
                 .unwrap();
 
@@ -382,6 +386,7 @@ impl<B: hal::Backend> SceneList<B> {
                     (buffer_len + anim_buffer_len) as usize,
                     buffer::Usage::TRANSFER_SRC,
                     memory::Properties::CPU_VISIBLE,
+                    None,
                 )
                 .unwrap();
 
@@ -544,6 +549,7 @@ impl<B: hal::Backend> SceneList<B> {
                     self.instances.len() * 2 * std::mem::size_of::<Instance>(),
                     Usage::STORAGE,
                     Properties::CPU_VISIBLE,
+                    Some(Properties::DEVICE_LOCAL | Properties::CPU_VISIBLE),
                 )
                 .unwrap();
 

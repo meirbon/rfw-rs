@@ -40,7 +40,7 @@ impl<B: Backend> SceneTexture<B> {
 
             let req = device.get_image_requirements(&image);
             let memory = allocator
-                .allocate_with_reqs(req, Properties::DEVICE_LOCAL)
+                .allocate_with_reqs(req, Properties::DEVICE_LOCAL, None)
                 .unwrap();
 
             device

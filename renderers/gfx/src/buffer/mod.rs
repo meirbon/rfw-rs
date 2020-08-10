@@ -34,21 +34,43 @@ impl<B: hal::Backend> Allocator<B> {
         }
     }
 
-    pub fn allocate(&self, bytes: usize, memory_props: memory::Properties) -> Memory<B> {
+    pub fn allocate(
+        &self,
+        bytes: usize,
+        memory_props: memory::Properties,
+        preferred: Option<memory::Properties>,
+    ) -> Memory<B> {
         assert_ne!(bytes, 0);
-        let upload_type = self
-            .memory_props
-            .memory_types
-            .iter()
-            .enumerate()
-            .position(|(_, mem_type)| {
-                // type_mask is a bit field where each bit represents a memory type. If the bit is set
-                // to 1 it means we can use that type for our buffer. So this code finds the first
-                // memory type that has a `1` (or, is allowed), and is visible to the CPU.
-                mem_type.properties.contains(memory_props)
-            })
-            .unwrap()
-            .into();
+
+        let upload_type = {
+            if let Some(preferred) = preferred {
+                let attempt = self
+                    .memory_props
+                    .memory_types
+                    .iter()
+                    .enumerate()
+                    .position(|(_, memory_type)| memory_type.properties.contains(preferred));
+                if attempt.is_none() {
+                    self.memory_props
+                        .memory_types
+                        .iter()
+                        .enumerate()
+                        .position(|(_, memory_type)| memory_type.properties.contains(memory_props))
+                        .unwrap()
+                        .into()
+                } else {
+                    attempt.unwrap().into()
+                }
+            } else {
+                self.memory_props
+                    .memory_types
+                    .iter()
+                    .enumerate()
+                    .position(|(_, memory_type)| memory_type.properties.contains(memory_props))
+                    .unwrap()
+                    .into()
+            }
+        };
 
         let memory = unsafe {
             ManuallyDrop::new(
@@ -72,6 +94,7 @@ impl<B: hal::Backend> Allocator<B> {
         bytes: usize,
         usage: buffer::Usage,
         memory_props: memory::Properties,
+        preferred: Option<memory::Properties>,
     ) -> Result<Buffer<B>, AllocationError> {
         assert_ne!(bytes, 0);
         let buffer_len = bytes;
@@ -96,24 +119,35 @@ impl<B: hal::Backend> Allocator<B> {
         );
 
         let buffer_req = unsafe { self.device.get_buffer_requirements(&buffer) };
-
-        let upload_type =
-            match self
-                .memory_props
-                .memory_types
-                .iter()
-                .enumerate()
-                .position(|(id, mem_type)| {
-                    // type_mask is a bit field where each bit represents a memory type. If the bit is set
-                    // to 1 it means we can use that type for our buffer. So this code finds the first
-                    // memory type that has a `1` (or, is allowed), and is visible to the CPU.
-                    buffer_req.type_mask & (1 << id) != 0
-                        && mem_type.properties.contains(memory_props)
-                }) {
-                Some(i) => i,
-                None => panic!("Could not memory with requested properties"),
+        let upload_type = {
+            if let Some(preferred) = preferred {
+                let attempt = self
+                    .memory_props
+                    .memory_types
+                    .iter()
+                    .enumerate()
+                    .position(|(_, memory_type)| memory_type.properties.contains(preferred));
+                if attempt.is_none() {
+                    self.memory_props
+                        .memory_types
+                        .iter()
+                        .enumerate()
+                        .position(|(_, memory_type)| memory_type.properties.contains(memory_props))
+                        .unwrap()
+                        .into()
+                } else {
+                    attempt.unwrap().into()
+                }
+            } else {
+                self.memory_props
+                    .memory_types
+                    .iter()
+                    .enumerate()
+                    .position(|(_, memory_type)| memory_type.properties.contains(memory_props))
+                    .unwrap()
+                    .into()
             }
-            .into();
+        };
 
         let buffer_memory = unsafe {
             let memory = match self.device.allocate_memory(upload_type, buffer_req.size) {
@@ -145,18 +179,43 @@ impl<B: hal::Backend> Allocator<B> {
         &self,
         requirements: hal::memory::Requirements,
         memory_props: memory::Properties,
+        preferred: Option<memory::Properties>,
     ) -> Result<Memory<B>, AllocationError> {
-        let device_type = self
-            .memory_props
-            .memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, memory_type)| {
-                requirements.type_mask & (1 << id) != 0
-                    && memory_type.properties.contains(memory_props)
-            })
-            .unwrap()
-            .into();
+        let device_type = {
+            if let Some(preferred) = preferred {
+                let attempt = self.memory_props.memory_types.iter().enumerate().position(
+                    |(id, memory_type)| {
+                        requirements.type_mask & (1 << id) != 0
+                            && memory_type.properties.contains(preferred)
+                    },
+                );
+                if attempt.is_none() {
+                    self.memory_props
+                        .memory_types
+                        .iter()
+                        .enumerate()
+                        .position(|(id, memory_type)| {
+                            requirements.type_mask & (1 << id) != 0
+                                && memory_type.properties.contains(memory_props)
+                        })
+                        .unwrap()
+                        .into()
+                } else {
+                    attempt.unwrap().into()
+                }
+            } else {
+                self.memory_props
+                    .memory_types
+                    .iter()
+                    .enumerate()
+                    .position(|(id, memory_type)| {
+                        requirements.type_mask & (1 << id) != 0
+                            && memory_type.properties.contains(memory_props)
+                    })
+                    .unwrap()
+                    .into()
+            }
+        };
 
         let memory = match unsafe { self.device.allocate_memory(device_type, requirements.size) } {
             Ok(memory) => memory,

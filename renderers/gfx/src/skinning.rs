@@ -136,6 +136,10 @@ impl<B: hal::Backend> SkinList<B> {
                                 skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
                                 buffer::Usage::UNIFORM,
                                 memory::Properties::CPU_VISIBLE,
+                                Some(
+                                    memory::Properties::CPU_VISIBLE
+                                        | memory::Properties::DEVICE_LOCAL,
+                                ),
                             )
                             .unwrap()
                     } else {
@@ -147,6 +151,9 @@ impl<B: hal::Backend> SkinList<B> {
                             skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
                             buffer::Usage::UNIFORM,
                             memory::Properties::CPU_VISIBLE,
+                            Some(
+                                memory::Properties::CPU_VISIBLE | memory::Properties::DEVICE_LOCAL,
+                            ),
                         )
                         .unwrap()
                 };
@@ -166,6 +173,7 @@ impl<B: hal::Backend> SkinList<B> {
                         skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
                         buffer::Usage::UNIFORM,
                         memory::Properties::CPU_VISIBLE,
+                        None,
                     )
                     .unwrap();
 

@@ -768,6 +768,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 Self::UNIFORM_CAMERA_SIZE,
                 hal::buffer::Usage::UNIFORM,
                 hal::memory::Properties::CPU_VISIBLE,
+                Some(hal::memory::Properties::CPU_VISIBLE | hal::memory::Properties::DEVICE_LOCAL),
             )
             .unwrap();
 
@@ -801,7 +802,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             (image, req)
         };
         let depth_memory = allocator
-            .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL)
+            .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
             .unwrap();
         let depth_image_view = unsafe {
             device
@@ -841,6 +842,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 std::mem::size_of::<DeviceMaterial>() * 32,
                 hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
                 hal::memory::Properties::DEVICE_LOCAL,
+                None,
             )
             .unwrap();
 
@@ -1122,7 +1124,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             if req.size > self.depth_memory.len() as _ {
                 self.depth_memory = self
                     .allocator
-                    .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL)
+                    .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
                     .unwrap();
             }
 
@@ -1183,6 +1185,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 texels * std::mem::size_of::<u32>(),
                 hal::buffer::Usage::TRANSFER_SRC,
                 hal::memory::Properties::CPU_VISIBLE,
+                None,
             )
             .unwrap();
 
@@ -1305,6 +1308,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     materials.len() * 2 * aligned_size,
                     hal::buffer::Usage::UNIFORM | hal::buffer::Usage::TRANSFER_DST,
                     hal::memory::Properties::DEVICE_LOCAL,
+                    None,
                 )
                 .unwrap();
         }
@@ -1315,6 +1319,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 materials.len() * aligned_size,
                 hal::buffer::Usage::TRANSFER_SRC,
                 hal::memory::Properties::CPU_VISIBLE,
+                None,
             )
             .unwrap();
 
