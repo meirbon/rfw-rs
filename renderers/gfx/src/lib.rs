@@ -6,19 +6,19 @@ use buffer::Allocator;
 use hal::prelude::*;
 use hal::{
     adapter::PhysicalDevice,
+    command,
     command::CommandBuffer,
     device::Device,
-    pool::CommandPool,
-    queue::{CommandQueue, QueueFamily},
-    window::PresentationSurface,
-    Instance,
-};
-use hal::{
-    command, format as f,
+    format as f,
     format::ChannelType,
-    pool, pso,
+    pool,
+    pool::CommandPool,
+    pso,
+    queue::{CommandQueue, QueueFamily},
     queue::{QueueGroup, Submission},
     window,
+    window::PresentationSurface,
+    Instance, *,
 };
 use instances::SceneList;
 use rfw_scene::Renderer;
@@ -27,6 +27,7 @@ use window::Extent2D;
 
 mod buffer;
 mod instances;
+mod light;
 mod materials;
 mod mesh;
 mod skinning;
@@ -188,9 +189,10 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         let mut adapters = instance.enumerate_adapters();
         let mut adapter_index: Option<usize> = None;
+
         // Attempt to find a discrete GPU first (fastest option)
         for (i, adapter) in adapters.iter().enumerate() {
-            if adapter.info.device_type == hal::adapter::DeviceType::DiscreteGpu {
+            if adapter.info.device_type == adapter::DeviceType::DiscreteGpu {
                 adapter_index = Some(i);
             }
         }
@@ -198,7 +200,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         // If we did not find a GPU, attempt to find an integrated GPU
         if adapter_index.is_none() {
             for (i, adapter) in adapters.iter().enumerate() {
-                if adapter.info.device_type == hal::adapter::DeviceType::IntegratedGpu {
+                if adapter.info.device_type == adapter::DeviceType::IntegratedGpu {
                     adapter_index = Some(i);
                 }
             }

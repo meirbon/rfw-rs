@@ -685,8 +685,8 @@ impl ShadowMapArray {
                 as wgpu::BufferAddress,
         );
 
-        let direction_x: [u32; 2] = [1, 0];
-        let direction_y: [u32; 2] = [0, 1];
+        let direction_x: [f32; 2] = [1.0, 0.0];
+        let direction_y: [f32; 2] = [0.0, 1.0];
         let dir_x = unsafe { std::slice::from_raw_parts(direction_x.as_ptr() as *const u8, 8) };
         let dir_y = unsafe { std::slice::from_raw_parts(direction_y.as_ptr() as *const u8, 8) };
         let filter_direction_x = device.create_buffer_with_data(dir_x, wgpu::BufferUsage::COPY_SRC);
