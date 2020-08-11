@@ -325,8 +325,8 @@ pub struct ShadowMapArray {
 impl ShadowMapArray {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Float;
-    pub const WIDTH: usize = 1024;
-    pub const HEIGHT: usize = 1024;
+    pub const WIDTH: usize = 2048;
+    pub const HEIGHT: usize = 2048;
     pub const UNIFORM_ELEMENT_SIZE: usize = std::mem::size_of::<LightInfo>();
 
     pub fn new(
