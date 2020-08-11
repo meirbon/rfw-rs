@@ -337,7 +337,7 @@ impl<B: hal::Backend> Memory<B> {
         self.memory_type
     }
 
-    pub fn borrow(&self) -> &B::Memory {
+    pub fn memory(&self) -> &B::Memory {
         &self.memory
     }
 
@@ -406,7 +406,7 @@ impl<B: hal::Backend> Buffer<B> {
         let ptr = unsafe {
             match self
                 .device
-                .map_memory(self.memory.borrow(), segment.clone())
+                .map_memory(self.memory.memory(), segment.clone())
             {
                 Ok(mapping) => mapping,
                 Err(e) => match e {

@@ -120,7 +120,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             },
                         },
                         count: 1,
-                        stage_flags: pso::ShaderStageFlags::VERTEX,
+                        stage_flags: pso::ShaderStageFlags::VERTEX | pso::ShaderStageFlags::FRAGMENT,
                         immutable_samplers: false,
                     }],
                     &[],
@@ -806,7 +806,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .unwrap();
         let depth_image_view = unsafe {
             device
-                .bind_image_memory(depth_memory.borrow(), 0, &mut depth_image)
+                .bind_image_memory(depth_memory.memory(), 0, &mut depth_image)
                 .unwrap();
 
             device
@@ -1129,7 +1129,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             }
 
             self.device
-                .bind_image_memory(self.depth_memory.borrow(), 0, &mut image)
+                .bind_image_memory(self.depth_memory.memory(), 0, &mut image)
                 .unwrap();
 
             let image_view = self

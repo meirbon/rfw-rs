@@ -44,7 +44,7 @@ impl<B: Backend> SceneTexture<B> {
                 .unwrap();
 
             device
-                .bind_image_memory(memory.borrow(), 0, &mut image)
+                .bind_image_memory(memory.memory(), 0, &mut image)
                 .expect("Could not bind image memory");
             let image_view = device
                 .create_image_view(

@@ -5,24 +5,40 @@ use rfw_scene::{Light, LightInfo, TrackedStorage};
 use shared::BytesConversion;
 use std::{fmt::Debug, mem::ManuallyDrop, sync::Arc};
 
+#[derive(Debug)]
 pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
+    allocator: Allocator<B>,
     lights: TrackedStorage<T>,
-    light_buffer: Buffer<B>,
     info: Vec<LightInfo>,
     shadow_maps: ShadowMapArray<B>,
 }
 
+impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
+    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>, capacity: usize) -> Self {
+        Self {
+            allocator,
+            lights: TrackedStorage::new(),
+            info: Vec::with_capacity(capacity),
+            shadow_maps: ShadowMapArray::new(device, allocator.clone(), capacity),
+        }
+    }
+}
+
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct ShadowMapArray<B: hal::Backend> {
+    device: Arc<B::Device>,
+
     pub map: B::Image,
     pub view: B::ImageView,
-    pub layer_views: Vec<B::ImageView>,
+    map_memory: Memory<B>,
 
     filter_map: B::Image,
+    filter_map_memory: Memory<B>,
     filter_view: B::ImageView,
-    filter_views: Vec<B::ImageView>,
 
     depth_map: B::Image,
+    depth_map_memory: Memory<B>,
     depth_view: B::ImageView,
     pub uniform_buffer: Buffer<B>,
 
@@ -31,6 +47,108 @@ pub struct ShadowMapArray<B: hal::Backend> {
     pipeline: B::GraphicsPipeline,
     anim_pipeline: B::GraphicsPipeline,
     light_infos: Vec<LightInfo>,
+}
+
+impl<B: hal::Backend> ShadowMapArray<B> {
+    pub const WIDTH: u32 = 2048;
+    pub const HEIGHT: u32 = 2048;
+    pub const FORMAT: format::Format = format::Format::Rg32Sfloat;
+    pub const DEPTH_FORMAT: format::Format = format::Format::D32Sfloat;
+
+    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>, capacity: usize) -> Self {
+        unsafe {
+            let mut map = device.create_image(image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1), 1 as image::Level, Self::FORMAT, image::Tiling::Optimal, image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED, image::ViewCapabilities::KIND_2D_ARRAY).unwrap();
+            let req = device.get_image_requirements(&map);
+            let map_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None).unwrap();
+            device.bind_image_memory(map_memory.memory(), 0, &mut map).unwrap();
+
+            let view = device.create_image_view(&map, image::ViewKind::D2Array, Self::FORMAT, format::Swizzle::NO, image::SubresourceRange {
+                aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
+                layers: 0..(capacity as _),
+                levels: 0..1,
+            }).unwrap();
+
+            let mut filter_map = device.create_image(image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1), 1 as image::Level, Self::FORMAT, image::Tiling::Optimal, image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED, image::ViewCapabilities::KIND_2D_ARRAY).unwrap();
+            let req = device.get_image_requirements(&map);
+            let filter_map_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None).unwrap();
+            device.bind_image_memory(map_memory.memory(), 0, &mut map).unwrap();
+
+            let filter_view = device.create_image_view(&map, image::ViewKind::D2Array, Self::FORMAT, format::Swizzle::NO, image::SubresourceRange {
+                aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
+                layers: 0..(capacity as _),
+                levels: 0..1,
+            }).unwrap();
+
+            let (depth_map, depth_view, depth_map_memory) = {
+                let mut image = device
+                    .create_image(
+                        image::Kind::D2(width, height, 1, 1),
+                        1,
+                        Self::DEPTH_FORMAT,
+                        image::Tiling::Optimal,
+                        image::Usage::DEPTH_STENCIL_ATTACHMENT,
+                        image::ViewCapabilities::empty(),
+                    )
+                    .expect("Could not create depth image.");
+
+                let req = device.get_image_requirements(&image);
+                let depth_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None).unwrap();
+
+                device
+                    .bind_image_memory(depth_memory.memory(), 0, &mut image)
+                    .unwrap();
+
+                let image_view = device
+                    .create_image_view(
+                        &image,
+                        image::ViewKind::D2,
+                        Self::DEPTH_FORMAT,
+                        hal::format::Swizzle::NO,
+                        hal::image::SubresourceRange {
+                            aspects: hal::format::Aspects::DEPTH,
+                            levels: 0..1,
+                            layers: 0..1,
+                        },
+                    )
+                    .unwrap();
+
+                (image, image_view, depth_memory)
+            };
+
+            let uniform_buffer = allocator
+                .allocate_buffer(
+                    Self::UNIFORM_CAMERA_SIZE,
+                    hal::buffer::Usage::UNIFORM,
+                    hal::memory::Properties::CPU_VISIBLE,
+                    Some(hal::memory::Properties::CPU_VISIBLE | hal::memory::Properties::DEVICE_LOCAL),
+                )
+                .unwrap();
+
+            Self {
+                device,
+
+                map,
+                view,
+                map_memory,
+
+                filter_map,
+                filter_view,
+                filter_map_memory,
+
+                depth_map,
+                depth_map_memory,
+                depth_view,
+
+                uniform_buffer,
+
+                // filter_pipeline: Arc<FilterPipeline<B>>,
+                // pipeline_layout: B::PipelineLayout,
+                // pipeline: B::GraphicsPipeline,
+                // anim_pipeline: B::GraphicsPipeline,
+                // light_infos: Vec<LightInfo>,
+            }
+        }
+    }
 }
 
 pub struct FilterPipeline<B: hal::Backend> {

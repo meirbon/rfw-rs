@@ -4,6 +4,13 @@
 
 #include "material.glsl"
 
+layout(set = 0, binding = 0) uniform Locals {
+    mat4 View;
+    mat4 Proj;
+    uvec4 light_count;
+    vec4 cam_pos;
+};
+
 layout(location = 0) in vec4 V;
 layout(location = 1) in vec4 SSV;
 layout(location = 2) in vec3 N;
@@ -40,7 +47,7 @@ void main() {
         normal = normalize(mat3(T, B, normal) * n);
     }
 
-    color = vec4(normal, 1.0);
+    color = vec4(abs(dot(N, normalize(V.xyz - cam_pos.xyz))) * color.xyz, 1.0);
 
     target0 = color;
 }

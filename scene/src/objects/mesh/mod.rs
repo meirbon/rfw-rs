@@ -435,10 +435,10 @@ impl Mesh {
             let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
             let centers: Vec<Vec3A> = self.triangles.par_iter().map(|t| t.center()).collect();
 
-            self.bvh = Some(BVH::construct(
+            self.bvh = Some(BVH::construct_spatial(
                 aabbs.as_slice(),
                 centers.as_slice(),
-                rtbvh::builders::BVHType::BinnedSAH,
+                self.triangles.as_slice(),
             ));
             self.mbvh = Some(MBVH::construct(self.bvh.as_ref().unwrap()));
         }

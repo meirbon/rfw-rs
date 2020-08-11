@@ -76,6 +76,13 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            storage: Vec::with_capacity(capacity),
+            ..Self::default()
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.storage_ptr
     }
@@ -380,6 +387,13 @@ impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
 impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            storage: FlaggedStorage::with_capacity(capacity),
+            ..Self::default()
+        }
     }
 
     pub fn len(&self) -> usize {
