@@ -7,7 +7,13 @@ use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
 
-use rfw_scene::{graph::Skin, raw_window_handle::HasRawWindowHandle, renderers::{RenderMode, Renderer, Setting, SettingValue}, AnimatedMesh, Camera, DeviceMaterial, FlaggedStorage, Instance, ObjectRef, Texture, TrackedStorage, VertexMesh, ChangedIterator, Mesh};
+use rfw_scene::{
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer, Setting, SettingValue},
+    AnimatedMesh, Camera, ChangedIterator, DeviceMaterial, FlaggedStorage, Instance, Mesh,
+    ObjectRef, Texture, TrackedStorage, VertexMesh,
+};
 use rfw_utils::TaskPool;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -370,16 +376,11 @@ impl Renderer for Deferred {
         }
     }
 
-    fn set_materials(
-        &mut self,
-        materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>,
-    ) {
+    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
         let materials = materials.as_slice();
         let size = (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
         let staging_buffer = self.device.create_buffer_with_data(
-            unsafe {
-                std::slice::from_raw_parts(materials.as_ptr() as *const u8, size as usize)
-            },
+            unsafe { std::slice::from_raw_parts(materials.as_ptr() as *const u8, size as usize) },
             wgpu::BufferUsage::COPY_SRC,
         );
 
@@ -685,7 +686,8 @@ impl Renderer for Deferred {
 
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         for (i, skin) in skins {
-            self.skins.overwrite(i, DeferredSkin::new(&self.device, skin.clone()));
+            self.skins
+                .overwrite(i, DeferredSkin::new(&self.device, skin.clone()));
             self.skins[i].create_bind_group(&self.device, &self.skin_bind_group_layout);
         }
     }
@@ -887,7 +889,7 @@ impl Deferred {
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
                         if let (Some(buffer), Some(anim_buffer)) =
-                        (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                         {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);

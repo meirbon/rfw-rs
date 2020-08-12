@@ -214,15 +214,15 @@ impl Intersect for Sphere {
         let div_2a = glam::Vec4::one() / (2.0 * a);
 
         #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-            let sqrt_d = unsafe {
+        let sqrt_d = unsafe {
             use std::arch::x86_64::_mm_sqrt_ps;
             glam::Vec4::from(_mm_sqrt_ps(d.into())).max(glam::Vec4::zero())
         };
         #[cfg(any(
-        all(not(target_arch = "x86_64"), not(target_arch = "x86")),
-        target_arch = "wasm32-unknown-unknown"
+            all(not(target_arch = "x86_64"), not(target_arch = "x86")),
+            target_arch = "wasm32-unknown-unknown"
         ))]
-            let sqrt_d = glam::Vec4::new(
+        let sqrt_d = glam::Vec4::new(
             (d[0].sqrt()).max(0.0),
             (d[1].sqrt()).max(0.0),
             (d[2].sqrt()).max(0.0),
@@ -378,7 +378,7 @@ impl ToMesh for Sphere {
                           vertices: &mut Vec<Vec3A>,
                           normals: &mut Vec<Vec3A>,
                           uvs: &mut Vec<Vec2>|
-                          -> usize {
+         -> usize {
             let v = v.normalize();
             normals.push(v);
             vertices.push(v);
@@ -395,7 +395,7 @@ impl ToMesh for Sphere {
                                     vertices: &mut Vec<Vec3A>,
                                     normals: &mut Vec<Vec3A>,
                                     uvs: &mut Vec<Vec2>|
-                                    -> usize {
+         -> usize {
             let is_smaller = p1 < p2;
             let (smaller_idx, greater_idx) = if is_smaller { (p1, p2) } else { (p2, p1) };
             let key = smaller_idx.overflowing_shl(32).0 + greater_idx;
@@ -413,7 +413,12 @@ impl ToMesh for Sphere {
             }
         };
 
-        add_vertex(Vec3A::new(-s, t, 0.0), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(
+            Vec3A::new(-s, t, 0.0),
+            &mut vertices,
+            &mut normals,
+            &mut uvs,
+        );
         add_vertex(Vec3A::new(s, t, 0.0), &mut vertices, &mut normals, &mut uvs);
         add_vertex(
             Vec3A::new(-s, -t, 0.0),
@@ -421,9 +426,19 @@ impl ToMesh for Sphere {
             &mut normals,
             &mut uvs,
         );
-        add_vertex(Vec3A::new(s, -t, 0.0), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(
+            Vec3A::new(s, -t, 0.0),
+            &mut vertices,
+            &mut normals,
+            &mut uvs,
+        );
 
-        add_vertex(Vec3A::new(0.0, -s, t), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(
+            Vec3A::new(0.0, -s, t),
+            &mut vertices,
+            &mut normals,
+            &mut uvs,
+        );
         add_vertex(Vec3A::new(0.0, s, t), &mut vertices, &mut normals, &mut uvs);
         add_vertex(
             Vec3A::new(0.0, -s, -t),
@@ -431,9 +446,19 @@ impl ToMesh for Sphere {
             &mut normals,
             &mut uvs,
         );
-        add_vertex(Vec3A::new(0.0, s, -t), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(
+            Vec3A::new(0.0, s, -t),
+            &mut vertices,
+            &mut normals,
+            &mut uvs,
+        );
 
-        add_vertex(Vec3A::new(t, 0.0, -s), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(
+            Vec3A::new(t, 0.0, -s),
+            &mut vertices,
+            &mut normals,
+            &mut uvs,
+        );
         add_vertex(Vec3A::new(t, 0.0, s), &mut vertices, &mut normals, &mut uvs);
         add_vertex(
             Vec3A::new(-t, 0.0, -s),
@@ -441,7 +466,12 @@ impl ToMesh for Sphere {
             &mut normals,
             &mut uvs,
         );
-        add_vertex(Vec3A::new(-t, 0.0, s), &mut vertices, &mut normals, &mut uvs);
+        add_vertex(
+            Vec3A::new(-t, 0.0, s),
+            &mut vertices,
+            &mut normals,
+            &mut uvs,
+        );
 
         // 5 faces around point 0
         faces.push([0, 11, 5]);

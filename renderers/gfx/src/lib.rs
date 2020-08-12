@@ -21,7 +21,7 @@ use hal::{
     Instance, *,
 };
 use instances::SceneList;
-use rfw_scene::{Renderer, ChangedIterator, AnimatedMesh, Mesh};
+use rfw_scene::{AnimatedMesh, ChangedIterator, Mesh, Renderer};
 use std::{iter, mem::ManuallyDrop, ptr, sync::Arc};
 use window::Extent2D;
 
@@ -34,9 +34,9 @@ mod skinning;
 
 use crate::hal::device::OutOfMemory;
 use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
+use rfw_scene::graph::Skin;
 use std::borrow::Borrow;
 use std::sync::Mutex;
-use rfw_scene::graph::Skin;
 
 #[derive(Debug, Copy, Clone)]
 pub enum GfxError {
@@ -81,10 +81,10 @@ impl<B: hal::Backend> Queue<B> {
         fence: Option<&B::Fence>,
     ) where
         T: 'a + Borrow<B::CommandBuffer>,
-        Ic: IntoIterator<Item=&'a T>,
+        Ic: IntoIterator<Item = &'a T>,
         S: 'a + Borrow<B::Semaphore>,
-        Iw: IntoIterator<Item=(&'a S, pso::PipelineStage)>,
-        Is: IntoIterator<Item=&'a S>,
+        Iw: IntoIterator<Item = (&'a S, pso::PipelineStage)>,
+        Is: IntoIterator<Item = &'a S>,
     {
         unsafe { self.queue_group.queues[0].submit(submission, fence) }
     }
@@ -95,7 +95,7 @@ impl<B: hal::Backend> Queue<B> {
         fence: Option<&B::Fence>,
     ) where
         T: 'a + Borrow<B::CommandBuffer>,
-        Ic: IntoIterator<Item=&'a T>,
+        Ic: IntoIterator<Item = &'a T>,
     {
         let submission = Submission {
             command_buffers,
@@ -110,12 +110,12 @@ impl<B: hal::Backend> Queue<B> {
         swapchains: Is,
         wait_semaphores: Iw,
     ) -> Result<Option<Suboptimal>, PresentError>
-        where
-            Self: Sized,
-            W: 'a + Borrow<B::Swapchain>,
-            Is: IntoIterator<Item=(&'a W, SwapImageIndex)>,
-            S: 'a + Borrow<B::Semaphore>,
-            Iw: IntoIterator<Item=&'a S>,
+    where
+        Self: Sized,
+        W: 'a + Borrow<B::Swapchain>,
+        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
+        S: 'a + Borrow<B::Semaphore>,
+        Iw: IntoIterator<Item = &'a S>,
     {
         unsafe { self.queue_group.queues[0].present(swapchains, wait_semaphores) }
     }
@@ -124,10 +124,10 @@ impl<B: hal::Backend> Queue<B> {
         &mut self,
         swapchains: Is,
     ) -> Result<Option<Suboptimal>, PresentError>
-        where
-            Self: Sized,
-            W: 'a + Borrow<B::Swapchain>,
-            Is: IntoIterator<Item=(&'a W, SwapImageIndex)>,
+    where
+        Self: Sized,
+        W: 'a + Borrow<B::Swapchain>,
+        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
     {
         unsafe { self.queue_group.queues[0].present_without_semaphores(swapchains) }
     }
@@ -269,7 +269,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 pool::CommandPoolCreateFlags::empty(),
             )
         }
-            .expect("Can't create command pool");
+        .expect("Can't create command pool");
 
         let frames_in_flight = 3;
 
@@ -397,10 +397,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }
     }
 
-    fn set_materials(
-        &mut self,
-        materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>,
-    ) {
+    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
         self.mesh_renderer.set_materials(materials.as_slice());
     }
 
@@ -530,7 +527,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
     fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::AreaLight>) {}
 
-    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {}
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {
+    }
 
     fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
 

@@ -1,7 +1,7 @@
 use crate::buffer::*;
 use crate::hal;
 use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool, *};
-use rfw_scene::{Light, LightInfo, TrackedStorage};
+use rfw_scene::{AnimVertexData, Light, LightInfo, TrackedStorage, VertexData};
 use shared::BytesConversion;
 use std::{fmt::Debug, mem::ManuallyDrop, sync::Arc};
 
@@ -10,18 +10,38 @@ pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
     allocator: Allocator<B>,
     lights: TrackedStorage<T>,
     info: Vec<LightInfo>,
-    // shadow_maps: ShadowMapArray<B>,
+    shadow_maps: ShadowMapArray<B>,
 }
 
 impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
-    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>, capacity: usize) -> Self {
+    pub fn new(
+        device: Arc<B::Device>,
+        allocator: Allocator<B>,
+        filter_pipeline: Arc<FilterPipeline<B>>,
+        instances_pipeline_layout: &B::PipelineLayout,
+        depth_type: DepthType,
+        capacity: usize,
+    ) -> Self {
         Self {
-            allocator,
+            allocator: allocator.clone(),
             lights: TrackedStorage::new(),
             info: Vec::with_capacity(capacity),
-            // shadow_maps: ShadowMapArray::new(device, allocator.clone(), capacity),
+            shadow_maps: ShadowMapArray::new(
+                device,
+                allocator,
+                filter_pipeline,
+                instances_pipeline_layout,
+                depth_type,
+                capacity,
+            ),
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum DepthType {
+    Linear,
+    Perspective,
 }
 
 #[allow(dead_code)]
@@ -43,7 +63,6 @@ pub struct ShadowMapArray<B: hal::Backend> {
     pub uniform_buffer: Buffer<B>,
 
     filter_pipeline: Arc<FilterPipeline<B>>,
-    pipeline_layout: B::PipelineLayout,
     pipeline: B::GraphicsPipeline,
     anim_pipeline: B::GraphicsPipeline,
     light_infos: Vec<LightInfo>,
@@ -55,29 +74,78 @@ impl<B: hal::Backend> ShadowMapArray<B> {
     pub const FORMAT: format::Format = format::Format::Rg32Sfloat;
     pub const DEPTH_FORMAT: format::Format = format::Format::D32Sfloat;
 
-    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>, capacity: usize) {
+    pub fn new(
+        device: Arc<B::Device>,
+        allocator: Allocator<B>,
+        filter_pipeline: Arc<FilterPipeline<B>>,
+        pipeline_layout: &B::PipelineLayout,
+        depth_type: DepthType,
+        capacity: usize,
+    ) -> Self {
         unsafe {
-            let mut map = device.create_image(image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1), 1 as image::Level, Self::FORMAT, image::Tiling::Optimal, image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED, image::ViewCapabilities::KIND_2D_ARRAY).unwrap();
+            let mut map = device
+                .create_image(
+                    image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1),
+                    1 as image::Level,
+                    Self::FORMAT,
+                    image::Tiling::Optimal,
+                    image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED,
+                    image::ViewCapabilities::KIND_2D_ARRAY,
+                )
+                .unwrap();
             let req = device.get_image_requirements(&map);
-            let map_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None).unwrap();
-            device.bind_image_memory(map_memory.memory(), 0, &mut map).unwrap();
+            let map_memory = allocator
+                .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
+                .unwrap();
+            device
+                .bind_image_memory(map_memory.memory(), 0, &mut map)
+                .unwrap();
 
-            let view = device.create_image_view(&map, image::ViewKind::D2Array, Self::FORMAT, format::Swizzle::NO, image::SubresourceRange {
-                aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
-                layers: 0..(capacity as _),
-                levels: 0..1,
-            }).unwrap();
+            let view = device
+                .create_image_view(
+                    &map,
+                    image::ViewKind::D2Array,
+                    Self::FORMAT,
+                    format::Swizzle::NO,
+                    image::SubresourceRange {
+                        aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
+                        layers: 0..(capacity as _),
+                        levels: 0..1,
+                    },
+                )
+                .unwrap();
 
-            let mut filter_map = device.create_image(image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1), 1 as image::Level, Self::FORMAT, image::Tiling::Optimal, image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED, image::ViewCapabilities::KIND_2D_ARRAY).unwrap();
+            let mut filter_map = device
+                .create_image(
+                    image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1),
+                    1 as image::Level,
+                    Self::FORMAT,
+                    image::Tiling::Optimal,
+                    image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED,
+                    image::ViewCapabilities::KIND_2D_ARRAY,
+                )
+                .unwrap();
             let req = device.get_image_requirements(&map);
-            let filter_map_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None).unwrap();
-            device.bind_image_memory(map_memory.memory(), 0, &mut map).unwrap();
+            let filter_map_memory = allocator
+                .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
+                .unwrap();
+            device
+                .bind_image_memory(map_memory.memory(), 0, &mut map)
+                .unwrap();
 
-            let filter_view = device.create_image_view(&map, image::ViewKind::D2Array, Self::FORMAT, format::Swizzle::NO, image::SubresourceRange {
-                aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
-                layers: 0..(capacity as _),
-                levels: 0..1,
-            }).unwrap();
+            let filter_view = device
+                .create_image_view(
+                    &map,
+                    image::ViewKind::D2Array,
+                    Self::FORMAT,
+                    format::Swizzle::NO,
+                    image::SubresourceRange {
+                        aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
+                        layers: 0..(capacity as _),
+                        levels: 0..1,
+                    },
+                )
+                .unwrap();
 
             let (depth_map, depth_view, depth_map_memory) = {
                 let mut image = device
@@ -92,7 +160,9 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     .expect("Could not create depth image.");
 
                 let req = device.get_image_requirements(&image);
-                let depth_memory = allocator.allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None).unwrap();
+                let depth_memory = allocator
+                    .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
+                    .unwrap();
 
                 device
                     .bind_image_memory(depth_memory.memory(), 0, &mut image)
@@ -120,33 +190,292 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     160, // TODO,
                     hal::buffer::Usage::UNIFORM,
                     hal::memory::Properties::CPU_VISIBLE,
-                    Some(hal::memory::Properties::CPU_VISIBLE | hal::memory::Properties::DEVICE_LOCAL),
+                    Some(
+                        hal::memory::Properties::CPU_VISIBLE
+                            | hal::memory::Properties::DEVICE_LOCAL,
+                    ),
                 )
                 .unwrap();
 
-            // Self {
-            //     device,
-            //
-            //     map,
-            //     view,
-            //     map_memory,
-            //
-            //     filter_map,
-            //     filter_view,
-            //     filter_map_memory,
-            //
-            //     depth_map,
-            //     depth_map_memory,
-            //     depth_view,
-            //
-            //     uniform_buffer,
-            //
-            //     // filter_pipeline: Arc<FilterPipeline<B>>,
-            //     // pipeline_layout: B::PipelineLayout,
-            //     // pipeline: B::GraphicsPipeline,
-            //     // anim_pipeline: B::GraphicsPipeline,
-            //     // light_infos: Vec<LightInfo>,
-            // }
+            let vert_shader = include_bytes!("../../shaders/shadow_mesh.vert");
+            let anim_vert_shader = include_bytes!("../../shaders/shadow_mesh_anim.vert");
+            let frag_linear = include_bytes!("../../shaders/shadow_linear.frag");
+            let frag_perspective = include_bytes!("../../shaders/shadow_perspective.frag");
+
+            let vert_module = device
+                .create_shader_module(vert_shader.as_quad_bytes())
+                .unwrap();
+            let anim_vert_module = device
+                .create_shader_module(anim_vert_shader.as_quad_bytes())
+                .unwrap();
+            let frag_module = match depth_type {
+                DepthType::Linear => device
+                    .create_shader_module(frag_linear.as_quad_bytes())
+                    .unwrap(),
+                DepthType::Perspective => device
+                    .create_shader_module(frag_perspective.as_quad_bytes())
+                    .unwrap(),
+            };
+
+            let color_attachment = pass::Attachment {
+                format: Some(Self::FORMAT),
+                samples: 1,
+                ops: pass::AttachmentOps::new(
+                    pass::AttachmentLoadOp::Clear,
+                    pass::AttachmentStoreOp::Store,
+                ),
+                stencil_ops: pass::AttachmentOps::DONT_CARE,
+                layouts: image::Layout::Undefined..image::Layout::ShaderReadOnlyOptimal,
+            };
+
+            let depth_attachment = pass::Attachment {
+                format: Some(Self::DEPTH_FORMAT),
+                samples: 1,
+                ops: pass::AttachmentOps::new(
+                    pass::AttachmentLoadOp::Clear,
+                    pass::AttachmentStoreOp::Store,
+                ),
+                stencil_ops: pass::AttachmentOps::DONT_CARE,
+                layouts: image::Layout::Undefined..image::Layout::DepthStencilAttachmentOptimal,
+            };
+
+            let subpass = pass::SubpassDesc {
+                colors: &[(0, image::Layout::ColorAttachmentOptimal)],
+                depth_stencil: Some(&(1, image::Layout::DepthStencilAttachmentOptimal)),
+                inputs: &[],
+                resolves: &[],
+                preserves: &[],
+            };
+
+            let render_pass = device
+                .create_render_pass(&[color_attachment, depth_attachment], &[subpass], &[])
+                .unwrap();
+
+            let pipeline = device
+                .create_graphics_pipeline(
+                    &pso::GraphicsPipelineDesc {
+                        shaders: pso::GraphicsShaderSet {
+                            vertex: pso::EntryPoint {
+                                specialization: pso::Specialization::EMPTY,
+                                module: &vert_module,
+                                entry: "main",
+                            },
+                            hull: None,
+                            domain: None,
+                            geometry: None,
+                            fragment: Some(pso::EntryPoint {
+                                specialization: pso::Specialization::EMPTY,
+                                module: &frag_module,
+                                entry: "main",
+                            }),
+                        },
+                        rasterizer: pso::Rasterizer {
+                            polygon_mode: pso::PolygonMode::Fill,
+                            cull_face: pso::Face::BACK,
+                            front_face: pso::FrontFace::CounterClockwise,
+                            depth_clamping: false,
+                            depth_bias: None,
+                            conservative: false,
+                            line_width: pso::State::Static(1.0),
+                        },
+                        vertex_buffers: vec![pso::VertexBufferDesc {
+                            binding: 0 as pso::BufferIndex,
+                            stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                            rate: pso::VertexInputRate::Vertex,
+                        }],
+                        attributes: vec![pso::AttributeDesc {
+                            /// Vertex array location
+                            location: 0 as pso::Location,
+                            /// Binding number of the associated vertex buffer.
+                            binding: 0 as pso::BufferIndex,
+                            /// Attribute element description.
+                            element: pso::Element {
+                                format: hal::format::Format::Rgba32Sfloat,
+                                offset: 0,
+                            },
+                        }],
+                        input_assembler: pso::InputAssemblerDesc {
+                            primitive: pso::Primitive::TriangleList,
+                            with_adjacency: false,
+                            restart_index: None,
+                        },
+                        blender: Default::default(),
+                        depth_stencil: pso::DepthStencilDesc {
+                            depth: Some(pso::DepthTest {
+                                fun: pso::Comparison::LessEqual,
+                                write: true,
+                            }),
+                            depth_bounds: false,
+                            stencil: None,
+                        },
+                        multisampling: None,
+                        baked_states: pso::BakedStates {
+                            blend_color: None,
+                            depth_bounds: Some(0.0_f32..1.0_f32),
+                            scissor: Some(pso::Rect {
+                                x: 0,
+                                y: 0,
+                                w: Self::WIDTH as _,
+                                h: Self::HEIGHT as _,
+                            }),
+                            viewport: Some(pso::Viewport {
+                                depth: 0.0..1.0,
+                                rect: pso::Rect {
+                                    x: 0,
+                                    y: 0,
+                                    w: Self::WIDTH as _,
+                                    h: Self::HEIGHT as _,
+                                },
+                            }),
+                        },
+                        layout: pipeline_layout,
+                        subpass: pass::Subpass {
+                            index: 0,
+                            main_pass: &render_pass,
+                        },
+                        flags: pso::PipelineCreationFlags::empty(),
+                        parent: pso::BasePipeline::None,
+                    },
+                    None,
+                )
+                .unwrap();
+
+            let anim_pipeline = device
+                .create_graphics_pipeline(
+                    &pso::GraphicsPipelineDesc {
+                        shaders: pso::GraphicsShaderSet {
+                            vertex: pso::EntryPoint {
+                                specialization: pso::Specialization::EMPTY,
+                                module: &vert_module,
+                                entry: "main",
+                            },
+                            hull: None,
+                            domain: None,
+                            geometry: None,
+                            fragment: Some(pso::EntryPoint {
+                                specialization: pso::Specialization::EMPTY,
+                                module: &frag_module,
+                                entry: "main",
+                            }),
+                        },
+                        rasterizer: pso::Rasterizer {
+                            polygon_mode: pso::PolygonMode::Fill,
+                            cull_face: pso::Face::BACK,
+                            front_face: pso::FrontFace::CounterClockwise,
+                            depth_clamping: false,
+                            depth_bias: None,
+                            conservative: false,
+                            line_width: pso::State::Static(1.0),
+                        },
+                        vertex_buffers: vec![
+                            pso::VertexBufferDesc {
+                                binding: 0 as pso::BufferIndex,
+                                stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                                rate: pso::VertexInputRate::Vertex,
+                            },
+                            pso::VertexBufferDesc {
+                                binding: 1 as pso::BufferIndex,
+                                stride: std::mem::size_of::<AnimVertexData>() as pso::ElemStride,
+                                rate: pso::VertexInputRate::Vertex,
+                            },
+                        ],
+                        attributes: vec![
+                            pso::AttributeDesc {
+                                location: 0 as pso::Location,
+                                binding: 0 as pso::BufferIndex,
+                                element: pso::Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 0,
+                                },
+                            },
+                            pso::AttributeDesc {
+                                /// Vertex array location
+                                location: 1 as pso::Location,
+                                /// Binding number of the associated vertex buffer.
+                                binding: 1 as pso::BufferIndex,
+                                /// Attribute element description.
+                                element: pso::Element {
+                                    format: hal::format::Format::Rgba32Uint,
+                                    offset: 0,
+                                },
+                            },
+                            pso::AttributeDesc {
+                                location: 2 as pso::Location,
+                                binding: 1 as pso::BufferIndex,
+                                element: pso::Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 16,
+                                },
+                            },
+                        ],
+                        input_assembler: pso::InputAssemblerDesc {
+                            primitive: pso::Primitive::TriangleList,
+                            with_adjacency: false,
+                            restart_index: None,
+                        },
+                        blender: Default::default(),
+                        depth_stencil: pso::DepthStencilDesc {
+                            depth: Some(pso::DepthTest {
+                                fun: pso::Comparison::LessEqual,
+                                write: true,
+                            }),
+                            depth_bounds: false,
+                            stencil: None,
+                        },
+                        multisampling: None,
+                        baked_states: pso::BakedStates {
+                            blend_color: None,
+                            depth_bounds: Some(0.0_f32..1.0_f32),
+                            scissor: Some(pso::Rect {
+                                x: 0,
+                                y: 0,
+                                w: Self::WIDTH as _,
+                                h: Self::HEIGHT as _,
+                            }),
+                            viewport: Some(pso::Viewport {
+                                depth: 0.0..1.0,
+                                rect: pso::Rect {
+                                    x: 0,
+                                    y: 0,
+                                    w: Self::WIDTH as _,
+                                    h: Self::HEIGHT as _,
+                                },
+                            }),
+                        },
+                        layout: pipeline_layout,
+                        subpass: pass::Subpass {
+                            index: 0,
+                            main_pass: &render_pass,
+                        },
+                        flags: pso::PipelineCreationFlags::empty(),
+                        parent: pso::BasePipeline::None,
+                    },
+                    None,
+                )
+                .unwrap();
+
+            Self {
+                device,
+
+                map,
+                view,
+                map_memory,
+
+                filter_map,
+                filter_view,
+                filter_map_memory,
+
+                depth_map,
+                depth_map_memory,
+                depth_view,
+
+                uniform_buffer,
+
+                filter_pipeline,
+                pipeline,
+                anim_pipeline,
+                light_infos: Vec::new(),
+            }
         }
     }
 }
@@ -343,7 +672,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
                     set: &set1,
                 },
                 pso::DescriptorSetWrite {
-                    binding: 0,
+                    binding: 1,
                     array_offset: 0,
                     descriptors: vec![
                         pso::Descriptor::Image(source_output, image::Layout::General),
@@ -381,7 +710,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
                 set: &set.set1,
             },
             pso::DescriptorSetWrite {
-                binding: 0,
+                binding: 1,
                 array_offset: 0,
                 descriptors: vec![
                     pso::Descriptor::Image(source_output, image::Layout::General),

@@ -4,8 +4,8 @@ use std::{path::PathBuf, sync::Mutex};
 use crate::graph::animation::Animation;
 use crate::graph::{NodeGraph, Skin};
 use crate::material::*;
-use crate::SceneError;
 use crate::utils::*;
+use crate::SceneError;
 use crate::{AnimatedMesh, Instance, LoadResult, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {
@@ -105,7 +105,8 @@ impl ObjectLoader for ObjLoader {
                             }
 
                             let mut value: Vec3A = Vec3A::from(f_values);
-                            if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all() {
+                            if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all()
+                            {
                                 value = value * Vec3A::splat(10.0);
                             }
 

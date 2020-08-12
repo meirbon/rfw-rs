@@ -5,7 +5,13 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 
-use rfw_scene::{graph::Skin, raw_window_handle::HasRawWindowHandle, renderers::{RenderMode, Renderer}, AnimatedMesh, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, TrackedStorage, ChangedIterator};
+use rfw_scene::{
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer},
+    AnimatedMesh, AreaLight, BitVec, CameraView, ChangedIterator, DeviceMaterial, DirectionalLight,
+    Instance, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, TrackedStorage,
+};
 use shared::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -841,7 +847,7 @@ impl Renderer for RayTracer {
                 },
             });
 
-        let compute_module = include_bytes!("../shaders/ray_extend.comp.spv", );
+        let compute_module = include_bytes!("../shaders/ray_extend.comp.spv",);
         let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
         let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             layout: &intersection_pipeline_layout,
@@ -1053,14 +1059,10 @@ impl Renderer for RayTracer {
         }
     }
 
-    fn set_materials(
-        &mut self,
-        materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>,
-    ) {
+    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
         let materials = materials.as_slice();
 
-        self.materials_buffer
-            .resize(&self.device, materials.len());
+        self.materials_buffer.resize(&self.device, materials.len());
         self.materials_buffer.copy_from_slice(materials);
 
         let mut encoder = self
@@ -1242,29 +1244,29 @@ impl Renderer for RayTracer {
 
         let constructed: usize = constructed
             + anim_meshes
-            .iter_mut()
-            .enumerate()
-            .par_bridge()
-            .map(|(i, (_, mesh))| match mesh {
-                AnimMesh::None => 0,
-                AnimMesh::Skinned { skinned, .. } => {
-                    if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                        skinned.refit_bvh();
-                        1
-                    } else {
-                        0
+                .iter_mut()
+                .enumerate()
+                .par_bridge()
+                .map(|(i, (_, mesh))| match mesh {
+                    AnimMesh::None => 0,
+                    AnimMesh::Skinned { skinned, .. } => {
+                        if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                            skinned.refit_bvh();
+                            1
+                        } else {
+                            0
+                        }
                     }
-                }
-                AnimMesh::Regular(mesh) => {
-                    if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                        mesh.refit_bvh();
-                        1
-                    } else {
-                        0
+                    AnimMesh::Regular(mesh) => {
+                        if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                            mesh.refit_bvh();
+                            1
+                        } else {
+                            0
+                        }
                     }
-                }
-            })
-            .sum::<usize>();
+                })
+                .sum::<usize>();
 
         self.meshes_changed.set_all(false);
 
@@ -1809,10 +1811,7 @@ impl Renderer for RayTracer {
         self.area_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights.as_slice());
     }
 
-    fn set_directional_lights(
-        &mut self,
-        lights: ChangedIterator<'_, rfw_scene::DirectionalLight>,
-    ) {
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {
         self.light_counts[LightBindings::DirectionalLights as usize] = lights.len();
         self.directional_lights.resize(&self.device, lights.len());
         self.directional_lights.as_mut_slice()[0..lights.len()].clone_from_slice(lights.as_slice());

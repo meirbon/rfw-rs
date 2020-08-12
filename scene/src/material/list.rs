@@ -1,4 +1,4 @@
-use crate::{material::Material, DeviceMaterial, TrackedStorage, ChangedIterator};
+use crate::{material::Material, ChangedIterator, DeviceMaterial, TrackedStorage};
 
 use bitvec::prelude::*;
 use glam::*;

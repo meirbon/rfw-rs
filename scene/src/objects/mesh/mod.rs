@@ -347,7 +347,7 @@ impl Mesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());

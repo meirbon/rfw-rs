@@ -494,7 +494,7 @@ impl<B: hal::Backend> SceneList<B> {
 
             let render_instance = match self.render_instances.get(i) {
                 Some(i) => i,
-                None => panic!("render instance {} does not exist.", i)
+                None => panic!("render instance {} does not exist.", i),
             };
 
             let (mut aabb, meshes) = match render_instance.object {

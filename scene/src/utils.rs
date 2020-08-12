@@ -565,7 +565,7 @@ pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
     current: usize,
 }
 
-impl<'a, T: Default + Clone + std::fmt::Debug>  ChangedIterator<'a, T> {
+impl<'a, T: Default + Clone + std::fmt::Debug> ChangedIterator<'a, T> {
     pub fn to_buffer(&self) -> Vec<T> {
         self.storage.to_owned()
     }
@@ -627,7 +627,7 @@ pub struct ChangedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
     current: usize,
 }
 
-impl<'a, T: Default + Clone + std::fmt::Debug>  ChangedIteratorMut<'a, T> {
+impl<'a, T: Default + Clone + std::fmt::Debug> ChangedIteratorMut<'a, T> {
     pub fn to_buffer(&self) -> Vec<T> {
         self.storage.to_owned()
     }

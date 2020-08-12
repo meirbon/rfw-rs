@@ -42,7 +42,7 @@ impl Default for MaterialFlags {
 impl Display for MaterialFlags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
-            f, 
+            f,
             "MaterialFlags {{ HasDiffuseMap: {}, HasNormalMap: {}, HasRoughnessMap: {}, HasMetallicMap: {}, HasEmissiveMap: {}, HasSheenMap: {} }}",
             self.get(MaterialProps::HasDiffuseMap),
             self.get(MaterialProps::HasNormalMap),
@@ -77,9 +77,11 @@ impl MaterialFlags {
 #[repr(C)]
 pub struct Material {
     pub name: String,
-    pub color: [f32; 4], // 16
+    pub color: [f32; 4],
+    // 16
     pub absorption: [f32; 4],
-    pub specular: [f32; 4], // 32
+    pub specular: [f32; 4],
+    // 32
     pub metallic: f32,
     pub subsurface: f32,
     pub specular_f: f32,
@@ -142,19 +144,27 @@ impl Display for Material {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DeviceMaterial {
-    pub color: [f32; 4],      // 16
-    pub absorption: [f32; 4], // 32
-    pub specular: [f32; 4],   // 48
+    pub color: [f32; 4],
+    // 16
+    pub absorption: [f32; 4],
+    // 32
+    pub specular: [f32; 4],
+    // 48
     pub parameters: [u32; 4], // 64
 
-    pub flags: u32,         // 68
-    pub diffuse_map: i32,   // 72
-    pub normal_map: i32,    // 76
+    pub flags: u32,
+    // 68
+    pub diffuse_map: i32,
+    // 72
+    pub normal_map: i32,
+    // 76
     pub roughness_map: i32, // 80
 
-    pub emissive_map: i32, // 84
-    pub sheen_map: i32,    // 88
-    pub _dummy: [i32; 2],  // 96
+    pub emissive_map: i32,
+    // 84
+    pub sheen_map: i32,
+    // 88
+    pub _dummy: [i32; 2], // 96
 }
 
 impl Default for DeviceMaterial {

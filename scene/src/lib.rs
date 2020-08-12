@@ -38,14 +38,7 @@ pub use raw_window_handle;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "object_caching")]
-use std::{
-    cmp::Ordering,
-    error::Error,
-    ffi::OsString,
-    fmt,
-    fs::File,
-    io::BufReader,
-};
+use std::{cmp::Ordering, error::Error, ffi::OsString, fmt, fs::File, io::BufReader};
 
 use glam::*;
 use rtbvh::{Bounds, AABB};

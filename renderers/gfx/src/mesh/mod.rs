@@ -120,7 +120,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             },
                         },
                         count: 1,
-                        stage_flags: pso::ShaderStageFlags::VERTEX | pso::ShaderStageFlags::FRAGMENT,
+                        stage_flags: pso::ShaderStageFlags::VERTEX
+                            | pso::ShaderStageFlags::FRAGMENT,
                         immutable_samplers: false,
                     }],
                     &[],

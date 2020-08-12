@@ -161,64 +161,64 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-        where
-            C: FnOnce(FlaggedIterator<'_, Instance>),
+    where
+        C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-        where
-            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
+    where
+        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&Instance>),
+    where
+        C: FnOnce(Option<&Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&mut Instance>),
+    where
+        C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
     }
 
     pub fn get_lights<C>(&self, cb: C)
-        where
-            C: FnOnce(&SceneLights),
+    where
+        C: FnOnce(&SceneLights),
     {
         let lock = self.scene.lights.lock().unwrap();
         cb(&lock)
     }
 
     pub fn get_lights_mut<C>(&self, cb: C)
-        where
-            C: FnOnce(&mut SceneLights),
+    where
+        C: FnOnce(&mut SceneLights),
     {
         let mut lock = self.scene.lights.lock().unwrap();
         cb(&mut lock)
     }
 
     pub fn get_node<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&Node>),
+    where
+        C: FnOnce(Option<&Node>),
     {
         let lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_node_mut<C>(&self, index: u32, cb: C)
-        where
-            C: FnOnce(Option<&mut Node>),
+    where
+        C: FnOnce(Option<&mut Node>),
     {
         let mut lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get_mut(index as usize))
@@ -529,7 +529,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 }
 
                 if lights.directional_lights.any_changed() {
-                    renderer.set_directional_lights(lights.directional_lights.iter_changed(), );
+                    renderer.set_directional_lights(lights.directional_lights.iter_changed());
                     lights.directional_lights.reset_changed();
                     changed = true;
                 }
