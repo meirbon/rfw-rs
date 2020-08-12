@@ -21,7 +21,7 @@ use hal::{
     Instance, *,
 };
 use instances::SceneList;
-use rfw_scene::Renderer;
+use rfw_scene::{Renderer, ChangedIterator, AnimatedMesh, Mesh};
 use std::{iter, mem::ManuallyDrop, ptr, sync::Arc};
 use window::Extent2D;
 
@@ -36,6 +36,7 @@ use crate::hal::device::OutOfMemory;
 use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
 use std::borrow::Borrow;
 use std::sync::Mutex;
+use rfw_scene::graph::Skin;
 
 #[derive(Debug, Copy, Clone)]
 pub enum GfxError {
@@ -80,22 +81,21 @@ impl<B: hal::Backend> Queue<B> {
         fence: Option<&B::Fence>,
     ) where
         T: 'a + Borrow<B::CommandBuffer>,
-        Ic: IntoIterator<Item = &'a T>,
+        Ic: IntoIterator<Item=&'a T>,
         S: 'a + Borrow<B::Semaphore>,
-        Iw: IntoIterator<Item = (&'a S, pso::PipelineStage)>,
-        Is: IntoIterator<Item = &'a S>,
+        Iw: IntoIterator<Item=(&'a S, pso::PipelineStage)>,
+        Is: IntoIterator<Item=&'a S>,
     {
         unsafe { self.queue_group.queues[0].submit(submission, fence) }
     }
 
-    /// Simplified version of `submit` that doesn't expect any semaphores.
     pub fn submit_without_semaphores<'a, T, Ic>(
         &mut self,
         command_buffers: Ic,
         fence: Option<&B::Fence>,
     ) where
         T: 'a + Borrow<B::CommandBuffer>,
-        Ic: IntoIterator<Item = &'a T>,
+        Ic: IntoIterator<Item=&'a T>,
     {
         let submission = Submission {
             command_buffers,
@@ -105,22 +105,17 @@ impl<B: hal::Backend> Queue<B> {
         self.submit::<_, _, B::Semaphore, _, _>(submission, fence)
     }
 
-    /// Presents the result of the queue to the given swapchains, after waiting on all the
-    /// semaphores given in `wait_semaphores`. A given swapchain must not appear in this
-    /// list more than once.
-    ///
-    /// Unsafe for the same reasons as `submit()`.
     pub fn present<'a, W, Is, S, Iw>(
         &mut self,
         swapchains: Is,
         wait_semaphores: Iw,
     ) -> Result<Option<Suboptimal>, PresentError>
-    where
-        Self: Sized,
-        W: 'a + Borrow<B::Swapchain>,
-        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
-        S: 'a + Borrow<B::Semaphore>,
-        Iw: IntoIterator<Item = &'a S>,
+        where
+            Self: Sized,
+            W: 'a + Borrow<B::Swapchain>,
+            Is: IntoIterator<Item=(&'a W, SwapImageIndex)>,
+            S: 'a + Borrow<B::Semaphore>,
+            Iw: IntoIterator<Item=&'a S>,
     {
         unsafe { self.queue_group.queues[0].present(swapchains, wait_semaphores) }
     }
@@ -129,10 +124,10 @@ impl<B: hal::Backend> Queue<B> {
         &mut self,
         swapchains: Is,
     ) -> Result<Option<Suboptimal>, PresentError>
-    where
-        Self: Sized,
-        W: 'a + Borrow<B::Swapchain>,
-        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
+        where
+            Self: Sized,
+            W: 'a + Borrow<B::Swapchain>,
+            Is: IntoIterator<Item=(&'a W, SwapImageIndex)>,
     {
         unsafe { self.queue_group.queues[0].present_without_semaphores(swapchains) }
     }
@@ -274,7 +269,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 pool::CommandPoolCreateFlags::empty(),
             )
         }
-        .expect("Can't create command pool");
+            .expect("Can't create command pool");
 
         let frames_in_flight = 3;
 
@@ -384,28 +379,33 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }))
     }
 
-    fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
-        self.scene_list.set_mesh(id, mesh);
+    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
+        for (i, mesh) in meshes {
+            self.scene_list.set_mesh(i, mesh);
+        }
     }
 
-    fn set_animated_mesh(&mut self, id: usize, mesh: &rfw_scene::AnimatedMesh) {
-        self.scene_list.set_anim_mesh(id, mesh);
+    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
+        for (i, mesh) in meshes {
+            self.scene_list.set_anim_mesh(i, mesh);
+        }
     }
 
-    fn set_instance(&mut self, id: usize, instance: &rfw_scene::Instance) {
-        self.scene_list.set_instance(id, instance);
+    fn set_instances(&mut self, instances: ChangedIterator<'_, rfw_scene::Instance>) {
+        for (i, instance) in instances {
+            self.scene_list.set_instance(i, instance);
+        }
     }
 
     fn set_materials(
         &mut self,
-        _materials: &[rfw_scene::Material],
-        device_materials: &[rfw_scene::DeviceMaterial],
+        materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>,
     ) {
-        self.mesh_renderer.set_materials(device_materials);
+        self.mesh_renderer.set_materials(materials.as_slice());
     }
 
-    fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
-        self.mesh_renderer.set_textures(textures);
+    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+        self.mesh_renderer.set_textures(textures.as_slice());
     }
 
     fn synchronize(&mut self) {
@@ -524,28 +524,20 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         self.mesh_renderer.resize(width as u32, height as u32);
     }
 
-    fn set_point_lights(
-        &mut self,
-        _changed: &rfw_scene::BitVec,
-        _lights: &[rfw_scene::PointLight],
-    ) {
-    }
+    fn set_point_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::PointLight>) {}
 
-    fn set_spot_lights(&mut self, _changed: &rfw_scene::BitVec, _lights: &[rfw_scene::SpotLight]) {}
+    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::SpotLight>) {}
 
-    fn set_area_lights(&mut self, _changed: &rfw_scene::BitVec, _lights: &[rfw_scene::AreaLight]) {}
+    fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::AreaLight>) {}
 
-    fn set_directional_lights(
-        &mut self,
-        _changed: &rfw_scene::BitVec,
-        _lights: &[rfw_scene::DirectionalLight],
-    ) {
-    }
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {}
 
     fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
 
-    fn set_skin(&mut self, id: usize, skin: &rfw_scene::graph::Skin) {
-        self.mesh_renderer.set_skin(id, skin);
+    fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
+        for (i, skin) in skins {
+            self.mesh_renderer.set_skin(i, skin);
+        }
     }
 
     fn get_settings(&self) -> Vec<rfw_scene::Setting> {

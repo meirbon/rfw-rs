@@ -7,13 +7,7 @@ use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
 
-use rfw_scene::{
-    graph::Skin,
-    raw_window_handle::HasRawWindowHandle,
-    renderers::{RenderMode, Renderer, Setting, SettingValue},
-    AnimatedMesh, BitVec, Camera, DeviceMaterial, FlaggedStorage, Instance, ObjectRef, Texture,
-    TrackedStorage, VertexMesh,
-};
+use rfw_scene::{graph::Skin, raw_window_handle::HasRawWindowHandle, renderers::{RenderMode, Renderer, Setting, SettingValue}, AnimatedMesh, Camera, DeviceMaterial, FlaggedStorage, Instance, ObjectRef, Texture, TrackedStorage, VertexMesh, ChangedIterator, Mesh};
 use rfw_utils::TaskPool;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -313,75 +307,78 @@ impl Renderer for Deferred {
         }))
     }
 
-    fn set_mesh(&mut self, id: usize, mesh: &rfw_scene::Mesh) {
-        self.mesh_bounds
-            .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
-        let device = self.device.clone();
-        let mesh = mesh.clone();
-        self.task_pool.push(move |finish| {
-            let mesh = mesh::DeferredMesh::new(&device, &mesh);
-            finish.send(TaskResult::Mesh(id, mesh));
-        });
-    }
-
-    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        self.anim_mesh_bounds
-            .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
-        let device = self.device.clone();
-        let mesh = mesh.clone();
-        self.task_pool.push(move |finish| {
-            let mesh = mesh::DeferredAnimMesh::new(&device, &mesh);
-            finish.send(TaskResult::AnimMesh(id, mesh));
-        });
-    }
-
-    fn set_instance(&mut self, id: usize, instance: &Instance) {
-        match instance.object_id {
-            ObjectRef::None => {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &(AABB::empty(), Vec::new()),
-                );
-            }
-            ObjectRef::Static(mesh_id) => {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &self.mesh_bounds[mesh_id as usize],
-                );
-            }
-            ObjectRef::Animated(mesh_id) => {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &self.anim_mesh_bounds[mesh_id as usize],
-                );
-            }
+    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
+        for (id, mesh) in meshes {
+            self.mesh_bounds
+                .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
+            let device = self.device.clone();
+            let mesh = mesh.clone();
+            self.task_pool.push(move |finish| {
+                let mesh = mesh::DeferredMesh::new(&device, &mesh);
+                finish.send(TaskResult::Mesh(id, mesh));
+            });
         }
+    }
 
-        self.scene_bounds.grow_bb(
-            &instance
-                .local_bounds()
-                .transformed(instance.get_transform().to_cols_array()),
-        );
+    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
+        for (id, mesh) in meshes {
+            self.anim_mesh_bounds
+                .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
+            let device = self.device.clone();
+            let mesh = mesh.clone();
+            self.task_pool.push(move |finish| {
+                let mesh = mesh::DeferredAnimMesh::new(&device, &mesh);
+                finish.send(TaskResult::AnimMesh(id, mesh));
+            });
+        }
+    }
+
+    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>) {
+        for (id, instance) in instances {
+            match instance.object_id {
+                ObjectRef::None => {
+                    self.instances.set(
+                        &self.device,
+                        id,
+                        instance.clone(),
+                        &(AABB::empty(), Vec::new()),
+                    );
+                }
+                ObjectRef::Static(mesh_id) => {
+                    self.instances.set(
+                        &self.device,
+                        id,
+                        instance.clone(),
+                        &self.mesh_bounds[mesh_id as usize],
+                    );
+                }
+                ObjectRef::Animated(mesh_id) => {
+                    self.instances.set(
+                        &self.device,
+                        id,
+                        instance.clone(),
+                        &self.anim_mesh_bounds[mesh_id as usize],
+                    );
+                }
+            }
+
+            self.scene_bounds.grow_bb(
+                &instance
+                    .local_bounds()
+                    .transformed(instance.get_transform().to_cols_array()),
+            );
+        }
     }
 
     fn set_materials(
         &mut self,
-        materials: &[rfw_scene::Material],
-        device_materials: &[rfw_scene::DeviceMaterial],
+        materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>,
     ) {
-        assert!(materials.len() > 0);
-        assert_eq!(materials.len(), device_materials.len());
-        let size =
-            (device_materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
+        let materials = materials.as_slice();
+        let size = (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
         let staging_buffer = self.device.create_buffer_with_data(
             unsafe {
-                std::slice::from_raw_parts(device_materials.as_ptr() as *const u8, size as usize)
+                std::slice::from_raw_parts(materials.as_ptr() as *const u8, size as usize)
             },
             wgpu::BufferUsage::COPY_SRC,
         );
@@ -407,8 +404,8 @@ impl Renderer for Deferred {
         self.material_bind_groups = (0..materials.len())
             .map(|i| {
                 let material = &materials[i];
-                let albedo_tex = material.diffuse_tex.max(0) as usize;
-                let normal_tex = material.normal_tex.max(0) as usize;
+                let albedo_tex = material.diffuse_map.max(0) as usize;
+                let normal_tex = material.normal_map.max(0) as usize;
 
                 let albedo_view = &self.texture_views[albedo_tex];
                 let normal_view = &self.texture_views[normal_tex];
@@ -458,7 +455,8 @@ impl Renderer for Deferred {
         self.materials_changed = true;
     }
 
-    fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
+    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+        let textures = textures.as_slice();
         let staging_size =
             textures.iter().map(|t| t.data.len()).sum::<usize>() * std::mem::size_of::<u32>();
         let staging_buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
@@ -659,25 +657,25 @@ impl Renderer for Deferred {
             .update_bind_groups(&self.device, &self.output);
     }
 
-    fn set_point_lights(&mut self, _changed: &BitVec, _lights: &[rfw_scene::PointLight]) {
+    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, rfw_scene::PointLight>) {
         self.lights_changed = true;
     }
 
-    fn set_spot_lights(&mut self, changed: &BitVec, lights: &[rfw_scene::SpotLight]) {
+    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::SpotLight>) {
         self.lights
-            .set_spot_lights(changed, lights, &self.scene_bounds);
+            .set_spot_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_area_lights(&mut self, changed: &BitVec, lights: &[rfw_scene::AreaLight]) {
+    fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::AreaLight>) {
         self.lights
-            .set_area_lights(changed, lights, &self.scene_bounds);
+            .set_area_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_directional_lights(&mut self, changed: &BitVec, lights: &[rfw_scene::DirectionalLight]) {
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {
         self.lights
-            .set_directional_lights(changed, lights, &self.scene_bounds);
+            .set_directional_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
@@ -685,10 +683,11 @@ impl Renderer for Deferred {
         unimplemented!()
     }
 
-    fn set_skin(&mut self, id: usize, skin: &Skin) {
-        self.skins
-            .overwrite(id, DeferredSkin::new(&self.device, skin.clone()));
-        self.skins[id].create_bind_group(&self.device, &self.skin_bind_group_layout);
+    fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
+        for (i, skin) in skins {
+            self.skins.overwrite(i, DeferredSkin::new(&self.device, skin.clone()));
+            self.skins[i].create_bind_group(&self.device, &self.skin_bind_group_layout);
+        }
     }
 
     fn get_settings(&self) -> Vec<Setting> {
@@ -888,7 +887,7 @@ impl Deferred {
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
                         if let (Some(buffer), Some(anim_buffer)) =
-                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                        (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                         {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);

@@ -446,7 +446,7 @@ impl<B: hal::Backend> SceneList<B> {
             }
         }
 
-        for result in self.task_pool.sync() {
+        for result in self.task_pool.take_finished() {
             match result {
                 TaskResult::Mesh(new_mesh, _, cmd_buffer) => {
                     let id = new_mesh.id as usize;
@@ -491,7 +491,13 @@ impl<B: hal::Backend> SceneList<B> {
 
         for (i, inst) in instances.iter_mut() {
             let matrix = inst.matrix.to_cols_array();
-            let (mut aabb, meshes) = match self.render_instances[i].object {
+
+            let render_instance = match self.render_instances.get(i) {
+                Some(i) => i,
+                None => panic!("render instance {} does not exist.", i)
+            };
+
+            let (mut aabb, meshes) = match render_instance.object {
                 ObjectRef::None => {
                     let vec: Vec<VertexMesh> = Vec::new();
                     (AABB::empty(), vec)
@@ -599,7 +605,9 @@ impl<B: hal::Backend> SceneList<B> {
                 if let Some(buffer) = buffer {
                     set.iter().for_each(|inst| {
                         let inst = *inst as usize;
-                        render_instance(&buffer, &self.render_instances[inst]);
+                        if let Some(instance) = self.render_instances.get(inst) {
+                            render_instance(&buffer, instance);
+                        }
                     });
                 }
             });
@@ -620,7 +628,9 @@ impl<B: hal::Backend> SceneList<B> {
                 if let Some(buffer) = buffer {
                     set.iter().for_each(|inst| {
                         let inst = *inst as usize;
-                        render_instance(&buffer, &self.render_instances[inst]);
+                        if let Some(instance) = self.render_instances.get(inst) {
+                            render_instance(&buffer, instance);
+                        }
                     });
                 }
             });

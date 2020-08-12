@@ -1,8 +1,5 @@
 use crate::graph::Skin;
-use crate::{
-    AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh,
-    PointLight, SpotLight, Texture,
-};
+use crate::{AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Material, Mesh, PointLight, SpotLight, Texture, ChangedIterator};
 use bitvec::prelude::BitVec;
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;
@@ -111,16 +108,24 @@ pub trait Renderer {
         width: usize,
         height: usize,
     ) -> Result<Box<Self>, Box<dyn Error>>;
+
     /// Updates a mesh at the given index
-    fn set_mesh(&mut self, id: usize, mesh: &Mesh);
+    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>);
+    // fn set_mesh(&mut self, id: usize, mesh: &Mesh);
+
     /// Updates an animated mesh at the given index
-    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh);
+    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>);
+    // fn set_animated_mesh(&mut self, id: usize,  mesh: &AnimatedMesh);
+
     /// Sets an instance with a 4x4 transformation matrix in column-major format
-    fn set_instance(&mut self, id: usize, instance: &Instance);
+    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>);
+    // fn set_instance(&mut self, id: usize, instance: &Instance);
+
     /// Updates materials
-    fn set_materials(&mut self, materials: &[Material], device_materials: &[DeviceMaterial]);
+    fn set_materials(&mut self, materials: ChangedIterator<'_, DeviceMaterial>);
     /// Updates textures
-    fn set_textures(&mut self, textures: &[Texture]);
+    fn set_textures(&mut self, textures: ChangedIterator<'_, Texture>);
+
     /// Synchronizes scene after updating meshes, instances, materials and lights
     /// This is an expensive step as it can involve operations such as acceleration structure rebuilds
     fn synchronize(&mut self);
@@ -129,17 +134,18 @@ pub trait Renderer {
     /// Resizes framebuffer
     fn resize<T: HasRawWindowHandle>(&mut self, window: &T, width: usize, height: usize);
     /// Updates point lights, only lights with their 'changed' flag set to true have changed
-    fn set_point_lights(&mut self, changed: &BitVec, lights: &[PointLight]);
+    fn set_point_lights(&mut self, lights: ChangedIterator<'_, PointLight>);
     /// Updates spot lights, only lights with their 'changed' flag set to true have changed
-    fn set_spot_lights(&mut self, changed: &BitVec, lights: &[SpotLight]);
+    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, SpotLight>);
     /// Updates area lights, only lights with their 'changed' flag set to true have changed
-    fn set_area_lights(&mut self, changed: &BitVec, lights: &[AreaLight]);
+    fn set_area_lights(&mut self, lights: ChangedIterator<'_, AreaLight>);
     /// Updates directional lights, only lights with their 'changed' flag set to true have changed
-    fn set_directional_lights(&mut self, changed: &BitVec, lights: &[DirectionalLight]);
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, DirectionalLight>);
     // Sets the scene skybox
     fn set_skybox(&mut self, skybox: Texture);
     // Sets a skin
-    fn set_skin(&mut self, id: usize, skin: &Skin);
+    // fn set_skin(&mut self, id: usize, skin: &Skin);
+    fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>);
 
     fn get_settings(&self) -> Vec<Setting>;
 

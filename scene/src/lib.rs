@@ -45,7 +45,6 @@ use std::{
     fmt,
     fs::File,
     io::BufReader,
-    sync::{Arc, Mutex},
 };
 
 use glam::*;

@@ -565,6 +565,30 @@ pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
     current: usize,
 }
 
+impl<'a, T: Default + Clone + std::fmt::Debug>  ChangedIterator<'a, T> {
+    pub fn to_buffer(&self) -> Vec<T> {
+        self.storage.to_owned()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.storage[0..self.length]
+    }
+
+    pub fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr()
+    }
+
+    /// This does not return the number of items in the iterator,
+    /// This returns the maximum number of items potentially in the iterator.
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn changed(&self) -> &'a BitVec {
+        self.changed
+    }
+}
+
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIterator<'a, T> {
     type Item = (usize, &'a T);
 
@@ -601,6 +625,38 @@ pub struct ChangedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
     changed: &'a BitVec,
     length: usize,
     current: usize,
+}
+
+impl<'a, T: Default + Clone + std::fmt::Debug>  ChangedIteratorMut<'a, T> {
+    pub fn to_buffer(&self) -> Vec<T> {
+        self.storage.to_owned()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.storage[0..self.length]
+    }
+
+    pub fn as_mut_slice(&self) -> &[T] {
+        &self.storage[0..self.length]
+    }
+
+    pub fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.storage.as_mut_ptr()
+    }
+
+    /// This does not return the number of items in the iterator,
+    /// This returns the maximum number of items potentially in the iterator.
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn changed(&self) -> &'a BitVec {
+        self.changed
+    }
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIteratorMut<'a, T> {

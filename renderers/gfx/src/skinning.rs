@@ -202,7 +202,7 @@ impl<B: hal::Backend> SkinList<B> {
     }
 
     pub fn synchronize(&mut self) {
-        for (id, result) in self.task_pool.sync() {
+        for (id, result) in self.task_pool.take_finished() {
             self.skins.overwrite(id, result);
         }
 

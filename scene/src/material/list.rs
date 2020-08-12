@@ -1,9 +1,8 @@
-use crate::{material::Material, DeviceMaterial};
+use crate::{material::Material, DeviceMaterial, TrackedStorage, ChangedIterator};
 
 use bitvec::prelude::*;
 use glam::*;
 use image::GenericImageView;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
@@ -15,12 +14,11 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct MaterialList {
-    changed: BitVec,
-    changed_textures: BitVec,
     light_flags: BitVec,
-    materials: Vec<Material>,
+    materials: TrackedStorage<Material>,
+    device_materials: TrackedStorage<DeviceMaterial>,
     tex_path_mapping: HashMap<PathBuf, usize>,
-    textures: Vec<Texture>,
+    textures: TrackedStorage<Texture>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -47,9 +45,7 @@ impl Display for MaterialList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "MaterialList: {{ changed: {}, changed_textures: {}, lights_materials: {}, materials: {}, textures: {} }}",
-            self.changed.count_ones(),
-            self.changed_textures.count_ones(),
+            "MaterialList: {{ lights_materials: {}, materials: {}, textures: {} }}",
             self.light_flags.count_ones(),
             self.materials.len(),
             self.textures.len()
@@ -79,6 +75,17 @@ pub struct Texture {
     pub width: u32,
     pub height: u32,
     pub mip_levels: u32,
+}
+
+impl Default for Texture {
+    fn default() -> Self {
+        Self {
+            data: vec![0_u32; 64 * 64],
+            width: 64,
+            height: 64,
+            mip_levels: 1,
+        }
+    }
 }
 
 impl Display for Texture {
@@ -462,41 +469,30 @@ impl MaterialList {
     // Creates an empty material list
     pub fn empty() -> MaterialList {
         MaterialList {
-            changed: BitVec::new(),
-            changed_textures: BitVec::new(),
             light_flags: BitVec::new(),
-            materials: Vec::new(),
+            materials: TrackedStorage::new(),
+            device_materials: TrackedStorage::new(),
             tex_path_mapping: HashMap::new(),
-            textures: Vec::new(),
+            textures: TrackedStorage::new(),
         }
     }
 
-    // Creates a material list with at least a single (empty) texture and (empty) material
+    /// Creates a material list with at least a single (empty) texture and (empty) material
     pub fn new() -> MaterialList {
-        let materials = vec![Material::default()];
+        let mut materials = TrackedStorage::new();
+        materials.push(Material::default());
 
-        let mut textures = Vec::new();
+        // Make sure always a single texture exists (as fallback)
+        let mut textures = TrackedStorage::new();
+        textures.push(Texture::default());
 
-        textures.push(Texture {
-            // Make sure always a single texture exists (as fallback)
-            width: 64,
-            height: 64,
-            data: vec![0; 4096],
-            mip_levels: 1,
-        });
-
-        let mut changed = BitVec::new();
-        let mut changed_textures = BitVec::new();
         let mut light_flags = BitVec::new();
-        changed.push(true);
-        changed_textures.push(true);
         light_flags.push(false);
 
         MaterialList {
-            changed,
-            changed_textures,
             light_flags,
             materials,
+            device_materials: TrackedStorage::new(),
             tex_path_mapping: HashMap::new(),
             textures,
         }
@@ -617,7 +613,6 @@ impl MaterialList {
 
     pub fn push(&mut self, mat: Material) -> usize {
         let i = self.materials.len();
-        self.changed.push(true);
         let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any();
 
         self.light_flags.push(is_light);
@@ -637,7 +632,6 @@ impl MaterialList {
 
     pub fn get_mut<T: FnMut(Option<&mut Material>)>(&mut self, index: usize, mut cb: T) {
         cb(self.materials.get_mut(index));
-        self.changed.set(index, true);
         self.light_flags.set(
             index,
             Vec4::from(self.materials[index].color)
@@ -653,7 +647,6 @@ impl MaterialList {
 
     pub unsafe fn get_unchecked_mut<T: FnMut(&mut Material)>(&mut self, index: usize, mut cb: T) {
         cb(self.materials.get_unchecked_mut(index));
-        self.changed.set(index, true);
         self.light_flags.set(
             index,
             Vec4::from(self.materials[index].color)
@@ -668,7 +661,6 @@ impl MaterialList {
     }
 
     pub fn get_texture_mut(&mut self, index: usize) -> Option<&mut Texture> {
-        self.changed_textures.set(index, true);
         self.textures.get_mut(index)
     }
 
@@ -686,7 +678,6 @@ impl MaterialList {
             Ok(mut tex) => {
                 tex.generate_mipmaps(Texture::MIP_LEVELS);
 
-                self.changed_textures.push(true);
                 self.textures.push(tex);
                 let index = self.textures.len() - 1;
 
@@ -713,37 +704,48 @@ impl MaterialList {
     }
 
     pub fn changed(&self) -> bool {
-        self.changed.any()
+        self.materials.any_changed()
     }
 
     pub fn light_flags(&self) -> &BitVec {
         &self.light_flags
     }
 
-    pub fn as_slice(&self) -> &[Material] {
+    pub unsafe fn as_slice(&self) -> &[Material] {
         self.materials.as_slice()
     }
 
-    pub fn textures_slice(&self) -> &[Texture] {
+    pub fn iter_changed_materials(&self) -> ChangedIterator<'_, Material> {
+        self.materials.iter_changed()
+    }
+
+    pub unsafe fn textures_slice(&self) -> &[Texture] {
         self.textures.as_slice()
     }
 
-    pub fn into_device_materials(&self) -> Vec<DeviceMaterial> {
-        self.materials.par_iter().map(|m| m.into()).collect()
+    pub fn iter_changed_textures(&self) -> ChangedIterator<'_, Texture> {
+        self.textures.iter_changed()
+    }
+
+    pub fn get_device_materials(&mut self) -> ChangedIterator<'_, DeviceMaterial> {
+        for (i, m) in self.materials.iter_changed() {
+            self.device_materials.overwrite(i, m.into());
+        }
+        self.device_materials.iter_changed()
     }
 
     pub fn textures_changed(&self) -> bool {
-        self.changed_textures.any()
+        self.textures.any_changed()
     }
 
     pub fn reset_changed(&mut self) {
-        self.changed.set_all(false);
-        self.changed_textures.set_all(false);
+        self.materials.reset_changed();
+        self.textures.reset_changed();
     }
 
     pub fn set_changed(&mut self) {
-        self.changed.set_all(true);
-        self.changed_textures.set_all(true);
+        self.materials.trigger_changed_all();
+        self.textures.trigger_changed_all();
     }
 }
 

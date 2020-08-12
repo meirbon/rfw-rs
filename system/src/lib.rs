@@ -161,64 +161,64 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn iter_instances<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIterator<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIterator<'_, Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter());
     }
 
     pub fn iter_instances_mut<C>(&self, cb: C)
-    where
-        C: FnOnce(FlaggedIteratorMut<'_, Instance>),
+        where
+            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.iter_mut());
     }
 
     pub fn get_instance<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Instance>),
+        where
+            C: FnOnce(Option<&Instance>),
     {
         let lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&mut Instance>),
+        where
+            C: FnOnce(Option<&mut Instance>),
     {
         let mut lock = self.scene.objects.instances.lock().unwrap();
         cb(lock.get_mut(index))
     }
 
     pub fn get_lights<C>(&self, cb: C)
-    where
-        C: FnOnce(&SceneLights),
+        where
+            C: FnOnce(&SceneLights),
     {
         let lock = self.scene.lights.lock().unwrap();
         cb(&lock)
     }
 
     pub fn get_lights_mut<C>(&self, cb: C)
-    where
-        C: FnOnce(&mut SceneLights),
+        where
+            C: FnOnce(&mut SceneLights),
     {
         let mut lock = self.scene.lights.lock().unwrap();
         cb(&mut lock)
     }
 
     pub fn get_node<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Node>),
+        where
+            C: FnOnce(Option<&Node>),
     {
         let lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get(index))
     }
 
     pub fn get_node_mut<C>(&self, index: u32, cb: C)
-    where
-        C: FnOnce(Option<&mut Node>),
+        where
+            C: FnOnce(Option<&mut Node>),
     {
         let mut lock = self.scene.objects.nodes.lock().unwrap();
         cb(lock.get_mut(index as usize))
@@ -405,9 +405,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                     nodes.update(&mut instances, &mut skins);
                 }
 
-                skins
-                    .iter_changed()
-                    .for_each(|(id, skin)| renderer.set_skin(id, skin));
+                if skins.any_changed() {
+                    renderer.set_skins(skins.iter_changed());
+                }
+
                 skins.reset_changed();
                 nodes.reset_changed();
             }
@@ -417,25 +418,23 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 self.scene.objects.animated_meshes.lock(),
                 self.scene.objects.instances.lock(),
             ) {
-                meshes.iter_changed().for_each(|(i, m)| {
-                    renderer.set_mesh(i, m);
+                if meshes.any_changed() {
+                    renderer.set_meshes(meshes.iter_changed());
                     changed = true;
-                });
+                }
 
-                anim_meshes.iter_changed().for_each(|(i, m)| {
-                    renderer.set_animated_mesh(i, m);
-                    changed = true;
-                });
+                if anim_meshes.any_changed() {
+                    renderer.set_animated_meshes(anim_meshes.iter_changed());
+                }
 
                 if let Ok(materials) = self.scene.materials_lock() {
                     let light_flags = materials.light_flags();
-                    instances.iter_changed_mut().for_each(|(i, instance)| {
-                        instance.update_transform();
-                        renderer.set_instance(i, instance);
-                        changed = true;
+                    changed |= instances.any_changed();
 
+                    for (_, instance) in instances.iter_changed_mut() {
+                        instance.update_transform();
                         if found_light {
-                            return;
+                            break;
                         }
 
                         match instance.object_id {
@@ -475,7 +474,11 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                                 }
                             }
                         }
-                    });
+                    }
+                }
+
+                if instances.any_changed() {
+                    renderer.set_instances(instances.iter_changed());
                 }
 
                 meshes.reset_changed();
@@ -488,14 +491,13 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             if let Ok(mut materials) = self.scene.materials_lock() {
                 let mut mat_changed = false;
                 if materials.textures_changed() {
-                    renderer.set_textures(materials.textures_slice());
+                    renderer.set_textures(materials.iter_changed_textures());
                     changed = true;
                     mat_changed = true;
                 }
 
                 if materials.changed() {
-                    let device_materials = materials.into_device_materials();
-                    renderer.set_materials(materials.as_slice(), device_materials.as_slice());
+                    renderer.set_materials(materials.get_device_materials());
                     changed = true;
                     mat_changed = true;
                 }
@@ -509,42 +511,27 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             }
 
             if let Ok(mut lights) = self.scene.lights_lock() {
-                unsafe {
-                    if lights.point_lights.any_changed() {
-                        renderer.set_point_lights(
-                            &lights.point_lights.changed(),
-                            lights.point_lights.as_slice(),
-                        );
-                        lights.point_lights.reset_changed();
-                        changed = true;
-                    }
+                if lights.point_lights.any_changed() {
+                    renderer.set_point_lights(lights.point_lights.iter_changed());
+                    lights.point_lights.reset_changed();
+                    changed = true;
+                }
 
-                    if lights.spot_lights.any_changed() {
-                        renderer.set_spot_lights(
-                            &lights.spot_lights.changed(),
-                            lights.spot_lights.as_slice(),
-                        );
-                        lights.spot_lights.reset_changed();
-                        changed = true;
-                    }
+                if lights.spot_lights.any_changed() {
+                    renderer.set_spot_lights(lights.spot_lights.iter_changed());
+                    lights.spot_lights.reset_changed();
+                    changed = true;
+                }
 
-                    if lights.area_lights.any_changed() {
-                        renderer.set_area_lights(
-                            &lights.area_lights.changed(),
-                            lights.area_lights.as_slice(),
-                        );
-                        lights.area_lights.reset_changed();
-                        changed = true;
-                    }
+                if lights.area_lights.any_changed() {
+                    renderer.set_area_lights(lights.area_lights.iter_changed());
+                    changed = true;
+                }
 
-                    if lights.directional_lights.any_changed() {
-                        renderer.set_directional_lights(
-                            &lights.directional_lights.changed(),
-                            lights.directional_lights.as_slice(),
-                        );
-                        lights.directional_lights.reset_changed();
-                        changed = true;
-                    }
+                if lights.directional_lights.any_changed() {
+                    renderer.set_directional_lights(lights.directional_lights.iter_changed(), );
+                    lights.directional_lights.reset_changed();
+                    changed = true;
                 }
             }
 

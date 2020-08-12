@@ -10,7 +10,7 @@ pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
     allocator: Allocator<B>,
     lights: TrackedStorage<T>,
     info: Vec<LightInfo>,
-    shadow_maps: ShadowMapArray<B>,
+    // shadow_maps: ShadowMapArray<B>,
 }
 
 impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
@@ -19,7 +19,7 @@ impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
             allocator,
             lights: TrackedStorage::new(),
             info: Vec::with_capacity(capacity),
-            shadow_maps: ShadowMapArray::new(device, allocator.clone(), capacity),
+            // shadow_maps: ShadowMapArray::new(device, allocator.clone(), capacity),
         }
     }
 }
@@ -55,7 +55,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
     pub const FORMAT: format::Format = format::Format::Rg32Sfloat;
     pub const DEPTH_FORMAT: format::Format = format::Format::D32Sfloat;
 
-    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>, capacity: usize) -> Self {
+    pub fn new(device: Arc<B::Device>, allocator: Allocator<B>, capacity: usize) {
         unsafe {
             let mut map = device.create_image(image::Kind::D2(Self::WIDTH, Self::HEIGHT, capacity as u16, 1), 1 as image::Level, Self::FORMAT, image::Tiling::Optimal, image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED, image::ViewCapabilities::KIND_2D_ARRAY).unwrap();
             let req = device.get_image_requirements(&map);
@@ -82,7 +82,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
             let (depth_map, depth_view, depth_map_memory) = {
                 let mut image = device
                     .create_image(
-                        image::Kind::D2(width, height, 1, 1),
+                        image::Kind::D2(Self::WIDTH, Self::HEIGHT, 1, 1),
                         1,
                         Self::DEPTH_FORMAT,
                         image::Tiling::Optimal,
@@ -117,40 +117,41 @@ impl<B: hal::Backend> ShadowMapArray<B> {
 
             let uniform_buffer = allocator
                 .allocate_buffer(
-                    Self::UNIFORM_CAMERA_SIZE,
+                    160, // TODO,
                     hal::buffer::Usage::UNIFORM,
                     hal::memory::Properties::CPU_VISIBLE,
                     Some(hal::memory::Properties::CPU_VISIBLE | hal::memory::Properties::DEVICE_LOCAL),
                 )
                 .unwrap();
 
-            Self {
-                device,
-
-                map,
-                view,
-                map_memory,
-
-                filter_map,
-                filter_view,
-                filter_map_memory,
-
-                depth_map,
-                depth_map_memory,
-                depth_view,
-
-                uniform_buffer,
-
-                // filter_pipeline: Arc<FilterPipeline<B>>,
-                // pipeline_layout: B::PipelineLayout,
-                // pipeline: B::GraphicsPipeline,
-                // anim_pipeline: B::GraphicsPipeline,
-                // light_infos: Vec<LightInfo>,
-            }
+            // Self {
+            //     device,
+            //
+            //     map,
+            //     view,
+            //     map_memory,
+            //
+            //     filter_map,
+            //     filter_view,
+            //     filter_map_memory,
+            //
+            //     depth_map,
+            //     depth_map_memory,
+            //     depth_view,
+            //
+            //     uniform_buffer,
+            //
+            //     // filter_pipeline: Arc<FilterPipeline<B>>,
+            //     // pipeline_layout: B::PipelineLayout,
+            //     // pipeline: B::GraphicsPipeline,
+            //     // anim_pipeline: B::GraphicsPipeline,
+            //     // light_infos: Vec<LightInfo>,
+            // }
         }
     }
 }
 
+#[derive(Debug)]
 pub struct FilterPipeline<B: hal::Backend> {
     device: Arc<B::Device>,
     desc_pool: ManuallyDrop<B::DescriptorPool>,
