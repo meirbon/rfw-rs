@@ -34,6 +34,7 @@ mod skinning;
 
 use crate::hal::device::OutOfMemory;
 use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
+use crate::skinning::SkinList;
 use rfw_scene::graph::Skin;
 use std::borrow::Borrow;
 use std::sync::Mutex;
@@ -164,6 +165,7 @@ pub struct GfxRenderer<B: hal::Backend> {
 
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
+    skins: SkinList<B>,
 }
 
 impl<B: hal::Backend> Renderer for GfxRenderer<B> {
@@ -356,6 +358,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             &scene_list,
         );
 
+        let skins = SkinList::new(device.clone(), allocator.clone(), transfer_queue.clone());
+
         Ok(Box::new(Self {
             instance,
             queue,
@@ -376,6 +380,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             },
             scene_list,
             mesh_renderer,
+            skins,
         }))
     }
 
@@ -406,11 +411,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     }
 
     fn synchronize(&mut self) {
-        let scene_list = &mut self.scene_list;
-        let mesh_renderer = &mut self.mesh_renderer;
-
-        scene_list.synchronize();
-        mesh_renderer.synchronize();
+        self.skins.synchronize();
+        self.scene_list.synchronize();
     }
 
     fn render(&mut self, camera: &rfw_scene::Camera, _mode: rfw_scene::RenderMode) {
@@ -465,6 +467,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 &framebuffer,
                 &self.viewport,
                 &self.scene_list,
+                &self.skins,
                 &camera.calculate_frustrum(),
             );
             cmd_buffer.finish();
@@ -534,7 +537,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         for (i, skin) in skins {
-            self.mesh_renderer.set_skin(i, skin);
+            self.skins.set_skin(i, skin);
         }
     }
 

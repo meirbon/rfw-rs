@@ -95,10 +95,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .get_matches();
 
     use rfw_deferred::Deferred;
-    // use rfw_gpu_rt::RayTracer;
+    use rfw_gpu_rt::RayTracer;
 
     match matches.value_of("renderer") {
-        // Some("gpu-rt") => run_application::<RayTracer>(),
+        Some("gpu-rt") => run_application::<RayTracer>(),
         _ => run_application::<Deferred>(),
     }
 }
@@ -338,10 +338,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     });
                 });
 
-                timer2.reset();
-                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
-                renderer.synchronize();
-                synchronize.add_sample(timer2.elapsed_in_millis());
+                // timer2.reset();
+                // renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
+                // renderer.synchronize();
+                // synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);

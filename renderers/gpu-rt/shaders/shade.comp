@@ -7,36 +7,34 @@
 #include "disney.glsl"
 //#include "lambert.glsl"
 
+#include "bindings.glsl"
+
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
-layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
-layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
-layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
-layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
-layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
-layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
-layout(std140, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
-layout(set = 0, binding = 8) uniform texture2D skybox;
-layout(std430, set = 0, binding = 9) buffer readonly BlueNoise { int blueNoise[]; };
+layout(set = 0, binding = I_OUTPUT, rgba32f) uniform writeonly image2D OutputTex;
+layout(std430, set = 0, binding = I_CAMERA) buffer Camera {
+    CameraView camera;
+    int blueNoise[];
+};
+layout(std430, set = 0, binding = I_STATES) buffer pathStates { PathState states[]; };
+layout(std430, set = 0, binding = I_ACC_BUF) buffer accBuffer { vec4 acPixels[]; };
+layout(std140, set = 0, binding = I_POT_CONTRIB) buffer shadowContributions { PotentialContribution potContributions[]; };
+layout(set = 0, binding = I_SKYBOX) uniform texture2D skybox;
 
-layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
-layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
-layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
-layout(std140, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
+layout(std430, set = 1, binding = ME_PRIM) buffer readonly primIndices { uint prim_indices[]; };
+layout(std430, set = 1, binding = ME_BVH) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = ME_MBVH) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
+layout(std140, set = 1, binding = ME_TRI) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
 
-layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
-layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
-layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
-layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
-layout(std430, set = 2, binding = 4) buffer readonly Materials { Material materials[]; };
-layout(set = 2, binding = 5) uniform texture2DArray matTextures;
-layout(set = 2, binding = 6) uniform sampler matTexSampler;
+layout(std430, set = 2, binding = M_MAT) buffer readonly Materials { Material materials[]; };
+layout(set = 2, binding = M_TEX) uniform texture2DArray matTextures;
+layout(set = 2, binding = M_SAM) uniform sampler matTexSampler;
+layout(std430, set = 2, binding = M_INST) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
 
-layout(std430, set = 3, binding = 0) buffer readonly PointLights { PointLight pointLights[]; };
-layout(std430, set = 3, binding = 1) buffer readonly SpotLights { SpotLight spotLights[]; };
-layout(std430, set = 3, binding = 2) buffer readonly AreaLights { AreaLight areaLights[]; };
-layout(std430, set = 3, binding = 3) buffer readonly DirectionalLights { DirectionalLight directionalLights[]; };
+layout(std430, set = 3, binding = L_POINT) buffer readonly PointLights { PointLight pointLights[]; };
+layout(std430, set = 3, binding = L_SPOT) buffer readonly SpotLights { SpotLight spotLights[]; };
+layout(std430, set = 3, binding = L_AREA) buffer readonly AreaLights { AreaLight areaLights[]; };
+layout(std430, set = 3, binding = L_DIR) buffer readonly DirectionalLights { DirectionalLight directionalLights[]; };
 
 #define MIPLEVELCOUNT 5
 
@@ -82,10 +80,10 @@ void main()
 
     job_id = job_id + shadeBufferIndex * offset;
 
-    const vec4 S = states[job_id];
-    const vec4 O = origins[job_id];
-    const vec4 D = directions[job_id];
-    const vec4 T4 = camera.path_length == 0 ? vec4(1) : throughputs[job_id];
+    const vec4 S = states[job_id].state;
+    const vec4 O = states[job_id].origin;
+    const vec4 D = states[job_id].direction;
+    const vec4 T4 = camera.path_length == 0 ? vec4(1) : states[job_id].throughput;
     vec3 throughput = T4.xyz;
     const float bsdfPdf = T4.w;
 
@@ -262,9 +260,9 @@ void main()
     // Get compacted index for extension ray
     const int ext_id = atomicAdd(camera.extensionId, 1) + int(nextBufferIndex * offset);
 
-    origins[ext_id] = vec4(safe_origin(P, R, gN, 1e-4f), O.w);
-    directions[ext_id] = vec4(R, uintBitsToFloat(PackNormal(N)));
-    throughputs[ext_id] = vec4(throughput, newBsdfPdf);
+    states[ext_id].origin = vec4(safe_origin(P, R, gN, 1e-4f), O.w);
+    states[ext_id].direction = vec4(R, uintBitsToFloat(PackNormal(N)));
+    states[ext_id].throughput = vec4(throughput, newBsdfPdf);
 }
 
 vec4 fetchTexel(const vec2 texCoord, const int textureId, const float LOD)

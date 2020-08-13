@@ -87,8 +87,6 @@ pub struct RenderPipeline<B: hal::Backend> {
     mat_sets: Vec<B::DescriptorSet>,
     material_buffer: Buffer<B>,
     tex_sampler: ManuallyDrop<B::Sampler>,
-
-    skins: SkinList<B>,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -106,8 +104,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
         height: u32,
         scene_list: &SceneList<B>,
     ) -> Self {
-        let skins = SkinList::new(device.clone(), allocator.clone(), queue.clone());
-
         let set_layout = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_set_layout(
@@ -906,7 +902,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
             mat_sets: Vec::new(),
             material_buffer,
             tex_sampler,
-            skins,
         }
     }
 
@@ -965,6 +960,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         frame_buffer: &B::Framebuffer,
         viewport: &Viewport,
         scene: &SceneList<B>,
+        skins: &SkinList<B>,
         frustrum: &FrustrumG,
     ) {
         cmd_buffer.begin_render_pass(
@@ -1026,7 +1022,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         RenderBuffers::Animated(buffer, anim_offset) => {
                             if let Some(skin_id) = instance.skin_id {
                                 let skin_id = skin_id as usize;
-                                if let Some(skin_set) = self.skins.get_set(skin_id) {
+                                if let Some(skin_set) = skins.get_set(skin_id) {
                                     cmd_buffer.bind_graphics_pipeline(&self.anim_pipeline);
                                     cmd_buffer.bind_graphics_descriptor_sets(
                                         &self.pipeline_layout,
@@ -1465,16 +1461,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
         if let Ok(mut queue) = self.queue.lock() {
             queue.wait_idle().unwrap();
         }
-    }
-
-    #[inline]
-    pub fn set_skin(&mut self, id: usize, skin: &rfw_scene::graph::Skin) {
-        self.skins.set_skin(id, skin);
-    }
-
-    #[inline]
-    pub fn synchronize(&mut self) {
-        self.skins.synchronize();
     }
 }
 

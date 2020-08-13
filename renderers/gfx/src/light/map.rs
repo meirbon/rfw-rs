@@ -1,5 +1,7 @@
 use crate::buffer::*;
 use crate::hal;
+use crate::instances::{RenderBuffers, SceneList};
+use crate::skinning::SkinList;
 use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool, *};
 use rfw_scene::{AnimVertexData, Light, LightInfo, TrackedStorage, VertexData};
 use shared::BytesConversion;
@@ -18,7 +20,7 @@ impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
         device: Arc<B::Device>,
         allocator: Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
-        instances_pipeline_layout: &B::PipelineLayout,
+        pipeline_layout: &B::PipelineLayout,
         depth_type: DepthType,
         capacity: usize,
     ) -> Self {
@@ -30,7 +32,7 @@ impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
                 device,
                 allocator,
                 filter_pipeline,
-                instances_pipeline_layout,
+                pipeline_layout,
                 depth_type,
                 capacity,
             ),
@@ -49,22 +51,25 @@ pub enum DepthType {
 pub struct ShadowMapArray<B: hal::Backend> {
     device: Arc<B::Device>,
 
-    pub map: B::Image,
-    pub view: B::ImageView,
+    pub map: ManuallyDrop<B::Image>,
+    render_views: Vec<ManuallyDrop<B::ImageView>>,
+    frame_buffers: Vec<ManuallyDrop<B::Framebuffer>>,
+    pub view: ManuallyDrop<B::ImageView>,
     map_memory: Memory<B>,
 
-    filter_map: B::Image,
+    filter_map: ManuallyDrop<B::Image>,
+    filter_view: ManuallyDrop<B::ImageView>,
     filter_map_memory: Memory<B>,
-    filter_view: B::ImageView,
 
-    depth_map: B::Image,
+    depth_map: ManuallyDrop<B::Image>,
+    depth_view: ManuallyDrop<B::ImageView>,
     depth_map_memory: Memory<B>,
-    depth_view: B::ImageView,
     pub uniform_buffer: Buffer<B>,
 
     filter_pipeline: Arc<FilterPipeline<B>>,
-    pipeline: B::GraphicsPipeline,
-    anim_pipeline: B::GraphicsPipeline,
+    render_pass: ManuallyDrop<B::RenderPass>,
+    pipeline: ManuallyDrop<B::GraphicsPipeline>,
+    anim_pipeline: ManuallyDrop<B::GraphicsPipeline>,
     light_infos: Vec<LightInfo>,
 }
 
@@ -101,6 +106,26 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 .bind_image_memory(map_memory.memory(), 0, &mut map)
                 .unwrap();
 
+            let render_views: Vec<_> = (0..capacity)
+                .map(|i| {
+                    ManuallyDrop::new(
+                        device
+                            .create_image_view(
+                                &map,
+                                image::ViewKind::D2,
+                                Self::FORMAT,
+                                format::Swizzle::NO,
+                                image::SubresourceRange {
+                                    aspects: format::Aspects::COLOR,
+                                    layers: (i as _)..((i + 1) as _),
+                                    levels: 0..1,
+                                },
+                            )
+                            .unwrap(),
+                    )
+                })
+                .collect();
+
             let view = device
                 .create_image_view(
                     &map,
@@ -108,7 +133,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     Self::FORMAT,
                     format::Swizzle::NO,
                     image::SubresourceRange {
-                        aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
+                        aspects: format::Aspects::COLOR,
                         layers: 0..(capacity as _),
                         levels: 0..1,
                     },
@@ -187,7 +212,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
 
             let uniform_buffer = allocator
                 .allocate_buffer(
-                    160, // TODO,
+                    (capacity * std::mem::size_of::<LightInfo>()) as _,
                     hal::buffer::Usage::UNIFORM,
                     hal::memory::Properties::CPU_VISIBLE,
                     Some(
@@ -454,28 +479,220 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 )
                 .unwrap();
 
+            let frame_buffers: Vec<_> = (0..capacity)
+                .map(|i| {
+                    ManuallyDrop::new(
+                        device
+                            .create_framebuffer(
+                                &render_pass,
+                                &[&*render_views[i], &depth_view],
+                                image::Extent {
+                                    width: Self::WIDTH,
+                                    height: Self::HEIGHT,
+                                    depth: 1,
+                                },
+                            )
+                            .unwrap(),
+                    )
+                })
+                .collect();
+
             Self {
                 device,
 
-                map,
-                view,
+                map: ManuallyDrop::new(map),
+                render_views,
+                frame_buffers,
+                view: ManuallyDrop::new(view),
                 map_memory,
 
-                filter_map,
-                filter_view,
+                filter_map: ManuallyDrop::new(filter_map),
+                filter_view: ManuallyDrop::new(filter_view),
                 filter_map_memory,
 
-                depth_map,
+                depth_map: ManuallyDrop::new(depth_map),
+                depth_view: ManuallyDrop::new(depth_view),
                 depth_map_memory,
-                depth_view,
 
                 uniform_buffer,
 
                 filter_pipeline,
-                pipeline,
-                anim_pipeline,
+                render_pass: ManuallyDrop::new(render_pass),
+                pipeline: ManuallyDrop::new(pipeline),
+                anim_pipeline: ManuallyDrop::new(anim_pipeline),
                 light_infos: Vec::new(),
             }
+        }
+    }
+
+    pub fn render(
+        &self,
+        cmd_buffer: &mut B::CommandBuffer,
+        scene: &SceneList<B>,
+        skins: &SkinList<B>,
+    ) {
+        for i in 0..self.light_infos.len() {
+            unsafe {
+                cmd_buffer.begin_render_pass(
+                    &*self.render_pass,
+                    &*self.frame_buffers[i],
+                    pso::Rect {
+                        x: 0,
+                        y: 0,
+                        w: Self::WIDTH as _,
+                        h: Self::HEIGHT as _,
+                    },
+                    &[
+                        command::ClearValue {
+                            color: command::ClearColor {
+                                float32: [0.0, 0.0, 0.0, 1.0],
+                            },
+                        },
+                        command::ClearValue {
+                            depth_stencil: command::ClearDepthStencil {
+                                depth: 1.0,
+                                stencil: 0,
+                            },
+                        },
+                    ],
+                    command::SubpassContents::Inline,
+                );
+
+                cmd_buffer.scene.iter_instances(|buffers, instance| {
+                    let iter = instance
+                        .meshes
+                        .iter()
+                        .filter(|m| frustrum.aabb_in_frustrum(&m.bounds).should_render());
+
+                    let mut first = true;
+                    iter.for_each(|mesh| {
+                        if first {
+                            cmd_buffer.bind_graphics_descriptor_sets(
+                                &self.pipeline_layout,
+                                0,
+                                std::iter::once(&self.desc_set),
+                                &[],
+                            );
+
+                            cmd_buffer.bind_graphics_descriptor_sets(
+                                &self.pipeline_layout,
+                                1,
+                                std::iter::once(&scene.desc_set),
+                                &[],
+                            );
+
+                            match buffer {
+                                RenderBuffers::Static(buffer) => {
+                                    cmd_buffer.bind_graphics_pipeline(&self.pipeline);
+                                    cmd_buffer.bind_vertex_buffers(
+                                        0,
+                                        std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
+                                    );
+                                }
+                                RenderBuffers::Animated(buffer, anim_offset) => {
+                                    if let Some(skin_id) = instance.skin_id {
+                                        let skin_id = skin_id as usize;
+                                        if let Some(skin_set) = self.skins.get_set(skin_id) {
+                                            cmd_buffer.bind_graphics_pipeline(&self.anim_pipeline);
+                                            cmd_buffer.bind_graphics_descriptor_sets(
+                                                &self.pipeline_layout,
+                                                1,
+                                                vec![&scene.desc_set, skin_set],
+                                                &[],
+                                            );
+
+                                            cmd_buffer.bind_vertex_buffers(
+                                                0,
+                                                std::iter::once((
+                                                    buffer.buffer(),
+                                                    buffer::SubRange {
+                                                        size: Some(*anim_offset as buffer::Offset),
+                                                        offset: 0,
+                                                    },
+                                                )),
+                                            );
+                                            cmd_buffer.bind_vertex_buffers(
+                                                1,
+                                                std::iter::once((
+                                                    buffer.buffer(),
+                                                    buffer::SubRange {
+                                                        size: Some(
+                                                            (buffer.size_in_bytes - *anim_offset)
+                                                                as buffer::Offset,
+                                                        ),
+                                                        offset: *anim_offset as _,
+                                                    },
+                                                )),
+                                            );
+                                        } else {
+                                            cmd_buffer.bind_graphics_pipeline(&self.pipeline);
+                                            cmd_buffer.bind_vertex_buffers(
+                                                0,
+                                                std::iter::once((
+                                                    buffer.buffer(),
+                                                    buffer::SubRange::WHOLE,
+                                                )),
+                                            );
+                                        }
+                                    } else {
+                                        cmd_buffer.bind_graphics_pipeline(&self.pipeline);
+                                        cmd_buffer.bind_vertex_buffers(
+                                            0,
+                                            std::iter::once((
+                                                buffer.buffer(),
+                                                buffer::SubRange::WHOLE,
+                                            )),
+                                        );
+                                    }
+                                }
+                            }
+                            first = false;
+                        }
+
+                        cmd_buffer.draw(mesh.first..mesh.last, instance.id..(instance.id + 1));
+                    });
+                });
+            }
+        }
+    }
+}
+
+impl<B: hal::Backend> Drop for ShadowMapArray<B> {
+    fn drop(&mut self) {
+        self.device.wait_idle();
+        unsafe {
+            self.frame_buffers.into_iter().for_each(|f| {
+                self.device.destroy_framebuffer(*f);
+            });
+            self.render_views.into_iter().for_each(|v| {
+                self.device.destroy_image_view(*v);
+            });
+
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(std::ptr::read(&self.view)));
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(std::ptr::read(&self.filter_view)));
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(std::ptr::read(&self.depth_view)));
+
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(std::ptr::read(&self.map)));
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(std::ptr::read(&self.filter_map)));
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(std::ptr::read(&self.depth_map)));
+
+            self.device
+                .destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(
+                    &self.pipeline,
+                )));
+            self.device
+                .destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(
+                    &self.anim_pipeline,
+                )));
+
+            self.device
+                .destroy_render_pass(ManuallyDrop::into_inner(std::ptr::read(&self.render_pass)));
         }
     }
 }
@@ -724,7 +941,10 @@ impl<B: hal::Backend> FilterPipeline<B> {
     }
 
     pub fn free_set(&mut self, set: FilterDescSet<B>) {
-        let sets = vec![set.set1, set.set2];
+        let sets = vec![
+            ManuallyDrop::into_inner(set.set1),
+            ManuallyDrop::into_inner(set.set2),
+        ];
 
         unsafe {
             self.desc_pool.free_sets(sets);
@@ -735,6 +955,29 @@ impl<B: hal::Backend> FilterPipeline<B> {
 pub struct FilterDescSet<B: hal::Backend> {
     width: u32,
     height: u32,
-    set1: B::DescriptorSet,
-    set2: B::DescriptorSet,
+    set1: ManuallyDrop<B::DescriptorSet>,
+    set2: ManuallyDrop<B::DescriptorSet>,
+}
+
+impl<B: hal::Backend> Drop for FilterPipeline<B> {
+    fn drop(&mut self) {
+        self.device.wait_idle();
+        unsafe {
+            self.desc_pool.reset();
+            self.device
+                .destroy_descriptor_pool(ManuallyDrop::into_inner(std::ptr::read(&self.desc_pool)));
+            self.device
+                .destroy_descriptor_set_layout(ManuallyDrop::into_inner(std::ptr::read(
+                    &self.desc_layout,
+                )));
+            self.device
+                .destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(
+                    &self.pipeline,
+                )));
+            self.device
+                .destroy_pipeline_layout(ManuallyDrop::into_inner(std::ptr::read(
+                    &self.pipeline_layout,
+                )));
+        }
+    }
 }

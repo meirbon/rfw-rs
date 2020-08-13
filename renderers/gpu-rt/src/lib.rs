@@ -13,8 +13,10 @@ use rfw_scene::{
     Instance, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, TrackedStorage,
 };
 use shared::*;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::NonZeroU32;
 
 mod bind_group;
 mod blue_noise;
@@ -25,13 +27,9 @@ enum IntersectionBindings {
     Output = 0,
     Camera = 1,
     PathStates = 2,
-    PathOrigins = 3,
-    PathDirections = 4,
-    PathThroughputs = 5,
-    AccumulationBuffer = 6,
-    PotentialContributions = 7,
-    Skybox = 8,
-    Bluenoise = 9,
+    AccumulationBuffer = 3,
+    PotentialContributions = 4,
+    Skybox = 5,
 }
 
 #[repr(u32)]
@@ -40,9 +38,14 @@ enum TopBindings {
     TopInstanceIndices = 1,
     TopBVHNodes = 2,
     TopMBVHNodes = 3,
-    Materials = 4,
-    Textures = 5,
-    TextureSampler = 6,
+}
+
+#[repr(u32)]
+enum MaterialBindings {
+    Materials = 0,
+    Textures = 1,
+    TextureSampler = 2,
+    InstanceDescriptors = 3,
 }
 
 #[repr(u32)]
@@ -61,10 +64,25 @@ enum LightBindings {
     DirectionalLights = 3,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum PassType {
     Primary,
     Secondary,
     Shadow,
+}
+
+impl std::fmt::Display for PassType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PassType({})",
+            match self {
+                PassType::Primary => "Primary",
+                PassType::Secondary => "Secondary",
+                PassType::Shadow => "Shadow",
+            }
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -266,6 +284,8 @@ pub struct RayTracer {
     sample_count: usize,
     buffer_capacity: usize,
 
+    camera_read_buffer: wgpu::Buffer,
+
     intersection_bind_group: bind_group::BindGroup,
     intersection_pipeline: wgpu::ComputePipeline,
 
@@ -273,13 +293,18 @@ pub struct RayTracer {
     shadow_pipeline: wgpu::ComputePipeline,
 
     shade_pipeline: wgpu::ComputePipeline,
+    shade_pipeline_layout: wgpu::PipelineLayout,
     blit_pipeline: wgpu::ComputePipeline,
+    blit_pipeline_layout: wgpu::PipelineLayout,
 
     mesh_bind_group: wgpu::BindGroup,
     mesh_bind_group_layout: wgpu::BindGroupLayout,
 
     top_bind_group: wgpu::BindGroup,
     top_bind_group_layout: wgpu::BindGroupLayout,
+    material_bind_group: wgpu::BindGroup,
+    material_bind_group_layout: wgpu::BindGroupLayout,
+
     top_bvh_buffer: ManagedBuffer<BVHNode>,
     top_mbvh_buffer: ManagedBuffer<MBVHNode>,
     top_indices: ManagedBuffer<u32>,
@@ -357,26 +382,29 @@ impl Renderer for RayTracer {
         width: usize,
         height: usize,
     ) -> Result<Box<Self>, Box<dyn Error>> {
-        let surface = wgpu::Surface::create(window);
-        let adapter = match block_on(wgpu::Adapter::request(
-            &wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-            },
-            wgpu::BackendBit::PRIMARY,
-        )) {
+        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        let surface = unsafe { instance.create_surface(window) };
+        let adapter = match block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface),
+        })) {
             Some(adapter) => adapter,
             None => return Err(Box::new(RayTracerError::RequestDeviceError)),
         };
 
         println!("Picked render device: {}", adapter.get_info().name);
 
-        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions {
-                anisotropic_filtering: true,
+        let (device, queue) = block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                features: wgpu::Features::PUSH_CONSTANTS
+                    | wgpu::Features::SAMPLED_TEXTURE_BINDING_ARRAY
+                    | wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
+                limits: wgpu::Limits::default(),
+                shader_validation: true,
             },
-            limits: wgpu::Limits::default(),
-        }));
+            None,
+        ))
+        .unwrap();
 
         let descriptor = wgpu::SwapChainDescriptor {
             width: width as u32,
@@ -398,20 +426,37 @@ impl Renderer for RayTracer {
                 height: 64,
                 depth: 1,
             },
-            array_layer_count: 1,
             mip_level_count: 5,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: Self::TEXTURE_FORMAT,
             usage: wgpu::TextureUsage::SAMPLED,
         });
-        let skybox_texture_view = skybox_texture.create_default_view();
+        let skybox_texture_view = skybox_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::TEXTURE_FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            level_count: NonZeroU32::new(5),
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let output_bind_group = bind_group::BindGroupBuilder::default()
             .with_binding(bind_group::BindGroupBinding {
                 index: 0,
                 binding: bind_group::Binding::SampledTexture(
-                    output_texture.create_default_view(),
+                    output_texture.create_view(&wgpu::TextureViewDescriptor {
+                        label: None,
+                        format: Some(Self::OUTPUT_FORMAT),
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        aspect: wgpu::TextureAspect::All,
+                        base_mip_level: 0,
+                        level_count: None,
+                        base_array_layer: 0,
+                        array_layer_count: None,
+                    }),
                     Self::OUTPUT_FORMAT,
                     wgpu::TextureComponentType::Uint,
                     wgpu::TextureViewDimension::D2,
@@ -423,6 +468,7 @@ impl Renderer for RayTracer {
                 index: 1,
                 binding: bind_group::Binding::Sampler(device.create_sampler(
                     &wgpu::SamplerDescriptor {
+                        label: None,
                         address_mode_u: wgpu::AddressMode::ClampToEdge,
                         address_mode_v: wgpu::AddressMode::ClampToEdge,
                         address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -431,7 +477,8 @@ impl Renderer for RayTracer {
                         mipmap_filter: wgpu::FilterMode::Linear,
                         lod_min_clamp: 0.0,
                         lod_max_clamp: 0.0,
-                        compare: wgpu::CompareFunction::Never,
+                        compare: None,
+                        anisotropy_clamp: None,
                     },
                 )),
                 visibility: wgpu::ShaderStage::FRAGMENT,
@@ -442,55 +489,69 @@ impl Renderer for RayTracer {
         let mesh_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("mesh-bind-group-layout"),
-                bindings: &[
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: MeshBindings::PrimIndices as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: MeshBindings::BVHNodes as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: MeshBindings::MBVHNodes as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: MeshBindings::Triangles as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                 ],
             });
 
         let output_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
                 bind_group_layouts: &[&output_bind_group.layout],
+                push_constant_ranges: &[],
             });
 
         let vert_shader = include_bytes!("../shaders/quad.vert.spv");
         let frag_shader = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
-        let frag_module = device.create_shader_module(frag_shader.as_quad_bytes());
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
+        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            frag_shader.as_quad_bytes(),
+        )));
 
         let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &output_pipeline_layout,
+            layout: Some(&output_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -502,6 +563,7 @@ impl Renderer for RayTracer {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -525,41 +587,49 @@ impl Renderer for RayTracer {
 
         let blue_noise = blue_noise::create_blue_noise_buffer();
 
-        let blue_noise_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("blue_noise"),
-            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::COPY_DST,
-            size: (blue_noise.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+        let camera_read_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera-view-buffer"),
+            size: 128,
+            usage: wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
-        {
-            let staging_buffer = device.create_buffer_with_data(
-                unsafe {
-                    std::slice::from_raw_parts(
-                        blue_noise.as_ptr() as *const u8,
-                        blue_noise.len() * std::mem::size_of::<u32>(),
-                    )
-                },
-                wgpu::BufferUsage::COPY_SRC,
-            );
 
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("blue_noise_copy"),
-            });
-            encoder.copy_buffer_to_buffer(
-                &staging_buffer,
-                0,
-                &blue_noise_buffer,
-                0,
-                (blue_noise.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera-view-buffer"),
+            size: (128 + (blue_noise.len() * std::mem::size_of::<u32>())) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::STORAGE
+                | wgpu::BufferUsage::MAP_WRITE
+                | wgpu::BufferUsage::COPY_SRC
+                | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: true,
+        });
+
+        {
+            let mapping = camera_buffer.slice(
+                128..(128 + (blue_noise.len() * std::mem::size_of::<u32>())) as wgpu::BufferAddress,
             );
-            queue.submit(&[encoder.finish()]);
+            mapping
+                .get_mapped_range_mut()
+                .copy_from_slice(blue_noise.as_bytes());
         }
+
+        camera_buffer.unmap();
 
         let intersection_bind_group = bind_group::BindGroupBuilder::default()
             .with_binding(bind_group::BindGroupBinding {
                 index: IntersectionBindings::Output as u32,
                 visibility: wgpu::ShaderStage::COMPUTE,
                 binding: bind_group::Binding::WriteStorageTexture(
-                    output_texture.create_default_view(),
+                    output_texture.create_view(&wgpu::TextureViewDescriptor {
+                        label: None,
+                        format: Some(Self::OUTPUT_FORMAT),
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        aspect: wgpu::TextureAspect::All,
+                        base_mip_level: 0,
+                        level_count: NonZeroU32::new(1),
+                        base_array_layer: 0,
+                        array_layer_count: NonZeroU32::new(1),
+                    }),
                     Self::OUTPUT_FORMAT,
                     wgpu::TextureComponentType::Float,
                     wgpu::TextureViewDimension::D2,
@@ -570,16 +640,8 @@ impl Renderer for RayTracer {
                 index: IntersectionBindings::Camera as u32,
                 visibility: wgpu::ShaderStage::COMPUTE,
                 binding: bind_group::Binding::WriteStorageBuffer(
-                    device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("camera-view-buffer"),
-                        size: std::mem::size_of::<CameraData>().next_power_of_two()
-                            as wgpu::BufferAddress,
-                        usage: wgpu::BufferUsage::STORAGE
-                            | wgpu::BufferUsage::ORDERED
-                            | wgpu::BufferUsage::MAP_WRITE
-                            | wgpu::BufferUsage::MAP_READ,
-                    }),
-                    0..(std::mem::size_of::<CameraData>().next_power_of_two()
+                    camera_buffer,
+                    0..((128 + (blue_noise.len() * std::mem::size_of::<u32>()))
                         as wgpu::BufferAddress),
                 ),
             })
@@ -591,55 +653,11 @@ impl Renderer for RayTracer {
                     device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("states-buffer"),
                         usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>() * 4)
                             as wgpu::BufferAddress,
+                        mapped_at_creation: false,
                     }),
-                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
-                        as wgpu::BufferAddress,
-                ),
-            })
-            .unwrap()
-            .with_binding(bind_group::BindGroupBinding {
-                index: IntersectionBindings::PathOrigins as u32,
-                visibility: wgpu::ShaderStage::COMPUTE,
-                binding: bind_group::Binding::WriteStorageBuffer(
-                    device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("states-buffer"),
-                        usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
-                            as wgpu::BufferAddress,
-                    }),
-                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
-                        as wgpu::BufferAddress,
-                ),
-            })
-            .unwrap()
-            .with_binding(bind_group::BindGroupBinding {
-                index: IntersectionBindings::PathDirections as u32,
-                visibility: wgpu::ShaderStage::COMPUTE,
-                binding: bind_group::Binding::WriteStorageBuffer(
-                    device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("states-buffer"),
-                        usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
-                            as wgpu::BufferAddress,
-                    }),
-                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
-                        as wgpu::BufferAddress,
-                ),
-            })
-            .unwrap()
-            .with_binding(bind_group::BindGroupBinding {
-                index: IntersectionBindings::PathThroughputs as u32,
-                visibility: wgpu::ShaderStage::COMPUTE,
-                binding: bind_group::Binding::WriteStorageBuffer(
-                    device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("states-buffer"),
-                        usage: wgpu::BufferUsage::STORAGE,
-                        size: (width * height * 2 * std::mem::size_of::<[f32; 4]>())
-                            as wgpu::BufferAddress,
-                    }),
-                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>())
+                    0..(width * height * 2 * std::mem::size_of::<[f32; 4]>() * 4)
                         as wgpu::BufferAddress,
                 ),
             })
@@ -653,6 +671,7 @@ impl Renderer for RayTracer {
                         size: (width * height * 4 * std::mem::size_of::<f32>())
                             as wgpu::BufferAddress,
                         usage: wgpu::BufferUsage::STORAGE,
+                        mapped_at_creation: false,
                     }),
                     0..((width * height * 4 * std::mem::size_of::<f32>()) as wgpu::BufferAddress),
                 ),
@@ -667,6 +686,7 @@ impl Renderer for RayTracer {
                         size: (width * height * 12 * std::mem::size_of::<f32>())
                             as wgpu::BufferAddress,
                         usage: wgpu::BufferUsage::STORAGE,
+                        mapped_at_creation: false,
                     }),
                     0..((width * height * 12 * std::mem::size_of::<f32>()) as wgpu::BufferAddress),
                 ),
@@ -683,74 +703,94 @@ impl Renderer for RayTracer {
                 ),
             })
             .unwrap()
-            .with_binding(bind_group::BindGroupBinding {
-                index: IntersectionBindings::Bluenoise as u32,
-                visibility: wgpu::ShaderStage::COMPUTE,
-                binding: bind_group::Binding::ReadStorageBuffer(
-                    blue_noise_buffer,
-                    0..(blue_noise.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
-                ),
-            })
-            .unwrap()
             .build(&device);
 
         let top_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("top-bind-group-layout"),
-                bindings: &[
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: TopBindings::InstanceDescriptors as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: TopBindings::TopInstanceIndices as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: TopBindings::TopBVHNodes as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: TopBindings::TopMBVHNodes as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
+                ],
+            });
+
+        let material_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
-                        binding: TopBindings::Materials as u32,
+                        binding: MaterialBindings::Materials as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: TopBindings::Textures as u32,
+                        binding: MaterialBindings::Textures as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::SampledTexture {
                             component_type: wgpu::TextureComponentType::Uint,
                             dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: TopBindings::TextureSampler as u32,
+                        binding: MaterialBindings::TextureSampler as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::Sampler { comparison: false },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: MaterialBindings::InstanceDescriptors as u32,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            min_binding_size: None,
+                            readonly: true,
+                        },
+                        count: None,
                     },
                 ],
             });
@@ -758,59 +798,67 @@ impl Renderer for RayTracer {
         let point_lights = ManagedBuffer::new(
             &device,
             32,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
         );
         let spot_lights = ManagedBuffer::new(
             &device,
             32,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
         );
         let area_lights = ManagedBuffer::new(
             &device,
             32,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
         );
         let directional_lights = ManagedBuffer::new(
             &device,
             32,
-            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+            wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
         );
 
         let lights_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("lights_bind_group_layout"),
-                bindings: &[
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: LightBindings::PointLights as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: LightBindings::SpotLights as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: LightBindings::AreaLights as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: LightBindings::DirectionalLights as u32,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageBuffer {
                             dynamic: false,
+                            min_binding_size: None,
                             readonly: true,
                         },
+                        count: None,
                     },
                 ],
             });
@@ -818,7 +866,7 @@ impl Renderer for RayTracer {
         let lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lights_bind_group"),
             layout: &lights_bind_group_layout,
-            bindings: &[
+            entries: &[
                 point_lights.as_binding(LightBindings::PointLights as u32),
                 spot_lights.as_binding(LightBindings::SpotLights as u32),
                 area_lights.as_binding(LightBindings::AreaLights as u32),
@@ -828,19 +876,34 @@ impl Renderer for RayTracer {
 
         let intersection_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
                 bind_group_layouts: &[
                     &intersection_bind_group.layout,
                     &mesh_bind_group_layout,
                     &top_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let shade_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[
+                    &intersection_bind_group.layout,
+                    &mesh_bind_group_layout,
+                    &material_bind_group_layout,
                     &lights_bind_group_layout,
                 ],
+                push_constant_ranges: &[],
             });
 
         let compute_module = include_bytes!("../shaders/ray_gen.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
+        let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(compute_module.as_quad_bytes()),
+        ));
         let intersection_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                layout: &intersection_pipeline_layout,
+                layout: Some(&intersection_pipeline_layout),
                 compute_stage: wgpu::ProgrammableStageDescriptor {
                     entry_point: "main",
                     module: &compute_module,
@@ -848,9 +911,11 @@ impl Renderer for RayTracer {
             });
 
         let compute_module = include_bytes!("../shaders/ray_extend.comp.spv",);
-        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
+        let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(compute_module.as_quad_bytes()),
+        ));
         let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &intersection_pipeline_layout,
+            layout: Some(&intersection_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &compute_module,
@@ -858,9 +923,11 @@ impl Renderer for RayTracer {
         });
 
         let compute_module = include_bytes!("../shaders/ray_shadow.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
+        let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(compute_module.as_quad_bytes()),
+        ));
         let shadow_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &intersection_pipeline_layout,
+            layout: Some(&intersection_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &compute_module,
@@ -868,9 +935,11 @@ impl Renderer for RayTracer {
         });
 
         let compute_module = include_bytes!("../shaders/shade.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
+        let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(compute_module.as_quad_bytes()),
+        ));
         let shade_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &intersection_pipeline_layout,
+            layout: Some(&shade_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &compute_module,
@@ -878,29 +947,35 @@ impl Renderer for RayTracer {
         });
 
         let compute_module = include_bytes!("../shaders/blit.comp.spv");
-        let compute_module = device.create_shader_module(compute_module.as_quad_bytes());
+        let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(compute_module.as_quad_bytes()),
+        ));
+
+        let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&intersection_bind_group.layout],
+            push_constant_ranges: &[],
+        });
         let blit_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &intersection_pipeline_layout,
+            layout: Some(&blit_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &compute_module,
             },
         });
 
-        let meshes_bvh_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
+        let meshes_bvh_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE);
 
-        let meshes_mbvh_buffer =
-            ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
+        let meshes_mbvh_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE);
 
-        let meshes_prim_indices =
-            ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
+        let meshes_prim_indices = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE);
 
-        let triangles_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE_READ);
+        let triangles_buffer = ManagedBuffer::new(&device, 65536, wgpu::BufferUsage::STORAGE);
 
-        let instances_buffer = ManagedBuffer::new(&device, 2048, wgpu::BufferUsage::STORAGE_READ);
+        let instances_buffer = ManagedBuffer::new(&device, 2048, wgpu::BufferUsage::STORAGE);
 
         let mesh_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            bindings: &[
+            entries: &[
                 meshes_prim_indices.as_binding(MeshBindings::PrimIndices as u32),
                 meshes_bvh_buffer.as_binding(MeshBindings::BVHNodes as u32),
                 meshes_mbvh_buffer.as_binding(MeshBindings::MBVHNodes as u32),
@@ -910,19 +985,18 @@ impl Renderer for RayTracer {
             layout: &mesh_bind_group_layout,
         });
 
-        let top_bvh_buffer = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
-        let top_mbvh_buffer = ManagedBuffer::new(&device, 512, wgpu::BufferUsage::STORAGE_READ);
-        let top_indices = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE_READ);
-        let materials_buffer = ManagedBuffer::new(&device, 32, wgpu::BufferUsage::STORAGE_READ);
+        let top_bvh_buffer = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE);
+        let top_mbvh_buffer = ManagedBuffer::new(&device, 512, wgpu::BufferUsage::STORAGE);
+        let top_indices = ManagedBuffer::new(&device, 1024, wgpu::BufferUsage::STORAGE);
+        let materials_buffer = ManagedBuffer::new(&device, 32, wgpu::BufferUsage::STORAGE);
 
         let texture_array = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("texture_array"),
             size: wgpu::Extent3d {
                 width: Self::TEXTURE_WIDTH as u32,
                 height: Self::TEXTURE_HEIGHT as u32,
-                depth: 1,
+                depth: 32,
             },
-            array_layer_count: 32,
             mip_level_count: Texture::MIP_LEVELS as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -930,9 +1004,19 @@ impl Renderer for RayTracer {
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
         });
 
-        let texture_array_view = texture_array.create_default_view();
+        let texture_array_view = texture_array.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::TEXTURE_FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            level_count: NonZeroU32::new(Texture::MIP_LEVELS as u32),
+            base_array_layer: 0,
+            array_layer_count: NonZeroU32::new(32),
+        });
 
         let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
             address_mode_w: wgpu::AddressMode::Repeat,
@@ -941,26 +1025,35 @@ impl Renderer for RayTracer {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: (Texture::MIP_LEVELS - 1) as f32,
-            compare: wgpu::CompareFunction::Never,
+            compare: None,
+            anisotropy_clamp: None,
         });
 
         let top_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
             layout: &top_bind_group_layout,
-            bindings: &[
+            entries: &[
                 instances_buffer.as_binding(TopBindings::InstanceDescriptors as u32),
                 top_bvh_buffer.as_binding(TopBindings::TopBVHNodes as u32),
                 top_mbvh_buffer.as_binding(TopBindings::TopMBVHNodes as u32),
                 top_indices.as_binding(TopBindings::TopInstanceIndices as u32),
-                materials_buffer.as_binding(TopBindings::Materials as u32),
-                wgpu::Binding {
-                    binding: TopBindings::Textures as u32,
+            ],
+        });
+
+        let material_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("material-bind-group"),
+            layout: &material_bind_group_layout,
+            entries: &[
+                materials_buffer.as_binding(MaterialBindings::Materials as u32),
+                wgpu::BindGroupEntry {
+                    binding: MaterialBindings::Textures as u32,
                     resource: wgpu::BindingResource::TextureView(&texture_array_view),
                 },
-                wgpu::Binding {
-                    binding: TopBindings::TextureSampler as u32,
+                wgpu::BindGroupEntry {
+                    binding: MaterialBindings::TextureSampler as u32,
                     resource: wgpu::BindingResource::Sampler(&texture_sampler),
                 },
+                instances_buffer.as_binding(MaterialBindings::InstanceDescriptors as u32),
             ],
         });
 
@@ -974,11 +1067,15 @@ impl Renderer for RayTracer {
             extend_pipeline,
             shadow_pipeline,
             shade_pipeline,
+            shade_pipeline_layout,
             blit_pipeline,
+            blit_pipeline_layout,
             mesh_bind_group,
             mesh_bind_group_layout,
             top_bind_group,
             top_bind_group_layout,
+            material_bind_group,
+            material_bind_group_layout,
             top_bvh_buffer,
             top_mbvh_buffer,
             top_indices,
@@ -986,6 +1083,7 @@ impl Renderer for RayTracer {
             height,
             sample_count: 0,
             buffer_capacity: width * height,
+            camera_read_buffer,
             output_bind_group,
             output_texture,
             output_pipeline,
@@ -1071,11 +1169,11 @@ impl Renderer for RayTracer {
                 label: Some("material-copy"),
             });
         self.materials_buffer.update(&self.device, &mut encoder);
-        self.queue.submit(&[encoder.finish()]);
+        self.queue.submit(std::iter::once(encoder.finish()));
         self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
             layout: &self.top_bind_group_layout,
-            bindings: &[
+            entries: &[
                 self.instances_buffer
                     .as_binding(TopBindings::InstanceDescriptors as u32),
                 self.top_bvh_buffer
@@ -1084,16 +1182,6 @@ impl Renderer for RayTracer {
                     .as_binding(TopBindings::TopMBVHNodes as u32),
                 self.top_indices
                     .as_binding(TopBindings::TopInstanceIndices as u32),
-                self.materials_buffer
-                    .as_binding(TopBindings::Materials as u32),
-                wgpu::Binding {
-                    binding: TopBindings::Textures as u32,
-                    resource: wgpu::BindingResource::TextureView(&self.texture_array_view),
-                },
-                wgpu::Binding {
-                    binding: TopBindings::TextureSampler as u32,
-                    resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
-                },
             ],
         });
     }
@@ -1121,9 +1209,8 @@ impl Renderer for RayTracer {
             size: wgpu::Extent3d {
                 width: Self::TEXTURE_WIDTH as u32,
                 height: Self::TEXTURE_HEIGHT as u32,
-                depth: 1,
+                depth: textures.len() as u32,
             },
-            array_layer_count: textures.len() as u32,
             mip_level_count: Texture::MIP_LEVELS as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1131,50 +1218,29 @@ impl Renderer for RayTracer {
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
         });
 
-        let texel_count = self.textures.iter().map(|t| t.data.len()).sum();
-        let buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("texture_array_staging_buufer"),
-            size: (texel_count * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::COPY_SRC,
-        });
-
-        let buffer_slice = unsafe {
-            std::slice::from_raw_parts_mut(buffer.data.as_mut_ptr() as *mut u32, texel_count)
-        };
-
-        let mut offset = 0;
-        for texture in self.textures.iter() {
-            buffer_slice[offset..(offset + texture.data.len())]
-                .copy_from_slice(texture.data.as_slice());
-            offset += texture.data.len();
-        }
-        assert_eq!(offset, texel_count);
-        let buffer = buffer.finish();
-
-        let mut command_encoder =
-            self.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("texture_array_copy_command"),
-                });
-        offset = 0;
-        for (t, texture) in self.textures.iter().enumerate() {
+        for (layer, texture) in self.textures.iter().enumerate() {
             for i in 0..Texture::MIP_LEVELS {
+                let data_offset = texture.offset_for_level(i) * 4;
                 let (width, height) = texture.mip_level_width_height(i);
-
                 assert!(width > 0, "width was 0");
                 assert!(height > 0, "height was 0");
-                command_encoder.copy_buffer_to_texture(
-                    wgpu::BufferCopyView {
-                        buffer: &buffer,
-                        bytes_per_row: (width * std::mem::size_of::<u32>()) as u32,
-                        offset: offset as wgpu::BufferAddress,
-                        rows_per_image: 0,
-                    },
+
+                self.queue.write_texture(
                     wgpu::TextureCopyView {
-                        mip_level: i as u32,
-                        array_layer: t as u32,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                         texture: &self.texture_array,
+                        mip_level: i as _,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: layer as _,
+                        },
+                    },
+                    &texture.data.as_bytes()
+                        [data_offset..(data_offset + width * height * std::mem::size_of::<u32>())],
+                    wgpu::TextureDataLayout {
+                        bytes_per_row: (width * std::mem::size_of::<u32>()) as u32,
+                        offset: 0,
+                        rows_per_image: height as u32,
                     },
                     wgpu::Extent3d {
                         width: width as u32,
@@ -1182,14 +1248,21 @@ impl Renderer for RayTracer {
                         depth: 1,
                     },
                 );
-
-                offset += (width * height) * std::mem::size_of::<u32>();
             }
         }
 
-        assert_eq!(offset, texel_count * std::mem::size_of::<u32>());
-        self.queue.submit(&[command_encoder.finish()]);
-        self.texture_array_view = self.texture_array.create_default_view();
+        self.texture_array_view = self
+            .texture_array
+            .create_view(&wgpu::TextureViewDescriptor {
+                label: None,
+                format: Some(Self::TEXTURE_FORMAT),
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                level_count: NonZeroU32::new(Texture::MIP_LEVELS as u32),
+                base_array_layer: 0,
+                array_layer_count: NonZeroU32::new(textures.len() as u32),
+            });
     }
 
     fn synchronize(&mut self) {
@@ -1234,7 +1307,7 @@ impl Renderer for RayTracer {
             .par_bridge()
             .map(|(i, (_, mesh))| {
                 if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                    mesh.construct_bvh();
+                    mesh.refit_bvh();
                     1
                 } else {
                     0
@@ -1439,7 +1512,7 @@ impl Renderer for RayTracer {
             self.triangles_buffer.update(&self.device, &mut encoder);
 
             self.mesh_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                bindings: &[
+                entries: &[
                     self.meshes_prim_indices
                         .as_binding(MeshBindings::PrimIndices as u32),
                     self.meshes_bvh_buffer
@@ -1520,7 +1593,7 @@ impl Renderer for RayTracer {
         self.lights_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lights_bind_group"),
             layout: &self.lights_bind_group_layout,
-            bindings: &[
+            entries: &[
                 self.point_lights
                     .as_binding(LightBindings::PointLights as u32),
                 self.spot_lights
@@ -1532,11 +1605,11 @@ impl Renderer for RayTracer {
             ],
         });
 
-        self.queue.submit(&[encoder.finish()]);
+        self.queue.submit(std::iter::once(encoder.finish()));
         self.top_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("top-bind-group"),
             layout: &self.top_bind_group_layout,
-            bindings: &[
+            entries: &[
                 self.instances_buffer
                     .as_binding(TopBindings::InstanceDescriptors as u32),
                 self.top_bvh_buffer
@@ -1545,16 +1618,25 @@ impl Renderer for RayTracer {
                     .as_binding(TopBindings::TopMBVHNodes as u32),
                 self.top_indices
                     .as_binding(TopBindings::TopInstanceIndices as u32),
+            ],
+        });
+
+        self.material_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("material-bind-group"),
+            layout: &self.material_bind_group_layout,
+            entries: &[
                 self.materials_buffer
-                    .as_binding(TopBindings::Materials as u32),
-                wgpu::Binding {
-                    binding: TopBindings::Textures as u32,
+                    .as_binding(MaterialBindings::Materials as u32),
+                wgpu::BindGroupEntry {
+                    binding: MaterialBindings::Textures as u32,
                     resource: wgpu::BindingResource::TextureView(&self.texture_array_view),
                 },
-                wgpu::Binding {
-                    binding: TopBindings::TextureSampler as u32,
+                wgpu::BindGroupEntry {
+                    binding: MaterialBindings::TextureSampler as u32,
                     resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
                 },
+                self.instances_buffer
+                    .as_binding(MaterialBindings::InstanceDescriptors as u32),
             ],
         });
     }
@@ -1590,6 +1672,7 @@ impl Renderer for RayTracer {
             } else {
                 self.perform_pass(path_count, 0, PassType::Secondary);
             }
+
             self.read_camera_data(&mut camera_data);
 
             path_count = camera_data.extension_id as usize;
@@ -1626,16 +1709,17 @@ impl Renderer for RayTracer {
             );
         }
 
-        if let Ok(output) = self.swap_chain.get_next_texture() {
+        if let Ok(output) = self.swap_chain.get_current_frame() {
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     depth_stencil_attachment: None,
                     color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &output.view,
+                        attachment: &output.output.view,
                         resolve_target: None,
-                        store_op: wgpu::StoreOp::Store,
-                        load_op: wgpu::LoadOp::Clear,
-                        clear_color: wgpu::Color::BLACK,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: true,
+                        },
                     }],
                 });
 
@@ -1648,7 +1732,7 @@ impl Renderer for RayTracer {
                 render_pass.draw(0..6, 0..1);
             }
 
-            self.queue.submit(&[encoder.finish()]);
+            self.queue.submit(std::iter::once(encoder.finish()));
         } else {
             println!("Could not get next swap-chain texture.");
         }
@@ -1664,55 +1748,11 @@ impl Renderer for RayTracer {
                         self.device.create_buffer(&wgpu::BufferDescriptor {
                             label: Some("states-buffer"),
                             usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
+                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>() * 4)
                                 as wgpu::BufferAddress,
+                            mapped_at_creation: false,
                         }),
-                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
-                            as wgpu::BufferAddress,
-                    ),
-                )
-                .unwrap();
-            self.intersection_bind_group
-                .bind(
-                    IntersectionBindings::PathOrigins as u32,
-                    bind_group::Binding::WriteStorageBuffer(
-                        self.device.create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("states-buffer"),
-                            usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
-                                as wgpu::BufferAddress,
-                        }),
-                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
-                            as wgpu::BufferAddress,
-                    ),
-                )
-                .unwrap();
-            self.intersection_bind_group
-                .bind(
-                    IntersectionBindings::PathDirections as u32,
-                    bind_group::Binding::WriteStorageBuffer(
-                        self.device.create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("states-buffer"),
-                            usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
-                                as wgpu::BufferAddress,
-                        }),
-                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
-                            as wgpu::BufferAddress,
-                    ),
-                )
-                .unwrap();
-            self.intersection_bind_group
-                .bind(
-                    IntersectionBindings::PathThroughputs as u32,
-                    bind_group::Binding::WriteStorageBuffer(
-                        self.device.create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("states-buffer"),
-                            usage: wgpu::BufferUsage::STORAGE,
-                            size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
-                                as wgpu::BufferAddress,
-                        }),
-                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>())
+                        0..(self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>() * 4)
                             as wgpu::BufferAddress,
                     ),
                 )
@@ -1742,7 +1782,17 @@ impl Renderer for RayTracer {
             .bind(
                 IntersectionBindings::Output as u32,
                 bind_group::Binding::SampledTexture(
-                    self.output_texture.create_default_view(),
+                    self.output_texture
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            label: None,
+                            format: Some(Self::OUTPUT_FORMAT),
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            aspect: wgpu::TextureAspect::All,
+                            base_mip_level: 0,
+                            level_count: None,
+                            base_array_layer: 0,
+                            array_layer_count: None,
+                        }),
                     Self::OUTPUT_FORMAT,
                     wgpu::TextureComponentType::Float,
                     wgpu::TextureViewDimension::D2,
@@ -1758,6 +1808,7 @@ impl Renderer for RayTracer {
                         size: (self.width * self.height * 4 * std::mem::size_of::<f32>())
                             as wgpu::BufferAddress,
                         usage: wgpu::BufferUsage::STORAGE,
+                        mapped_at_creation: false,
                     }),
                     0..((self.width * self.height * 4 * std::mem::size_of::<f32>())
                         as wgpu::BufferAddress),
@@ -1773,6 +1824,7 @@ impl Renderer for RayTracer {
                         size: (self.width * self.height * 12 * std::mem::size_of::<f32>())
                             as wgpu::BufferAddress,
                         usage: wgpu::BufferUsage::STORAGE,
+                        mapped_at_creation: false,
                     }),
                     0..((self.width * self.height * 12 * std::mem::size_of::<f32>())
                         as wgpu::BufferAddress),
@@ -1784,7 +1836,17 @@ impl Renderer for RayTracer {
             .bind(
                 IntersectionBindings::Output as u32,
                 bind_group::Binding::WriteStorageTexture(
-                    self.output_texture.create_default_view(),
+                    self.output_texture
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            label: None,
+                            format: Some(Self::OUTPUT_FORMAT),
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            aspect: wgpu::TextureAspect::All,
+                            base_mip_level: 0,
+                            level_count: None,
+                            base_array_layer: 0,
+                            array_layer_count: None,
+                        }),
                     Self::OUTPUT_FORMAT,
                     wgpu::TextureComponentType::Uint,
                     wgpu::TextureViewDimension::D2,
@@ -1827,69 +1889,55 @@ impl Renderer for RayTracer {
                 height: skybox.height,
                 depth: 1,
             },
-            array_layer_count: 1,
-            mip_level_count: 5,
+            mip_level_count: skybox.mip_levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: Self::TEXTURE_FORMAT,
             usage: wgpu::TextureUsage::COPY_DST | wgpu::TextureUsage::SAMPLED,
         });
 
-        let texel_count = skybox.len();
-        let buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("texture_array_staging_buufer"),
-            size: (texel_count * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::COPY_SRC,
-        });
-
-        buffer.data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(
-                skybox.data.as_ptr() as *const u8,
-                skybox.data.len() * std::mem::size_of::<u32>(),
-            )
-        });
-
-        let buffer = buffer.finish();
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("skybox_copy"),
-            });
-
-        let mut offset = 0;
         for i in 0..skybox.mip_levels {
-            let (w, h) = skybox.mip_level_width_height(i as usize);
-            encoder.copy_buffer_to_texture(
-                wgpu::BufferCopyView {
-                    buffer: &buffer,
-                    offset: (offset * std::mem::size_of::<u32>()) as wgpu::BufferAddress,
-                    bytes_per_row: (w * std::mem::size_of::<u32>()) as u32,
-                    rows_per_image: 0,
-                },
+            let data_offset = skybox.offset_for_level(i as _);
+            let (width, height) = skybox.mip_level_width_height(i as _);
+
+            let start = data_offset * 4;
+            let end = start + (width * height * 4);
+
+            self.queue.write_texture(
                 wgpu::TextureCopyView {
                     texture: &self.skybox_texture,
                     mip_level: i,
-                    array_layer: 0,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 },
+                &skybox.data.as_bytes()[start..end],
+                wgpu::TextureDataLayout {
+                    offset: 0,
+                    bytes_per_row: (width * std::mem::size_of::<u32>()) as u32,
+                    rows_per_image: height as _,
+                },
                 wgpu::Extent3d {
-                    width: w as u32,
-                    height: h as u32,
+                    width: width as _,
+                    height: height as _,
                     depth: 1,
                 },
             );
-
-            offset += w * h;
         }
-
-        self.queue.submit(&[encoder.finish()]);
 
         self.intersection_bind_group
             .bind(
                 IntersectionBindings::Skybox as u32,
                 bind_group::Binding::SampledTexture(
-                    self.skybox_texture.create_default_view(),
+                    self.skybox_texture
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            label: None,
+                            format: Some(Self::OUTPUT_FORMAT),
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            aspect: wgpu::TextureAspect::All,
+                            base_mip_level: 0,
+                            level_count: NonZeroU32::new(skybox.mip_levels),
+                            base_array_layer: 0,
+                            array_layer_count: None,
+                        }),
                     Self::TEXTURE_FORMAT,
                     wgpu::TextureComponentType::Uint,
                     wgpu::TextureViewDimension::D2,
@@ -1926,7 +1974,6 @@ impl RayTracer {
                 height: height as u32,
                 depth: 1,
             },
-            array_layer_count: 1,
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::STORAGE,
             format: Self::OUTPUT_FORMAT,
             dimension: wgpu::TextureDimension::D2,
@@ -1947,7 +1994,6 @@ impl RayTracer {
                 height: height as u32,
                 depth: 1,
             },
-            array_layer_count: 1,
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::STORAGE,
             format: Self::ACC_FORMAT,
             dimension: wgpu::TextureDimension::D2,
@@ -1957,29 +2003,22 @@ impl RayTracer {
     }
 
     fn read_camera_data(&mut self, camera_data: &mut CameraData) {
-        if let Some(binding) = self
-            .intersection_bind_group
-            .get_mut(IntersectionBindings::Camera as u32)
         {
-            match &mut binding.binding {
-                bind_group::Binding::WriteStorageBuffer(buffer, range) => {
-                    let mapping = buffer.map_read(range.start, range.end);
-                    self.device.poll(wgpu::Maintain::Wait);
-                    let mapping = futures::executor::block_on(mapping);
-                    if let Ok(mapping) = mapping {
-                        let data = unsafe {
-                            std::slice::from_raw_parts_mut(
-                                camera_data as *mut CameraData as *mut u8,
-                                std::mem::size_of::<CameraData>(),
-                            )
-                        };
+            let slice = self.camera_read_buffer.slice(..);
+            let mapping = slice.map_async(wgpu::MapMode::Read);
+            self.device.poll(wgpu::Maintain::Wait);
+            block_on(mapping).unwrap();
 
-                        data.copy_from_slice(mapping.as_slice());
-                    }
-                }
-                _ => {}
-            }
+            let data = unsafe {
+                std::slice::from_raw_parts_mut(
+                    camera_data as *mut CameraData as *mut u8,
+                    std::mem::size_of::<CameraData>(),
+                )
+            };
+
+            data.copy_from_slice(slice.get_mapped_range().as_ref());
         }
+        self.camera_read_buffer.unmap();
     }
 
     fn write_camera_data(&mut self, camera_data: &CameraData) {
@@ -1988,13 +2027,9 @@ impl RayTracer {
             .get_mut(IntersectionBindings::Camera as u32)
         {
             match &mut binding.binding {
-                bind_group::Binding::WriteStorageBuffer(buffer, range) => {
-                    let mapping = buffer.map_write(range.start, range.end);
-                    self.device.poll(wgpu::Maintain::Wait);
-                    let mapping = futures::executor::block_on(mapping);
-                    if let Ok(mut mapping) = mapping {
-                        mapping.as_slice().copy_from_slice(camera_data.as_bytes());
-                    }
+                bind_group::Binding::WriteStorageBuffer(buffer, _) => {
+                    self.queue
+                        .write_buffer(buffer, 0, &camera_data.as_bytes()[0..128]);
                 }
                 _ => {}
             }
@@ -2027,7 +2062,7 @@ impl RayTracer {
                     compute_pass.set_pipeline(&self.shade_pipeline);
                     compute_pass.set_bind_group(0, bind_group, &[]);
                     compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
-                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.material_bind_group, &[]);
                     compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
                     compute_pass.dispatch(((width * height) as f32 / 64.0).ceil() as u32, 1, 1);
                 }
@@ -2038,11 +2073,11 @@ impl RayTracer {
                     compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
                     compute_pass.dispatch((width as f32 / 64.0).ceil() as u32, 1, 1);
 
-                    // Shade
+                    // // Shade
                     compute_pass.set_pipeline(&self.shade_pipeline);
                     compute_pass.set_bind_group(0, bind_group, &[]);
                     compute_pass.set_bind_group(1, &self.mesh_bind_group, &[]);
-                    compute_pass.set_bind_group(2, &self.top_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &self.material_bind_group, &[]);
                     compute_pass.set_bind_group(3, &self.lights_bind_group, &[]);
                     compute_pass.dispatch((width as f32 / 64.0).ceil() as u32, 1, 1);
                 }
@@ -2056,6 +2091,18 @@ impl RayTracer {
             }
         }
 
-        self.queue.submit(&[encoder.finish()]);
+        if let Some(binding) = self
+            .intersection_bind_group
+            .get_mut(IntersectionBindings::Camera as u32)
+        {
+            match &mut binding.binding {
+                bind_group::Binding::WriteStorageBuffer(buffer, _) => {
+                    encoder.copy_buffer_to_buffer(buffer, 0, &self.camera_read_buffer, 0, 128);
+                }
+                _ => {}
+            }
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 }

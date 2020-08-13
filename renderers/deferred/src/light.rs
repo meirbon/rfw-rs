@@ -377,7 +377,7 @@ impl ShadowMapArray {
                     base_mip_level: 0,
                     level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: None,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -421,7 +421,7 @@ impl ShadowMapArray {
                     base_mip_level: 0,
                     level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: None,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -845,7 +845,7 @@ impl ShadowMapArray {
                     base_mip_level: 0,
                     level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: None,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -919,7 +919,7 @@ impl ShadowMapArray {
                     base_mip_level: 0,
                     level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: None,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
