@@ -1,4 +1,5 @@
 use shared::*;
+use std::borrow::Cow;
 
 pub struct DeferredOutput {
     pub width: usize,
@@ -101,6 +102,7 @@ impl DeferredOutput {
 
     pub fn new(device: &wgpu::Device, width: usize, height: usize) -> Self {
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -109,15 +111,17 @@ impl DeferredOutput {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
-            compare: wgpu::CompareFunction::Never,
+            compare: None,
+            anisotropy_clamp: None,
         });
 
         let blit_output_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("blit-output-layout"),
-                bindings: &[
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
+                        count: None,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
                             component_type: wgpu::TextureComponentType::Uint,
@@ -127,6 +131,7 @@ impl DeferredOutput {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        count: None,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::Sampler { comparison: false },
                     },
@@ -134,9 +139,10 @@ impl DeferredOutput {
             });
         let blit_debug_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit-debug-layout"),
-            bindings: &[
+            entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
+                    count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::SampledTexture {
                         component_type: wgpu::TextureComponentType::Float,
@@ -146,6 +152,7 @@ impl DeferredOutput {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::Sampler { comparison: false },
                 },
@@ -153,22 +160,30 @@ impl DeferredOutput {
         });
 
         let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[&blit_output_layout],
+            push_constant_ranges: &[],
         });
 
         let blit_debug_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
                 bind_group_layouts: &[&blit_debug_layout],
+                push_constant_ranges: &[],
             });
 
         let vert_spirv = include_bytes!("../shaders/quad.vert.spv");
         let frag_spirv = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_spirv.as_quad_bytes());
-        let frag_module = device.create_shader_module(frag_spirv.as_quad_bytes());
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_spirv.as_quad_bytes(),
+        )));
+        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            frag_spirv.as_quad_bytes(),
+        )));
 
         let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &blit_pipeline_layout,
+            layout: Some(&blit_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -180,6 +195,7 @@ impl DeferredOutput {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -202,7 +218,7 @@ impl DeferredOutput {
         });
 
         let blit_debug_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &blit_debug_pipeline_layout,
+            layout: Some(&blit_debug_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -214,6 +230,7 @@ impl DeferredOutput {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -236,36 +253,137 @@ impl DeferredOutput {
         });
 
         let output_texture = Self::create_texture(device, Self::OUTPUT_FORMAT, width, height);
-        let output_texture_view = output_texture.create_default_view();
+        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::OUTPUT_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let depth_texture = Self::create_texture(device, Self::DEPTH_FORMAT, width, height);
-        let depth_texture_view = depth_texture.create_default_view();
+        let depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::DEPTH_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::DepthOnly,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let albedo_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        let albedo_view = albedo_texture.create_default_view();
+        let albedo_view = albedo_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let normal_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        let normal_view = normal_texture.create_default_view();
+        let normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let world_pos_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        let world_pos_view = world_pos_texture.create_default_view();
+        let world_pos_view = world_pos_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let radiance_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        let radiance_view = radiance_texture.create_default_view();
+        let radiance_view = radiance_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let screen_space_texture =
             Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        let screen_space_view = screen_space_texture.create_default_view();
+        let screen_space_view = screen_space_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let intermediate_texture =
             Self::create_texture(device, super::Deferred::OUTPUT_FORMAT, width, height);
-        let intermediate_view = intermediate_texture.create_default_view();
+        let intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::OUTPUT_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let ssao_output = Self::create_texture(device, Self::SSAO_FORMAT, width, height);
-        let ssao_output_view = ssao_output.create_default_view();
+        let ssao_output_view = ssao_output.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::SSAO_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let ssao_filtered_output = Self::create_texture(device, Self::SSAO_FORMAT, width, height);
-        let ssao_filtered_output_view = ssao_filtered_output.create_default_view();
+        let ssao_filtered_output_view =
+            ssao_filtered_output.create_view(&wgpu::TextureViewDescriptor {
+                label: None,
+                format: Some(Self::SSAO_FORMAT),
+                dimension: None,
+                aspect: wgpu::TextureAspect::All,
+
+                base_mip_level: 0,
+                level_count: None,
+                base_array_layer: 0,
+                array_layer_count: None,
+            });
 
         let debug_bind_groups = (0..DeferredView::COUNT)
             .into_iter()
@@ -277,8 +395,8 @@ impl DeferredOutput {
                     } else {
                         &blit_debug_layout
                     },
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(match i {
                                 0 => &output_texture_view,
@@ -292,7 +410,7 @@ impl DeferredOutput {
                                 _ => &output_texture_view,
                             }),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(&output_sampler),
                         },
@@ -346,7 +464,6 @@ impl DeferredOutput {
                 height: height as u32,
                 depth: 1,
             },
-            array_layer_count: 1,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -362,45 +479,146 @@ impl DeferredOutput {
         self.height = height;
 
         let output_texture = Self::create_texture(device, Self::OUTPUT_FORMAT, width, height);
-        self.output_texture_view = output_texture.create_default_view();
+        self.output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::OUTPUT_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.output_texture = output_texture;
 
         let depth_texture = Self::create_texture(device, Self::DEPTH_FORMAT, width, height);
-        self.depth_texture_view = depth_texture.create_default_view();
+        self.depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::DEPTH_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.depth_texture = depth_texture;
 
         let albedo_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        self.albedo_view = albedo_texture.create_default_view();
+        self.albedo_view = albedo_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.albedo_texture = albedo_texture;
 
         let normal_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        self.normal_view = normal_texture.create_default_view();
+        self.normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.normal_texture = normal_texture;
 
         let world_pos_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        self.world_pos_view = world_pos_texture.create_default_view();
+        self.world_pos_view = world_pos_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.world_pos_texture = world_pos_texture;
 
         let radiance_texture = Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        self.radiance_view = radiance_texture.create_default_view();
+        self.radiance_view = radiance_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.radiance_texture = radiance_texture;
 
         let screen_space_texture =
             Self::create_texture(device, Self::STORAGE_FORMAT, width, height);
-        self.screen_space_view = screen_space_texture.create_default_view();
+        self.screen_space_view = screen_space_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::STORAGE_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.screen_space_texture = screen_space_texture;
 
         let intermediate_texture =
             Self::create_texture(device, super::Deferred::OUTPUT_FORMAT, width, height);
-        self.intermediate_view = intermediate_texture.create_default_view();
+        self.intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::OUTPUT_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.intermediate_texture = intermediate_texture;
 
         let ssao_output = Self::create_texture(device, Self::SSAO_FORMAT, width, height);
-        self.ssao_output_view = ssao_output.create_default_view();
+        self.ssao_output_view = ssao_output.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::SSAO_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
         self.ssao_output = ssao_output;
 
         let ssao_filtered_output = Self::create_texture(device, Self::SSAO_FORMAT, width, height);
-        self.ssao_filtered_output_view = ssao_filtered_output.create_default_view();
+        self.ssao_filtered_output_view =
+            ssao_filtered_output.create_view(&wgpu::TextureViewDescriptor {
+                label: None,
+                format: Some(Self::SSAO_FORMAT),
+                dimension: None,
+                aspect: wgpu::TextureAspect::All,
+
+                base_mip_level: 0,
+                level_count: None,
+                base_array_layer: 0,
+                array_layer_count: None,
+            });
         self.ssao_filtered_output = ssao_filtered_output;
 
         self.debug_bind_groups = (0..DeferredView::COUNT)
@@ -413,8 +631,8 @@ impl DeferredOutput {
                     } else {
                         &self.blit_debug_layout
                     },
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(match i {
                                 0 => &self.output_texture_view,
@@ -428,7 +646,7 @@ impl DeferredOutput {
                                 _ => &self.output_texture_view,
                             }),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(&self.output_sampler),
                         },
@@ -450,22 +668,22 @@ impl DeferredOutput {
                 DeferredView::SSAO => &self.ssao_output_view,
                 DeferredView::FilteredSSAO => &self.ssao_filtered_output_view,
             },
-            clear_color: wgpu::Color::BLACK,
             resolve_target: None,
-            load_op: wgpu::LoadOp::Clear,
-            store_op: wgpu::StoreOp::Store,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: true,
+            },
         }
     }
 
     pub fn as_depth_descriptor(&self) -> wgpu::RenderPassDepthStencilAttachmentDescriptor {
         wgpu::RenderPassDepthStencilAttachmentDescriptor {
             attachment: &self.depth_texture_view,
-            clear_depth: 1.0,
-            clear_stencil: 0,
-            depth_load_op: wgpu::LoadOp::Clear,
-            depth_store_op: wgpu::StoreOp::Store,
-            stencil_load_op: wgpu::LoadOp::Clear,
-            stencil_store_op: wgpu::StoreOp::Store,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(1.0),
+                store: true,
+            }),
+            stencil_ops: None,
         }
     }
 
@@ -477,6 +695,7 @@ impl DeferredOutput {
     ) -> wgpu::BindGroupLayoutEntry {
         wgpu::BindGroupLayoutEntry {
             binding: binding as u32,
+            count: None,
             visibility,
             ty: wgpu::BindingType::SampledTexture {
                 component_type: match view {
@@ -498,6 +717,7 @@ impl DeferredOutput {
     ) -> wgpu::BindGroupLayoutEntry {
         wgpu::BindGroupLayoutEntry {
             binding: binding as u32,
+            count: None,
             visibility,
             ty: wgpu::BindingType::StorageTexture {
                 format: match view {
@@ -506,17 +726,13 @@ impl DeferredOutput {
                     _ => Self::STORAGE_FORMAT,
                 },
                 readonly,
-                component_type: match view {
-                    DeferredView::Output => wgpu::TextureComponentType::Uint,
-                    _ => wgpu::TextureComponentType::Float,
-                },
                 dimension: wgpu::TextureViewDimension::D2,
             },
         }
     }
 
-    pub fn as_binding(&self, binding: usize, view: DeferredView) -> wgpu::Binding {
-        wgpu::Binding {
+    pub fn as_binding(&self, binding: usize, view: DeferredView) -> wgpu::BindGroupEntry {
+        wgpu::BindGroupEntry {
             binding: binding as u32,
             resource: wgpu::BindingResource::TextureView(match view {
                 DeferredView::Output => &self.output_texture_view,
@@ -540,9 +756,10 @@ impl DeferredOutput {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                 attachment: output,
-                clear_color: wgpu::Color::BLACK,
-                load_op: wgpu::LoadOp::Clear,
-                store_op: wgpu::StoreOp::Store,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: true,
+                },
                 resolve_target: None,
             }],
             depth_stencil_attachment: None,

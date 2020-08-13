@@ -1,7 +1,7 @@
 use crate::graph::Skin;
 use crate::{
     AnimatedMesh, AreaLight, Camera, ChangedIterator, DeviceMaterial, DirectionalLight, Instance,
-    Material, Mesh, PointLight, SpotLight, Texture,
+    Mesh, PointLight, SpotLight, Texture,
 };
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;

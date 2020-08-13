@@ -14,9 +14,6 @@ use winit::{
     window::WindowBuilder,
 };
 
-use rfw_deferred::Deferred;
-use rfw_gpu_rt::RayTracer;
-
 use rfw_system::{
     scene::{
         renderers::{RenderMode, Setting, SettingValue},
@@ -97,8 +94,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .get_matches();
 
+    use rfw_deferred::Deferred;
+    // use rfw_gpu_rt::RayTracer;
+
     match matches.value_of("renderer") {
-        Some("gpu-rt") => run_application::<RayTracer>(),
+        // Some("gpu-rt") => run_application::<RayTracer>(),
         _ => run_application::<Deferred>(),
     }
 }

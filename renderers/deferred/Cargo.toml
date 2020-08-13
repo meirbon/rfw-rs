@@ -18,9 +18,8 @@ rand = "0.7"
 tobj = "2.0"
 num = "0.2"
 crossbeam = "0.7"
-wgpu = "0.5"
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs.git", rev = "471d2a1a48c795a13d3c65a29ff184d7cfe9e766" }
 futures = "0.3"
-wgpu_glyph = "0.9"
 rfw-utils = { path = "../../utils" }
 
 [build-dependencies]

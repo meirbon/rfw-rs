@@ -1,6 +1,7 @@
 use super::output::*;
 use rfw_scene::{AnimVertexData, VertexData};
 use shared::*;
+use std::borrow::Cow;
 
 pub struct RenderPipeline {
     pub pipeline: wgpu::RenderPipeline,
@@ -20,14 +21,20 @@ impl RenderPipeline {
         let vert_shader = include_bytes!("../shaders/mesh.vert.spv");
         let frag_shader = include_bytes!("../shaders/deferred.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
-        let frag_module = device.create_shader_module(frag_shader.as_quad_bytes());
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
+        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            frag_shader.as_quad_bytes(),
+        )));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[uniform_layout, instance_layout, texture_layout],
+            push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            layout: Some(&pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -39,6 +46,7 @@ impl RenderPipeline {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::Back,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -78,10 +86,7 @@ impl RenderPipeline {
                 format: DeferredOutput::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: Default::default(),
             }),
             vertex_state: wgpu::VertexStateDescriptor {
                 vertex_buffers: &[
@@ -139,14 +144,18 @@ impl RenderPipeline {
         });
 
         let vert_shader = include_bytes!("../shaders/mesh_anim.vert.spv");
-        let vert_module = device.create_shader_module(vert_shader.as_quad_bytes());
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
 
         let anim_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[uniform_layout, instance_layout, texture_layout, skin_layout],
+            push_constant_ranges: &[],
         });
 
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &anim_layout,
+            layout: Some(&anim_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
                 entry_point: "main",
@@ -158,6 +167,7 @@ impl RenderPipeline {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::Back,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -197,10 +207,7 @@ impl RenderPipeline {
                 format: DeferredOutput::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: Default::default(),
             }),
             vertex_state: wgpu::VertexStateDescriptor {
                 vertex_buffers: &[
