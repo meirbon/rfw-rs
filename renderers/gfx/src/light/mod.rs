@@ -35,18 +35,22 @@ impl<B: hal::Backend> LightList<B> {
 
         let uniform_desc_layout = unsafe {
             device
-                .create_descriptor_set_layout(&[pso::DescriptorSetLayoutBinding {
-                    binding: 0,
-                    ty: pso::DescriptorType::Buffer {
-                        ty: pso::BufferDescriptorType::Uniform,
-                        format: pso::BufferDescriptorFormat::Structured {
-                            dynamic_offset: true,
+                .create_descriptor_set_layout(
+                    &[pso::DescriptorSetLayoutBinding {
+                        binding: 0,
+                        ty: pso::DescriptorType::Buffer {
+                            ty: pso::BufferDescriptorType::Uniform,
+                            format: pso::BufferDescriptorFormat::Structured {
+                                dynamic_offset: true,
+                            },
                         },
-                    },
-                    count: 1,
-                    stage_flags: pso::ShaderStageFlags::VERTEX | pso::ShaderStageFlags::FRAGMENT,
-                    immutable_samplers: false,
-                }])
+                        count: 1,
+                        stage_flags: pso::ShaderStageFlags::VERTEX
+                            | pso::ShaderStageFlags::FRAGMENT,
+                        immutable_samplers: false,
+                    }],
+                    &[],
+                )
                 .unwrap()
         };
 
@@ -65,7 +69,7 @@ impl<B: hal::Backend> LightList<B> {
                     }],
                     pso::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
                 )
-                .unwrap();
+                .unwrap()
         };
 
         let pipeline_layout = unsafe {
@@ -74,7 +78,7 @@ impl<B: hal::Backend> LightList<B> {
                     vec![
                         instances_desc_layout,
                         skins_desc_layout,
-                        uniform_desc_layout,
+                        &uniform_desc_layout,
                     ],
                     &[],
                 )

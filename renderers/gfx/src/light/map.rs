@@ -3,7 +3,7 @@ use crate::hal;
 use crate::instances::{RenderBuffers, SceneList};
 use crate::skinning::SkinList;
 use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool, *};
-use rfw_scene::{AnimVertexData, Light, LightInfo, TrackedStorage, VertexData};
+use rfw_scene::{AnimVertexData, FrustrumG, Light, LightInfo, TrackedStorage, VertexData};
 use shared::BytesConversion;
 use std::{fmt::Debug, mem::ManuallyDrop, sync::Arc};
 
@@ -485,7 +485,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                         device
                             .create_framebuffer(
                                 &render_pass,
-                                &[&*render_views[i], &depth_view],
+                                vec![&*render_views[i], &depth_view],
                                 image::Extent {
                                     width: Self::WIDTH,
                                     height: Self::HEIGHT,
@@ -528,10 +528,14 @@ impl<B: hal::Backend> ShadowMapArray<B> {
     pub fn render(
         &self,
         cmd_buffer: &mut B::CommandBuffer,
+        pipeline_layout: &B::PipelineLayout,
+        desc_set: &B::DescriptorSet,
         scene: &SceneList<B>,
         skins: &SkinList<B>,
     ) {
         for i in 0..self.light_infos.len() {
+            let frustrum = FrustrumG::from_matrix(self.light_infos[i].pm);
+
             unsafe {
                 cmd_buffer.begin_render_pass(
                     &*self.render_pass,
@@ -558,7 +562,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     command::SubpassContents::Inline,
                 );
 
-                cmd_buffer.scene.iter_instances(|buffers, instance| {
+                scene.iter_instances(|buffer, instance| {
                     let iter = instance
                         .meshes
                         .iter()
@@ -568,14 +572,14 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     iter.for_each(|mesh| {
                         if first {
                             cmd_buffer.bind_graphics_descriptor_sets(
-                                &self.pipeline_layout,
+                                pipeline_layout,
                                 0,
-                                std::iter::once(&self.desc_set),
+                                std::iter::once(desc_set),
                                 &[],
                             );
 
                             cmd_buffer.bind_graphics_descriptor_sets(
-                                &self.pipeline_layout,
+                                pipeline_layout,
                                 1,
                                 std::iter::once(&scene.desc_set),
                                 &[],
@@ -592,10 +596,10 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                                 RenderBuffers::Animated(buffer, anim_offset) => {
                                     if let Some(skin_id) = instance.skin_id {
                                         let skin_id = skin_id as usize;
-                                        if let Some(skin_set) = self.skins.get_set(skin_id) {
+                                        if let Some(skin_set) = skins.get_set(skin_id) {
                                             cmd_buffer.bind_graphics_pipeline(&self.anim_pipeline);
                                             cmd_buffer.bind_graphics_descriptor_sets(
-                                                &self.pipeline_layout,
+                                                pipeline_layout,
                                                 1,
                                                 vec![&scene.desc_set, skin_set],
                                                 &[],
@@ -659,13 +663,15 @@ impl<B: hal::Backend> ShadowMapArray<B> {
 
 impl<B: hal::Backend> Drop for ShadowMapArray<B> {
     fn drop(&mut self) {
-        self.device.wait_idle();
+        self.device.wait_idle().unwrap();
         unsafe {
-            self.frame_buffers.into_iter().for_each(|f| {
-                self.device.destroy_framebuffer(*f);
+            self.frame_buffers.iter().for_each(|f| {
+                self.device
+                    .destroy_framebuffer(ManuallyDrop::into_inner(std::ptr::read(f)));
             });
-            self.render_views.into_iter().for_each(|v| {
-                self.device.destroy_image_view(*v);
+            self.render_views.iter().for_each(|v| {
+                self.device
+                    .destroy_image_view(ManuallyDrop::into_inner(std::ptr::read(v)));
             });
 
             self.device
@@ -827,13 +833,13 @@ impl<B: hal::Backend> FilterPipeline<B> {
             };
             cmd_buffer.bind_compute_pipeline(&*self.pipeline);
             cmd_buffer.bind_compute_descriptor_sets(
-                &self.pipeline_layout,
+                &*self.pipeline_layout,
                 0,
-                std::iter::once(&set.set1),
+                std::iter::once(&*set.set1),
                 &[],
             );
             cmd_buffer.push_compute_constants(
-                &self.pipeline_layout,
+                &*self.pipeline_layout,
                 0,
                 push_constants.as_quad_bytes(),
             );
@@ -851,7 +857,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
             cmd_buffer.bind_compute_descriptor_sets(
                 &self.pipeline_layout,
                 0,
-                std::iter::once(&set.set2),
+                std::iter::once(&*set.set2),
                 &[],
             );
             cmd_buffer.push_compute_constants(
@@ -904,8 +910,8 @@ impl<B: hal::Backend> FilterPipeline<B> {
             FilterDescSet {
                 width,
                 height,
-                set1,
-                set2,
+                set1: ManuallyDrop::new(set1),
+                set2: ManuallyDrop::new(set2),
             }
         }
     }
@@ -924,7 +930,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
                     pso::Descriptor::Image(filter_view, image::Layout::General),
                     pso::Descriptor::Image(source_output, image::Layout::General),
                 ],
-                set: &set.set1,
+                set: &*set.set1,
             },
             pso::DescriptorSetWrite {
                 binding: 1,
@@ -933,7 +939,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
                     pso::Descriptor::Image(source_output, image::Layout::General),
                     pso::Descriptor::Image(filter_view, image::Layout::General),
                 ],
-                set: &set.set2,
+                set: &*set.set2,
             },
         ];
 
@@ -961,7 +967,7 @@ pub struct FilterDescSet<B: hal::Backend> {
 
 impl<B: hal::Backend> Drop for FilterPipeline<B> {
     fn drop(&mut self) {
-        self.device.wait_idle();
+        self.device.wait_idle().unwrap();
         unsafe {
             self.desc_pool.reset();
             self.device
@@ -971,9 +977,7 @@ impl<B: hal::Backend> Drop for FilterPipeline<B> {
                     &self.desc_layout,
                 )));
             self.device
-                .destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(
-                    &self.pipeline,
-                )));
+                .destroy_compute_pipeline(ManuallyDrop::into_inner(std::ptr::read(&self.pipeline)));
             self.device
                 .destroy_pipeline_layout(ManuallyDrop::into_inner(std::ptr::read(
                     &self.pipeline_layout,

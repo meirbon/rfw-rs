@@ -12,6 +12,11 @@ layout(set = 0, binding = 0) uniform Locals {
     LightInfo info;
 };
 
+struct AABB {
+    vec4 bmin;
+    vec4 bmax;
+};
+
 struct Instance {
     mat4 Transform;
     mat4 InverseTransform;

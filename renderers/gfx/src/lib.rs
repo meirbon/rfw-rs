@@ -347,6 +347,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let allocator = Allocator::new(device.clone(), &adapter);
 
         let scene_list = SceneList::new(device.clone(), allocator.clone(), transfer_queue.clone());
+        let skins = SkinList::new(device.clone(), allocator.clone(), transfer_queue.clone());
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
@@ -356,9 +357,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             width as u32,
             height as u32,
             &scene_list,
+            &skins,
         );
-
-        let skins = SkinList::new(device.clone(), allocator.clone(), transfer_queue.clone());
 
         Ok(Box::new(Self {
             instance,

@@ -103,6 +103,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         width: u32,
         height: u32,
         scene_list: &SceneList<B>,
+        skins: &SkinList<B>,
     ) -> Self {
         let set_layout = ManuallyDrop::new(
             unsafe {
