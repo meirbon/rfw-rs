@@ -1,5 +1,5 @@
-use crate::buffer::Buffer;
 use crate::hal;
+use crate::mem::Buffer;
 use rfw_scene::bvh::AABB;
 use rfw_scene::VertexMesh;
 use std::sync::Arc;

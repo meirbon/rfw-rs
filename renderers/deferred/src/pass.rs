@@ -245,7 +245,7 @@ impl SSAOPass {
         });
 
         let filter_uniform_direction_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter-uniform-direction-buffer"),
+            label: Some("filter-uniform-direction-mem"),
             size: 8,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,

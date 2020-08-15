@@ -1,7 +1,7 @@
-use crate::buffer::*;
 use crate::hal;
 use crate::instances::{RenderBuffers, SceneList};
 use crate::skinning::SkinList;
+use hal::*;
 use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool, *};
 use rfw_scene::{AnimVertexData, FrustrumG, Light, LightInfo, TrackedStorage, VertexData};
 use shared::BytesConversion;
@@ -9,7 +9,7 @@ use std::{fmt::Debug, mem::ManuallyDrop, sync::Arc};
 
 #[derive(Debug)]
 pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
-    allocator: Allocator<B>,
+    allocator: crate::mem::Allocator<B>,
     lights: TrackedStorage<T>,
     info: Vec<LightInfo>,
     shadow_maps: ShadowMapArray<B>,
@@ -18,7 +18,7 @@ pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
 impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
     pub fn new(
         device: Arc<B::Device>,
-        allocator: Allocator<B>,
+        allocator: crate::mem::Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
         pipeline_layout: &B::PipelineLayout,
         depth_type: DepthType,
@@ -55,16 +55,16 @@ pub struct ShadowMapArray<B: hal::Backend> {
     render_views: Vec<ManuallyDrop<B::ImageView>>,
     frame_buffers: Vec<ManuallyDrop<B::Framebuffer>>,
     pub view: ManuallyDrop<B::ImageView>,
-    map_memory: Memory<B>,
+    map_memory: crate::mem::Memory<B>,
 
     filter_map: ManuallyDrop<B::Image>,
     filter_view: ManuallyDrop<B::ImageView>,
-    filter_map_memory: Memory<B>,
+    filter_map_memory: crate::mem::Memory<B>,
 
     depth_map: ManuallyDrop<B::Image>,
     depth_view: ManuallyDrop<B::ImageView>,
-    depth_map_memory: Memory<B>,
-    pub uniform_buffer: Buffer<B>,
+    depth_map_memory: crate::mem::Memory<B>,
+    pub uniform_buffer: crate::mem::Buffer<B>,
 
     filter_pipeline: Arc<FilterPipeline<B>>,
     render_pass: ManuallyDrop<B::RenderPass>,
@@ -81,7 +81,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
 
     pub fn new(
         device: Arc<B::Device>,
-        allocator: Allocator<B>,
+        allocator: crate::mem::Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
         pipeline_layout: &B::PipelineLayout,
         depth_type: DepthType,
@@ -311,7 +311,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                         attributes: vec![pso::AttributeDesc {
                             /// Vertex array location
                             location: 0 as pso::Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as pso::BufferIndex,
                             /// Attribute element description.
                             element: pso::Element {
@@ -416,7 +416,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                             pso::AttributeDesc {
                                 /// Vertex array location
                                 location: 1 as pso::Location,
-                                /// Binding number of the associated vertex buffer.
+                                /// Binding number of the associated vertex mem.
                                 binding: 1 as pso::BufferIndex,
                                 /// Attribute element description.
                                 element: pso::Element {

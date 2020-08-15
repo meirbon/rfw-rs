@@ -2,7 +2,6 @@ pub use gfx_backend_vulkan as backend;
 
 pub use gfx_hal as hal;
 
-use buffer::Allocator;
 use hal::prelude::*;
 use hal::{
     adapter::PhysicalDevice,
@@ -14,30 +13,28 @@ use hal::{
     pool,
     pool::CommandPool,
     pso,
+    queue::Submission,
     queue::{CommandQueue, QueueFamily},
-    queue::{QueueGroup, Submission},
     window,
     window::PresentationSurface,
     Instance, *,
 };
 use instances::SceneList;
+use mem::Allocator;
 use rfw_scene::{AnimatedMesh, ChangedIterator, Mesh, Renderer};
-use std::{iter, mem::ManuallyDrop, ptr, sync::Arc};
+use std::{iter, mem::ManuallyDrop, ptr};
 use window::Extent2D;
 
-mod buffer;
+mod cmd;
 mod instances;
 mod light;
-mod materials;
+mod mem;
 mod mesh;
 mod skinning;
+mod utils;
 
-use crate::hal::device::OutOfMemory;
-use crate::hal::window::{PresentError, Suboptimal, SwapImageIndex};
 use crate::skinning::SkinList;
 use rfw_scene::graph::Skin;
-use std::borrow::Borrow;
-use std::sync::Mutex;
 
 #[derive(Debug, Copy, Clone)]
 pub enum GfxError {
@@ -64,93 +61,12 @@ impl std::error::Error for GfxError {}
 
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
-#[derive(Debug)]
-pub struct Queue<B: hal::Backend> {
-    queue_group: ManuallyDrop<QueueGroup<B>>,
-}
-
-impl<B: hal::Backend> Queue<B> {
-    pub fn new(group: QueueGroup<B>) -> Self {
-        Self {
-            queue_group: ManuallyDrop::new(group),
-        }
-    }
-
-    pub fn submit<'a, T, Ic, S, Iw, Is>(
-        &mut self,
-        submission: Submission<Ic, Iw, Is>,
-        fence: Option<&B::Fence>,
-    ) where
-        T: 'a + Borrow<B::CommandBuffer>,
-        Ic: IntoIterator<Item = &'a T>,
-        S: 'a + Borrow<B::Semaphore>,
-        Iw: IntoIterator<Item = (&'a S, pso::PipelineStage)>,
-        Is: IntoIterator<Item = &'a S>,
-    {
-        unsafe { self.queue_group.queues[0].submit(submission, fence) }
-    }
-
-    pub fn submit_without_semaphores<'a, T, Ic>(
-        &mut self,
-        command_buffers: Ic,
-        fence: Option<&B::Fence>,
-    ) where
-        T: 'a + Borrow<B::CommandBuffer>,
-        Ic: IntoIterator<Item = &'a T>,
-    {
-        let submission = Submission {
-            command_buffers,
-            wait_semaphores: iter::empty(),
-            signal_semaphores: iter::empty(),
-        };
-        self.submit::<_, _, B::Semaphore, _, _>(submission, fence)
-    }
-
-    pub fn present<'a, W, Is, S, Iw>(
-        &mut self,
-        swapchains: Is,
-        wait_semaphores: Iw,
-    ) -> Result<Option<Suboptimal>, PresentError>
-    where
-        Self: Sized,
-        W: 'a + Borrow<B::Swapchain>,
-        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
-        S: 'a + Borrow<B::Semaphore>,
-        Iw: IntoIterator<Item = &'a S>,
-    {
-        unsafe { self.queue_group.queues[0].present(swapchains, wait_semaphores) }
-    }
-
-    pub fn present_without_semaphores<'a, W, Is>(
-        &mut self,
-        swapchains: Is,
-    ) -> Result<Option<Suboptimal>, PresentError>
-    where
-        Self: Sized,
-        W: 'a + Borrow<B::Swapchain>,
-        Is: IntoIterator<Item = (&'a W, SwapImageIndex)>,
-    {
-        unsafe { self.queue_group.queues[0].present_without_semaphores(swapchains) }
-    }
-
-    pub fn present_surface(
-        &mut self,
-        surface: &mut B::Surface,
-        image: <B::Surface as PresentationSurface<B>>::SwapchainImage,
-        wait_semaphore: Option<&B::Semaphore>,
-    ) -> Result<Option<Suboptimal>, PresentError> {
-        unsafe { self.queue_group.queues[0].present_surface(surface, image, wait_semaphore) }
-    }
-
-    pub fn wait_idle(&mut self) -> Result<(), OutOfMemory> {
-        self.queue_group.queues[0].wait_idle()
-    }
-}
+pub use cmd::*;
 
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
-    queue: Arc<Mutex<Queue<B>>>,
-    device: Arc<B::Device>,
+    queue: Queue<B>,
+    device: DeviceHandle<B>,
     surface: ManuallyDrop<B::Surface>,
     adapter: hal::adapter::Adapter<B>,
     cmd_pools: Vec<B::CommandPool>,
@@ -239,12 +155,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             let queue_group = gpu.queue_groups.pop().unwrap();
             let transfer_queue_group = gpu.queue_groups.pop().unwrap();
             let device = gpu.device;
-            let queue = Arc::new(Mutex::new(Queue {
-                queue_group: ManuallyDrop::new(queue_group),
-            }));
-            let transfer_queue = Arc::new(Mutex::new(Queue {
-                queue_group: ManuallyDrop::new(transfer_queue_group),
-            }));
+            let queue = Queue::new(queue_group);
+            let transfer_queue = Queue::new(transfer_queue_group);
             (queue, transfer_queue, device)
         } else {
             let mut gpu = unsafe {
@@ -258,18 +170,13 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             };
             let queue_group = gpu.queue_groups.pop().unwrap();
             let device = gpu.device;
-            let queue = Arc::new(Mutex::new(Queue {
-                queue_group: ManuallyDrop::new(queue_group),
-            }));
+            let queue = Queue::new(queue_group);
             let transfer_queue = queue.clone();
             (queue, transfer_queue, device)
         };
 
         let command_pool = unsafe {
-            device.create_command_pool(
-                queue.lock().unwrap().queue_group.family,
-                pool::CommandPoolCreateFlags::empty(),
-            )
+            device.create_command_pool(queue.family, pool::CommandPoolCreateFlags::empty())
         }
         .expect("Can't create command pool");
 
@@ -286,10 +193,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             unsafe {
                 cmd_pools.push(
                     device
-                        .create_command_pool(
-                            queue.lock().unwrap().queue_group.family,
-                            pool::CommandPoolCreateFlags::empty(),
-                        )
+                        .create_command_pool(queue.family, pool::CommandPoolCreateFlags::empty())
                         .expect("Can't create command pool"),
                 );
             }
@@ -343,7 +247,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             depth: 0.0..1.0,
         };
 
-        let device = Arc::new(device);
+        let device: DeviceHandle<B> = DeviceHandle::new(device);
         let allocator = Allocator::new(device.clone(), &adapter);
 
         let scene_list = SceneList::new(device.clone(), allocator.clone(), transfer_queue.clone());
@@ -478,32 +382,23 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 signal_semaphores: iter::once(&self.submission_complete_semaphores[frame_idx]),
             };
 
-            let result = if let Ok(mut queue) = self.queue.lock() {
-                queue.submit(
-                    submission,
-                    Some(&self.submission_complete_fences[frame_idx]),
-                );
+            self.queue.submit(
+                submission,
+                Some(&self.submission_complete_fences[frame_idx]),
+            );
 
-                // present frame
-                Some(queue.queue_group.queues[0].present_surface(
-                    &mut self.surface,
-                    surface_image,
-                    Some(&self.submission_complete_semaphores[frame_idx]),
-                ))
-            } else {
-                None
-            };
+            // present frame
+            let result = self.queue.present_surface(
+                &mut self.surface,
+                surface_image,
+                Some(&self.submission_complete_semaphores[frame_idx]),
+            );
+
+            if result.is_err() {
+                self.recreate_swapchain();
+            }
 
             self.device.destroy_framebuffer(framebuffer);
-
-            match result {
-                Some(result) => {
-                    if result.is_err() {
-                        self.recreate_swapchain();
-                    }
-                }
-                _ => {}
-            }
         }
 
         // Increment our frame

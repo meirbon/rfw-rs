@@ -3,7 +3,6 @@ members = [
     "examples/animated",
     "examples/nphysics",
     "examples/simple",
-    "renderers/cpu-rt",
     "renderers/deferred",
     "renderers/gpu-rt",
     "renderers/shared",

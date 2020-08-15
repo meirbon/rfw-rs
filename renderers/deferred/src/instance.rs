@@ -150,7 +150,7 @@ impl InstanceList {
         if !self.instances.is_empty() {
             let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
             let staging_data = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("instance-staging-buffer"),
+                label: Some("instance-staging-mem"),
                 size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
                 usage: wgpu::BufferUsage::COPY_SRC,
                 mapped_at_creation: true,

@@ -35,7 +35,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
             return;
         }
 
-        // Create a larger buffer to ensure resizing does not happen often
+        // Create a larger mem to ensure resizing does not happen often
         let new_size = new_size * 2;
 
         self.host_buffer.resize(new_size, T::default());
@@ -81,7 +81,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     pub fn copy_from_slice(&mut self, data: &[T]) {
         assert!(
             self.host_buffer.len() >= data.len(),
-            "Data to copy was longer ({}) than buffer ({})",
+            "Data to copy was longer ({}) than mem ({})",
             data.len(),
             self.len()
         );
@@ -109,7 +109,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
             let copy_size = self.bytes() as wgpu::BufferAddress;
             let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-                label: Some("update-staging-buffer"),
+                label: Some("update-staging-mem"),
                 size: copy_size,
                 mapped_at_creation: true,
             });

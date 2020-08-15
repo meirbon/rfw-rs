@@ -246,7 +246,7 @@ void main()
                 {
                     CLAMPINTENSITY(contribution, camera.clamp_value);
 
-                    // Add fire-and-forget shadow ray to the connections buffer
+                    // Add fire-and-forget shadow ray to the connections mem
                     const uint shadowRayIdx = atomicAdd(camera.shadowId, 1);// compaction
 
                     potContributions[shadowRayIdx].O = vec4(safe_origin(P, L, gN, 1e-4f), O.w);

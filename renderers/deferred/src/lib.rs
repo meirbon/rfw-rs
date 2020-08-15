@@ -132,7 +132,7 @@ impl Deferred {
             label: Some("uniform-layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
-                    // Matrix buffer
+                    // Matrix mem
                     binding: 0,
                     count: None,
                     visibility: wgpu::ShaderStage::VERTEX
@@ -144,7 +144,7 @@ impl Deferred {
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
-                    // Material buffer
+                    // Material mem
                     binding: 1,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
@@ -208,7 +208,7 @@ impl Renderer for Deferred {
 
         let instances = instance::InstanceList::new(&device);
         let material_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("material-buffer"),
+            label: Some("material-mem"),
             mapped_at_creation: false,
             size: std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10,
             usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
@@ -226,7 +226,7 @@ impl Renderer for Deferred {
         );
 
         let uniform_camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("uniform-buffer"),
+            label: Some("uniform-mem"),
             mapped_at_creation: false,
             size: Self::UNIFORM_CAMERA_SIZE,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
@@ -406,7 +406,7 @@ impl Renderer for Deferred {
         if size > self.material_buffer_size {
             self.material_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
                 mapped_at_creation: false,
-                label: Some("material-buffer"),
+                label: Some("material-mem"),
                 size,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
             });
@@ -416,7 +416,7 @@ impl Renderer for Deferred {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("create-material-cmd-buffer"),
+                label: Some("create-material-cmd-mem"),
             });
 
         encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.material_buffer, 0, size);
@@ -536,7 +536,7 @@ impl Renderer for Deferred {
 
                 // encoder.copy_buffer_to_texture(
                 //     wgpu::BufferCopyView {
-                //         buffer: &staging_buffer,
+                //         mem: &staging_buffer,
                 //         layout: wgpu::TextureDataLayout {
                 //             offset: offset
                 //                 + local_offset * std::mem::size_of::<u32>() as wgpu::BufferAddress,

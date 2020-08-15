@@ -1,21 +1,20 @@
-use crate::buffer::{Allocator, Buffer, Memory};
 use crate::hal::command::BufferCopy;
 use crate::hal::format::{Aspects, Format};
 use crate::hal::image::{Access, Kind, Layout, Level, SubresourceRange, Tiling};
 use crate::hal::memory::Segment;
 use crate::hal::memory::{Barrier, Dependencies};
 use crate::hal::pool::CommandPool;
-use crate::materials::SceneTexture;
-use crate::{hal, instances::SceneList, Queue};
+use crate::mem::{Allocator, Buffer, Memory};
+use crate::{hal, instances::SceneList, CmdBufferPool, DeviceHandle, Queue};
 
 use crate::instances::RenderBuffers;
+use crate::mem::image::{Texture, TextureDescriptor, TextureView, TextureViewDescriptor};
 use crate::skinning::SkinList;
 use glam::*;
+use hal::*;
 use hal::{
-    buffer,
     command::{self, CommandBuffer},
     device::Device,
-    image, memory, pass, pso,
     window::Extent2D,
 };
 use pass::Subpass;
@@ -23,9 +22,7 @@ use pso::*;
 use rfw_scene::bvh::AABB;
 use rfw_scene::{AnimVertexData, DeviceMaterial, FrustrumG, VertexData, VertexMesh};
 use shared::BytesConversion;
-use std::sync::Mutex;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
-
 pub mod anim;
 
 #[derive(Debug, Clone)]
@@ -63,8 +60,9 @@ impl<B: hal::Backend> GfxMesh<B> {
     }
 }
 
+#[derive(Debug)]
 pub struct RenderPipeline<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     allocator: Allocator<B>,
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     desc_set: B::DescriptorSet,
@@ -78,9 +76,10 @@ pub struct RenderPipeline<B: hal::Backend> {
     depth_image_view: ManuallyDrop<B::ImageView>,
     depth_memory: Memory<B>,
 
-    textures: Vec<SceneTexture<B>>,
-    cmd_pool: ManuallyDrop<B::CommandPool>,
-    queue: Arc<Mutex<Queue<B>>>,
+    textures: Vec<Texture<B>>,
+    texture_views: Vec<TextureView<B>>,
+    cmd_pool: CmdBufferPool<B>,
+    queue: Queue<B>,
 
     mat_desc_pool: ManuallyDrop<B::DescriptorPool>,
     mat_set_layout: ManuallyDrop<B::DescriptorSetLayout>,
@@ -96,9 +95,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
         + std::mem::size_of::<Vec4>();
 
     pub fn new(
-        device: Arc<B::Device>,
+        device: DeviceHandle<B>,
         allocator: Allocator<B>,
-        queue: Arc<Mutex<Queue<B>>>,
+        queue: Queue<B>,
         format: hal::format::Format,
         width: u32,
         height: u32,
@@ -392,7 +391,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 0 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -403,7 +402,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 1 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -414,7 +413,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 2 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -425,7 +424,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 3 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -436,7 +435,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 4 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -462,7 +461,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         with_adjacency: false,
                         /// Describes whether or not primitive restart is supported for
                         /// an input assembler. Primitive restart is a feature that
-                        /// allows a mark to be placed in an index buffer where it is
+                        /// allows a mark to be placed in an index mem where it is
                         /// is "broken" into multiple pieces of geometry.
                         ///
                         /// See <https://www.khronos.org/opengl/wiki/Vertex_Rendering#Primitive_Restart>
@@ -603,7 +602,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 0 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -614,7 +613,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 1 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -625,7 +624,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 2 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -636,7 +635,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 3 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -647,7 +646,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 4 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 0 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -658,7 +657,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 5 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 1 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -669,7 +668,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         AttributeDesc {
                             /// Vertex array location
                             location: 6 as Location,
-                            /// Binding number of the associated vertex buffer.
+                            /// Binding number of the associated vertex mem.
                             binding: 1 as BufferIndex,
                             /// Attribute element description.
                             element: Element {
@@ -695,7 +694,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         with_adjacency: false,
                         /// Describes whether or not primitive restart is supported for
                         /// an input assembler. Primitive restart is a feature that
-                        /// allows a mark to be placed in an index buffer where it is
+                        /// allows a mark to be placed in an index mem where it is
                         /// is "broken" into multiple pieces of geometry.
                         ///
                         /// See <https://www.khronos.org/opengl/wiki/Vertex_Rendering#Primitive_Restart>
@@ -822,18 +821,12 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .unwrap()
         };
 
-        let cmd_pool = unsafe {
-            device
-                .create_command_pool(
-                    queue
-                        .lock()
-                        .expect("Could not lock queue")
-                        .queue_group
-                        .family,
-                    hal::pool::CommandPoolCreateFlags::empty(),
-                )
-                .expect("Can't create command pool")
-        };
+        let cmd_pool = CmdBufferPool::new(
+            device.clone(),
+            &queue,
+            hal::pool::CommandPoolCreateFlags::RESET_INDIVIDUAL,
+        )
+        .unwrap();
 
         let material_buffer = allocator
             .allocate_buffer(
@@ -895,8 +888,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
             depth_memory,
 
             queue,
-            cmd_pool: ManuallyDrop::new(cmd_pool),
+            cmd_pool,
             textures: Vec::new(),
+            texture_views: Vec::new(),
 
             mat_desc_pool,
             mat_set_layout,
@@ -1166,14 +1160,35 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .iter()
             .map(|t| {
                 texels += t.data.len();
-                SceneTexture::new(
+                Texture::new(
                     self.device.clone(),
                     &self.allocator,
-                    t.width,
-                    t.height,
-                    t.mip_levels,
-                    Format::Bgra8Unorm,
+                    TextureDescriptor {
+                        kind: image::Kind::D2(t.width, t.height, 1, 1),
+                        mip_levels: t.mip_levels as _,
+                        format: format::Format::Bgra8Unorm,
+                        tiling: image::Tiling::Optimal,
+                        usage: image::Usage::SAMPLED,
+                        capabilities: image::ViewCapabilities::empty(),
+                    },
                 )
+                .unwrap()
+            })
+            .collect();
+        self.texture_views = self
+            .textures
+            .iter()
+            .map(|t| {
+                t.create_view(TextureViewDescriptor {
+                    view_kind: image::ViewKind::D2,
+                    swizzle: Default::default(),
+                    range: image::SubresourceRange {
+                        aspects: format::Aspects::COLOR,
+                        levels: 0..t.mip_levels(),
+                        layers: 0..1,
+                    },
+                })
+                .unwrap()
             })
             .collect();
 
@@ -1205,7 +1220,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         let mut byte_offset = 0;
         for (i, t) in textures.iter().enumerate() {
-            let target = self.textures[i].borrow();
+            let target = &*self.textures[i];
             unsafe {
                 cmd_buffer.pipeline_barrier(
                     PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
@@ -1229,13 +1244,13 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 unsafe {
                     cmd_buffer.copy_buffer_to_image(
                         staging_buffer.buffer(),
-                        self.textures[i].borrow(),
+                        &*self.textures[i],
                         hal::image::Layout::TransferDstOptimal,
                         std::iter::once(&hal::command::BufferImageCopy {
                             buffer_offset: byte_offset as hal::buffer::Offset,
-                            /// Width of a buffer 'row' in texels.
+                            /// Width of a mem 'row' in texels.
                             buffer_width: width as u32,
-                            /// Height of a buffer 'image slice' in texels.
+                            /// Height of a mem 'image slice' in texels.
                             buffer_height: height as u32,
                             /// The image subresource.
                             image_layers: hal::image::SubresourceLayers {
@@ -1271,7 +1286,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         families: None,
                         states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
                             ..(Access::SHADER_READ, Layout::ShaderReadOnlyOptimal),
-                        target: self.textures[i].borrow(),
+                        target: &*self.textures[i],
                     }),
                 );
             }
@@ -1281,10 +1296,9 @@ impl<B: hal::Backend> RenderPipeline<B> {
             cmd_buffer.finish();
         }
 
-        let mut queue = self.queue.lock().expect("Could not get queue lock");
-
-        queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-        queue.wait_idle().unwrap();
+        self.queue
+            .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+        self.queue.wait_idle().unwrap();
     }
 
     pub fn set_materials(&mut self, materials: &[DeviceMaterial]) {
@@ -1352,9 +1366,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
             cmd_buffer
         };
 
-        if let Ok(mut queue) = self.queue.lock() {
-            queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-        }
+        self.queue
+            .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
 
         unsafe {
             if !self.mat_sets.is_empty() {
@@ -1400,57 +1413,57 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     });
 
                     // Texture 0
-                    let tex = &self.textures[mat.diffuse_map.max(0) as usize];
+                    let view = &*self.texture_views[mat.diffuse_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 2,
                         array_offset: 0,
                         descriptors: Some(pso::Descriptor::Image(
-                            tex.view(),
+                            view,
                             image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 1
-                    let tex = &self.textures[mat.normal_map.max(0) as usize];
+                    let view = &*self.texture_views[mat.normal_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 3,
                         array_offset: 0,
                         descriptors: Some(pso::Descriptor::Image(
-                            tex.view(),
+                            view,
                             image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 2
-                    let tex = &self.textures[mat.roughness_map.max(0) as usize];
+                    let view = &*self.texture_views[mat.roughness_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 4,
                         array_offset: 0,
                         descriptors: Some(pso::Descriptor::Image(
-                            tex.view(),
+                            view,
                             image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 3
-                    let tex = &self.textures[mat.emissive_map.max(0) as usize];
+                    let view = &*self.texture_views[mat.emissive_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 5,
                         array_offset: 0,
                         descriptors: Some(pso::Descriptor::Image(
-                            tex.view(),
+                            view,
                             image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
                     // Texture 4
-                    let tex = &self.textures[mat.sheen_map.max(0) as usize];
+                    let view = &*self.texture_views[mat.sheen_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 6,
                         array_offset: 0,
                         descriptors: Some(pso::Descriptor::Image(
-                            tex.view(),
+                            view,
                             image::Layout::ShaderReadOnlyOptimal,
                         )),
                     });
@@ -1459,9 +1472,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             self.device.write_descriptor_sets(writes);
         }
 
-        if let Ok(mut queue) = self.queue.lock() {
-            queue.wait_idle().unwrap();
-        }
+        self.queue.wait_idle().unwrap();
     }
 }
 
@@ -1477,8 +1488,6 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
                 .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.depth_image)));
 
             self.textures.clear();
-            self.device
-                .destroy_command_pool(ManuallyDrop::into_inner(ptr::read(&self.cmd_pool)));
 
             self.device
                 .destroy_descriptor_pool(ManuallyDrop::into_inner(ptr::read(&self.desc_pool)));

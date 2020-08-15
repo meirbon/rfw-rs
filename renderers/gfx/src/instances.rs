@@ -1,11 +1,11 @@
-use crate::{hal, Queue};
+use crate::{hal, DeviceHandle, Queue};
 use glam::*;
 
 use crate::hal::command::CommandBuffer;
 use crate::hal::pool::CommandPool;
 use crate::hal::{buffer, memory};
 use crate::mesh::anim::GfxAnimMesh;
-use crate::{buffer::*, mesh::GfxMesh};
+use crate::{mem::*, mesh::GfxMesh};
 use hal::{
     buffer::{SubRange, Usage},
     device::Device,
@@ -18,7 +18,6 @@ use rfw_scene::{
     AnimVertexData, FlaggedStorage, ObjectRef, TrackedStorage, VertexData, VertexMesh,
 };
 use shared::BytesConversion;
-use std::sync::Mutex;
 use std::{collections::HashSet, mem::ManuallyDrop, ptr, sync::Arc};
 
 #[derive(Debug, Clone)]
@@ -47,7 +46,7 @@ pub struct RenderInstance {
 pub enum RenderBuffers<'a, B: hal::Backend> {
     Static(&'a Buffer<B>),
     /// Buffer with both vertices and animation data
-    /// the usize is the offset into the buffer for animation data
+    /// the usize is the offset into the mem for animation data
     Animated(&'a Buffer<B>, usize),
 }
 
@@ -91,9 +90,9 @@ pub enum TaskResult<B: hal::Backend> {
 
 #[derive(Debug)]
 pub struct SceneList<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     allocator: Allocator<B>,
-    queue: Arc<Mutex<Queue<B>>>,
+    queue: Queue<B>,
     cmd_pool: ManuallyDrop<B::CommandPool>,
     meshes: FlaggedStorage<GfxMesh<B>>,
     anim_meshes: FlaggedStorage<GfxAnimMesh<B>>,
@@ -113,11 +112,7 @@ pub struct SceneList<B: hal::Backend> {
 impl<B: hal::Backend> SceneList<B> {
     const DEFAULT_CAPACITY: usize = 32;
 
-    pub fn new(
-        device: Arc<B::Device>,
-        allocator: Allocator<B>,
-        queue: Arc<Mutex<Queue<B>>>,
-    ) -> Self {
+    pub fn new(device: DeviceHandle<B>, allocator: Allocator<B>, queue: Queue<B>) -> Self {
         let instance_buffer = allocator
             .allocate_buffer(
                 std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
@@ -183,14 +178,7 @@ impl<B: hal::Backend> SceneList<B> {
         }
         let cmd_pool = ManuallyDrop::new(unsafe {
             device
-                .create_command_pool(
-                    queue
-                        .lock()
-                        .expect("Could not lock queue")
-                        .queue_group
-                        .family,
-                    hal::pool::CommandPoolCreateFlags::empty(),
-                )
+                .create_command_pool(queue.family, hal::pool::CommandPoolCreateFlags::empty())
                 .expect("Can't create command pool")
         });
 
@@ -333,10 +321,7 @@ impl<B: hal::Backend> SceneList<B> {
                     }),
                 );
                 cmd_buffer.finish();
-                queue
-                    .lock()
-                    .unwrap()
-                    .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+                queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
             }
 
             sender.send(TaskResult::Mesh(
@@ -414,10 +399,7 @@ impl<B: hal::Backend> SceneList<B> {
                     }),
                 );
                 cmd_buffer.finish();
-                queue
-                    .lock()
-                    .unwrap()
-                    .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
+                queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
             }
 
             sender.send(TaskResult::AnimMesh(
@@ -438,11 +420,9 @@ impl<B: hal::Backend> SceneList<B> {
     pub fn synchronize(&mut self) {
         let mut to_free = Vec::new();
         if self.task_pool.has_jobs() {
-            if let Ok(mut queue) = self.queue.lock() {
-                match queue.wait_idle() {
-                    Ok(_) => {}
-                    Err(e) => eprintln!("error waiting for transfer queue: {}", e),
-                }
+            match self.queue.wait_idle() {
+                Ok(_) => {}
+                Err(e) => eprintln!("error waiting for transfer queue: {}", e),
             }
         }
 

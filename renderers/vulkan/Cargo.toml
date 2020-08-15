@@ -9,8 +9,9 @@ build = "build.rs"
 
 [dependencies]
 ash = "0.31"
-ash-window = "0.4"
+ash-window = "0.5"
 glam = "0.8"
+vk-mem = "0.2.2"
 shared = { path = "../shared" }
 rfw-scene = { path = "../../scene" }
 

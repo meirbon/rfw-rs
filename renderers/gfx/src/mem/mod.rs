@@ -1,13 +1,16 @@
-use crate::hal;
+use crate::{hal, DeviceHandle};
 
 use hal::device::OutOfMemory;
 use hal::{adapter::PhysicalDevice, buffer, device::Device, memory, memory::Segment, MemoryTypeId};
+use std::ops::Deref;
 use std::{mem::ManuallyDrop, sync::Arc};
+
+pub mod image;
 
 #[derive(Debug)]
 pub struct Allocator<B: hal::Backend> {
-    device: Arc<B::Device>,
-    pub memory_props: hal::adapter::MemoryProperties,
+    device: DeviceHandle<B>,
+    pub memory_props: Arc<hal::adapter::MemoryProperties>,
     pub limits: hal::Limits,
 }
 
@@ -23,13 +26,13 @@ impl<B: hal::Backend> Clone for Allocator<B> {
 
 #[allow(dead_code)]
 impl<B: hal::Backend> Allocator<B> {
-    pub fn new(device: Arc<B::Device>, adapter: &hal::adapter::Adapter<B>) -> Self {
+    pub fn new(device: DeviceHandle<B>, adapter: &hal::adapter::Adapter<B>) -> Self {
         let memory_props = adapter.physical_device.memory_properties();
         let limits = adapter.physical_device.limits();
 
         Self {
             device,
-            memory_props,
+            memory_props: Arc::new(memory_props),
             limits,
         }
     }
@@ -152,18 +155,18 @@ impl<B: hal::Backend> Allocator<B> {
         let buffer_memory = unsafe {
             let memory = match self.device.allocate_memory(upload_type, buffer_req.size) {
                 Ok(mem) => mem,
-                Err(e) => panic!("Could not allocate buffer memory: {}", e),
+                Err(e) => panic!("Could not allocate mem memory: {}", e),
             };
             match self.device.bind_buffer_memory(&memory, 0, &mut buffer) {
                 Ok(_) => {}
-                Err(e) => panic!("Could not bind buffer memory: {}", e),
+                Err(e) => panic!("Could not bind mem memory: {}", e),
             };
             ManuallyDrop::new(memory)
         };
 
         Ok(Buffer {
             device: self.device.clone(),
-            buffer: Some(buffer),
+            buffer,
             memory: Memory {
                 device: self.device.clone(),
                 memory: buffer_memory,
@@ -242,10 +245,18 @@ impl<B: hal::Backend> Allocator<B> {
 
 #[derive(Debug)]
 pub struct Buffer<B: hal::Backend> {
-    pub device: Arc<B::Device>,
-    buffer: Option<ManuallyDrop<B::Buffer>>,
+    pub device: DeviceHandle<B>,
+    buffer: ManuallyDrop<B::Buffer>,
     memory: Memory<B>,
     pub size_in_bytes: usize,
+}
+
+impl<B: hal::Backend> Deref for Buffer<B> {
+    type Target = B::Buffer;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.buffer
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -281,11 +292,19 @@ impl std::error::Error for AllocationError {}
 
 #[derive(Debug)]
 pub struct Memory<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     memory: ManuallyDrop<B::Memory>,
     memory_type: MemoryTypeId,
     memory_props: memory::Properties,
     capacity: usize,
+}
+
+impl<B: hal::Backend> Deref for Memory<B> {
+    type Target = B::Memory;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.memory
+    }
 }
 
 #[allow(dead_code)]
@@ -445,7 +464,7 @@ impl<B: hal::Backend> Buffer<B> {
     }
 
     pub fn buffer(&self) -> &B::Buffer {
-        self.buffer.as_ref().unwrap()
+        &*self.buffer
     }
 
     pub fn memory(&self) -> &B::Memory {
@@ -459,11 +478,8 @@ where
 {
     fn drop(&mut self) {
         unsafe {
-            let mut buf = None;
-            std::mem::swap(&mut buf, &mut self.buffer);
-            if let Some(buffer) = buf {
-                self.device.destroy_buffer(ManuallyDrop::into_inner(buffer));
-            }
+            self.device
+                .destroy_buffer(ManuallyDrop::into_inner(std::ptr::read(&self.buffer)));
         }
     }
 }

@@ -1,7 +1,7 @@
-use crate::buffer::{Allocator, Buffer};
 use crate::hal::device::Device;
 use crate::hal::pso::DescriptorPool;
-use crate::{hal, Queue};
+use crate::mem::{Allocator, Buffer};
+use crate::{hal, DeviceHandle, Queue};
 use glam::*;
 use hal::*;
 use rfw_scene::TrackedStorage;
@@ -9,7 +9,6 @@ use rfw_utils::TaskPool;
 use shared::BytesConversion;
 use std::mem::ManuallyDrop;
 use std::ptr;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 pub struct GfxSkin<B: hal::Backend> {
@@ -37,11 +36,10 @@ impl<B: hal::Backend> Default for GfxSkin<B> {
 
 #[derive(Debug)]
 pub struct SkinList<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     allocator: Allocator<B>,
-    queue: Arc<Mutex<Queue<B>>>,
+    queue: Queue<B>,
     skins: TrackedStorage<GfxSkin<B>>,
-    cmd_pool: ManuallyDrop<B::CommandPool>,
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_layout: ManuallyDrop<B::DescriptorSetLayout>,
     desc_sets: Vec<Option<B::DescriptorSet>>,
@@ -49,24 +47,7 @@ pub struct SkinList<B: hal::Backend> {
 }
 
 impl<B: hal::Backend> SkinList<B> {
-    pub fn new(
-        device: Arc<B::Device>,
-        allocator: Allocator<B>,
-        queue: Arc<Mutex<Queue<B>>>,
-    ) -> Self {
-        let cmd_pool = ManuallyDrop::new(unsafe {
-            device
-                .create_command_pool(
-                    queue
-                        .lock()
-                        .expect("Could not lock queue")
-                        .queue_group
-                        .family,
-                    hal::pool::CommandPoolCreateFlags::empty(),
-                )
-                .expect("Can't create command pool")
-        });
-
+    pub fn new(device: DeviceHandle<B>, allocator: Allocator<B>, queue: Queue<B>) -> Self {
         let desc_layout = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_set_layout(
@@ -112,7 +93,6 @@ impl<B: hal::Backend> SkinList<B> {
             allocator,
             queue,
             skins: TrackedStorage::new(),
-            cmd_pool,
             desc_pool,
             desc_layout,
             desc_sets: Vec::new(),
@@ -252,8 +232,6 @@ impl<B: hal::Backend> Drop for SkinList<B> {
         self.device.wait_idle().unwrap();
 
         unsafe {
-            self.device
-                .destroy_command_pool(ManuallyDrop::into_inner(ptr::read(&self.cmd_pool)));
             self.device
                 .destroy_descriptor_pool(ManuallyDrop::into_inner(ptr::read(&self.desc_pool)));
             self.device

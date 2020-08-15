@@ -131,7 +131,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     ) -> Self {
         let light_buffer_size = (capacity * std::mem::size_of::<T>()) as wgpu::BufferAddress;
         let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("light-buffer"),
+            label: Some("light-mem"),
             size: light_buffer_size,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
@@ -176,7 +176,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("light-buffer-copy"),
+            label: Some("light-mem-copy"),
         });
 
         let mut changed = self.shadow_maps.resize(device, queue, self.lights.len());
@@ -185,7 +185,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             (self.lights.len() * std::mem::size_of::<T>()) as wgpu::BufferAddress;
         if light_buffer_size > self.light_buffer_size {
             self.light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("light-buffer"),
+                label: Some("light-mem"),
                 size: light_buffer_size,
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
                 mapped_at_creation: false,
@@ -196,7 +196,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
 
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("lights-staging-buffer"),
+            label: Some("lights-staging-mem"),
             size: self.light_buffer_size,
             usage: wgpu::BufferUsage::COPY_SRC,
             mapped_at_creation: true,
@@ -457,7 +457,7 @@ impl ShadowMapArray {
 
         let uniform_size = (count * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress;
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow-map-uniform-buffer"),
+            label: Some("shadow-map-uniform-mem"),
             size: uniform_size,
             usage: wgpu::BufferUsage::UNIFORM
                 | wgpu::BufferUsage::COPY_SRC
@@ -686,7 +686,7 @@ impl ShadowMapArray {
         });
 
         let filter_uniform_direction_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter-uniform-direction-buffer"),
+            label: Some("filter-uniform-direction-mem"),
             size: 8,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
@@ -1040,7 +1040,7 @@ impl ShadowMapArray {
         let new_size = (size * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress;
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow-map-uniform-buffer"),
+            label: Some("shadow-map-uniform-mem"),
             size: new_size,
             usage: wgpu::BufferUsage::UNIFORM
                 | wgpu::BufferUsage::COPY_SRC
@@ -1116,7 +1116,7 @@ impl ShadowMapArray {
 
         let copy_size = infos.len() * Self::UNIFORM_ELEMENT_SIZE;
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow-maps-update-infos-buffer"),
+            label: Some("shadow-maps-update-infos-mem"),
             size: copy_size as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::COPY_SRC,
             mapped_at_creation: true,

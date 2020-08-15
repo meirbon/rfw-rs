@@ -1,9 +1,9 @@
-use crate::buffer::Allocator;
 use crate::hal;
 use crate::hal::device::Device;
 use crate::hal::pso::DescriptorPool;
 use crate::instances::SceneList;
 use crate::light::map::{DepthType, FilterPipeline};
+use crate::mem::Allocator;
 use hal::*;
 use rfw_scene::*;
 use std::mem::ManuallyDrop;
@@ -23,6 +23,7 @@ pub struct LightList<B: hal::Backend> {
     uniform_desc_layout: ManuallyDrop<B::DescriptorSetLayout>,
 }
 
+#[allow(dead_code)]
 impl<B: hal::Backend> LightList<B> {
     pub fn new(
         device: Arc<B::Device>,

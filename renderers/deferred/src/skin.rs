@@ -87,7 +87,7 @@ impl DeferredSkin {
     pub async fn update(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if let Some(buffer) = self.matrices_buffer.as_ref() {
             let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("skin-update-staging-buffer"),
+                label: Some("skin-update-staging-mem"),
                 size: self.joint_matrices_buffer_size,
                 usage: wgpu::BufferUsage::COPY_SRC,
                 mapped_at_creation: true,

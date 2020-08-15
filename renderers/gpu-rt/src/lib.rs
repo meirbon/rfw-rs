@@ -588,14 +588,14 @@ impl Renderer for RayTracer {
         let blue_noise = blue_noise::create_blue_noise_buffer();
 
         let camera_read_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("camera-view-buffer"),
+            label: Some("camera-view-mem"),
             size: 128,
             usage: wgpu::BufferUsage::MAP_READ | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
 
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("camera-view-buffer"),
+            label: Some("camera-view-mem"),
             size: (128 + (blue_noise.len() * std::mem::size_of::<u32>())) as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::MAP_WRITE
@@ -651,7 +651,7 @@ impl Renderer for RayTracer {
                 visibility: wgpu::ShaderStage::COMPUTE,
                 binding: bind_group::Binding::WriteStorageBuffer(
                     device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("states-buffer"),
+                        label: Some("states-mem"),
                         usage: wgpu::BufferUsage::STORAGE,
                         size: (width * height * 2 * std::mem::size_of::<[f32; 4]>() * 4)
                             as wgpu::BufferAddress,
@@ -1692,7 +1692,7 @@ impl Renderer for RayTracer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render-command-buffer"),
+                label: Some("render-command-mem"),
             });
 
         {
@@ -1746,7 +1746,7 @@ impl Renderer for RayTracer {
                     IntersectionBindings::PathStates as u32,
                     bind_group::Binding::WriteStorageBuffer(
                         self.device.create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("states-buffer"),
+                            label: Some("states-mem"),
                             usage: wgpu::BufferUsage::STORAGE,
                             size: (self.buffer_capacity * 2 * std::mem::size_of::<[f32; 4]>() * 4)
                                 as wgpu::BufferAddress,
