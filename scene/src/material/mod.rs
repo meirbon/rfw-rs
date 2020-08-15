@@ -175,16 +175,82 @@ impl Default for DeviceMaterial {
     }
 }
 
+impl DeviceMaterial {
+    pub fn get_metallic(&self) -> f32 {
+        (self.parameters[0] & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_subsurface(&self) -> f32 {
+        ((self.parameters[0].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_specular_f(&self) -> f32 {
+        ((self.parameters[0].overflowing_shr(16)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_roughness(&self) -> f32 {
+        ((self.parameters[0].overflowing_shr(24)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_specular_tint(&self) -> f32 {
+        (self.parameters[1] & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_anisotropic(&self) -> f32 {
+        ((self.parameters[1].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_sheen(&self) -> f32 {
+        ((self.parameters[1].overflowing_shr(16)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_sheen_tint(&self) -> f32 {
+        ((self.parameters[1].overflowing_shr(24)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_clearcoat(&self) -> f32 {
+        (self.parameters[2] & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_clearcoat_gloss(&self) -> f32 {
+        ((self.parameters[2].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
+
+    }
+    pub fn get_transmission(&self) -> f32 {
+        ((self.parameters[2].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_eta(&self) -> f32 {
+        ((self.parameters[2].overflowing_shr(24)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_custom0(&self) -> f32 {
+        (self.parameters[3] & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_custom1(&self) -> f32 {
+        ((self.parameters[3].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_custom2(&self) -> f32 {
+        ((self.parameters[3].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
+    }
+
+    pub fn get_custom3(&self) -> f32 {
+        ((self.parameters[3].overflowing_shr(24)).0 & 255) as f32 * 1.0 / 255.0
+    }
+}
+
 impl Into<DeviceMaterial> for &Material {
     fn into(self) -> DeviceMaterial {
-        let to_char = |f: f32| -> u8 { (f.min(1.0).max(0.0) * 255.0) as u8 };
+        let to_char = |f: f32| -> u8 { (f * 255.0).min(255.0) as u8 };
         let to_u32 = |a: f32, b: f32, c: f32, d: f32| -> u32 {
             let a = to_char(a) as u32;
             let b = to_char(b) as u32;
             let c = to_char(c) as u32;
             let d = to_char(d) as u32;
 
-            a + (b << 8) + (c << 16) + (d << 24)
+            a | (b << 8) | (c << 16) | (d << 24)
         };
 
         let parameters: [u32; 4] = [
