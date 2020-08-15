@@ -615,7 +615,8 @@ impl MaterialList {
         i
     }
 
-    pub fn push_texture(&mut self, texture: Texture) -> usize {
+    pub fn push_texture(&mut self, mut texture: Texture) -> usize {
+        texture.generate_mipmaps(Texture::MIP_LEVELS);
         let i = self.textures.len();
         self.textures.push(texture);
         i
