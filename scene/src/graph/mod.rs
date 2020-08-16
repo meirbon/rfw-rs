@@ -18,6 +18,7 @@ impl Into<u8> for NodeFlags {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NodeMesh {
     pub object_id: ObjectRef,
@@ -180,6 +181,7 @@ impl Node {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
@@ -375,28 +377,6 @@ impl Default for Skin {
             joint_nodes: Vec::new(),
             inverse_bind_matrices: Vec::new(),
             joint_matrices: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Bone {
-    pub name: String,
-    pub node_index: u32,
-
-    pub vertex_ids: Vec<u16>,
-    pub vertex_weights: Vec<f32>,
-    pub offset_matrix: Mat4,
-}
-
-impl Default for Bone {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            node_index: 0,
-            vertex_ids: Vec::new(),
-            vertex_weights: Vec::new(),
-            offset_matrix: Mat4::identity(),
         }
     }
 }

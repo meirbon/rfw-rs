@@ -368,6 +368,7 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
     storage: FlaggedStorage<T>,

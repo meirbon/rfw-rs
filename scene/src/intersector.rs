@@ -1,14 +1,13 @@
 use crate::objects::*;
 
-use crate::{InstanceID, PrimID, USE_MBVH};
+use crate::{InstanceID, PrimID};
 use glam::*;
-use rtbvh::{Ray, RayPacket4, ShadowPacket4, BVH, MBVH};
+use rtbvh::{Ray, RayPacket4, ShadowPacket4, MBVH};
 
 pub struct TIntersector<'a> {
     meshes: &'a [Mesh],
     anim_meshes: &'a [AnimatedMesh],
     instances: &'a [Instance],
-    bvh: &'a BVH,
     mbvh: &'a MBVH,
 }
 
@@ -17,14 +16,12 @@ impl<'a> TIntersector<'a> {
         meshes: &'a [Mesh],
         anim_meshes: &'a [AnimatedMesh],
         instances: &'a [Instance],
-        bvh: &'a BVH,
         mbvh: &'a MBVH,
     ) -> Self {
         Self {
             meshes,
             anim_meshes,
             instances,
-            bvh,
             mbvh,
         }
     }
@@ -49,27 +46,14 @@ impl<'a> TIntersector<'a> {
             }
         };
 
-        let bvh = self.bvh;
         let mbvh = self.mbvh;
-
-        unsafe {
-            return match crate::USE_MBVH {
-                true => mbvh.occludes(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-                _ => bvh.occludes(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-            };
-        }
+        mbvh.occludes(
+            origin.as_ref(),
+            direction.as_ref(),
+            t_min,
+            t_max,
+            intersection,
+        )
     }
 
     pub fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
@@ -98,24 +82,13 @@ impl<'a> TIntersector<'a> {
             }
         };
 
-        let hit = unsafe {
-            match USE_MBVH {
-                true => self.mbvh.traverse(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-                _ => self.bvh.traverse(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-            }
-        };
+        let hit = self.mbvh.traverse(
+            origin.as_ref(),
+            direction.as_ref(),
+            t_min,
+            t_max,
+            intersection,
+        );
 
         hit.and_then(|hit| Some(self.instances[instance_id as usize].transform_hit(hit)))
     }
@@ -142,24 +115,13 @@ impl<'a> TIntersector<'a> {
             }
         };
 
-        unsafe {
-            return match USE_MBVH {
-                true => self.mbvh.traverse_t(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-                _ => self.bvh.traverse_t(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-            };
-        }
+        self.mbvh.traverse_t(
+            origin.as_ref(),
+            direction.as_ref(),
+            t_min,
+            t_max,
+            intersection,
+        )
     }
 
     pub fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> (f32, u32) {
@@ -184,24 +146,13 @@ impl<'a> TIntersector<'a> {
             }
         };
 
-        unsafe {
-            return match USE_MBVH {
-                true => self.mbvh.depth_test(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-                _ => self.bvh.depth_test(
-                    origin.as_ref(),
-                    direction.as_ref(),
-                    t_min,
-                    t_max,
-                    intersection,
-                ),
-            };
-        }
+        self.mbvh.depth_test(
+            origin.as_ref(),
+            direction.as_ref(),
+            t_min,
+            t_max,
+            intersection,
+        )
     }
 
     pub fn occludes4(&self, _packet: ShadowPacket4) -> [bool; 4] {
@@ -251,12 +202,7 @@ impl<'a> TIntersector<'a> {
             }
         };
 
-        unsafe {
-            match USE_MBVH {
-                true => self.mbvh.traverse4(packet, intersection),
-                _ => self.bvh.traverse4(packet, intersection),
-            }
-        };
+        self.mbvh.traverse4(packet, intersection);
 
         (instance_ids, prim_ids)
     }

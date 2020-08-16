@@ -3,8 +3,6 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static mut USE_MBVH: bool = true;
-
 pub type PrimID = i32;
 pub type InstanceID = i32;
 
@@ -264,54 +262,6 @@ impl Scene {
             return Err(SceneError::NoFileExtension);
         }
         let extension = extension.unwrap();
-
-        // TODO: Reimplement
-        // #[cfg(feature = "object_caching")]
-        //     {
-        //         let cache_mesh = |mesh: &mut Mesh, cached_object: &PathBuf| {
-        //             if build_bvh {
-        //                 mesh.construct_bvh();
-        //             }
-        //
-        //             let materials = self.materials.lock().unwrap();
-        //             mesh.serialize_object(cached_object.as_path(), &materials)
-        //                 .unwrap();
-        //         };
-        //
-        //         let cached_object = path.with_extension("rm");
-        //         // First check if cached object exists and check whether we can load it
-        //         if cached_object.exists() {
-        //             // Did object change, if so -> reload object
-        //             let should_reload = if let (Ok(cached_changed), Ok(mesh_changed)) =
-        //             (cached_object.as_path().metadata(), path.metadata())
-        //             {
-        //                 let cached_changed = cached_changed.modified();
-        //                 let mesh_changed = mesh_changed.modified();
-        //                 if let (Ok(cached_changed), Ok(mesh_changed)) = (cached_changed, mesh_changed) {
-        //                     mesh_changed.cmp(&cached_changed) == Ordering::Less
-        //                 } else {
-        //                     true
-        //                 }
-        //             } else {
-        //                 true
-        //             };
-        //
-        //             // Object did not change, attempt to deserialize
-        //             if !should_reload {
-        //                 if let Ok(mut mesh) = {
-        //                     let mut materials = self.materials.lock().unwrap();
-        //                     // Attempt to deserialize
-        //                     Mesh::deserialize_object(cached_object.as_path(), &mut materials)
-        //                 } {
-        //                     // Build BVH if necessary
-        //                     if build_bvh && mesh.bvh.is_none() {
-        //                         mesh.construct_bvh();
-        //                     }
-        //                     return self.add_object(mesh);
-        //                 }
-        //             }
-        //         }
-        //     }
 
         // Load obj files
         let extension = extension.to_str().unwrap().to_string();

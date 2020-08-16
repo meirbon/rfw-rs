@@ -293,9 +293,7 @@ pub struct RayTracer {
     shadow_pipeline: wgpu::ComputePipeline,
 
     shade_pipeline: wgpu::ComputePipeline,
-    shade_pipeline_layout: wgpu::PipelineLayout,
     blit_pipeline: wgpu::ComputePipeline,
-    blit_pipeline_layout: wgpu::PipelineLayout,
 
     mesh_bind_group: wgpu::BindGroup,
     mesh_bind_group_layout: wgpu::BindGroupLayout,
@@ -1067,9 +1065,7 @@ impl Renderer for RayTracer {
             extend_pipeline,
             shadow_pipeline,
             shade_pipeline,
-            shade_pipeline_layout,
             blit_pipeline,
-            blit_pipeline_layout,
             mesh_bind_group,
             mesh_bind_group_layout,
             top_bind_group,

@@ -3,7 +3,7 @@ use rayon::prelude::*;
 
 use crate::objects::*;
 use crate::MaterialList;
-use crate::{PrimID, USE_MBVH};
+use crate::PrimID;
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use std::fmt::Display;
 
@@ -723,7 +723,7 @@ impl Mesh {
 
 impl Intersect for Mesh {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| {
@@ -731,31 +731,20 @@ impl Intersect for Mesh {
                 triangle.occludes(ray, t_min, t_max)
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().occludes(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.occludes(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            }
+            mbvh.occludes(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            )
         } else {
             false
         }
     }
 
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| {
@@ -768,31 +757,20 @@ impl Intersect for Mesh {
                 }
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().traverse(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.traverse(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            }
+            mbvh.traverse(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            )
         } else {
             None
         }
     }
 
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| {
@@ -803,31 +781,20 @@ impl Intersect for Mesh {
                 None
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().traverse_t(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.traverse_t(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            }
+            mbvh.traverse_t(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            )
         } else {
             None
         }
     }
 
     fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)> {
@@ -835,24 +802,13 @@ impl Intersect for Mesh {
                 triangle.depth_test(ray, t_min, t_max)
             };
 
-            let hit = unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().depth_test(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.depth_test(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            };
+            let hit = mbvh.depth_test(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            );
 
             Some(hit)
         } else {
@@ -861,7 +817,7 @@ impl Intersect for Mesh {
     }
 
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let mut prim_id = [-1 as PrimID; 4];
             let mut valid = false;
             let intersection_test = |i: usize, packet: &mut RayPacket4| {
@@ -876,16 +832,7 @@ impl Intersect for Mesh {
                 }
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self
-                        .mbvh
-                        .as_ref()
-                        .unwrap()
-                        .traverse4(packet, intersection_test),
-                    _ => bvh.traverse4(packet, intersection_test),
-                }
-            };
+            mbvh.traverse4(packet, intersection_test);
 
             if valid {
                 Some(prim_id)

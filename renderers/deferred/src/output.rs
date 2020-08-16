@@ -147,7 +147,7 @@ impl DeferredOutput {
                     ty: wgpu::BindingType::SampledTexture {
                         component_type: wgpu::TextureComponentType::Float,
                         dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+                        multisampled: false,    
                     },
                 },
                 wgpu::BindGroupLayoutEntry {

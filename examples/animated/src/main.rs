@@ -338,10 +338,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     });
                 });
 
-                // timer2.reset();
-                // renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
-                // renderer.synchronize();
-                // synchronize.add_sample(timer2.elapsed_in_millis());
+                timer2.reset();
+                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
+                renderer.synchronize();
+                synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);
