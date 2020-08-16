@@ -42,7 +42,7 @@ void main() {
         normal = normalize(mat3(T, B, normal) * n);
     }
 
-    Albedo = vec4(color, uintBitsToFloat(MID));
+    Albedo = vec4(color, MID);
     Normal = vec4(normal, 0.0);
     WorldPos = vec4(V.xyz, gl_FragCoord.z);
     SSPos = SSV;

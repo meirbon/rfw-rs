@@ -6,8 +6,8 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "lights.glsl"
 #include "disney_bsdf.glsl"
 
-#define BIAS 0.0001
-#define VARIANCE_MIN 0.0000001
+#define BIAS 0.0002
+#define VARIANCE_MIN 0.00000001
 #define SHADOW_CUTOFF 0.0001
 
 layout(set = 0, binding = 0) uniform Locals {
