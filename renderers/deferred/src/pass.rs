@@ -43,8 +43,8 @@ impl BlitPass {
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
-        let vert_shader = include_bytes!("../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../shaders/deferred_blit.frag.spv");
+        let vert_shader: &[u8] = include_bytes!("../shaders/quad.vert.spv");
+        let frag_shader: &[u8] = include_bytes!("../shaders/deferred_blit.frag.spv");
 
         let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
             vert_shader.as_quad_bytes(),
@@ -189,7 +189,7 @@ impl SSAOPass {
             push_constant_ranges: &[],
         });
 
-        let shader = include_bytes!("../shaders/ssao.comp.spv");
+        let shader: &[u8] = include_bytes!("../shaders/ssao.comp.spv");
         let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(shader.as_quad_bytes()),
         ));
@@ -287,7 +287,7 @@ impl SSAOPass {
                 bind_group_layouts: &[&filter_bind_group_layout],
                 push_constant_ranges: &[],
             });
-        let shader = include_bytes!("../shaders/ssao_filter.comp.spv");
+        let shader: &[u8] = include_bytes!("../shaders/ssao_filter.comp.spv");
         let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(shader.as_quad_bytes()),
         ));
@@ -617,7 +617,7 @@ impl RadiancePass {
             push_constant_ranges: &[],
         });
 
-        let spirv = include_bytes!("../shaders/lighting.comp.spv");
+        let spirv: &[u8] = include_bytes!("../shaders/lighting.comp.spv");
         let module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
             spirv.as_quad_bytes(),
         )));

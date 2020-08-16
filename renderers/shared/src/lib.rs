@@ -1,6 +1,3 @@
-#![allow(incomplete_features)]
-#![feature(const_generics)]
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};

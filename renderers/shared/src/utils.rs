@@ -93,23 +93,6 @@ pub fn as_quad_bytes<T: Sized>(data: &T) -> &[u32] {
     }
 }
 
-impl<T: Sized, const N: usize> BytesConversion for &[T; N] {
-    fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(self.as_ptr() as *const u8, N * std::mem::size_of::<T>())
-        }
-    }
-
-    fn as_quad_bytes(&self) -> &[u32] {
-        unsafe {
-            std::slice::from_raw_parts(
-                self.as_ptr() as *const u32,
-                N * std::mem::size_of::<T>() / 4,
-            )
-        }
-    }
-}
-
 impl<T: Sized> BytesConversion for &[T] {
     fn as_bytes(&self) -> &[u8] {
         unsafe {

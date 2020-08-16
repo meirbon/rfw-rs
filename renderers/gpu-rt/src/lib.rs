@@ -540,8 +540,8 @@ impl Renderer for RayTracer {
                 push_constant_ranges: &[],
             });
 
-        let vert_shader = include_bytes!("../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../shaders/quad.frag.spv");
+        let vert_shader: &[u8] = include_bytes!("../shaders/quad.vert.spv");
+        let frag_shader: &[u8] = include_bytes!("../shaders/quad.frag.spv");
 
         let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
             vert_shader.as_quad_bytes(),
@@ -897,7 +897,7 @@ impl Renderer for RayTracer {
                 push_constant_ranges: &[],
             });
 
-        let compute_module = include_bytes!("../shaders/ray_gen.comp.spv");
+        let compute_module: &[u8] = include_bytes!("../shaders/ray_gen.comp.spv");
         let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(compute_module.as_quad_bytes()),
         ));
@@ -910,7 +910,7 @@ impl Renderer for RayTracer {
                 },
             });
 
-        let compute_module = include_bytes!("../shaders/ray_extend.comp.spv",);
+        let compute_module: &[u8] = include_bytes!("../shaders/ray_extend.comp.spv",);
         let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(compute_module.as_quad_bytes()),
         ));
@@ -922,7 +922,7 @@ impl Renderer for RayTracer {
             },
         });
 
-        let compute_module = include_bytes!("../shaders/ray_shadow.comp.spv");
+        let compute_module: &[u8] = include_bytes!("../shaders/ray_shadow.comp.spv");
         let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(compute_module.as_quad_bytes()),
         ));
@@ -934,7 +934,7 @@ impl Renderer for RayTracer {
             },
         });
 
-        let compute_module = include_bytes!("../shaders/shade.comp.spv");
+        let compute_module: &[u8] = include_bytes!("../shaders/shade.comp.spv");
         let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(compute_module.as_quad_bytes()),
         ));
@@ -946,7 +946,7 @@ impl Renderer for RayTracer {
             },
         });
 
-        let compute_module = include_bytes!("../shaders/blit.comp.spv");
+        let compute_module: &[u8] = include_bytes!("../shaders/blit.comp.spv");
         let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(compute_module.as_quad_bytes()),
         ));

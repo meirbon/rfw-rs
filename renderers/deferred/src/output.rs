@@ -172,8 +172,8 @@ impl DeferredOutput {
                 push_constant_ranges: &[],
             });
 
-        let vert_spirv = include_bytes!("../shaders/quad.vert.spv");
-        let frag_spirv = include_bytes!("../shaders/quad.frag.spv");
+        let vert_spirv: &[u8] = include_bytes!("../shaders/quad.vert.spv");
+        let frag_spirv: &[u8] = include_bytes!("../shaders/quad.frag.spv");
 
         let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
             vert_spirv.as_quad_bytes(),

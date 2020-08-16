@@ -493,9 +493,9 @@ impl ShadowMapArray {
             push_constant_ranges: &[],
         });
 
-        let vert_shader = include_bytes!("../shaders/shadow_single.vert.spv",);
-        let regular_frag_shader = include_bytes!("../shaders/shadow_single.frag.spv");
-        let linear_frag_shader = include_bytes!("../shaders/shadow_single_linear.frag.spv");
+        let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single.vert.spv",);
+        let regular_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single.frag.spv");
+        let linear_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
         let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
             vert_shader.as_quad_bytes(),
@@ -554,7 +554,7 @@ impl ShadowMapArray {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
+        let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
         let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
             vert_shader.as_quad_bytes(),
         )));
@@ -753,7 +753,7 @@ impl ShadowMapArray {
                 bind_group_layouts: &[&filter_bind_group_layout],
                 push_constant_ranges: &[],
             });
-        let shader = include_bytes!("../shaders/shadow_filter.comp.spv");
+        let shader: &[u8] = include_bytes!("../shaders/shadow_filter.comp.spv");
         let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(shader.as_quad_bytes()),
         ));
