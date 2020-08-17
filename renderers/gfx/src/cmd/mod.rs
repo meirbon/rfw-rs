@@ -86,45 +86,14 @@ impl<B: hal::Backend> Queue<B> {
         self.submit::<_, _, B::Semaphore, _, _>(submission, fence)
     }
 
-    pub fn present<'a, W, Is, S, Iw>(
-        &self,
-        swapchains: Is,
-        wait_semaphores: Iw,
-    ) -> Result<Option<window::Suboptimal>, window::PresentError>
-    where
-        Self: Sized,
-        W: 'a + Borrow<B::Swapchain>,
-        Is: IntoIterator<Item = (&'a W, window::SwapImageIndex)>,
-        S: 'a + Borrow<B::Semaphore>,
-        Iw: IntoIterator<Item = &'a S>,
-    {
-        unsafe { self.queue_group.lock().unwrap().queues[0].present(swapchains, wait_semaphores) }
-    }
-
-    pub fn present_without_semaphores<'a, W, Is>(
-        &self,
-        swapchains: Is,
-    ) -> Result<Option<window::Suboptimal>, window::PresentError>
-    where
-        Self: Sized,
-        W: 'a + Borrow<B::Swapchain>,
-        Is: IntoIterator<Item = (&'a W, window::SwapImageIndex)>,
-    {
-        unsafe { self.queue_group.lock().unwrap().queues[0].present_without_semaphores(swapchains) }
-    }
-
-    pub fn present_surface(
+    pub fn present(
         &self,
         surface: &mut B::Surface,
         image: <B::Surface as window::PresentationSurface<B>>::SwapchainImage,
         wait_semaphore: Option<&B::Semaphore>,
     ) -> Result<Option<window::Suboptimal>, window::PresentError> {
         unsafe {
-            self.queue_group.lock().unwrap().queues[0].present_surface(
-                surface,
-                image,
-                wait_semaphore,
-            )
+            self.queue_group.lock().unwrap().queues[0].present(surface, image, wait_semaphore)
         }
     }
 
@@ -181,9 +150,7 @@ impl<B: hal::Backend> CmdBufferPool<B> {
 
     /// # Synchronization: You may NOT free the pool if a command mem is still in use (pool memory still in use)
     pub unsafe fn reset(&mut self, release_resources: bool) {
-        unsafe {
-            self.pool.reset(release_resources);
-        }
+        self.pool.reset(release_resources);
     }
 
     pub fn allocate_one(&mut self, level: command::Level) -> B::CommandBuffer {

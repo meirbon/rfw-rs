@@ -46,6 +46,7 @@ pub struct TextureViewDescriptor {
     pub range: image::SubresourceRange,
 }
 
+#[allow(dead_code)]
 impl<B: hal::Backend> Texture<B> {
     pub fn new(
         device: DeviceHandle<B>,

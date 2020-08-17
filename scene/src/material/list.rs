@@ -746,6 +746,7 @@ impl MaterialList {
 
     pub fn set_changed(&mut self) {
         self.materials.trigger_changed_all();
+        self.device_materials.trigger_changed_all();
         self.textures.trigger_changed_all();
     }
 }

@@ -388,7 +388,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             );
 
             // present frame
-            let result = self.queue.present_surface(
+            let result = self.queue.present(
                 &mut self.surface,
                 surface_image,
                 Some(&self.submission_complete_semaphores[frame_idx]),

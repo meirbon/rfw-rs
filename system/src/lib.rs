@@ -160,6 +160,20 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         })
     }
 
+    pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
+        scene: P,
+        window: &B,
+        width: usize,
+        height: usize,
+    ) -> Result<Self, Box<dyn Error>> {
+        let renderer = T::init(window, width, height)?;
+
+        Ok(Self {
+            scene: Scene::deserialize(scene)?,
+            renderer: Arc::new(Mutex::new(renderer)),
+        })
+    }
+
     pub fn iter_instances<C>(&self, cb: C)
     where
         C: FnOnce(FlaggedIterator<'_, Instance>),
@@ -567,5 +581,12 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
 
         Err(())
+    }
+
+    pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
+        match self.scene.serialize(path) {
+            Ok(_) => Ok(()),
+            _ => Err(()),
+        }
     }
 }

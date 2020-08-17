@@ -268,6 +268,7 @@ pub enum AllocationError {
     MappingFailed,
     UnsupportedUsage(hal::buffer::Usage),
     TooManyObjects,
+    BufferIsNotVisible,
 }
 
 impl std::fmt::Display for AllocationError {
@@ -283,6 +284,7 @@ impl std::fmt::Display for AllocationError {
                 AllocationError::MappingFailed => "Mapping failed",
                 AllocationError::UnsupportedUsage(_) => "Usage is unsupported",
                 AllocationError::TooManyObjects => "Too many objects",
+                AllocationError::BufferIsNotVisible => "Buffer does not have CPU_VISIBLE flag set",
             }
         )
     }
@@ -329,6 +331,9 @@ impl<B: hal::Backend> Memory<B> {
                     hal::device::MapError::OutOfBounds => return Err(AllocationError::OutOfBounds),
                     hal::device::MapError::MappingFailed => {
                         return Err(AllocationError::MappingFailed)
+                    }
+                    hal::device::MapError::Access => {
+                        return Err(AllocationError::BufferIsNotVisible)
                     }
                 },
             }
@@ -440,6 +445,9 @@ impl<B: hal::Backend> Buffer<B> {
                     hal::device::MapError::OutOfBounds => return Err(AllocationError::OutOfBounds),
                     hal::device::MapError::MappingFailed => {
                         return Err(AllocationError::MappingFailed)
+                    }
+                    hal::device::MapError::Access => {
+                        return Err(AllocationError::BufferIsNotVisible)
                     }
                 },
             }

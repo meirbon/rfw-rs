@@ -2,6 +2,9 @@ use crate::utils::*;
 use crate::{Instance, ObjectRef};
 use glam::*;
 
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
 pub mod animation;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -216,6 +219,11 @@ impl NodeGraph {
 
     pub fn trigger_changed(&mut self, id: usize) {
         self.nodes.trigger_changed(id);
+    }
+
+    pub fn trigger_changed_all(&mut self) {
+        self.nodes.trigger_changed_all();
+        self.root_nodes.trigger_changed_all();
     }
 
     pub fn add_root_node(&mut self, id: usize) {

@@ -36,7 +36,7 @@ pub use raw_window_handle;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "object_caching")]
-use std::{cmp::Ordering, error::Error, ffi::OsString, fmt, fs::File, io::BufReader};
+use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
 use glam::*;
 use rtbvh::{Bounds, AABB};
@@ -89,7 +89,6 @@ impl std::fmt::Display for SceneError {
 
 impl std::error::Error for SceneError {}
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Objects {
     pub meshes: Arc<Mutex<TrackedStorage<Mesh>>>,
@@ -472,11 +471,16 @@ impl Scene {
         let reader = BufReader::new(file);
         let mut object: SerializableScene = bincode::deserialize_from(reader)?;
 
-        object.objects.instances_changed.set_all(true);
-        object.lights.pl_changed.set_all(true);
-        object.lights.sl_changed.set_all(true);
-        object.lights.al_changed.set_all(true);
-        object.lights.dl_changed.set_all(true);
+        object.nodes.trigger_changed_all();
+        object.skins.trigger_changed_all();
+        object.materials.set_changed();
+        object.instances.trigger_changed_all();
+        object.meshes.trigger_changed_all();
+        object.animated_meshes.trigger_changed_all();
+        object.lights.point_lights.trigger_changed_all();
+        object.lights.spot_lights.trigger_changed_all();
+        object.lights.area_lights.trigger_changed_all();
+        object.lights.directional_lights.trigger_changed_all();
 
         let object: Self = object.into();
 

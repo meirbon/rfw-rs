@@ -141,6 +141,7 @@ impl Display for Material {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DeviceMaterial {
@@ -224,7 +225,6 @@ impl DeviceMaterial {
 
     pub fn get_clearcoat_gloss(&self) -> f32 {
         ((self.parameters[2].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0
-
     }
     pub fn get_transmission(&self) -> f32 {
         ((self.parameters[2].overflowing_shr(8)).0 & 255) as f32 * 1.0 / 255.0

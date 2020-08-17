@@ -121,6 +121,9 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
+    // let renderer = RenderSystem::from_scene("scene", &window, render_width, render_height).unwrap()
+    //     as RenderSystem<T>;
+
     let renderer =
         RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
 
@@ -194,10 +197,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 window_id,
             } if window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
+                // renderer.save_scene("scene").unwrap();
             }
             Event::RedrawRequested(_) => {
                 if key_handler.pressed(KeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
+                    // renderer.save_scene("scene").unwrap();
                 }
 
                 if !settings.is_empty() {

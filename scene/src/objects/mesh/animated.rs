@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "object_caching")]
 use std::collections::HashMap;
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct AnimVertexData {
     pub joints: [u32; 4],

@@ -1158,53 +1158,91 @@ impl ShadowMapArray {
         // TODO: Use anim meshes
         assert!(range.end as usize <= self.views.len());
         for v in range.into_iter() {
-            {
-                let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &self.views[v as usize],
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: true,
-                        },
-                    }],
-                    depth_stencil_attachment: Some(
-                        wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                            attachment: &self.depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
-                            }),
-                            stencil_ops: None,
-                        },
-                    ),
-                });
+            let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &self.views[v as usize],
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
 
-                let device_instance = &instances.device_instances;
+            let device_instance = &instances.device_instances;
 
-                (0..instances.len())
-                    .into_iter()
-                    .filter(|i| match instances.instances.get(*i) {
-                        None => false,
-                        Some(_) => true,
-                    })
-                    .for_each(|i| {
-                        let instance = &instances.instances[i];
-                        let bounds = &instances.bounds[i];
+            (0..instances.len())
+                .into_iter()
+                .filter(|i| match instances.instances.get(*i) {
+                    None => false,
+                    Some(_) => true,
+                })
+                .for_each(|i| {
+                    let instance = &instances.instances[i];
+                    let bounds = &instances.bounds[i];
 
-                        if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside
-                        {
-                            return;
+                    if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside {
+                        return;
+                    }
+
+                    match instance.object_id {
+                        ObjectRef::None => {}
+                        ObjectRef::Static(mesh_id) => {
+                            let mesh = &meshes[mesh_id as usize];
+                            let buffer = mesh.buffer.as_ref().unwrap();
+                            render_pass.set_pipeline(&self.pipeline);
+                            render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
+
+                            render_pass.set_bind_group(
+                                0,
+                                &self.bind_group,
+                                &[
+                                    (v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                        as wgpu::DynamicOffset,
+                                ],
+                            );
+                            render_pass.set_bind_group(
+                                1,
+                                &device_instance.bind_group,
+                                &[DeviceInstances::dynamic_offset_for(i) as u32],
+                            );
+
+                            for j in 0..mesh.sub_meshes.len() {
+                                if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                    if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside
+                                    {
+                                        continue;
+                                    }
+                                }
+
+                                let sub_mesh = &mesh.sub_meshes[j];
+                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                            }
                         }
-
-                        match instance.object_id {
-                            ObjectRef::None => {}
-                            ObjectRef::Static(mesh_id) => {
-                                let mesh = &meshes[mesh_id as usize];
+                        ObjectRef::Animated(mesh_id) => {
+                            let mesh = &anim_meshes[mesh_id as usize];
+                            if let Some(skin_id) = instance.skin_id {
                                 let buffer = mesh.buffer.as_ref().unwrap();
-                                render_pass.set_pipeline(&self.pipeline);
+                                let anim_buffer = mesh.anim_buffer.as_ref().unwrap();
+                                render_pass.set_pipeline(&self.anim_pipeline);
                                 render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
+                                render_pass.set_vertex_buffer(
+                                    1,
+                                    anim_buffer.slice(0..mesh.anim_buffer_size),
+                                );
+                                render_pass.set_vertex_buffer(
+                                    2,
+                                    anim_buffer.slice(0..mesh.anim_buffer_size),
+                                );
 
                                 render_pass.set_bind_group(
                                     0,
@@ -1216,6 +1254,11 @@ impl ShadowMapArray {
                                     1,
                                     &device_instance.bind_group,
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
+                                );
+                                render_pass.set_bind_group(
+                                    2,
+                                    skins[skin_id as usize].bind_group.as_ref().unwrap(),
+                                    &[],
                                 );
 
                                 for j in 0..mesh.sub_meshes.len() {
@@ -1230,88 +1273,39 @@ impl ShadowMapArray {
                                     let sub_mesh = &mesh.sub_meshes[j];
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
-                            }
-                            ObjectRef::Animated(mesh_id) => {
-                                let mesh = &anim_meshes[mesh_id as usize];
-                                if let Some(skin_id) = instance.skin_id {
-                                    let buffer = mesh.buffer.as_ref().unwrap();
-                                    let anim_buffer = mesh.anim_buffer.as_ref().unwrap();
-                                    render_pass.set_pipeline(&self.anim_pipeline);
-                                    render_pass
-                                        .set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
-                                    render_pass.set_vertex_buffer(
-                                        1,
-                                        anim_buffer.slice(0..mesh.anim_buffer_size),
-                                    );
-                                    render_pass.set_vertex_buffer(
-                                        2,
-                                        anim_buffer.slice(0..mesh.anim_buffer_size),
-                                    );
+                            } else {
+                                let buffer = mesh.buffer.as_ref().unwrap();
+                                render_pass.set_pipeline(&self.pipeline);
+                                render_pass.set_bind_group(
+                                    0,
+                                    &self.bind_group,
+                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                        as wgpu::DynamicOffset],
+                                );
+                                render_pass.set_bind_group(
+                                    1,
+                                    &device_instance.bind_group,
+                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
+                                );
 
-                                    render_pass.set_bind_group(
-                                        0,
-                                        &self.bind_group,
-                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                            as wgpu::DynamicOffset],
-                                    );
-                                    render_pass.set_bind_group(
-                                        1,
-                                        &device_instance.bind_group,
-                                        &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                    );
-                                    render_pass.set_bind_group(
-                                        2,
-                                        skins[skin_id as usize].bind_group.as_ref().unwrap(),
-                                        &[],
-                                    );
+                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
 
-                                    for j in 0..mesh.sub_meshes.len() {
-                                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                            if frustrum.aabb_in_frustrum(bounds)
-                                                == FrustrumResult::Outside
-                                            {
-                                                continue;
-                                            }
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                        if frustrum.aabb_in_frustrum(bounds)
+                                            == FrustrumResult::Outside
+                                        {
+                                            continue;
                                         }
-
-                                        let sub_mesh = &mesh.sub_meshes[j];
-                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                     }
-                                } else {
-                                    let buffer = mesh.buffer.as_ref().unwrap();
-                                    render_pass.set_pipeline(&self.pipeline);
-                                    render_pass.set_bind_group(
-                                        0,
-                                        &self.bind_group,
-                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                            as wgpu::DynamicOffset],
-                                    );
-                                    render_pass.set_bind_group(
-                                        1,
-                                        &device_instance.bind_group,
-                                        &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                    );
 
-                                    render_pass
-                                        .set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
-
-                                    for j in 0..mesh.sub_meshes.len() {
-                                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                            if frustrum.aabb_in_frustrum(bounds)
-                                                == FrustrumResult::Outside
-                                            {
-                                                continue;
-                                            }
-                                        }
-
-                                        let sub_mesh = &mesh.sub_meshes[j];
-                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                    }
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
                             }
-                        };
-                    });
-            }
+                        }
+                    };
+                });
         }
 
         encoder.copy_buffer_to_buffer(

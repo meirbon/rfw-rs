@@ -1,5 +1,5 @@
 use crate::hal::command::BufferCopy;
-use crate::hal::format::{Aspects, Format};
+use crate::hal::format::Aspects;
 use crate::hal::image::{Access, Kind, Layout, Level, SubresourceRange, Tiling};
 use crate::hal::memory::Segment;
 use crate::hal::memory::{Barrier, Dependencies};
@@ -23,6 +23,8 @@ use rfw_scene::bvh::AABB;
 use rfw_scene::{AnimVertexData, DeviceMaterial, FrustrumG, VertexData, VertexMesh};
 use shared::BytesConversion;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
+use AttributeDesc;
+use VertexBufferDesc;
 pub mod anim;
 
 #[derive(Debug, Clone)]
@@ -323,21 +325,21 @@ impl<B: hal::Backend> RenderPipeline<B> {
         );
 
         let pipeline = {
-            let ms_module = {
-                let spirv = include_bytes!("../../shaders/mesh.vert.spv");
+            let vs_module = {
+                let spirv: &[u8] = include_bytes!("../../shaders/mesh.vert.spv");
                 unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
             };
 
             let fs_module = {
-                let spirv = include_bytes!("../../shaders/mesh.frag.spv");
+                let spirv: &[u8] = include_bytes!("../../shaders/mesh.frag.spv");
                 unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
             };
 
             let pipeline = {
-                let (ms_entry, fs_entry) = (
+                let (vs_entry, fs_entry) = (
                     pso::EntryPoint {
                         entry: "main",
-                        module: &ms_module,
+                        module: &vs_module,
                         specialization: pso::Specialization::default(),
                     },
                     pso::EntryPoint {
@@ -353,14 +355,80 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 };
 
                 let pipeline_desc = pso::GraphicsPipelineDesc {
-                    /// A set of graphics shaders to use for the pipeline.
-                    shaders: GraphicsShaderSet {
-                        vertex: ms_entry,
-                        fragment: Some(fs_entry),
-                        hull: None,
-                        domain: None,
+                    primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
+                        buffers: &[VertexBufferDesc {
+                            binding: 0 as BufferIndex,
+                            stride: std::mem::size_of::<VertexData>() as ElemStride,
+                            rate: VertexInputRate::Vertex,
+                        }], // Vec<VertexBufferDesc>,
+                        // Vertex attributes (IA)
+                        attributes: &[
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 0 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 0,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 1 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgb32Sfloat,
+                                    offset: 16,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 2 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::R32Uint,
+                                    offset: 28,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 3 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rg32Sfloat,
+                                    offset: 32,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 4 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 40,
+                                },
+                            },
+                        ],
+                        input_assembler: pso::InputAssemblerDesc {
+                            primitive: Primitive::TriangleList,
+                            with_adjacency: false,
+                            restart_index: None,
+                        },
+                        vertex: vs_entry,
+                        tessellation: None,
                         geometry: None,
                     },
+                    fragment: Some(fs_entry),
                     // Rasterizer setup
                     rasterizer: pso::Rasterizer {
                         /// How to rasterize this primitive.
@@ -379,94 +447,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         conservative: false,
                         /// Controls width of rasterized line segments.
                         line_width: State::Dynamic,
-                    },
-                    // Vertex buffers (IA)
-                    vertex_buffers: vec![VertexBufferDesc {
-                        binding: 0 as BufferIndex,
-                        stride: std::mem::size_of::<VertexData>() as ElemStride,
-                        rate: VertexInputRate::Vertex,
-                    }], // Vec<VertexBufferDesc>,
-                    // Vertex attributes (IA)
-                    attributes: vec![
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 0 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgba32Sfloat,
-                                offset: 0,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 1 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgb32Sfloat,
-                                offset: 16,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 2 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::R32Uint,
-                                offset: 28,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 3 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rg32Sfloat,
-                                offset: 32,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 4 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgba32Sfloat,
-                                offset: 40,
-                            },
-                        },
-                    ],
-                    // Input assembler attributes, describes how
-                    // vertices are assembled into primitives (such as triangles).
-                    input_assembler: InputAssemblerDesc {
-                        /// Type of the primitive
-                        primitive: Primitive::TriangleList,
-                        /// When adjacency information is enabled, every even-numbered vertex
-                        /// (every other starting from the first) represents an additional
-                        /// vertex for the primitive, while odd-numbered vertices (every other starting from the
-                        /// second) represent adjacent vertices.
-                        ///
-                        /// For example, with `[a, b, c, d, e, f, g, h]`, `[a, c,
-                        /// e, g]` form a triangle strip, and `[b, d, f, h]` are the adjacent vertices, where `b`, `d`,
-                        /// and `f` are adjacent to the first triangle in the strip, and `d`, `f`, and `h` are adjacent
-                        /// to the second.
-                        with_adjacency: false,
-                        /// Describes whether or not primitive restart is supported for
-                        /// an input assembler. Primitive restart is a feature that
-                        /// allows a mark to be placed in an index mem where it is
-                        /// is "broken" into multiple pieces of geometry.
-                        ///
-                        /// See <https://www.khronos.org/opengl/wiki/Vertex_Rendering#Primitive_Restart>
-                        /// for more detail.
-                        restart_index: None,
                     },
                     // Description of how blend operations should be performed.
                     blender: BlendDesc {
@@ -515,7 +495,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             };
 
             unsafe {
-                device.destroy_shader_module(ms_module);
+                device.destroy_shader_module(vs_module);
             }
             unsafe {
                 device.destroy_shader_module(fs_module);
@@ -528,21 +508,21 @@ impl<B: hal::Backend> RenderPipeline<B> {
         };
 
         let anim_pipeline = {
-            let ms_module = {
-                let spirv = include_bytes!("../../shaders/mesh_anim.vert.spv");
+            let vs_module = {
+                let spirv: &[u8] = include_bytes!("../../shaders/mesh_anim.vert.spv");
                 unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
             };
 
             let fs_module = {
-                let spirv = include_bytes!("../../shaders/mesh.frag.spv");
+                let spirv: &[u8] = include_bytes!("../../shaders/mesh.frag.spv");
                 unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
             };
 
             let pipeline = {
-                let (ms_entry, fs_entry) = (
+                let (vs_entry, fs_entry) = (
                     pso::EntryPoint {
                         entry: "main",
-                        module: &ms_module,
+                        module: &vs_module,
                         specialization: pso::Specialization::default(),
                     },
                     pso::EntryPoint {
@@ -558,14 +538,109 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 };
 
                 let pipeline_desc = pso::GraphicsPipelineDesc {
-                    /// A set of graphics shaders to use for the pipeline.
-                    shaders: GraphicsShaderSet {
-                        vertex: ms_entry,
-                        fragment: Some(fs_entry),
-                        hull: None,
-                        domain: None,
+                    primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
+                        buffers: &[
+                            pso::VertexBufferDesc {
+                                binding: 0 as BufferIndex,
+                                stride: std::mem::size_of::<VertexData>() as ElemStride,
+                                rate: VertexInputRate::Vertex,
+                            },
+                            pso::VertexBufferDesc {
+                                binding: 1 as BufferIndex,
+                                stride: std::mem::size_of::<AnimVertexData>() as ElemStride,
+                                rate: VertexInputRate::Vertex,
+                            },
+                        ],
+                        /// Vertex attributes (IA)
+                        attributes: &[
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 0 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 0,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 1 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgb32Sfloat,
+                                    offset: 16,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 2 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::R32Uint,
+                                    offset: 28,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 3 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rg32Sfloat,
+                                    offset: 32,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 4 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 40,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 5 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 1 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgba32Uint,
+                                    offset: 0,
+                                },
+                            },
+                            AttributeDesc {
+                                /// Vertex array location
+                                location: 6 as Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 1 as BufferIndex,
+                                /// Attribute element description.
+                                element: Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 16,
+                                },
+                            },
+                        ],
+                        input_assembler: pso::InputAssemblerDesc {
+                            primitive: Primitive::TriangleList,
+                            with_adjacency: false,
+                            restart_index: None,
+                        },
+                        vertex: vs_entry,
+                        tessellation: None,
                         geometry: None,
                     },
+                    fragment: Some(fs_entry),
                     // Rasterizer setup
                     rasterizer: pso::Rasterizer {
                         /// How to rasterize this primitive.
@@ -584,122 +659,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         conservative: false,
                         /// Controls width of rasterized line segments.
                         line_width: State::Dynamic,
-                    },
-                    vertex_buffers: vec![
-                        VertexBufferDesc {
-                            binding: 0 as BufferIndex,
-                            stride: std::mem::size_of::<VertexData>() as ElemStride,
-                            rate: VertexInputRate::Vertex,
-                        },
-                        VertexBufferDesc {
-                            binding: 1 as BufferIndex,
-                            stride: std::mem::size_of::<AnimVertexData>() as ElemStride,
-                            rate: VertexInputRate::Vertex,
-                        },
-                    ],
-                    // Vertex attributes (IA)
-                    attributes: vec![
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 0 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgba32Sfloat,
-                                offset: 0,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 1 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgb32Sfloat,
-                                offset: 16,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 2 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::R32Uint,
-                                offset: 28,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 3 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rg32Sfloat,
-                                offset: 32,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 4 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgba32Sfloat,
-                                offset: 40,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 5 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 1 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgba32Uint,
-                                offset: 0,
-                            },
-                        },
-                        AttributeDesc {
-                            /// Vertex array location
-                            location: 6 as Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 1 as BufferIndex,
-                            /// Attribute element description.
-                            element: Element {
-                                format: hal::format::Format::Rgba32Sfloat,
-                                offset: 16,
-                            },
-                        },
-                    ],
-                    // Input assembler attributes, describes how
-                    // vertices are assembled into primitives (such as triangles).
-                    input_assembler: InputAssemblerDesc {
-                        /// Type of the primitive
-                        primitive: Primitive::TriangleList,
-                        /// When adjacency information is enabled, every even-numbered vertex
-                        /// (every other starting from the first) represents an additional
-                        /// vertex for the primitive, while odd-numbered vertices (every other starting from the
-                        /// second) represent adjacent vertices.
-                        ///
-                        /// For example, with `[a, b, c, d, e, f, g, h]`, `[a, c,
-                        /// e, g]` form a triangle strip, and `[b, d, f, h]` are the adjacent vertices, where `b`, `d`,
-                        /// and `f` are adjacent to the first triangle in the strip, and `d`, `f`, and `h` are adjacent
-                        /// to the second.
-                        with_adjacency: false,
-                        /// Describes whether or not primitive restart is supported for
-                        /// an input assembler. Primitive restart is a feature that
-                        /// allows a mark to be placed in an index mem where it is
-                        /// is "broken" into multiple pieces of geometry.
-                        ///
-                        /// See <https://www.khronos.org/opengl/wiki/Vertex_Rendering#Primitive_Restart>
-                        /// for more detail.
-                        restart_index: None,
                     },
                     // Description of how blend operations should be performed.
                     blender: BlendDesc {
@@ -748,7 +707,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             };
 
             unsafe {
-                device.destroy_shader_module(ms_module);
+                device.destroy_shader_module(vs_module);
             }
             unsafe {
                 device.destroy_shader_module(fs_module);
@@ -814,8 +773,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     hal::format::Swizzle::NO,
                     hal::image::SubresourceRange {
                         aspects: hal::format::Aspects::DEPTH,
-                        levels: 0..1,
-                        layers: 0..1,
+                        level_start: 0,
+                        level_count: Some(1),
+                        layer_start: 0,
+                        layer_count: Some(1),
                     },
                 )
                 .unwrap()
@@ -1133,8 +1094,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     hal::format::Swizzle::NO,
                     hal::image::SubresourceRange {
                         aspects: hal::format::Aspects::DEPTH,
-                        levels: 0..1,
-                        layers: 0..1,
+                        level_start: 0,
+                        level_count: Some(1),
+                        layer_start: 0,
+                        layer_count: Some(1),
                     },
                 )
                 .unwrap();
@@ -1184,8 +1147,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     swizzle: Default::default(),
                     range: image::SubresourceRange {
                         aspects: format::Aspects::COLOR,
-                        levels: 0..t.mip_levels(),
-                        layers: 0..1,
+                        level_start: 0,
+                        level_count: Some(t.mip_levels() as _),
+                        layer_start: 0,
+                        layer_count: Some(1),
                     },
                 })
                 .unwrap()
@@ -1228,8 +1193,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     std::iter::once(&Barrier::Image {
                         range: SubresourceRange {
                             aspects: Aspects::COLOR,
-                            layers: 0..1,
-                            levels: 0..(t.mip_levels as Level),
+                            level_start: 0,
+                            level_count: Some(t.mip_levels as Level),
+                            layer_start: 0,
+                            layer_count: Some(1),
                         },
                         families: None,
                         states: (Access::empty(), Layout::Undefined)
@@ -1280,8 +1247,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     std::iter::once(&Barrier::Image {
                         range: SubresourceRange {
                             aspects: Aspects::COLOR,
-                            layers: 0..1,
-                            levels: 0..(t.mip_levels as Level),
+                            level_start: 0,
+                            level_count: Some(t.mip_levels as Level),
+                            layer_start: 0,
+                            layer_count: Some(1),
                         },
                         families: None,
                         states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
@@ -1373,7 +1342,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             if !self.mat_sets.is_empty() {
                 let mut sets = Vec::new();
                 std::mem::swap(&mut sets, &mut self.mat_sets);
-                self.mat_desc_pool.free_sets(sets);
+                self.mat_desc_pool.free(sets);
             }
             self.mat_sets = materials
                 .iter()

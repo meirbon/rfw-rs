@@ -117,8 +117,10 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                                 format::Swizzle::NO,
                                 image::SubresourceRange {
                                     aspects: format::Aspects::COLOR,
-                                    layers: (i as _)..((i + 1) as _),
-                                    levels: 0..1,
+                                    level_start: 0,
+                                    level_count: Some(1),
+                                    layer_start: i as _,
+                                    layer_count: Some((i + 1) as _),
                                 },
                             )
                             .unwrap(),
@@ -134,8 +136,10 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     format::Swizzle::NO,
                     image::SubresourceRange {
                         aspects: format::Aspects::COLOR,
-                        layers: 0..(capacity as _),
-                        levels: 0..1,
+                        level_start: 0,
+                        level_count: Some(1),
+                        layer_start: 0,
+                        layer_count: Some(capacity as _),
                     },
                 )
                 .unwrap();
@@ -155,7 +159,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
                 .unwrap();
             device
-                .bind_image_memory(map_memory.memory(), 0, &mut map)
+                .bind_image_memory(filter_map_memory.memory(), 0, &mut filter_map)
                 .unwrap();
 
             let filter_view = device
@@ -166,8 +170,10 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                     format::Swizzle::NO,
                     image::SubresourceRange {
                         aspects: format::Aspects::COLOR | format::Aspects::DEPTH,
-                        layers: 0..(capacity as _),
-                        levels: 0..1,
+                        level_start: 0,
+                        level_count: Some(1),
+                        layer_start: 0,
+                        layer_count: Some(capacity as _),
                     },
                 )
                 .unwrap();
@@ -201,8 +207,10 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                         hal::format::Swizzle::NO,
                         hal::image::SubresourceRange {
                             aspects: hal::format::Aspects::DEPTH,
-                            levels: 0..1,
-                            layers: 0..1,
+                            level_start: 0,
+                            level_count: Some(1),
+                            layer_start: 0,
+                            layer_count: Some(1),
                         },
                     )
                     .unwrap();
@@ -222,10 +230,10 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 )
                 .unwrap();
 
-            let vert_shader = include_bytes!("../../shaders/shadow_mesh.vert");
-            let anim_vert_shader = include_bytes!("../../shaders/shadow_mesh_anim.vert");
-            let frag_linear = include_bytes!("../../shaders/shadow_linear.frag");
-            let frag_perspective = include_bytes!("../../shaders/shadow_perspective.frag");
+            let vert_shader: &[u8] = include_bytes!("../../shaders/shadow_mesh.vert");
+            let anim_vert_shader: &[u8] = include_bytes!("../../shaders/shadow_mesh_anim.vert");
+            let frag_linear: &[u8] = include_bytes!("../../shaders/shadow_linear.frag");
+            let frag_perspective: &[u8] = include_bytes!("../../shaders/shadow_perspective.frag");
 
             let vert_module = device
                 .create_shader_module(vert_shader.as_quad_bytes())
@@ -279,21 +287,42 @@ impl<B: hal::Backend> ShadowMapArray<B> {
             let pipeline = device
                 .create_graphics_pipeline(
                     &pso::GraphicsPipelineDesc {
-                        shaders: pso::GraphicsShaderSet {
+                        primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
+                            buffers: &[pso::VertexBufferDesc {
+                                binding: 0 as pso::BufferIndex,
+                                stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                                rate: pso::VertexInputRate::Vertex,
+                            }],
+                            /// Vertex attributes (IA)
+                            attributes: &[pso::AttributeDesc {
+                                /// Vertex array location
+                                location: 0 as pso::Location,
+                                /// Binding number of the associated vertex mem.
+                                binding: 0 as pso::BufferIndex,
+                                /// Attribute element description.
+                                element: pso::Element {
+                                    format: hal::format::Format::Rgba32Sfloat,
+                                    offset: 0,
+                                },
+                            }],
+                            input_assembler: pso::InputAssemblerDesc {
+                                primitive: pso::Primitive::TriangleList,
+                                with_adjacency: false,
+                                restart_index: None,
+                            },
                             vertex: pso::EntryPoint {
                                 specialization: pso::Specialization::EMPTY,
                                 module: &vert_module,
                                 entry: "main",
                             },
-                            hull: None,
-                            domain: None,
+                            tessellation: None,
                             geometry: None,
-                            fragment: Some(pso::EntryPoint {
-                                specialization: pso::Specialization::EMPTY,
-                                module: &frag_module,
-                                entry: "main",
-                            }),
                         },
+                        fragment: Some(pso::EntryPoint {
+                            specialization: pso::Specialization::EMPTY,
+                            module: &frag_module,
+                            entry: "main",
+                        }),
                         rasterizer: pso::Rasterizer {
                             polygon_mode: pso::PolygonMode::Fill,
                             cull_face: pso::Face::BACK,
@@ -302,27 +331,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                             depth_bias: None,
                             conservative: false,
                             line_width: pso::State::Static(1.0),
-                        },
-                        vertex_buffers: vec![pso::VertexBufferDesc {
-                            binding: 0 as pso::BufferIndex,
-                            stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
-                            rate: pso::VertexInputRate::Vertex,
-                        }],
-                        attributes: vec![pso::AttributeDesc {
-                            /// Vertex array location
-                            location: 0 as pso::Location,
-                            /// Binding number of the associated vertex mem.
-                            binding: 0 as pso::BufferIndex,
-                            /// Attribute element description.
-                            element: pso::Element {
-                                format: hal::format::Format::Rgba32Sfloat,
-                                offset: 0,
-                            },
-                        }],
-                        input_assembler: pso::InputAssemblerDesc {
-                            primitive: pso::Primitive::TriangleList,
-                            with_adjacency: false,
-                            restart_index: None,
                         },
                         blender: Default::default(),
                         depth_stencil: pso::DepthStencilDesc {
@@ -368,21 +376,67 @@ impl<B: hal::Backend> ShadowMapArray<B> {
             let anim_pipeline = device
                 .create_graphics_pipeline(
                     &pso::GraphicsPipelineDesc {
-                        shaders: pso::GraphicsShaderSet {
+                        primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
+                            buffers: &[
+                                pso::VertexBufferDesc {
+                                    binding: 0 as pso::BufferIndex,
+                                    stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                                    rate: pso::VertexInputRate::Vertex,
+                                },
+                                pso::VertexBufferDesc {
+                                    binding: 1 as pso::BufferIndex,
+                                    stride: std::mem::size_of::<AnimVertexData>()
+                                        as pso::ElemStride,
+                                    rate: pso::VertexInputRate::Vertex,
+                                },
+                            ],
+                            attributes: &[
+                                pso::AttributeDesc {
+                                    location: 0 as pso::Location,
+                                    binding: 0 as pso::BufferIndex,
+                                    element: pso::Element {
+                                        format: hal::format::Format::Rgba32Sfloat,
+                                        offset: 0,
+                                    },
+                                },
+                                pso::AttributeDesc {
+                                    /// Vertex array location
+                                    location: 1 as pso::Location,
+                                    /// Binding number of the associated vertex mem.
+                                    binding: 1 as pso::BufferIndex,
+                                    /// Attribute element description.
+                                    element: pso::Element {
+                                        format: hal::format::Format::Rgba32Uint,
+                                        offset: 0,
+                                    },
+                                },
+                                pso::AttributeDesc {
+                                    location: 2 as pso::Location,
+                                    binding: 1 as pso::BufferIndex,
+                                    element: pso::Element {
+                                        format: hal::format::Format::Rgba32Sfloat,
+                                        offset: 16,
+                                    },
+                                },
+                            ],
+                            input_assembler: pso::InputAssemblerDesc {
+                                primitive: pso::Primitive::TriangleList,
+                                with_adjacency: false,
+                                restart_index: None,
+                            },
                             vertex: pso::EntryPoint {
                                 specialization: pso::Specialization::EMPTY,
-                                module: &vert_module,
+                                module: &anim_vert_module,
                                 entry: "main",
                             },
-                            hull: None,
-                            domain: None,
+                            tessellation: None,
                             geometry: None,
-                            fragment: Some(pso::EntryPoint {
-                                specialization: pso::Specialization::EMPTY,
-                                module: &frag_module,
-                                entry: "main",
-                            }),
                         },
+                        fragment: Some(pso::EntryPoint {
+                            specialization: pso::Specialization::EMPTY,
+                            module: &frag_module,
+                            entry: "main",
+                        }),
                         rasterizer: pso::Rasterizer {
                             polygon_mode: pso::PolygonMode::Fill,
                             cull_face: pso::Face::BACK,
@@ -391,52 +445,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                             depth_bias: None,
                             conservative: false,
                             line_width: pso::State::Static(1.0),
-                        },
-                        vertex_buffers: vec![
-                            pso::VertexBufferDesc {
-                                binding: 0 as pso::BufferIndex,
-                                stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
-                                rate: pso::VertexInputRate::Vertex,
-                            },
-                            pso::VertexBufferDesc {
-                                binding: 1 as pso::BufferIndex,
-                                stride: std::mem::size_of::<AnimVertexData>() as pso::ElemStride,
-                                rate: pso::VertexInputRate::Vertex,
-                            },
-                        ],
-                        attributes: vec![
-                            pso::AttributeDesc {
-                                location: 0 as pso::Location,
-                                binding: 0 as pso::BufferIndex,
-                                element: pso::Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
-                                    offset: 0,
-                                },
-                            },
-                            pso::AttributeDesc {
-                                /// Vertex array location
-                                location: 1 as pso::Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 1 as pso::BufferIndex,
-                                /// Attribute element description.
-                                element: pso::Element {
-                                    format: hal::format::Format::Rgba32Uint,
-                                    offset: 0,
-                                },
-                            },
-                            pso::AttributeDesc {
-                                location: 2 as pso::Location,
-                                binding: 1 as pso::BufferIndex,
-                                element: pso::Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
-                                    offset: 16,
-                                },
-                            },
-                        ],
-                        input_assembler: pso::InputAssemblerDesc {
-                            primitive: pso::Primitive::TriangleList,
-                            with_adjacency: false,
-                            restart_index: None,
                         },
                         blender: Default::default(),
                         depth_stencil: pso::DepthStencilDesc {
@@ -795,7 +803,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
                 )
                 .unwrap();
 
-            let spirv = include_bytes!("../../shaders/shadow_filter.comp.spv");
+            let spirv: &[u8] = include_bytes!("../../shaders/shadow_filter.comp.spv");
             let shader = device.create_shader_module(spirv.as_quad_bytes()).unwrap();
 
             let pipeline = device
@@ -953,7 +961,7 @@ impl<B: hal::Backend> FilterPipeline<B> {
         ];
 
         unsafe {
-            self.desc_pool.free_sets(sets);
+            self.desc_pool.free(sets);
         }
     }
 }
