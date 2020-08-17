@@ -14,7 +14,7 @@ glam = "0.9.2"
 rand = { version = "0.7", features = ["small_rng"] }
 num = "0.2"
 crossbeam = "0.7"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs.git", rev = "471d2a1a48c795a13d3c65a29ff184d7cfe9e766" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs.git", rev = "7da7058d32280499681100f3308daa16a54db5fc" }
 futures = "0.3"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 rfw-scene = { path = "../../scene" }

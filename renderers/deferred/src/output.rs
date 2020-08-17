@@ -183,6 +183,7 @@ impl DeferredOutput {
         )));
 
         let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("blit-pipeline"),
             layout: Some(&blit_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
@@ -218,6 +219,7 @@ impl DeferredOutput {
         });
 
         let blit_debug_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("blit-debug-pipeline"),
             layout: Some(&blit_debug_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,

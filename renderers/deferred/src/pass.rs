@@ -54,6 +54,7 @@ impl BlitPass {
         )));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("deferred-blit-pipeline"),
             layout: Some(&pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -194,6 +195,7 @@ impl SSAOPass {
             Cow::from(shader.as_quad_bytes()),
         ));
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("ssao-pipeline"),
             layout: Some(&pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -292,6 +294,7 @@ impl SSAOPass {
             Cow::from(shader.as_quad_bytes()),
         ));
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("ssao-filter-pipeline"),
             layout: Some(&filter_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -623,6 +626,7 @@ impl RadiancePass {
         )));
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("lighting-pipeline"),
             layout: Some(&pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",

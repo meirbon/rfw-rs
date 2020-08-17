@@ -34,6 +34,7 @@ impl RenderPipeline {
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("mesh-pipeline"),
             layout: Some(&pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
@@ -155,6 +156,7 @@ impl RenderPipeline {
         });
 
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("anim-pipeline"),
             layout: Some(&anim_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,

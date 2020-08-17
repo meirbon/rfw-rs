@@ -507,6 +507,7 @@ impl ShadowMapArray {
             })));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow-pipeline"),
             layout: Some(&pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -569,6 +570,7 @@ impl ShadowMapArray {
             push_constant_ranges: &[],
         });
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow-anim-pipeline"),
             layout: Some(&anim_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -758,6 +760,7 @@ impl ShadowMapArray {
             Cow::from(shader.as_quad_bytes()),
         ));
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("shadow-filter-pipeline"),
             layout: Some(&filter_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",

@@ -549,6 +549,7 @@ impl Renderer for RayTracer {
         )));
 
         let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("output-pipeline"),
             layout: Some(&output_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 module: &vert_module,
@@ -901,6 +902,7 @@ impl Renderer for RayTracer {
         ));
         let intersection_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("intersection-pipeline"),
                 layout: Some(&intersection_pipeline_layout),
                 compute_stage: wgpu::ProgrammableStageDescriptor {
                     entry_point: "main",
@@ -913,6 +915,7 @@ impl Renderer for RayTracer {
             Cow::from(compute_module.as_quad_bytes()),
         ));
         let extend_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("extend-pipeline"),
             layout: Some(&intersection_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -925,6 +928,7 @@ impl Renderer for RayTracer {
             Cow::from(compute_module.as_quad_bytes()),
         ));
         let shadow_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("shadow-pipeline"),
             layout: Some(&intersection_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -937,6 +941,7 @@ impl Renderer for RayTracer {
             Cow::from(compute_module.as_quad_bytes()),
         ));
         let shade_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("shade-pipeline"),
             layout: Some(&shade_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
@@ -955,6 +960,7 @@ impl Renderer for RayTracer {
             push_constant_ranges: &[],
         });
         let blit_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("blit-pipeline"),
             layout: Some(&blit_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
