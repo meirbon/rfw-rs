@@ -14,6 +14,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+use futures::executor::block_on;
 use rfw_system::{
     scene::{
         renderers::{RenderMode, Setting, SettingValue},
@@ -150,17 +151,18 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let pica = renderer.load_async("models/pica/scene.gltf");
     let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
 
-    let _pica = match futures::executor::block_on(pica)? {
+    let _pica = match block_on(pica)? {
         LoadResult::Scene(root_nodes) => root_nodes,
         LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
     };
 
-    match futures::executor::block_on(cesium_man)? {
+    match block_on(cesium_man)? {
         LoadResult::Scene(root_nodes) => {
             root_nodes.iter().for_each(|node| {
                 renderer.get_node_mut(*node, |node| {
                     if let Some(node) = node {
                         node.set_scale(Vec3::splat(3.0));
+                        node.translate(Vec3::new(0.0, 0.5, 0.0));
                         node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
                     }
                 });

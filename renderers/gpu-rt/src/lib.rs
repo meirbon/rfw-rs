@@ -2004,6 +2004,7 @@ impl RayTracer {
         })
     }
 
+    
     fn read_camera_data(&mut self, camera_data: &mut CameraData) {
         {
             let slice = self.camera_read_buffer.slice(..);

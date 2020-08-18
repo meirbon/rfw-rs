@@ -6,6 +6,7 @@ use std::ops::Deref;
 use std::{mem::ManuallyDrop, sync::Arc};
 
 pub mod image;
+pub mod managed;
 
 #[derive(Debug)]
 pub struct Allocator<B: hal::Backend> {
@@ -350,6 +351,7 @@ impl<B: hal::Backend> Memory<B> {
             ptr,
             length,
             segment,
+            flush: !self.memory_props.contains(memory::Properties::COHERENT),
         })
     }
 
@@ -372,6 +374,14 @@ impl<B: hal::Backend> Memory<B> {
     pub fn as_mut(&mut self) -> &mut B::Memory {
         &mut self.memory
     }
+
+    pub fn can_map(&self) -> bool {
+        self.memory_props.contains(memory::Properties::CPU_VISIBLE)
+    }
+
+    pub fn is_coherent(&self) -> bool {
+        self.memory_props.contains(memory::Properties::COHERENT)
+    }
 }
 
 impl<B: hal::Backend> Drop for Memory<B> {
@@ -390,6 +400,7 @@ pub struct Mapping<'a, B: hal::Backend> {
     ptr: *mut u8,
     length: usize,
     segment: Segment,
+    flush: bool,
 }
 
 #[allow(dead_code)]
@@ -414,6 +425,11 @@ impl<'a, B: hal::Backend> Mapping<'a, B> {
 
 impl<'a, B: hal::Backend> Drop for Mapping<'a, B> {
     fn drop(&mut self) {
+        if !self.flush {
+            // Coherent memory, no need to flush
+            return;
+        }
+
         unsafe {
             let memory: &B::Memory = self.memory;
             self.device
@@ -458,25 +474,44 @@ impl<B: hal::Backend> Buffer<B> {
             None => self.size_in_bytes,
         };
 
+        let flush = !self
+            .memory
+            .memory_props
+            .contains(memory::Properties::COHERENT);
+
         Ok(Mapping {
             device: &self.device,
             memory: self.memory.as_mut(),
             ptr,
             length,
             segment,
+            flush,
         })
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.size_in_bytes
     }
 
+    #[inline]
     pub fn buffer(&self) -> &B::Buffer {
         &*self.buffer
     }
 
+    #[inline]
     pub fn memory(&self) -> &B::Memory {
         self.memory.as_ref()
+    }
+
+    #[inline]
+    pub fn can_map(&self) -> bool {
+        self.memory.can_map()
+    }
+
+    #[inline]
+    pub fn is_coherent(&self) -> bool {
+        self.memory.is_coherent()
     }
 }
 

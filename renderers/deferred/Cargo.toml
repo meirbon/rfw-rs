@@ -18,7 +18,7 @@ rand = "0.7"
 tobj = "2.0"
 num = "0.2"
 crossbeam = "0.7"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs.git", rev = "7da7058d32280499681100f3308daa16a54db5fc" }
+wgpu = "0.6"
 futures = "0.3"
 rfw-utils = { path = "../../utils" }
 
