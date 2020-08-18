@@ -76,6 +76,13 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            storage: Vec::with_capacity(capacity),
+            ..Self::default()
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.storage_ptr
     }
@@ -98,6 +105,23 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         }
 
         self.active.set(index, true);
+    }
+
+    pub fn overwrite_val(&mut self, index: usize, val: T) {
+        if index >= self.len() {
+            let last_len = self.len();
+            let new_len = (index + 1) * 2;
+            self.active.resize(new_len, false);
+            self.storage.resize((index + 1) * 2, T::default());
+            self.storage_ptr = index + 1;
+
+            for i in last_len..new_len {
+                self.empty_slots.push(i as u32);
+            }
+        }
+
+        self.active.set(index, true);
+        self.storage[index] = val;
     }
 
     pub fn allocate(&mut self) -> usize {
@@ -218,6 +242,22 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
         self.storage.as_mut_ptr()
     }
+
+    pub fn take(&mut self, index: usize) -> Option<T> {
+        match self.active.get(index) {
+            Some(val) => {
+                if *val {
+                    self.active.set(index, false);
+                    let mut replacement = T::default();
+                    std::mem::swap(&mut replacement, &mut self.storage[index]);
+                    Some(replacement)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
 }
 
 impl<T: Default + Clone + std::fmt::Debug> From<&[T]> for FlaggedStorage<T> {
@@ -328,12 +368,12 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
     storage: FlaggedStorage<T>,
     changed: BitVec,
 }
-
 
 impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
     fn default() -> Self {
@@ -348,6 +388,13 @@ impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
 impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            storage: FlaggedStorage::with_capacity(capacity),
+            ..Self::default()
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -382,8 +429,13 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        self.changed.set(index, true);
-        self.storage.get_mut(index)
+        match self.storage.get_mut(index) {
+            Some(v) => {
+                self.changed.set(index, true);
+                Some(v)
+            }
+            None => None,
+        }
     }
 
     pub fn changed(&self) -> &BitVec {
@@ -494,6 +546,16 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub unsafe fn as_mut_slice(&mut self) -> &mut [T] {
         self.storage.as_mut_slice()
     }
+
+    pub fn take(&mut self, index: usize) -> Option<T> {
+        match self.storage.take(index) {
+            Some(val) => {
+                self.changed.set(index, false);
+                Some(val)
+            }
+            None => None,
+        }
+    }
 }
 
 pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
@@ -502,6 +564,30 @@ pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
     changed: &'a BitVec,
     length: usize,
     current: usize,
+}
+
+impl<'a, T: Default + Clone + std::fmt::Debug> ChangedIterator<'a, T> {
+    pub fn to_buffer(&self) -> Vec<T> {
+        self.storage.to_owned()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.storage[0..self.length]
+    }
+
+    pub fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr()
+    }
+
+    /// This does not return the number of items in the iterator,
+    /// This returns the maximum number of items potentially in the iterator.
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn changed(&self) -> &'a BitVec {
+        self.changed
+    }
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIterator<'a, T> {
@@ -540,6 +626,38 @@ pub struct ChangedIteratorMut<'a, T: Default + Clone + std::fmt::Debug> {
     changed: &'a BitVec,
     length: usize,
     current: usize,
+}
+
+impl<'a, T: Default + Clone + std::fmt::Debug> ChangedIteratorMut<'a, T> {
+    pub fn to_buffer(&self) -> Vec<T> {
+        self.storage.to_owned()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.storage[0..self.length]
+    }
+
+    pub fn as_mut_slice(&self) -> &[T] {
+        &self.storage[0..self.length]
+    }
+
+    pub fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.storage.as_mut_ptr()
+    }
+
+    /// This does not return the number of items in the iterator,
+    /// This returns the maximum number of items potentially in the iterator.
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn changed(&self) -> &'a BitVec {
+        self.changed
+    }
 }
 
 impl<'a, T: Default + Clone + std::fmt::Debug> Iterator for ChangedIteratorMut<'a, T> {
@@ -670,4 +788,3 @@ impl<T: Default + Clone + std::fmt::Debug> From<Vec<T>> for TrackedStorage<T> {
         }
     }
 }
-

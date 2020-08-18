@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -68,14 +68,18 @@ impl MouseButtonHandler {
     }
 }
 
-use crate::utils::Timer;
 use glam::*;
-use scene::renderers::RenderMode;
+use rfw_system::{scene::renderers::RenderMode, scene::Camera, RenderSystem};
 use shared::utils;
+use winit::window::Fullscreen;
 
-fn main() {
-    let mut width = 512;
-    let mut height = 512;
+fn main() -> Result<(), Box<dyn Error>> {
+    futures::executor::block_on(run_application())
+}
+
+async fn run_application() -> Result<(), Box<dyn Error>> {
+    let mut width = 1600;
+    let mut height = 900;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -97,17 +101,43 @@ fn main() {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    use rfw_vulkan::VkRenderer;
-    use scene::RenderSystem;
-
-    let renderer: RenderSystem<VkRenderer> = RenderSystem::new(&window, width, height).unwrap();
-    let mut camera = scene::Camera::new(width as u32, height as u32);
-    let mut timer = Timer::new();
+    let renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
+    let mut camera =
+        Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
+    let mut timer = utils::Timer::new();
+    let mut timer2 = utils::Timer::new();
     let mut fps = utils::Averager::new();
+    let mut render = utils::Averager::new();
+    let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
-    renderer.synchronize();
+    let pica = renderer.load_async("models/pica/scene.gltf");
+    let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
 
+    match cesium_man.await? {
+        rfw_system::scene::LoadResult::Scene(root_nodes) => {
+            root_nodes.iter().for_each(|node| {
+                renderer.get_node_mut(*node, |node| {
+                    if let Some(node) = node {
+                        node.set_scale(Vec3::splat(3.0));
+                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                    }
+                });
+            });
+        }
+        rfw_system::scene::LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+    };
+
+    pica.await?;
+
+    let app_time = utils::Timer::new();
+
+    timer2.reset();
+    renderer.set_animation_time(0.0);
+    renderer.synchronize();
+    synchronize.add_sample(timer2.elapsed_in_millis());
+
+    let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -167,9 +197,28 @@ fn main() {
                     pos_change -= (0.0, 1.0, 0.0).into();
                 }
 
+                if fullscreen_timer > 500.0
+                    && key_handler.pressed(KeyCode::LControl)
+                    && key_handler.pressed(KeyCode::F)
+                {
+                    if let None = window.fullscreen() {
+                        window
+                            .set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+                    } else {
+                        window.set_fullscreen(None);
+                    }
+                    fullscreen_timer = 0.0;
+                }
+
                 let elapsed = timer.elapsed_in_millis();
+                fullscreen_timer += elapsed;
                 fps.add_sample(1000.0 / elapsed);
-                let title = format!("rfw-rs - FPS: {:.2}", fps.get_average());
+                let title = format!(
+                    "rfw-rs - FPS: {:.2}, render: {:.2} ms, synchronize: {:.2} ms",
+                    fps.get_average(),
+                    render.get_average(),
+                    synchronize.get_average()
+                );
                 window.set_title(title.as_str());
 
                 let elapsed = if key_handler.pressed(KeyCode::LShift) {
@@ -196,8 +245,14 @@ fn main() {
                     resized = false;
                 }
 
+                timer2.reset();
+                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
+                synchronize.add_sample(timer2.elapsed_in_millis());
+
+                timer2.reset();
                 renderer.render(&camera, RenderMode::Reset);
+                render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

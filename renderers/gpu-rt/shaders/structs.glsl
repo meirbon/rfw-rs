@@ -1,6 +1,13 @@
 #ifndef STRUCTS_H
 #define STRUCTS_H
 
+struct PathState {
+    vec4 state;
+    vec4 origin;
+    vec4 direction;
+    vec4 throughput;
+};
+
 struct MBVHTraversal {
     int left_first;
     int count;
@@ -8,31 +15,31 @@ struct MBVHTraversal {
 
 struct CameraView {
     vec3 position;
-    int path_length;
+    int path_length; // 16
 
-    vec4 right;
-    vec4 up;
-    vec4 p1;
+    vec4 right; // 32
+    vec4 up; // 48
+    vec4 p1; // 64
     
     float lens_size;
     float spread_angle;
     float epsilon;
-    float inv_width;
+    float inv_width; // 80
 
     float inv_height;
     int path_count;
     int extensionId;
-    int shadowId;
+    int shadowId; // 96
 
     int width;
     int height;
     int sample_count;
-    float clamp_value;
+    float clamp_value; // 112
 
     int point_light_count;
     int area_light_count;
     int spot_light_count;
-    int directional_light_count;
+    int directional_light_count; // 128
 };
 
 struct BVHNode {

@@ -6,14 +6,20 @@ use futures::executor::block_on;
 use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
-use scene::graph::Skin;
-use scene::renderers::{RenderMode, Renderer, Setting, SettingValue};
-use scene::{
-    raw_window_handle::HasRawWindowHandle, AnimatedMesh, BitVec, Camera, DeviceMaterial, Instance,
-    ObjectRef, Texture, TrackedStorage,
+
+use rfw_scene::{
+    graph::Skin,
+    raw_window_handle::HasRawWindowHandle,
+    renderers::{RenderMode, Renderer, Setting, SettingValue},
+    AnimatedMesh, Camera, ChangedIterator, DeviceMaterial, FlaggedStorage, Instance, Mesh,
+    ObjectRef, Texture, TrackedStorage, VertexMesh,
 };
+use rfw_utils::TaskPool;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::num::{NonZeroU64, NonZeroU8};
+use std::sync::Arc;
+use wgpu::util::DeviceExt;
 
 mod instance;
 mod light;
@@ -23,8 +29,14 @@ mod pass;
 mod pipeline;
 mod skin;
 
+#[derive(Debug, Clone)]
+pub enum TaskResult {
+    Mesh(usize, DeferredMesh),
+    AnimMesh(usize, DeferredAnimMesh),
+}
+
 pub struct Deferred {
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
@@ -58,6 +70,10 @@ pub struct Deferred {
     debug_view: output::DeferredView,
     lights_changed: bool,
     materials_changed: bool,
+
+    mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
+    anim_mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
+    task_pool: TaskPool<TaskResult>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -84,10 +100,11 @@ impl Deferred {
     fn create_texture_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture-bind-group-layout"),
-            bindings: &[
+            entries: &[
                 wgpu::BindGroupLayoutEntry {
                     // Albedo texture
                     binding: 0,
+                    count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::SampledTexture {
                         component_type: wgpu::TextureComponentType::Uint,
@@ -98,6 +115,7 @@ impl Deferred {
                 wgpu::BindGroupLayoutEntry {
                     // Normal texture
                     binding: 1,
+                    count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::SampledTexture {
                         component_type: wgpu::TextureComponentType::Uint,
@@ -111,20 +129,27 @@ impl Deferred {
 
     fn create_uniform_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[
+            label: Some("uniform-layout"),
+            entries: &[
                 wgpu::BindGroupLayoutEntry {
-                    // Matrix buffer
+                    // Matrix mem
                     binding: 0,
+                    count: None,
                     visibility: wgpu::ShaderStage::VERTEX
                         | wgpu::ShaderStage::FRAGMENT
                         | wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                    ty: wgpu::BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: NonZeroU64::new(Self::UNIFORM_CAMERA_SIZE as _),
+                    },
                 },
                 wgpu::BindGroupLayoutEntry {
-                    // Material buffer
+                    // Material mem
                     binding: 1,
+                    count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer {
+                        min_binding_size: wgpu::BufferSize::new(256),
                         readonly: true,
                         dynamic: false,
                     },
@@ -132,11 +157,11 @@ impl Deferred {
                 wgpu::BindGroupLayoutEntry {
                     // Texture sampler
                     binding: 2,
+                    count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler { comparison: false },
                 },
             ],
-            label: Some("uniform-layout"),
         })
     }
 }
@@ -147,26 +172,28 @@ impl Renderer for Deferred {
         width: usize,
         height: usize,
     ) -> Result<Box<Self>, Box<dyn Error>> {
-        let surface = wgpu::Surface::create(window);
-        let adapter = match block_on(wgpu::Adapter::request(
-            &wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                power_preference: wgpu::PowerPreference::HighPerformance,
-            },
-            wgpu::BackendBit::PRIMARY,
-        )) {
+        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        let surface = unsafe { instance.create_surface(window) };
+        let adapter = match block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: Some(&surface),
+            power_preference: wgpu::PowerPreference::HighPerformance,
+        })) {
             None => return Err(Box::new(DeferredError::RequestDeviceError)),
             Some(adapter) => adapter,
         };
 
         println!("Picked device: {}", adapter.get_info().name);
 
-        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions {
-                anisotropic_filtering: true,
+        let (device, queue) = block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                features: wgpu::Features::PUSH_CONSTANTS
+                    | wgpu::Features::SAMPLED_TEXTURE_BINDING_ARRAY,
+                limits: wgpu::Limits::default(),
+                shader_validation: true,
             },
-            limits: wgpu::Limits::default(),
-        }));
+            None,
+        ))
+        .unwrap();
 
         let swap_chain = device.create_swap_chain(
             &surface,
@@ -181,9 +208,10 @@ impl Renderer for Deferred {
 
         let instances = instance::InstanceList::new(&device);
         let material_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("material-buffer"),
+            label: Some("material-mem"),
+            mapped_at_creation: false,
             size: std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10,
-            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
         });
 
         let texture_bind_group_layout = Self::create_texture_bind_group_layout(&device);
@@ -193,18 +221,19 @@ impl Renderer for Deferred {
         let lights = light::DeferredLights::new(
             10,
             &device,
-            &queue,
             &instances.bind_group_layout,
             &skin_bind_group_layout,
         );
 
         let uniform_camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("uniform-buffer"),
+            label: Some("uniform-mem"),
+            mapped_at_creation: false,
             size: Self::UNIFORM_CAMERA_SIZE,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         });
 
         let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("texture-sampler"),
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
             address_mode_w: wgpu::AddressMode::Repeat,
@@ -213,29 +242,28 @@ impl Renderer for Deferred {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 5.0,
-            compare: wgpu::CompareFunction::Never,
+            compare: None,
+            anisotropy_clamp: NonZeroU8::new(8),
         });
 
         let uniform_bind_group_layout = Self::create_uniform_bind_group_layout(&device);
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("uniform-bind-group"),
             layout: &uniform_bind_group_layout,
-            bindings: &[
-                wgpu::Binding {
+            entries: &[
+                wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &uniform_camera_buffer,
-                        range: 0..Self::UNIFORM_CAMERA_SIZE,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        uniform_camera_buffer.slice(0..Self::UNIFORM_CAMERA_SIZE as _),
+                    ),
                 },
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &material_buffer,
-                        range: 0..std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10,
-                    },
+                    resource: wgpu::BindingResource::Buffer(material_buffer.slice(
+                        0..std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10,
+                    )),
                 },
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&texture_sampler),
                 },
@@ -255,13 +283,13 @@ impl Renderer for Deferred {
         let material_buffer_size =
             std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10;
 
-        let ssao_pass = pass::SSAOPass::new(&device, &queue, &uniform_bind_group_layout, &output);
+        let ssao_pass = pass::SSAOPass::new(&device, &uniform_bind_group_layout, &output);
         let radiance_pass =
             pass::RadiancePass::new(&device, &uniform_bind_group_layout, &output, &lights);
         let blit_pass = pass::BlitPass::new(&device, &output);
 
         Ok(Box::new(Self {
-            device,
+            device: Arc::new(device),
             queue,
             surface,
             swap_chain,
@@ -292,71 +320,95 @@ impl Renderer for Deferred {
             debug_view: output::DeferredView::Output,
             lights_changed: true,
             materials_changed: true,
+
+            mesh_bounds: FlaggedStorage::new(),
+            anim_mesh_bounds: FlaggedStorage::new(),
+            task_pool: TaskPool::default(),
         }))
     }
 
-    fn set_mesh(&mut self, id: usize, mesh: &scene::Mesh) {
-        self.meshes
-            .overwrite(id, mesh::DeferredMesh::new(&self.device, mesh));
-    }
-
-    fn set_animated_mesh(&mut self, id: usize, mesh: &AnimatedMesh) {
-        self.anim_meshes
-            .overwrite(id, mesh::DeferredAnimMesh::new(&self.device, mesh));
-    }
-
-    fn set_instance(&mut self, id: usize, instance: &Instance) {
-        match instance.object_id {
-            ObjectRef::None => {
-                self.instances
-                    .set(&self.device, id, instance.clone(), &DeferredMesh::default());
-            }
-            ObjectRef::Static(mesh_id) => {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &self.meshes[mesh_id as usize],
-                );
-            }
-            ObjectRef::Animated(mesh_id) => {
-                self.instances.set_animated(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &self.anim_meshes[mesh_id as usize],
-                );
-            }
+    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
+        for (id, mesh) in meshes {
+            self.mesh_bounds
+                .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
+            let device = self.device.clone();
+            let mesh = mesh.clone();
+            self.task_pool.push(move |finish| {
+                let mesh = mesh::DeferredMesh::new(&device, &mesh);
+                finish.send(TaskResult::Mesh(id, mesh));
+            });
         }
-
-        self.scene_bounds.grow_bb(
-            &instance
-                .local_bounds()
-                .transformed(instance.get_transform().to_cols_array()),
-        );
     }
 
-    fn set_materials(
-        &mut self,
-        materials: &[scene::Material],
-        device_materials: &[scene::DeviceMaterial],
-    ) {
-        assert!(materials.len() > 0);
-        assert_eq!(materials.len(), device_materials.len());
-        let size =
-            (device_materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
-        let staging_buffer = self.device.create_buffer_with_data(
-            unsafe {
-                std::slice::from_raw_parts(device_materials.as_ptr() as *const u8, size as usize)
-            },
-            wgpu::BufferUsage::COPY_SRC,
-        );
+    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
+        for (id, mesh) in meshes {
+            self.anim_mesh_bounds
+                .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
+            let device = self.device.clone();
+            let mesh = mesh.clone();
+            self.task_pool.push(move |finish| {
+                let mesh = mesh::DeferredAnimMesh::new(&device, &mesh);
+                finish.send(TaskResult::AnimMesh(id, mesh));
+            });
+        }
+    }
+
+    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>) {
+        for (id, instance) in instances {
+            match instance.object_id {
+                ObjectRef::None => {
+                    self.instances.set(
+                        &self.device,
+                        id,
+                        instance.clone(),
+                        &(AABB::empty(), Vec::new()),
+                    );
+                }
+                ObjectRef::Static(mesh_id) => {
+                    self.instances.set(
+                        &self.device,
+                        id,
+                        instance.clone(),
+                        &self.mesh_bounds[mesh_id as usize],
+                    );
+                }
+                ObjectRef::Animated(mesh_id) => {
+                    self.instances.set(
+                        &self.device,
+                        id,
+                        instance.clone(),
+                        &self.anim_mesh_bounds[mesh_id as usize],
+                    );
+                }
+            }
+
+            self.scene_bounds.grow_bb(
+                &instance
+                    .local_bounds()
+                    .transformed(instance.get_transform().to_cols_array()),
+            );
+        }
+    }
+
+    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
+        let materials = materials.as_slice();
+        let size = (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
+        let staging_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: unsafe {
+                    std::slice::from_raw_parts(materials.as_ptr() as *const u8, size as usize)
+                },
+                usage: wgpu::BufferUsage::COPY_SRC,
+            });
 
         if size > self.material_buffer_size {
             self.material_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("material-buffer"),
+                mapped_at_creation: false,
+                label: Some("material-mem"),
                 size,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE_READ,
+                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
             });
             self.material_buffer_size = size;
         }
@@ -364,29 +416,29 @@ impl Renderer for Deferred {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("create-material-cmd-buffer"),
+                label: Some("create-material-cmd-mem"),
             });
 
         encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.material_buffer, 0, size);
-        self.queue.submit(&[encoder.finish()]);
+        self.queue.submit(std::iter::once(encoder.finish()));
 
         self.material_bind_groups = (0..materials.len())
             .map(|i| {
                 let material = &materials[i];
-                let albedo_tex = material.diffuse_tex.max(0) as usize;
-                let normal_tex = material.normal_tex.max(0) as usize;
+                let albedo_tex = material.diffuse_map.max(0) as usize;
+                let normal_tex = material.normal_map.max(0) as usize;
 
                 let albedo_view = &self.texture_views[albedo_tex];
                 let normal_view = &self.texture_views[normal_tex];
 
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(albedo_view),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(normal_view),
                         },
@@ -399,22 +451,21 @@ impl Renderer for Deferred {
         self.uniform_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("uniform-bind-group"),
             layout: &self.uniform_bind_group_layout,
-            bindings: &[
-                wgpu::Binding {
+            entries: &[
+                wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &self.uniform_camera_buffer,
-                        range: 0..Self::UNIFORM_CAMERA_SIZE,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        self.uniform_camera_buffer
+                            .slice(0..Self::UNIFORM_CAMERA_SIZE),
+                    ),
                 },
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &self.material_buffer,
-                        range: 0..self.material_buffer_size,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        self.material_buffer.slice(0..self.material_buffer_size),
+                    ),
                 },
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(&self.texture_sampler),
                 },
@@ -424,29 +475,21 @@ impl Renderer for Deferred {
         self.materials_changed = true;
     }
 
-    fn set_textures(&mut self, textures: &[scene::Texture]) {
+    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+        let textures = textures.as_slice();
         let staging_size =
             textures.iter().map(|t| t.data.len()).sum::<usize>() * std::mem::size_of::<u32>();
-        let staging_buffer = self.device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("material-staging-buffer"),
-            size: staging_size as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        });
+        let mut data = vec![0_u8; staging_size];
+        let mut data_ptr = data.as_mut_ptr() as *mut u32;
 
-        let mut data_ptr = staging_buffer.data.as_mut_ptr() as *mut u32;
-        for tex in textures.iter() {
-            unsafe {
-                std::ptr::copy(tex.data.as_ptr(), data_ptr, tex.data.len());
-                data_ptr = data_ptr.add(tex.data.len());
+        {
+            for tex in textures.iter() {
+                unsafe {
+                    std::ptr::copy(tex.data.as_ptr(), data_ptr, tex.data.len());
+                    data_ptr = data_ptr.add(tex.data.len());
+                }
             }
         }
-        let staging_buffer = staging_buffer.finish();
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("texture-staging-cmd-buffer"),
-            });
 
         let mut offset = 0 as wgpu::BufferAddress;
         for (i, tex) in textures.iter().enumerate() {
@@ -457,8 +500,7 @@ impl Renderer for Deferred {
                     height: tex.height,
                     depth: 1,
                 },
-                array_layer_count: 1,
-                mip_level_count: scene::Texture::MIP_LEVELS as u32,
+                mip_level_count: rfw_scene::Texture::MIP_LEVELS as u32,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Bgra8Unorm,
@@ -468,20 +510,22 @@ impl Renderer for Deferred {
             let mut width = tex.width;
             let mut height = tex.height;
             let mut local_offset = 0 as wgpu::BufferAddress;
-            for i in 0..scene::Texture::MIP_LEVELS {
-                encoder.copy_buffer_to_texture(
-                    wgpu::BufferCopyView {
-                        buffer: &staging_buffer,
-                        offset: offset
-                            + local_offset * std::mem::size_of::<u32>() as wgpu::BufferAddress,
-                        bytes_per_row: (width as usize * std::mem::size_of::<u32>()) as u32,
-                        rows_per_image: tex.height,
-                    },
+            for i in 0..rfw_scene::Texture::MIP_LEVELS {
+                let offset = offset + local_offset * std::mem::size_of::<u32>() as u64;
+
+                let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;
+
+                self.queue.write_texture(
                     wgpu::TextureCopyView {
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                        array_layer: 0,
                         mip_level: i as u32,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                         texture: &texture,
+                    },
+                    &data[(offset as usize)..(offset + end) as usize],
+                    wgpu::TextureDataLayout {
+                        offset: 0,
+                        bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
+                        rows_per_image: tex.height,
                     },
                     wgpu::Extent3d {
                         width,
@@ -489,6 +533,28 @@ impl Renderer for Deferred {
                         depth: 1,
                     },
                 );
+
+                // encoder.copy_buffer_to_texture(
+                //     wgpu::BufferCopyView {
+                //         mem: &staging_buffer,
+                //         layout: wgpu::TextureDataLayout {
+                //             offset: offset
+                //                 + local_offset * std::mem::size_of::<u32>() as wgpu::BufferAddress,
+                //             bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
+                //             rows_per_image: tex.height,
+                //         },
+                //     },
+                //     wgpu::TextureCopyView {
+                //         origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                //         mip_level: i as u32,
+                //         texture: &texture,
+                //     },
+                //     wgpu::Extent3d {
+                //         width,
+                //         height,
+                //         depth: 1,
+                //     },
+                // );
 
                 local_offset += (width * height) as wgpu::BufferAddress;
                 width >>= 1;
@@ -502,13 +568,37 @@ impl Renderer for Deferred {
         self.texture_views = self
             .textures
             .iter()
-            .map(|t| t.create_default_view())
+            .map(|t| {
+                t.create_view(&wgpu::TextureViewDescriptor {
+                    label: None,
+                    format: Some(wgpu::TextureFormat::Bgra8Unorm),
+                    array_layer_count: None,
+                    aspect: wgpu::TextureAspect::All,
+                    base_mip_level: 0,
+                    level_count: None,
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: 0,
+                })
+            })
             .collect();
-
-        self.queue.submit(&[encoder.finish()]);
     }
 
     fn synchronize(&mut self) {
+        {
+            let meshes = &mut self.meshes;
+            let anim_meshes = &mut self.anim_meshes;
+            for result in self.task_pool.sync() {
+                match result {
+                    TaskResult::Mesh(id, mesh) => {
+                        meshes.overwrite(id, mesh);
+                    }
+                    TaskResult::AnimMesh(id, mesh) => {
+                        anim_meshes.overwrite(id, mesh);
+                    }
+                }
+            }
+        }
+
         let update = Self::record_update(
             &self.device,
             &self.queue,
@@ -532,8 +622,8 @@ impl Renderer for Deferred {
         self.anim_meshes.reset_changed();
     }
 
-    fn render(&mut self, camera: &scene::Camera, _mode: RenderMode) {
-        let output = match self.swap_chain.get_next_texture() {
+    fn render(&mut self, camera: &rfw_scene::Camera, _mode: RenderMode) {
+        let output = match self.swap_chain.get_current_frame() {
             Ok(output) => output,
             Err(_) => return,
         };
@@ -566,7 +656,7 @@ impl Renderer for Deferred {
         );
 
         let light_pass = futures::executor::block_on(light_pass);
-        self.queue.submit(&[light_pass]);
+        self.queue.submit(std::iter::once(light_pass));
 
         let mut output_pass = self
             .device
@@ -575,15 +665,15 @@ impl Renderer for Deferred {
             });
 
         if self.debug_view == output::DeferredView::Output {
-            self.blit_pass.render(&mut output_pass, &output.view);
+            self.blit_pass.render(&mut output_pass, &output.output.view);
         } else {
             self.output
-                .blit_debug(&output.view, &mut output_pass, self.debug_view);
+                .blit_debug(&output.output.view, &mut output_pass, self.debug_view);
         }
 
         let render_pass = futures::executor::block_on(render_pass);
 
-        self.queue.submit(&[render_pass, output_pass.finish()]);
+        self.queue.submit(vec![render_pass, output_pass.finish()]);
 
         self.instances.reset_changed();
         self.lights_changed = false;
@@ -610,25 +700,25 @@ impl Renderer for Deferred {
             .update_bind_groups(&self.device, &self.output);
     }
 
-    fn set_point_lights(&mut self, _changed: &BitVec, _lights: &[scene::PointLight]) {
+    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, rfw_scene::PointLight>) {
         self.lights_changed = true;
     }
 
-    fn set_spot_lights(&mut self, changed: &BitVec, lights: &[scene::SpotLight]) {
+    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::SpotLight>) {
         self.lights
-            .set_spot_lights(changed, lights, &self.scene_bounds);
+            .set_spot_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_area_lights(&mut self, changed: &BitVec, lights: &[scene::AreaLight]) {
+    fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::AreaLight>) {
         self.lights
-            .set_area_lights(changed, lights, &self.scene_bounds);
+            .set_area_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_directional_lights(&mut self, changed: &BitVec, lights: &[scene::DirectionalLight]) {
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {
         self.lights
-            .set_directional_lights(changed, lights, &self.scene_bounds);
+            .set_directional_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
@@ -636,10 +726,12 @@ impl Renderer for Deferred {
         unimplemented!()
     }
 
-    fn set_skin(&mut self, id: usize, skin: &Skin) {
-        self.skins
-            .overwrite(id, DeferredSkin::new(&self.device, skin.clone()));
-        self.skins[id].create_bind_group(&self.device, &self.skin_bind_group_layout);
+    fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
+        for (i, skin) in skins {
+            self.skins
+                .overwrite(i, DeferredSkin::new(&self.device, skin.clone()));
+            self.skins[i].create_bind_group(&self.device, &self.skin_bind_group_layout);
+        }
     }
 
     fn get_settings(&self) -> Vec<Setting> {
@@ -650,7 +742,7 @@ impl Renderer for Deferred {
         )]
     }
 
-    fn set_setting(&mut self, setting: scene::renderers::Setting) {
+    fn set_setting(&mut self, setting: rfw_scene::renderers::Setting) {
         if setting.key() == "debug-view" {
             let debug_view = match setting.value() {
                 SettingValue::Int(i) => output::DeferredView::from(*i),
@@ -736,8 +828,8 @@ impl Deferred {
     ) -> wgpu::CommandBuffer {
         let camera_data = {
             let mut data = [0 as u8; Self::UNIFORM_CAMERA_SIZE as usize];
-            let view = camera.get_view_matrix();
-            let projection = camera.get_projection();
+            let view = camera.get_rh_view_matrix();
+            let projection = camera.get_rh_projection();
 
             unsafe {
                 let ptr = data.as_mut_ptr();
@@ -761,8 +853,11 @@ impl Deferred {
             data
         };
 
-        let camera_staging_buffer =
-            device.create_buffer_with_data(&camera_data, wgpu::BufferUsage::COPY_SRC);
+        let camera_staging_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: &camera_data,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
 
         let mut rasterize_pass = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render"),
@@ -790,7 +885,7 @@ impl Deferred {
             });
 
             let matrix = camera.get_rh_matrix();
-            let frustrum = scene::FrustrumG::from_matrix(matrix);
+            let frustrum = rfw_scene::FrustrumG::from_matrix(matrix);
 
             let device_instance = &instances.device_instances;
 
@@ -814,11 +909,12 @@ impl Deferred {
                                 &[DeviceInstances::dynamic_offset_for(i) as u32],
                             );
 
-                            render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                            render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                            let buffer_slice = buffer.slice(0..mesh.buffer_size);
+                            render_pass.set_vertex_buffer(0, buffer_slice);
+                            render_pass.set_vertex_buffer(1, buffer_slice);
+                            render_pass.set_vertex_buffer(2, buffer_slice);
+                            render_pass.set_vertex_buffer(3, buffer_slice);
+                            render_pass.set_vertex_buffer(4, buffer_slice);
 
                             mesh.sub_meshes
                                 .iter()
@@ -839,7 +935,7 @@ impl Deferred {
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
                         if let (Some(buffer), Some(anim_buffer)) =
-                        (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
+                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
                         {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);
@@ -850,23 +946,15 @@ impl Deferred {
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
                                 );
 
-                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(
-                                    5,
-                                    anim_buffer,
-                                    0,
-                                    mesh.anim_buffer_size,
-                                );
-                                render_pass.set_vertex_buffer(
-                                    6,
-                                    anim_buffer,
-                                    0,
-                                    mesh.anim_buffer_size,
-                                );
+                                let buffer_slice = buffer.slice(0..mesh.buffer_size);
+                                let anim_buffer_slice = anim_buffer.slice(0..mesh.anim_buffer_size);
+                                render_pass.set_vertex_buffer(0, buffer_slice);
+                                render_pass.set_vertex_buffer(1, buffer_slice);
+                                render_pass.set_vertex_buffer(2, buffer_slice);
+                                render_pass.set_vertex_buffer(3, buffer_slice);
+                                render_pass.set_vertex_buffer(4, buffer_slice);
+                                render_pass.set_vertex_buffer(5, anim_buffer_slice);
+                                render_pass.set_vertex_buffer(6, anim_buffer_slice);
 
                                 mesh.sub_meshes
                                     .iter()
@@ -902,11 +990,12 @@ impl Deferred {
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
                                 );
 
-                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(1, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(2, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(3, buffer, 0, mesh.buffer_size);
-                                render_pass.set_vertex_buffer(4, buffer, 0, mesh.buffer_size);
+                                let buffer_slice = buffer.slice(0..mesh.buffer_size);
+                                render_pass.set_vertex_buffer(0, buffer_slice);
+                                render_pass.set_vertex_buffer(1, buffer_slice);
+                                render_pass.set_vertex_buffer(2, buffer_slice);
+                                render_pass.set_vertex_buffer(3, buffer_slice);
+                                render_pass.set_vertex_buffer(4, buffer_slice);
 
                                 mesh.sub_meshes
                                     .iter()

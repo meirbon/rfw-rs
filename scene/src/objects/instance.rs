@@ -17,6 +17,12 @@ pub enum ObjectRef {
     Animated(u32),
 }
 
+impl Default for ObjectRef {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 impl std::fmt::Display for ObjectRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -31,6 +37,7 @@ impl std::fmt::Display for ObjectRef {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InstanceUpdate {
     None,
@@ -50,7 +57,7 @@ pub struct Instance {
     normal_transform: [f32; 16],
     translation: Vec3A,
     scaling: Vec3A,
-    rotation: glam::Quat,
+    rotation: [f32; 4],
     pub object_id: ObjectRef,
     pub skin_id: Option<u32>,
     updated: InstanceUpdate,
@@ -74,7 +81,7 @@ impl Default for Instance {
             normal_transform: [0.0; 16],
             translation: Vec3A::zero(),
             scaling: Vec3A::one(),
-            rotation: glam::Quat::identity(),
+            rotation: glam::Quat::identity().into(),
             object_id: ObjectRef::None,
             skin_id: None,
             updated: InstanceUpdate::None,
@@ -361,29 +368,35 @@ impl Instance {
 
     // Set rotation using a quaternion in format [x, y, z, w]
     pub fn set_rotation_quat<T: Into<[f32; 4]>>(&mut self, r: T) {
-        self.rotation = glam::Quat::from(r.into());
+        self.rotation = r.into();
     }
 
     pub fn set_rotation<T: Into<[f32; 3]>>(&mut self, r: T) {
         let r: [f32; 3] = r.into();
         let axis: [f32; 3] = r.into();
         let axis = glam::Vec3::new(axis[0], axis[1], axis[2]);
-        self.rotation = glam::Quat::from_axis_angle(axis, 1.0);
+        self.rotation = glam::Quat::from_axis_angle(axis, 1.0).into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_x(&mut self, degrees: f32) {
-        self.rotation *= glam::Quat::from_rotation_x(degrees.to_radians());
+        self.rotation = (glam::Quat::from(self.rotation)
+            * glam::Quat::from_rotation_x(degrees.to_radians()))
+        .into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_y(&mut self, degrees: f32) {
-        self.rotation *= glam::Quat::from_rotation_y(degrees.to_radians());
+        self.rotation = (glam::Quat::from(self.rotation)
+            * glam::Quat::from_rotation_y(degrees.to_radians()))
+        .into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_z(&mut self, degrees: f32) {
-        self.rotation *= glam::Quat::from_rotation_z(degrees.to_radians());
+        self.rotation = (glam::Quat::from(self.rotation)
+            * glam::Quat::from_rotation_z(degrees.to_radians()))
+        .into();
         self.updated = InstanceUpdate::Transformed;
     }
 
@@ -434,7 +447,7 @@ impl Instance {
 
     /// Returns rotation as radian euler angles in [x, y, z]
     pub fn get_euler_angles(&self) -> [f32; 3] {
-        let (rot, factor) = self.rotation.to_axis_angle();
+        let (rot, factor) = glam::Quat::from(self.rotation).to_axis_angle();
         (rot * factor).into()
     }
 
@@ -445,7 +458,7 @@ impl Instance {
 
         self.set_transform(glam::Mat4::from_scale_rotation_translation(
             self.scaling.into(),
-            self.rotation,
+            glam::Quat::from(self.rotation),
             self.translation.into(),
         ));
     }

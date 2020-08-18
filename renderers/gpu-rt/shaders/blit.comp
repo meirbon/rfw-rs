@@ -1,16 +1,16 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "structs.glsl"
+#include "bindings.glsl"
 
 layout (local_size_x = 16, local_size_y = 4, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
-layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
-layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
-layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
-layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
-layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
-layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
+layout(set = 0, binding = I_OUTPUT, rgba32f) uniform writeonly image2D OutputTex;
+layout(std430, set = 0, binding = I_CAMERA) buffer Camera {
+    CameraView camera;
+    int blueNoise[];
+};
+layout(std430, set = 0, binding = I_ACC_BUF) buffer accBuffer { vec4 acPixels[]; };
 
 void main()
 {

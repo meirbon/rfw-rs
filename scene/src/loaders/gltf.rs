@@ -1,6 +1,6 @@
 use crate::{
-    triangle_scene::SceneError, AnimatedMesh, Flip, Instance, Material, MaterialList, Mesh,
-    ObjectLoader, ObjectRef, TextureFormat,
+    AnimatedMesh, Flip, Instance, Material, MaterialList, Mesh, ObjectLoader, ObjectRef,
+    SceneError, TextureFormat,
 };
 use glam::*;
 use std::{collections::HashMap, path::{Path, PathBuf}, sync::Mutex};

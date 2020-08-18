@@ -47,7 +47,12 @@ impl Quad {
         }
     }
 
-    fn generate_render_data(pos: Vec3A, n: Vec3A, width: f32, height: f32) -> ([Vec3A; 6], [Vec3A; 6]) {
+    fn generate_render_data(
+        pos: Vec3A,
+        n: Vec3A,
+        width: f32,
+        height: f32,
+    ) -> ([Vec3A; 6], [Vec3A; 6]) {
         let normal = n.normalize();
         let tmp = if normal.x() > 0.9 {
             Vec3A::new(0.0, 1.0, 0.0)

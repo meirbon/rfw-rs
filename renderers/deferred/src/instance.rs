@@ -1,8 +1,9 @@
 use super::mesh::DeferredMesh;
 use crate::mesh::DeferredAnimMesh;
 use glam::*;
+use rfw_scene::{Instance, ObjectRef, TrackedStorage, VertexMesh};
 use rtbvh::{Bounds, AABB};
-use scene::{Instance, ObjectRef, TrackedStorage};
+use std::num::NonZeroU64;
 
 pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
@@ -22,17 +23,15 @@ impl DeviceInstances {
             label: None,
             size: (capacity * Self::INSTANCE_SIZE) as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: bind_group_layout,
-            bindings: &[wgpu::Binding {
+            entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &buffer,
-                    range: 0..(2 * std::mem::size_of::<Mat4>()) as wgpu::BufferAddress,
-                },
+                resource: wgpu::BindingResource::Buffer(buffer.slice(0..256)),
             }],
         });
 
@@ -63,34 +62,16 @@ pub struct InstanceBounds {
 }
 
 impl InstanceBounds {
-    pub fn new(instance: &Instance, mesh: &DeferredMesh) -> Self {
+    pub fn new(instance: &Instance, bounds: &(AABB, Vec<VertexMesh>)) -> Self {
         let transform = instance.get_transform();
         let root_bounds = instance.bounds();
-        let mesh_bounds: Vec<AABB> = mesh
-            .sub_meshes
+        let mesh_bounds: Vec<AABB> = bounds
+            .1
             .iter()
             .map(|m| m.bounds.transformed(transform.to_cols_array()))
             .collect();
 
-        assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
-
-        InstanceBounds {
-            root_bounds,
-            mesh_bounds,
-            changed: true,
-        }
-    }
-
-    pub fn new_animated(instance: &Instance, mesh: &DeferredAnimMesh) -> Self {
-        let transform = instance.get_transform();
-        let root_bounds = instance.bounds();
-        let mesh_bounds: Vec<AABB> = mesh
-            .sub_meshes
-            .iter()
-            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-            .collect();
-
-        assert_eq!(mesh.sub_meshes.len(), mesh_bounds.len());
+        assert_eq!(bounds.1.len(), mesh_bounds.len());
 
         InstanceBounds {
             root_bounds,
@@ -111,11 +92,15 @@ pub struct InstanceList {
 impl InstanceList {
     pub fn new(device: &wgpu::Device) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[wgpu::BindGroupLayoutEntry {
+            entries: &[wgpu::BindGroupLayoutEntry {
                 // Instance matrices
                 binding: 0,
+                count: None,
                 visibility: wgpu::ShaderStage::VERTEX,
-                ty: wgpu::BindingType::UniformBuffer { dynamic: true },
+                ty: wgpu::BindingType::UniformBuffer {
+                    min_binding_size: NonZeroU64::new(256),
+                    dynamic: true,
+                },
             }],
             label: Some("mesh-bind-group-descriptor-layout"),
         });
@@ -135,35 +120,13 @@ impl InstanceList {
         device: &wgpu::Device,
         id: usize,
         instance: Instance,
-        mesh: &DeferredMesh,
+        bounds: &(AABB, Vec<VertexMesh>),
     ) {
         self.instances.overwrite(id, instance);
         if id <= self.bounds.len() {
-            self.bounds.push(InstanceBounds::new(&instance, mesh));
+            self.bounds.push(InstanceBounds::new(&instance, bounds));
         } else {
-            self.bounds[id] = InstanceBounds::new(&instance, mesh);
-        }
-
-        if self.device_instances.len() <= id {
-            self.device_instances =
-                DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
-            self.instances.trigger_changed_all();
-        }
-    }
-
-    pub fn set_animated(
-        &mut self,
-        device: &wgpu::Device,
-        id: usize,
-        instance: Instance,
-        mesh: &DeferredAnimMesh,
-    ) {
-        self.instances.overwrite(id, instance);
-        if id <= self.bounds.len() {
-            self.bounds
-                .push(InstanceBounds::new_animated(&instance, mesh));
-        } else {
-            self.bounds[id] = InstanceBounds::new_animated(&instance, mesh);
+            self.bounds[id] = InstanceBounds::new(&instance, bounds);
         }
 
         if self.device_instances.len() <= id {
@@ -186,35 +149,42 @@ impl InstanceList {
 
         if !self.instances.is_empty() {
             let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
-            let staging_data = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-                label: Some("instance-staging-buffer"),
+            let staging_data = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("instance-staging-mem"),
                 size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
                 usage: wgpu::BufferUsage::COPY_SRC,
+                mapped_at_creation: true,
             });
+            {
+                let mut data = staging_data
+                    .slice(0..(self.instances.len() * instance_copy_size) as wgpu::BufferAddress)
+                    .get_mapped_range_mut();
+                let data_ptr = data.as_mut_ptr();
 
-            let instances = &self.instances;
-            // let staging_buffer = &self.staging_buffer;
-            instances.iter_changed().for_each(|(i, instance)| unsafe {
-                let transform = instance.get_transform();
-                let n_transform = instance.get_normal_transform();
+                let instances = &self.instances;
+                // let staging_buffer = &self.staging_buffer;
+                instances.iter_changed().for_each(|(i, instance)| unsafe {
+                    let transform = instance.get_transform();
+                    let n_transform = instance.get_normal_transform();
 
-                std::ptr::copy(
-                    transform.as_ref() as *const [f32; 16],
-                    (staging_data.data.as_mut_ptr() as *mut  [f32; 16]).add(i * 2),
-                    1,
-                );
-                std::ptr::copy(
-                    n_transform.as_ref() as *const [f32; 16],
-                    (staging_data.data.as_mut_ptr() as *mut [f32; 16]).add(i * 2 + 1),
-                    1,
-                );
-            });
+                    std::ptr::copy(
+                        transform.as_ref() as *const [f32; 16],
+                        (data_ptr as *mut [f32; 16]).add(i * 2),
+                        1,
+                    );
+                    std::ptr::copy(
+                        n_transform.as_ref() as *const [f32; 16],
+                        (data_ptr as *mut [f32; 16]).add(i * 2 + 1),
+                        1,
+                    );
+                });
+            }
 
-            let staging_buffer = staging_data.finish();
+            staging_data.unmap();
 
-            instances.iter_changed().for_each(|(i, _)| {
+            self.instances.iter_changed().for_each(|(i, _)| {
                 encoder.copy_buffer_to_buffer(
-                    &staging_buffer,
+                    &staging_data,
                     (i * instance_copy_size) as wgpu::BufferAddress,
                     &device_instances.device_matrices,
                     DeviceInstances::offset_for(i),
@@ -224,7 +194,7 @@ impl InstanceList {
         }
 
         self.bounds = self.get_bounds(meshes, anim_meshes);
-        queue.submit(&[encoder.finish()]);
+        queue.submit(std::iter::once(encoder.finish()));
     }
 
     pub fn reset_changed(&mut self) {

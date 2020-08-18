@@ -1,4 +1,4 @@
-use scene::graph::Skin;
+use rfw_scene::graph::Skin;
 use shared::BytesConversion;
 
 #[derive(Debug)]
@@ -34,11 +34,12 @@ impl Default for DeferredSkin {
 impl DeferredSkin {
     pub fn new(device: &wgpu::Device, skin: Skin) -> Self {
         let joint_matrices_buffer_size =
-            skin.joint_matrices.to_bytes().len() as wgpu::BufferAddress;
+            skin.joint_matrices.as_bytes().len() as wgpu::BufferAddress;
         let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("joint-matrices"),
             size: joint_matrices_buffer_size,
-            usage: wgpu::BufferUsage::STORAGE_READ | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -51,48 +52,57 @@ impl DeferredSkin {
 
     pub fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[wgpu::BindGroupLayoutEntry {
+            entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStage::VERTEX,
                 ty: wgpu::BindingType::StorageBuffer {
+                    min_binding_size: None,
                     dynamic: false,
                     readonly: true,
                 },
+                count: None,
             }],
             label: Some("skin-bind-group-layout"),
         })
     }
 
     pub fn create_bind_group(&mut self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) {
-        self.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            bindings: &[wgpu::Binding {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: self.matrices_buffer.as_ref().unwrap(),
-                    range: 0..self.joint_matrices_buffer_size,
-                },
-            }],
-            label: None,
-        }));
+        self.bind_group = Some(
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(
+                        self.matrices_buffer
+                            .as_ref()
+                            .unwrap()
+                            .slice(0..self.joint_matrices_buffer_size),
+                    ),
+                }],
+                label: None,
+            }),
+        );
     }
 
     pub async fn update(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if let Some(buffer) = self.matrices_buffer.as_ref() {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("skin-update"),
-            });
-
-            let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-                label: Some("skin-update-staging-buffer"),
+            let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("skin-update-staging-mem"),
                 size: self.joint_matrices_buffer_size,
                 usage: wgpu::BufferUsage::COPY_SRC,
+                mapped_at_creation: true,
             });
 
-            let data = self.skin.joint_matrices.to_bytes();
-            staging_buffer.data[0..data.len()].copy_from_slice(data);
+            let data = self.skin.joint_matrices.as_bytes();
+            staging_buffer
+                .slice(0..data.len() as _)
+                .get_mapped_range_mut()
+                .as_mut()
+                .copy_from_slice(data);
+            staging_buffer.unmap();
 
-            let staging_buffer = staging_buffer.finish();
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
             encoder.copy_buffer_to_buffer(
                 &staging_buffer,
@@ -102,7 +112,7 @@ impl DeferredSkin {
                 self.joint_matrices_buffer_size,
             );
 
-            queue.submit(&[encoder.finish()]);
+            queue.submit(std::iter::once(encoder.finish()));
         }
     }
 }

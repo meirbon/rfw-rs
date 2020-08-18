@@ -3,6 +3,8 @@ use super::{
     output::{DeferredOutput, DeferredView},
 };
 use shared::*;
+use std::borrow::Cow;
+use wgpu::util::DeviceExt;
 
 pub struct BlitPass {
     bind_group_layout: wgpu::BindGroupLayout,
@@ -14,7 +16,7 @@ impl BlitPass {
     pub fn new(device: &wgpu::Device, output: &DeferredOutput) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit-bind-group-layout"),
-            bindings: &[
+            entries: &[
                 output.as_storage_entry(0, wgpu::ShaderStage::FRAGMENT, DeferredView::Albedo, true),
                 output.as_storage_entry(
                     1,
@@ -29,7 +31,7 @@ impl BlitPass {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("blit-bind-group"),
             layout: &bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::Albedo),
                 output.as_binding(1, DeferredView::Radiance),
                 output.as_binding(2, DeferredView::SSAO),
@@ -37,17 +39,23 @@ impl BlitPass {
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
         });
-        let vert_shader = include_bytes!("../shaders/quad.vert.spv");
-        let frag_shader = include_bytes!("../shaders/deferred_blit.frag.spv");
+        let vert_shader: &[u8] = include_bytes!("../shaders/quad.vert.spv");
+        let frag_shader: &[u8] = include_bytes!("../shaders/deferred_blit.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
-        let frag_module = device.create_shader_module(frag_shader.to_quad_bytes());
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
+        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            frag_shader.as_quad_bytes(),
+        )));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            /// The layout of bind groups for this pipeline.
-            layout: &pipeline_layout,
+            label: Some("deferred-blit-pipeline"),
+            layout: Some(&pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &vert_module,
@@ -85,7 +93,7 @@ impl BlitPass {
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("blit-bind-group"),
             layout: &self.bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::Albedo),
                 output.as_binding(1, DeferredView::Radiance),
                 output.as_binding(2, DeferredView::SSAO),
@@ -97,9 +105,10 @@ impl BlitPass {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                 attachment: output,
-                clear_color: wgpu::Color::BLACK,
-                load_op: wgpu::LoadOp::Clear,
-                store_op: wgpu::StoreOp::Store,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: true,
+                },
                 resolve_target: None,
             }],
             depth_stencil_attachment: None,
@@ -129,11 +138,11 @@ pub struct SSAOPass {
 impl SSAOPass {
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
         output: &DeferredOutput,
     ) -> Self {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -142,15 +151,17 @@ impl SSAOPass {
             mipmap_filter: wgpu::FilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
-            compare: wgpu::CompareFunction::Never,
+            compare: None,
+            anisotropy_clamp: None,
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ssao-bind-group-layout"),
-            bindings: &[
+            entries: &[
                 output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, DeferredView::SSAO, false),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    count: None,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler { comparison: false },
                 },
@@ -159,16 +170,12 @@ impl SSAOPass {
             ],
         });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("ssao-staging-command"),
-        });
-
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ssao-bind-group"),
             layout: &bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::SSAO),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
@@ -178,13 +185,18 @@ impl SSAOPass {
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[uniform_bind_group_layout, &bind_group_layout],
+            push_constant_ranges: &[],
         });
 
-        let shader = include_bytes!("../shaders/ssao.comp.spv");
-        let shader_module = device.create_shader_module(shader.to_quad_bytes());
+        let shader: &[u8] = include_bytes!("../shaders/ssao.comp.spv");
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(shader.as_quad_bytes()),
+        ));
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &pipeline_layout,
+            label: Some("ssao-pipeline"),
+            layout: Some(&pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &shader_module,
@@ -194,7 +206,7 @@ impl SSAOPass {
         let filter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("filter-bind-group-layout"),
-                bindings: &[
+                entries: &[
                     output.as_storage_entry(
                         0,
                         wgpu::ShaderStage::COMPUTE,
@@ -209,70 +221,49 @@ impl SSAOPass {
                     ),
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                 ],
             });
-        let filter_uniform_weight_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter-uniform-weight-buffer"),
-            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            size: (std::mem::size_of::<u32>() * 2 + std::mem::size_of::<f32>() * 128)
-                as wgpu::BufferAddress,
-        });
-        let weights = Self::calc_blur_data(32, 5.0);
-        assert_eq!(weights.len(), 128);
-        let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("staging-uniform-weight-buffer"),
-            usage: wgpu::BufferUsage::COPY_SRC,
-            size: (std::mem::size_of::<u32>() * 2 + std::mem::size_of::<f32>() * 128)
-                as wgpu::BufferAddress,
-        });
-
-        unsafe {
-            let width: [u32; 1] = [32];
-            let width2: [u32; 1] = [64];
-            let ptr = staging_buffer.data.as_mut_ptr();
-            ptr.copy_from(width.as_ptr() as *const u8, 4);
-            ptr.add(4).copy_from(width2.as_ptr() as *const u8, 4);
-            ptr.add(8).copy_from(weights.as_ptr() as *const u8, 4 * 128);
-        }
-        let staging_buffer = staging_buffer.finish();
-
-        encoder.copy_buffer_to_buffer(
-            &staging_buffer,
-            0,
-            &filter_uniform_weight_buffer,
-            0,
-            (std::mem::size_of::<u32>() * 2 + std::mem::size_of::<f32>() * 128)
-                as wgpu::BufferAddress,
-        );
 
         let direction_x: [u32; 2] = [1, 0];
         let direction_y: [u32; 2] = [0, 1];
         let dir_x = unsafe { std::slice::from_raw_parts(direction_x.as_ptr() as *const u8, 8) };
         let dir_y = unsafe { std::slice::from_raw_parts(direction_y.as_ptr() as *const u8, 8) };
-        let filter_direction_x = device.create_buffer_with_data(dir_x, wgpu::BufferUsage::COPY_SRC);
-        let filter_direction_y = device.create_buffer_with_data(dir_y, wgpu::BufferUsage::COPY_SRC);
+        let filter_direction_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: dir_x,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
+        let filter_direction_y = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: dir_y,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
 
         let filter_uniform_direction_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter-uniform-direction-buffer"),
+            label: Some("filter-uniform-direction-mem"),
             size: 8,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let filter_bind_group1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filter-bind-group"),
             layout: &filter_bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::FilteredSSAO),
                 output.as_binding(1, DeferredView::SSAO),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &filter_uniform_direction_buffer,
-                        range: 0..8,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        filter_uniform_direction_buffer.slice(0..8),
+                    ),
                 },
             ],
         });
@@ -280,34 +271,36 @@ impl SSAOPass {
         let filter_bind_group2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filter-bind-group"),
             layout: &filter_bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::SSAO),
                 output.as_binding(1, DeferredView::FilteredSSAO),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &filter_uniform_direction_buffer,
-                        range: 0..8,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        filter_uniform_direction_buffer.slice(0..8),
+                    ),
                 },
             ],
         });
 
         let filter_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
                 bind_group_layouts: &[&filter_bind_group_layout],
+                push_constant_ranges: &[],
             });
-        let shader = include_bytes!("../shaders/ssao_filter.comp.spv");
-        let shader_module = device.create_shader_module(shader.to_quad_bytes());
+        let shader: &[u8] = include_bytes!("../shaders/ssao_filter.comp.spv");
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(shader.as_quad_bytes()),
+        ));
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &filter_pipeline_layout,
+            label: Some("ssao-filter-pipeline"),
+            layout: Some(&filter_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &shader_module,
             },
         });
-
-        queue.submit(&[encoder.finish()]);
 
         Self {
             sampler,
@@ -324,46 +317,13 @@ impl SSAOPass {
         }
     }
 
-    fn normal_dist(value: f32, mean: f32, deviation: f32) -> f32 {
-        let value = value - mean;
-        let value_sq = value * value;
-        let variance = deviation * deviation;
-        (-value_sq / (2.0 * variance)).exp() / ((2.0 * std::f32::consts::PI).sqrt() * deviation)
-    }
-
-    pub fn calc_blur_data(width: usize, deviation: f32) -> Vec<f32> {
-        let mut weights = vec![0.0 as f32; width * 4];
-        let mut total = 0.0;
-        let width2 = width * 2;
-
-        assert!(width >= 1);
-        assert!(width <= 32);
-
-        // Calculate normal distribution
-        for i in 0..width {
-            let current = Self::normal_dist((width - i) as f32, 0.0, deviation);
-            weights[width2 - i] = current;
-            weights[i] = weights[width2 - i];
-            total += 2.0 * current;
-        }
-        weights[width] = Self::normal_dist(0.0, 0.0, deviation);
-        total += weights[width];
-
-        // Normalize values such that together they sum to 1
-        for i in 0..width2 {
-            weights[i] /= total;
-        }
-
-        weights
-    }
-
     pub fn update_bind_groups(&mut self, device: &wgpu::Device, output: &DeferredOutput) {
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ssao-bind-group"),
             layout: &self.bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::SSAO),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
@@ -375,15 +335,14 @@ impl SSAOPass {
         self.filter_bind_group1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filter-bind-group"),
             layout: &self.filter_bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::FilteredSSAO),
                 output.as_binding(1, DeferredView::SSAO),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &self.filter_uniform_direction_buffer,
-                        range: 0..8,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        self.filter_uniform_direction_buffer.slice(0..8),
+                    ),
                 },
             ],
         });
@@ -391,15 +350,14 @@ impl SSAOPass {
         self.filter_bind_group2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("filter-bind-group"),
             layout: &self.filter_bind_group_layout,
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::SSAO),
                 output.as_binding(1, DeferredView::FilteredSSAO),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &self.filter_uniform_direction_buffer,
-                        range: 0..8,
-                    },
+                    resource: wgpu::BindingResource::Buffer(
+                        self.filter_uniform_direction_buffer.slice(0..8),
+                    ),
                 },
             ],
         });
@@ -479,7 +437,7 @@ impl RadiancePass {
     ) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("radiance-bind-group-layout"),
-            bindings: &[
+            entries: &[
                 output.as_storage_entry(
                     0,
                     wgpu::ShaderStage::COMPUTE,
@@ -488,6 +446,7 @@ impl RadiancePass {
                 ),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    count: None,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler { comparison: false },
                 },
@@ -505,29 +464,43 @@ impl RadiancePass {
         let lights_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("lights-bind-group-layout"),
-                bindings: &[
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::Sampler { comparison: false },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 6,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::SampledTexture {
                             component_type: wgpu::TextureComponentType::Float,
@@ -537,6 +510,7 @@ impl RadiancePass {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 7,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::SampledTexture {
                             component_type: wgpu::TextureComponentType::Float,
@@ -546,6 +520,7 @@ impl RadiancePass {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 8,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::SampledTexture {
                             component_type: wgpu::TextureComponentType::Float,
@@ -555,41 +530,55 @@ impl RadiancePass {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 10,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 11,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 12,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                 ],
             });
         let shadow_sampler = ShadowMapArray::create_sampler(device);
 
         let deferred_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            compare: wgpu::CompareFunction::Never,
+            compare: None,
             lod_max_clamp: 0.0,
             lod_min_clamp: 0.0,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
+            anisotropy_clamp: None,
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             label: Some("output-bind-group"),
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::Radiance),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&deferred_sampler),
                 },
@@ -602,11 +591,11 @@ impl RadiancePass {
         let lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lights-bind-group"),
             layout: &lights_bind_group_layout,
-            bindings: &[
+            entries: &[
                 lights.area_lights.uniform_binding(1),
                 lights.spot_lights.uniform_binding(2),
                 lights.directional_lights.uniform_binding(3),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&shadow_sampler),
                 },
@@ -622,18 +611,23 @@ impl RadiancePass {
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[
                 uniform_bind_group_layout,
                 &bind_group_layout,
                 &lights_bind_group_layout,
             ],
+            push_constant_ranges: &[],
         });
 
-        let spirv = include_bytes!("../shaders/lighting.comp.spv");
-        let module = device.create_shader_module(spirv.to_quad_bytes());
+        let spirv: &[u8] = include_bytes!("../shaders/lighting.comp.spv");
+        let module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            spirv.as_quad_bytes(),
+        )));
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &pipeline_layout,
+            label: Some("lighting-pipeline"),
+            layout: Some(&pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &module,
@@ -660,9 +654,9 @@ impl RadiancePass {
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.bind_group_layout,
             label: Some("output-bind-group"),
-            bindings: &[
+            entries: &[
                 output.as_binding(0, DeferredView::Radiance),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.deferred_sampler),
                 },
@@ -675,11 +669,11 @@ impl RadiancePass {
         self.lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("lights-bind-group"),
             layout: &self.lights_bind_group_layout,
-            bindings: &[
+            entries: &[
                 lights.area_lights.uniform_binding(1),
                 lights.spot_lights.uniform_binding(2),
                 lights.directional_lights.uniform_binding(3),
-                wgpu::Binding {
+                wgpu::BindGroupEntry {
                     binding: 4,
                     resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
                 },

@@ -4,28 +4,28 @@
 #include "structs.glsl"
 #include "intersection.glsl"
 #include "random.glsl"
+#include "bindings.glsl"
 
 #define USE_MBVH 1
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
-layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
-layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
-layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
-layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
-layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
-layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
-layout(std430, set = 0, binding = 9) buffer readonly BlueNoise { int blueNoise[]; };
+layout(set = 0, binding = I_OUTPUT, rgba32f) uniform writeonly image2D OutputTex;
+layout(std430, set = 0, binding = I_CAMERA) buffer Camera {
+    CameraView camera;
+    int blueNoise[];
+};
+layout(std430, set = 0, binding = I_STATES) buffer pathStates { PathState states[]; };
+layout(std430, set = 0, binding = I_ACC_BUF) buffer accBuffer { vec4 acPixels[]; };
 
-layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
-layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
-layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
-layout(std140, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
+layout(std430, set = 1, binding = ME_PRIM) buffer readonly primIndices { uint prim_indices[]; };
+layout(std430, set = 1, binding = ME_BVH) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
+layout(std430, set = 1, binding = ME_MBVH) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
+layout(std140, set = 1, binding = ME_TRI) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
 
-layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
-layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
-layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
-layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
+layout(std430, set = 2, binding = T_INST) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
+layout(std430, set = 2, binding = T_INST_ID) buffer readonly topIndices { uint instance_indices[]; };
+layout(std430, set = 2, binding = T_BVH) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
+layout(std430, set = 2, binding = T_MBVH) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
 
 float blueNoiseSampler(int x, int y, int sampleDimension);
 
@@ -64,9 +64,9 @@ void main() {
 #endif
 
     const uint bary = uint(65535.0f * uv.x) + (uint(65535.0f * uv.y) << 16);
-    origins[path_id] = vec4(origin, intBitsToFloat(path_id));
-    directions[path_id] = vec4(direction, 0.0);
-    states[path_id] = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, uintBitsToFloat(bary));
+    states[path_id].origin = vec4(origin, intBitsToFloat(path_id));
+    states[path_id].direction = vec4(direction, 0.0);
+    states[path_id].state = vec4(intBitsToFloat(hit.x), intBitsToFloat(hit.y), t, uintBitsToFloat(bary));
 }
 
 float blueNoiseSampler(int x, int y, int sampleDimension)

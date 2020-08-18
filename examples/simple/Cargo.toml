@@ -11,8 +11,7 @@ winit = "0.22"
 glam = "0.8"
 futures = "0.3"
 clap = "2.33.1"
-scene = { path = "../../scene" }
-rfw_deferred = { path = "../../renderers/deferred" }
-rfw_gpu_rt = { path = "../../renderers/gpu-rt" }
-rfw_vulkan = { path = "../../renderers/vulkan" }
+rfw-system = { path = "../../system" }
+rfw-deferred = { path = "../../renderers/deferred" }
+rfw-gfx = { path = "../../renderers/gfx" }
 shared = { path = "../../renderers/shared" }

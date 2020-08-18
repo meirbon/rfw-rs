@@ -1,5 +1,6 @@
 use std::ops::Index;
 use std::ops::IndexMut;
+use wgpu::util::DeviceExt;
 
 pub struct ManagedBuffer<T: Sized + Default + Clone> {
     host_buffer: Vec<T>,
@@ -17,6 +18,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
             label: None,
             size: (capacity * std::mem::size_of::<T>()) as wgpu::BufferAddress,
             usage,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -33,7 +35,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
             return;
         }
 
-        // Create a larger buffer to ensure resizing does not happen often
+        // Create a larger mem to ensure resizing does not happen often
         let new_size = new_size * 2;
 
         self.host_buffer.resize(new_size, T::default());
@@ -41,6 +43,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
             label: None,
             size: (new_size * std::mem::size_of::<T>()) as wgpu::BufferAddress,
             usage: self.usage,
+            mapped_at_creation: false,
         });
         self.dirty = true;
     }
@@ -78,7 +81,7 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     pub fn copy_from_slice(&mut self, data: &[T]) {
         assert!(
             self.host_buffer.len() >= data.len(),
-            "Data to copy was longer ({}) than buffer ({})",
+            "Data to copy was longer ({}) than mem ({})",
             data.len(),
             self.len()
         );
@@ -104,15 +107,24 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
     pub fn update(&mut self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder) {
         if self.dirty {
             let copy_size = self.bytes() as wgpu::BufferAddress;
-            let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-                label: Some("update-staging-buffer"),
+                label: Some("update-staging-mem"),
                 size: copy_size,
+                mapped_at_creation: true,
             });
-            staging_buffer.data.copy_from_slice(self.as_bytes());
-            self.staging_buffer = Some(staging_buffer.finish());
+            staging_buffer
+                .slice(0..self.bytes() as _)
+                .get_mapped_range_mut()
+                .copy_from_slice(self.as_bytes());
+            staging_buffer.unmap();
+            self.staging_buffer = Some(staging_buffer);
 
-            device.create_buffer_with_data(self.as_bytes(), wgpu::BufferUsage::COPY_SRC);
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: self.as_bytes(),
+                usage: wgpu::BufferUsage::COPY_SRC,
+            });
             encoder.copy_buffer_to_buffer(
                 self.staging_buffer.as_ref().unwrap(),
                 0,
@@ -125,13 +137,13 @@ impl<T: Sized + Default + Clone> ManagedBuffer<T> {
         self.dirty = false;
     }
 
-    pub fn as_binding(&self, index: u32) -> wgpu::Binding {
-        let binding = wgpu::Binding {
+    pub fn as_binding(&self, index: u32) -> wgpu::BindGroupEntry {
+        let binding = wgpu::BindGroupEntry {
             binding: index,
-            resource: wgpu::BindingResource::Buffer {
-                buffer: &self.device_buffer,
-                range: 0..(self.bytes() as wgpu::BufferAddress),
-            },
+            resource: wgpu::BindingResource::Buffer(
+                self.device_buffer
+                    .slice(0..(self.bytes() as wgpu::BufferAddress)),
+            ),
         };
 
         binding

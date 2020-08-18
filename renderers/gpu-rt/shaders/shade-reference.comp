@@ -8,26 +8,24 @@
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D OutputTex;
-layout(std430, set = 0, binding = 1) buffer Camera { CameraView camera; };
-layout(std430, set = 0, binding = 2) buffer pathStates { vec4 states[]; };
-layout(std430, set = 0, binding = 3) buffer pathOrigins { vec4 origins[]; };
-layout(std430, set = 0, binding = 4) buffer pathDirections { vec4 directions[]; };
-layout(std430, set = 0, binding = 5) buffer pathThroughputs { vec4 throughputs[]; };
-layout(std430, set = 0, binding = 6) buffer accBuffer { vec4 acPixels[]; };
-layout(std430, set = 0, binding = 7) buffer shadowContributions { PotentialContribution potContributions[]; };
+layout(std430, set = 0, binding = 1) buffer Camera {
+    CameraView camera;
+    int blueNoise[];
+};
+layout(std430, set = 0, binding = 2) buffer pathStates { PathState states[]; };
+layout(std430, set = 0, binding = 3) buffer accBuffer { vec4 acPixels[]; };
+layout(std140, set = 0, binding = 5) buffer shadowContributions { PotentialContribution potContributions[]; };
+layout(set = 0, binding = 6) uniform texture2D skybox;
 
 layout(std430, set = 1, binding = 0) buffer readonly primIndices { uint prim_indices[]; };
 layout(std430, set = 1, binding = 1) buffer readonly meshBVHNodes { BVHNode bvh_nodes[]; };
 layout(std430, set = 1, binding = 2) buffer readonly meshMBVHNodes { MBVHNode mbvh_nodes[]; };
 layout(std140, set = 1, binding = 3) buffer readonly meshTriangles { RTTriangle rt_triangles[]; };
 
-layout(std430, set = 2, binding = 0) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
-layout(std430, set = 2, binding = 1) buffer readonly topIndices { uint instance_indices[]; };
-layout(std430, set = 2, binding = 2) buffer readonly topBVHNodes { BVHNode top_bvh_nodes[]; };
-layout(std430, set = 2, binding = 3) buffer readonly topMBVHNodes { MBVHNode top_mbvh_nodes[]; };
-layout(std430, set = 2, binding = 4) buffer readonly Materials { Material materials[]; };
-layout(set = 2, binding = 5) uniform texture2DArray matTextures;
-layout(set = 2, binding = 6) uniform sampler matTexSampler;
+layout(std430, set = 2, binding = 0) buffer readonly Materials { Material materials[]; };
+layout(set = 2, binding = 1) uniform texture2DArray matTextures;
+layout(set = 2, binding = 2) uniform sampler matTexSampler;
+layout(std430, set = 2, binding = 3) buffer readonly instanceDescriptors { InstanceDescriptor instances[]; };
 
 layout(std430, set = 3, binding = 0) buffer readonly PointLights { PointLight pointLights[]; };
 layout(std430, set = 3, binding = 1) buffer readonly SpotLights { SpotLight spotLights[]; };
@@ -65,9 +63,9 @@ void main()
 
     job_id = job_id + shadeBufferIndex * offset;
 
-    const vec4 S = states[job_id];
-    const vec4 O = origins[job_id];
-    vec3 throughput = camera.path_length == 0 ? vec3(1) : throughputs[job_id].xyz;
+    const vec4 S = states[job_id].state;
+    const vec4 O = states[job_id].origin;
+    vec3 throughput = camera.path_length == 0 ? vec3(1) : states[job_id].throughput.xyz;
 
     if (INST_ID < 0) { // Did not hit anything
         return;
@@ -85,7 +83,7 @@ void main()
     const uint sampleId = PATH_ID / (offset) + camera.sample_count;
     uint seed = wang_hash(PATH_ID * 16789 + sampleId * 1791 + camera.path_length * 720898027);
 
-    const vec4 D = directions[job_id];
+    const vec4 D = states[job_id].direction;
     const float u = HIT_U;
     const float v = HIT_V;
     const float w = 1.0 - u - v;
@@ -143,9 +141,9 @@ void main()
     // Get compacted index for extension ray
     const int ext_id = atomicAdd(camera.extensionId, 1) + int(nextBufferIndex * offset);
 
-    origins[ext_id] = vec4(P.xyz + R.xyz * 1e-4f, intBitsToFloat(PATH_ID));
-    directions[ext_id] = vec4(R, D.w);
-    throughputs[ext_id] = vec4(throughput, 0);
+    states[ext_id].origin = vec4(P.xyz + R.xyz * 1e-4f, intBitsToFloat(PATH_ID));
+    states[ext_id].direction = vec4(R, D.w);
+    states[ext_id].throughput = vec4(throughput, 0);
 }
 
 vec4 fetchTexel(const vec2 texCoord, const int textureId, const float LOD)

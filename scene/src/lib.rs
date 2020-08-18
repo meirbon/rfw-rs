@@ -3,8 +3,6 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-static mut USE_MBVH: bool = true;
-
 pub type PrimID = i32;
 pub type InstanceID = i32;
 
@@ -17,7 +15,6 @@ pub mod loaders;
 pub mod material;
 pub mod objects;
 pub mod renderers;
-pub mod triangle_scene;
 
 pub mod utils;
 
@@ -28,579 +25,687 @@ pub use loaders::*;
 pub use material::*;
 pub use objects::*;
 pub use renderers::*;
+pub use rtbvh as bvh;
 pub use utils::*;
 
-use std::sync::{Arc, Mutex};
-
 pub use bitvec::prelude::*;
+pub use instance::*;
 pub use raw_window_handle;
-pub use triangle_scene::*;
 
-use crate::utils::{FlaggedIterator, FlaggedIteratorMut};
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "object_caching")]
+use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
+
 use glam::*;
-use graph::Node;
-use std::error::Error;
-use std::path::Path;
+use rtbvh::{Bounds, AABB};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard, TryLockResult},
+};
 
 #[derive(Debug, Clone)]
-pub enum SceneLight {
-    Point(PointLight),
-    Spot(SpotLight),
-    Directional(DirectionalLight),
+pub enum SceneError {
+    InvalidObjectRef,
+    InvalidObjectIndex(usize),
+    InvalidInstanceIndex(usize),
+    LoadError(PathBuf),
+    LockError,
+    UnknownError,
+    NoFileExtension,
+    NoFileLoader(String),
 }
 
-pub struct LightRef {
-    id: usize,
-    light: SceneLight,
-    lights: Arc<Mutex<SceneLights>>,
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+pub enum SceneFlags {
+    BuildBVHs = 0,
 }
 
-impl LightRef {
-    fn new(id: usize, light: SceneLight, lights: Arc<Mutex<SceneLights>>) -> Self {
-        Self { id, light, lights }
+impl Into<u8> for SceneFlags {
+    fn into(self) -> u8 {
+        self as u8
     }
+}
 
-    pub fn get(&self) -> &SceneLight {
-        &self.light
+impl std::fmt::Display for SceneError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Self::InvalidObjectRef => String::from("object reference was None"),
+            Self::InvalidObjectIndex(idx) => format!("invalid object index {}", idx),
+            Self::InvalidInstanceIndex(idx) => format!("invalid instances index {}", idx),
+            Self::LoadError(path) => format!("could not load file: {}", path.display()),
+            Self::LockError => String::from("could not acquire lock"),
+            Self::UnknownError => String::new(),
+            Self::NoFileExtension => String::from("file had no file extension"),
+            Self::NoFileLoader(ext) => format!("no file loader available for {}", ext),
+        };
+
+        write!(f, "{}", string)
     }
+}
 
-    pub fn get_mut(&mut self) -> &mut SceneLight {
-        &mut self.light
+impl std::error::Error for SceneError {}
+
+#[derive(Debug, Clone)]
+pub struct Objects {
+    pub meshes: Arc<Mutex<TrackedStorage<Mesh>>>,
+    pub animations: Arc<Mutex<TrackedStorage<graph::animation::Animation>>>,
+    pub animated_meshes: Arc<Mutex<TrackedStorage<AnimatedMesh>>>,
+    pub nodes: Arc<Mutex<graph::NodeGraph>>,
+    pub skins: Arc<Mutex<TrackedStorage<graph::Skin>>>,
+    pub instances: Arc<Mutex<TrackedStorage<Instance>>>,
+}
+
+impl Default for Objects {
+    fn default() -> Self {
+        Self {
+            meshes: Arc::new(Mutex::new(TrackedStorage::new())),
+            animations: Arc::new(Mutex::new(TrackedStorage::new())),
+            animated_meshes: Arc::new(Mutex::new(TrackedStorage::new())),
+            nodes: Arc::new(Mutex::new(graph::NodeGraph::new())),
+            skins: Arc::new(Mutex::new(TrackedStorage::new())),
+            instances: Arc::new(Mutex::new(TrackedStorage::new())),
+        }
     }
+}
 
-    pub fn translate_x(&mut self, offset: f32) {
-        let translation = Vec3::new(offset, 0.0, 0.0);
-        match &mut self.light {
-            SceneLight::Spot(l) => {
-                let position: Vec3 = Vec3::from(l.position) + translation;
-                l.position = position.into();
-            }
-            _ => {}
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+pub struct SceneLights {
+    pub point_lights: TrackedStorage<PointLight>,
+    pub spot_lights: TrackedStorage<SpotLight>,
+    pub area_lights: TrackedStorage<AreaLight>,
+    pub directional_lights: TrackedStorage<DirectionalLight>,
+}
+
+impl Default for SceneLights {
+    fn default() -> Self {
+        Self {
+            point_lights: TrackedStorage::new(),
+            spot_lights: TrackedStorage::new(),
+            area_lights: TrackedStorage::new(),
+            directional_lights: TrackedStorage::new(),
+        }
+    }
+}
+
+/// Scene optimized for triangles
+/// Does not support objects other than Meshes, but does not require virtual calls because of this.
+#[derive(Debug)]
+pub struct Scene {
+    loaders: HashMap<String, Box<dyn ObjectLoader>>,
+    pub objects: Objects,
+    pub lights: Arc<Mutex<SceneLights>>,
+    pub materials: Arc<Mutex<MaterialList>>,
+    pub settings: Arc<Mutex<Flags>>,
+}
+
+impl Default for Scene {
+    fn default() -> Self {
+        let mut loaders: HashMap<String, Box<dyn ObjectLoader>> = HashMap::new();
+
+        loaders.insert(
+            String::from("gltf"),
+            Box::new(crate::gltf::GltfLoader::default()),
+        );
+        loaders.insert(
+            String::from("glb"),
+            Box::new(crate::gltf::GltfLoader::default()),
+        );
+        loaders.insert(
+            String::from("obj"),
+            Box::new(crate::obj::ObjLoader::default()),
+        );
+
+        Self {
+            loaders,
+            objects: Objects::default(),
+            lights: Arc::new(Mutex::new(SceneLights::default())),
+            materials: Arc::new(Mutex::new(MaterialList::new())),
+            settings: Arc::new(Mutex::new(Flags::default())),
+        }
+    }
+}
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug)]
+struct SerializableScene {
+    pub meshes: TrackedStorage<Mesh>,
+    pub animated_meshes: TrackedStorage<AnimatedMesh>,
+    pub nodes: graph::NodeGraph,
+    pub skins: TrackedStorage<graph::Skin>,
+    pub instances: TrackedStorage<Instance>,
+    pub lights: SceneLights,
+    pub materials: MaterialList,
+    pub settings: Flags,
+}
+
+impl From<&Scene> for SerializableScene {
+    fn from(scene: &Scene) -> Self {
+        let lights = scene.lights.lock().unwrap();
+        let mat_lock = scene.materials.lock().unwrap();
+        let settings = scene.settings.lock().unwrap();
+
+        Self {
+            meshes: scene.objects.meshes.lock().unwrap().clone(),
+            animated_meshes: scene.objects.animated_meshes.lock().unwrap().clone(),
+            nodes: scene.objects.nodes.lock().unwrap().clone(),
+            skins: scene.objects.skins.lock().unwrap().clone(),
+            instances: scene.objects.instances.lock().unwrap().clone(),
+            lights: lights.clone(),
+            materials: mat_lock.clone(),
+            settings: settings.clone(),
+        }
+    }
+}
+
+impl Into<Scene> for SerializableScene {
+    fn into(self) -> Scene {
+        Scene {
+            objects: Objects::default(),
+            lights: Arc::new(Mutex::new(self.lights)),
+            materials: Arc::new(Mutex::new(self.materials)),
+            settings: Arc::new(Mutex::new(self.settings)),
+            ..Default::default()
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl Scene {
+    const FF_EXTENSION: &'static str = ".scenev1";
+
+    pub fn new() -> Self {
+        Self {
+            objects: Objects::default(),
+            lights: Arc::new(Mutex::new(SceneLights::default())),
+            materials: Arc::new(Mutex::new(MaterialList::new())),
+            settings: Arc::new(Mutex::new(Flags::default())),
+            ..Default::default()
         }
     }
 
-    pub fn translate_y(&mut self, offset: f32) {
-        let translation = Vec3::new(0.0, offset, 0.0);
-        match &mut self.light {
-            SceneLight::Spot(l) => {
-                let position: Vec3 = Vec3::from(l.position) + translation;
-                l.position = position.into();
-            }
-            _ => {}
+    pub fn get_scene(&self) -> Objects {
+        self.objects.clone()
+    }
+
+    pub fn get_lights(&self) -> Arc<Mutex<SceneLights>> {
+        self.lights.clone()
+    }
+
+    pub fn get_materials(&self) -> Arc<Mutex<MaterialList>> {
+        self.materials.clone()
+    }
+
+    pub fn lights_lock(&self) -> TryLockResult<MutexGuard<'_, SceneLights>> {
+        self.lights.try_lock()
+    }
+
+    pub fn materials_lock(&self) -> TryLockResult<MutexGuard<'_, MaterialList>> {
+        self.materials.try_lock()
+    }
+
+    /// Returns an id if a single mesh was loaded, otherwise it was a scene
+    pub async fn load<S: AsRef<Path>>(&self, path: S) -> Result<LoadResult, SceneError> {
+        let path = path.as_ref();
+        let extension = path.extension();
+        let _build_bvh = self
+            .settings
+            .lock()
+            .unwrap()
+            .has_flag(SceneFlags::BuildBVHs);
+        if extension.is_none() {
+            return Err(SceneError::NoFileExtension);
+        }
+        let extension = extension.unwrap();
+
+        // Load obj files
+        let extension = extension.to_str().unwrap().to_string();
+        if let Some(loader) = self.loaders.get(extension.as_str()) {
+            return loader.load(
+                path.to_path_buf(),
+                self.materials.as_ref(),
+                self.objects.meshes.as_ref(),
+                self.objects.animations.as_ref(),
+                self.objects.animated_meshes.as_ref(),
+                self.objects.nodes.as_ref(),
+                self.objects.skins.as_ref(),
+                self.objects.instances.as_ref(),
+            );
+        }
+
+        Err(SceneError::NoFileLoader(extension))
+    }
+
+    pub fn add_object(&self, object: Mesh) -> Result<usize, SceneError> {
+        let mut meshes = match self.objects.meshes.lock() {
+            Ok(m) => m,
+            Err(_) => return Err(SceneError::LockError),
+        };
+        let id = meshes.push(object);
+        Ok(id)
+    }
+
+    pub fn add_animated_object(&self, object: AnimatedMesh) -> Result<usize, SceneError> {
+        let mut meshes = match self.objects.animated_meshes.lock() {
+            Ok(m) => m,
+            Err(_) => return Err(SceneError::LockError),
+        };
+        let id = meshes.push(object);
+        Ok(id)
+    }
+
+    pub fn set_object(&self, index: usize, object: Mesh) -> Result<(), SceneError> {
+        let mut meshes = match self.objects.meshes.lock() {
+            Ok(m) => m,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        if meshes.get(index).is_none() {
+            return Err(SceneError::InvalidObjectIndex(index));
+        }
+
+        meshes[index] = object;
+        Ok(())
+    }
+
+    pub fn set_animated_object(
+        &self,
+        index: usize,
+        object: AnimatedMesh,
+    ) -> Result<(), SceneError> {
+        let mut meshes = match self.objects.animated_meshes.lock() {
+            Ok(m) => m,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        if meshes.get(index).is_none() {
+            return Err(SceneError::InvalidObjectIndex(index));
+        }
+
+        meshes[index] = object;
+        Ok(())
+    }
+
+    pub fn remove_object(&mut self, index: usize) -> Result<(), SceneError> {
+        // TODO: Remove instances that contained this object
+        let mut meshes = match self.objects.meshes.lock() {
+            Ok(m) => m,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        match meshes.erase(index) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SceneError::InvalidObjectIndex(index)),
         }
     }
 
-    pub fn translate_z(&mut self, offset: f32) {
-        let translation = Vec3::new(0.0, 0.0, offset);
-        match &mut self.light {
-            SceneLight::Spot(l) => {
-                let position: Vec3 = Vec3::from(l.position) + translation;
-                l.position = position.into();
-            }
-            _ => {}
+    pub fn remove_animated_object(&mut self, index: usize) -> Result<(), SceneError> {
+        // TODO: Remove instances that contained this object
+        let mut meshes = match self.objects.animated_meshes.lock() {
+            Ok(m) => m,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        match meshes.erase(index) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SceneError::InvalidObjectIndex(index)),
         }
     }
 
-    pub fn rotate_x(&mut self, degrees: f32) {
-        let rotation = Mat4::from_rotation_x(degrees.to_radians());
-        match &mut self.light {
-            SceneLight::Spot(l) => {
-                let direction: Vec3 = l.direction.into();
-                let direction = rotation * direction.extend(0.0);
-                l.direction = direction.truncate().into();
+    pub fn add_instance(&self, index: ObjectRef) -> Result<usize, SceneError> {
+        let bounds = match index {
+            ObjectRef::None => {
+                return Err(SceneError::InvalidObjectRef);
             }
-            SceneLight::Directional(l) => {
-                let direction: Vec3 = l.direction.into();
-                let direction = rotation * direction.extend(0.0);
-                l.direction = direction.truncate().into();
+            ObjectRef::Static(id) => match self.objects.meshes.lock() {
+                Ok(m) => match m.get(id as usize) {
+                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
+                    _ => m.get(id as usize).unwrap().bounds.clone(),
+                },
+                Err(_) => return Err(SceneError::LockError),
+            },
+            ObjectRef::Animated(id) => match self.objects.animated_meshes.lock() {
+                Ok(m) => match m.get(id as usize) {
+                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
+                    _ => m.get(id as usize).unwrap().bounds.clone(),
+                },
+                Err(_) => return Err(SceneError::LockError),
+            },
+        };
+
+        let mut instances = match self.objects.instances.lock() {
+            Ok(i) => i,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        let instance_id = instances.allocate();
+        instances[instance_id] = Instance::new(index, &bounds);
+        Ok(instance_id)
+    }
+
+    pub fn set_instance_object(
+        &self,
+        instance: usize,
+        obj_index: ObjectRef,
+    ) -> Result<(), SceneError> {
+        let bounds = match obj_index {
+            ObjectRef::None => {
+                return Err(SceneError::InvalidObjectRef);
             }
-            _ => {}
+            ObjectRef::Static(id) => match self.objects.meshes.lock() {
+                Ok(m) => match m.get(id as usize) {
+                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
+                    _ => m.get(id as usize).unwrap().bounds.clone(),
+                },
+                Err(_) => return Err(SceneError::LockError),
+            },
+            ObjectRef::Animated(id) => match self.objects.animated_meshes.lock() {
+                Ok(m) => match m.get(id as usize) {
+                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
+                    _ => m.get(id as usize).unwrap().bounds.clone(),
+                },
+                Err(_) => return Err(SceneError::LockError),
+            },
+        };
+
+        let mut instances = match self.objects.instances.lock() {
+            Ok(i) => i,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        match instances.get_mut(instance) {
+            None => return Err(SceneError::InvalidInstanceIndex(instance)),
+            Some(inst) => {
+                inst.object_id = obj_index;
+                inst.set_bounds(bounds);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn remove_instance(&self, index: usize) -> Result<(), SceneError> {
+        match self.objects.meshes.lock() {
+            Ok(m) => match m.get(index) {
+                None => return Err(SceneError::InvalidObjectIndex(index)),
+                _ => {}
+            },
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        let mut instances = match self.objects.instances.lock() {
+            Ok(i) => i,
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        match instances.erase(index) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SceneError::UnknownError),
         }
     }
 
-    pub fn rotate_y(&mut self, degrees: f32) {
-        let rotation = Mat4::from_rotation_y(degrees.to_radians());
-        match &mut self.light {
-            SceneLight::Spot(l) => {
-                let direction: Vec3 = l.direction.into();
-                let direction = rotation * direction.extend(0.0);
-                l.direction = direction.truncate().into();
+    #[cfg(feature = "object_caching")]
+    pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
+        use std::io::prelude::*;
+
+        let ser_object = SerializableScene::from(self);
+        let encoded: Vec<u8> = bincode::serialize(&ser_object)?;
+
+        let mut output = OsString::from(path.as_ref().as_os_str());
+        output.push(Self::FF_EXTENSION);
+
+        let mut file = File::create(output)?;
+        file.write_all(encoded.as_ref())?;
+        Ok(())
+    }
+
+    #[cfg(feature = "object_caching")]
+    pub fn deserialize<S: AsRef<Path>>(path: S) -> Result<Self, Box<dyn Error>> {
+        let mut input = OsString::from(path.as_ref().as_os_str());
+        input.push(Self::FF_EXTENSION);
+        let file = File::open(input)?;
+        let reader = BufReader::new(file);
+        let mut object: SerializableScene = bincode::deserialize_from(reader)?;
+
+        object.nodes.trigger_changed_all();
+        object.skins.trigger_changed_all();
+        object.materials.set_changed();
+        object.instances.trigger_changed_all();
+        object.meshes.trigger_changed_all();
+        object.animated_meshes.trigger_changed_all();
+        object.lights.point_lights.trigger_changed_all();
+        object.lights.spot_lights.trigger_changed_all();
+        object.lights.area_lights.trigger_changed_all();
+        object.lights.directional_lights.trigger_changed_all();
+
+        let object: Self = object.into();
+
+        Ok(object)
+    }
+
+    pub fn add_point_light(&mut self, pos: Vec3A, radiance: Vec3A) -> Result<usize, SceneError> {
+        match self.lights.try_lock() {
+            Ok(mut lights) => {
+                lights.point_lights.push(PointLight::new(pos, radiance));
+                Ok(lights.point_lights.len() - 1)
             }
-            SceneLight::Directional(l) => {
-                let direction: Vec3 = l.direction.into();
-                let direction = rotation * direction.extend(0.0);
-                l.direction = direction.truncate().into();
-            }
-            _ => {}
+            Err(_) => Err(SceneError::LockError),
         }
     }
 
-    pub fn rotate_z(&mut self, degrees: f32) {
-        let rotation = Mat4::from_rotation_z(degrees.to_radians());
-        match &mut self.light {
-            SceneLight::Spot(l) => {
-                let direction: Vec3 = l.direction.into();
-                let direction = rotation * direction.extend(0.0);
-                l.direction = direction.truncate().into();
+    pub fn add_spot_light(
+        &mut self,
+        pos: Vec3A,
+        direction: Vec3A,
+        radiance: Vec3A,
+        inner_angle: f32,
+        outer_angle: f32,
+    ) -> Result<usize, SceneError> {
+        match self.lights.try_lock() {
+            Ok(mut lights) => {
+                lights.spot_lights.push(SpotLight::new(
+                    pos,
+                    direction,
+                    inner_angle,
+                    outer_angle,
+                    radiance,
+                ));
+                Ok(lights.spot_lights.len() - 1)
             }
-            SceneLight::Directional(l) => {
-                let direction: Vec3 = l.direction.into();
-                let direction = rotation * direction.extend(0.0);
-                l.direction = direction.truncate().into();
-            }
-            _ => {}
+            Err(_) => Err(SceneError::LockError),
         }
     }
 
-    pub fn synchronize(&self) -> Result<(), ()> {
-        if let Ok(mut lights) = self.lights.try_lock() {
-            match &self.light {
-                SceneLight::Point(l) => {
-                    lights.point_lights[self.id] = l.clone();
-                }
-                SceneLight::Spot(l) => {
-                    lights.spot_lights[self.id] = l.clone();
-                }
-                SceneLight::Directional(l) => {
-                    lights.directional_lights[self.id] = l.clone();
-                }
+    pub fn add_directional_light(
+        &mut self,
+        direction: Vec3A,
+        radiance: Vec3A,
+    ) -> Result<usize, SceneError> {
+        match self.lights.try_lock() {
+            Ok(mut lights) => {
+                lights
+                    .directional_lights
+                    .push(DirectionalLight::new(direction, radiance));
+                Ok(lights.directional_lights.len() - 1)
             }
+            Err(_) => Err(SceneError::LockError),
+        }
+    }
 
-            Ok(())
+    pub fn reset_changed(&self) -> Result<(), SceneError> {
+        let lights = self.lights.try_lock();
+        if let Ok(mut lights) = lights {
+            lights.point_lights.reset_changed();
+            lights.spot_lights.reset_changed();
+            lights.area_lights.reset_changed();
+            lights.directional_lights.reset_changed();
         } else {
-            Err(())
+            return Err(SceneError::LockError);
         }
-    }
-}
 
-pub struct RenderSystem<T: Sized + Renderer> {
-    scene: TriangleScene,
-    renderer: Arc<Mutex<Box<T>>>,
-}
+        let materials = self.materials.try_lock();
+        if let Ok(mut materials) = materials {
+            materials.reset_changed();
+        } else {
+            return Err(SceneError::LockError);
+        }
 
-impl<T: Sized + Renderer> RenderSystem<T> {
-    pub fn new<B: raw_window_handle::HasRawWindowHandle>(
-        window: &B,
-        width: usize,
-        height: usize,
-    ) -> Result<Self, Box<dyn Error>> {
-        let renderer = T::init(window, width, height)?;
-
-        Ok(Self {
-            scene: TriangleScene::new(),
-            renderer: Arc::new(Mutex::new(renderer)),
-        })
+        Ok(())
     }
 
-    pub fn iter_instances<C>(&self, cb: C)
-        where
-            C: FnOnce(FlaggedIterator<'_, Instance>),
-    {
-        let lock = self.scene.objects.instances.lock().unwrap();
-        cb(lock.iter());
-    }
+    pub fn update_lights(&self) {
+        let materials = self.materials.lock().unwrap();
+        let light_flags = materials.light_flags();
+        if light_flags.not_any() {
+            if let Ok(mut lights) = self.lights.lock() {
+                lights.area_lights = TrackedStorage::new();
+            }
+            return;
+        }
 
-    pub fn iter_instances_mut<C>(&self, cb: C)
-        where
-            C: FnOnce(FlaggedIteratorMut<'_, Instance>),
-    {
-        let mut lock = self.scene.objects.instances.lock().unwrap();
-        cb(lock.iter_mut());
-    }
+        let mut area_lights: Vec<AreaLight> = Vec::new();
 
-    pub fn get_instance<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&Instance>),
-    {
-        let lock = self.scene.objects.instances.lock().unwrap();
-        cb(lock.get(index))
-    }
-
-    pub fn get_instance_mut<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&mut Instance>),
-    {
-        let mut lock = self.scene.objects.instances.lock().unwrap();
-        cb(lock.get_mut(index))
-    }
-
-    pub fn get_lights<C>(&self, cb: C)
-        where C: FnOnce(&SceneLights) {
-        let lock = self.scene.lights.lock().unwrap();
-        cb(&lock)
-    }
-
-    pub fn get_lights_mut<C>(&self, cb: C)
-        where C: FnOnce(&mut SceneLights) {
-        let mut lock = self.scene.lights.lock().unwrap();
-        cb(&mut lock)
-    }
-
-    pub fn get_node<C>(&self, index: usize, cb: C)
-        where
-            C: FnOnce(Option<&Node>),
-    {
-        let lock = self.scene.objects.nodes.lock().unwrap();
-        cb(lock.get(index))
-    }
-
-    pub fn get_node_mut<C>(&self, index: u32, cb: C)
-        where
-            C: FnOnce(Option<&mut Node>),
-    {
-        let mut lock = self.scene.objects.nodes.lock().unwrap();
-        cb(lock.get_mut(index as usize))
-    }
-
-    pub fn find_mesh_by_name(&self, name: String) -> Vec<ObjectRef> {
-        let mut result = Vec::new();
-        if let (Ok(meshes), Ok(anim_meshes)) = (
-            self.scene.objects.meshes.lock(),
-            self.scene.objects.animated_meshes.lock(),
+        if let (Ok(meshes), Ok(anim_meshes), Ok(instances)) = (
+            self.objects.meshes.lock(),
+            self.objects.animated_meshes.lock(),
+            self.objects.instances.lock(),
         ) {
-            for m_id in 0..meshes.len() {
-                if let Some(m) = meshes.get(m_id) {
-                    if m.name == name {
-                        result.push(ObjectRef::Static(m_id as u32));
-                    }
-                }
-            }
+            let mut triangle_light_ids: Vec<(u32, u32, u32)> = Vec::new();
 
-            for m_id in 0..anim_meshes.len() {
-                if let Some(m) = anim_meshes.get(m_id) {
-                    if m.name == name {
-                        result.push(ObjectRef::Animated(m_id as u32));
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    pub fn resize<B: raw_window_handle::HasRawWindowHandle>(
-        &self,
-        window: &B,
-        width: usize,
-        height: usize,
-    ) {
-        self.renderer.lock().unwrap().resize(window, width, height);
-    }
-
-    pub fn render(&self, camera: &Camera, mode: RenderMode) {
-        if let Ok(mut renderer) = self.renderer.try_lock() {
-            renderer.render(camera, mode);
-        }
-    }
-
-    pub fn load<B: AsRef<Path>>(&self, path: B) -> Result<LoadResult, triangle_scene::SceneError> {
-        futures::executor::block_on(self.scene.load(path))
-    }
-
-    pub async fn load_async<B: AsRef<Path>>(&self, path: B) -> Result<LoadResult, triangle_scene::SceneError> {
-        self.scene.load(path).await
-    }
-
-    pub fn add_material<B: Into<[f32; 3]>>(
-        &self,
-        color: B,
-        roughness: f32,
-        specular: B,
-        transmission: f32,
-    ) -> Result<u32, triangle_scene::SceneError> {
-        if let Ok(mut materials) = self.scene.materials.lock() {
-            Ok(materials.add(color, roughness, specular, transmission) as u32)
-        } else {
-            Err(triangle_scene::SceneError::LockError)
-        }
-    }
-
-    pub fn add_object<B: ToMesh>(
-        &self,
-        object: B,
-    ) -> Result<ObjectRef, triangle_scene::SceneError> {
-        let m = object.into_mesh();
-        match self.scene.add_object(m) {
-            Ok(id) => Ok(ObjectRef::Static(id as u32)),
-            Err(e) => Err(e)
-        }
-    }
-
-    pub fn create_instance(&self, object: ObjectRef) -> Result<usize, triangle_scene::SceneError> {
-        self.scene.add_instance(object)
-    }
-
-    /// Will return a reference to the point light if the scene is not locked
-    pub fn add_point_light<B: Into<[f32; 3]>>(&self, position: B, radiance: B) -> Option<LightRef> {
-        if let Ok(mut lights) = self.scene.lights_lock() {
-            let position: Vec3 = Vec3::from(position.into());
-            let radiance: Vec3 = Vec3::from(radiance.into());
-
-            let light = PointLight::new(position.into(), radiance.into());
-            lights.point_lights.push(light.clone());
-
-            let light = LightRef::new(
-                lights.point_lights.len() - 1,
-                SceneLight::Point(light),
-                self.scene.get_lights(),
-            );
-
-            Some(light)
-        } else {
-            None
-        }
-    }
-
-    /// Will return a reference to the spot light if the scene is not locked
-    pub fn add_spot_light<B: Into<[f32; 3]>>(
-        &self,
-        position: B,
-        direction: B,
-        radiance: B,
-        inner_degrees: f32,
-        outer_degrees: f32,
-    ) -> Option<LightRef> {
-        if let Ok(mut lights) = self.scene.lights_lock() {
-            let position = Vec3::from(position.into());
-            let direction = Vec3::from(direction.into());
-            let radiance = Vec3::from(radiance.into());
-
-            let light = SpotLight::new(
-                position.into(),
-                direction.into(),
-                inner_degrees,
-                outer_degrees,
-                radiance.into(),
-            );
-
-            lights.spot_lights.push(light.clone());
-
-            let light = LightRef::new(
-                lights.spot_lights.len() - 1,
-                SceneLight::Spot(light),
-                self.scene.get_lights(),
-            );
-
-            Some(light)
-        } else {
-            None
-        }
-    }
-
-    /// Will return a reference to the directional light if the scene is not locked
-    pub fn add_directional_light<B: Into<[f32; 3]>>(
-        &self,
-        direction: B,
-        radiance: B,
-    ) -> Option<LightRef> {
-        if let Ok(mut lights) = self.scene.lights_lock() {
-            let light =
-                DirectionalLight::new(Vec3A::from(direction.into()), Vec3A::from(radiance.into()));
-            lights.directional_lights.push(light.clone());
-
-            let light = LightRef::new(
-                lights.directional_lights.len() - 1,
-                SceneLight::Directional(light),
-                self.scene.get_lights(),
-            );
-
-            Some(light)
-        } else {
-            None
-        }
-    }
-
-    pub fn set_animation_time(&self, time: f32) {
-        if let (Ok(mut nodes), Ok(mut animations)) = (
-            self.scene.objects.nodes.lock(),
-            self.scene.objects.animations.lock(),
-        ) {
-            animations.iter_mut().for_each(|(_, anim)| {
-                anim.set_time(time, &mut nodes);
-            });
-        }
-    }
-
-    pub fn synchronize(&self) {
-        if let Ok(mut renderer) = self.renderer.try_lock() {
-            let mut changed = false;
-            let mut update_lights = false;
-            let mut found_light = false;
-
-            if let (Ok(mut nodes), Ok(mut skins), Ok(mut instances)) = (
-                self.scene.objects.nodes.lock(),
-                self.scene.objects.skins.lock(),
-                self.scene.objects.instances.lock(),
-            ) {
-                if nodes.any_changed() {
-                    nodes.update(&mut instances, &mut skins);
-                }
-
-                skins
-                    .iter_changed()
-                    .for_each(|(id, skin)| renderer.set_skin(id, skin));
-                skins.reset_changed();
-                nodes.reset_changed();
-            }
-
-            if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
-                self.scene.objects.meshes.lock(),
-                self.scene.objects.animated_meshes.lock(),
-                self.scene.objects.instances.lock(),
-            ) {
-                meshes.iter_changed().for_each(|(i, m)| {
-                    renderer.set_mesh(i, m);
-                    changed = true;
-                });
-
-                anim_meshes.iter_changed().for_each(|(i, m)| {
-                    renderer.set_animated_mesh(i, m);
-                    changed = true;
-                });
-
-                if let Ok(materials) = self.scene.materials_lock() {
-                    let light_flags = materials.light_flags();
-                    instances.iter_changed_mut().for_each(|(i, instance)| {
-                        instance.update_transform();
-                        renderer.set_instance(i, instance);
-                        changed = true;
-
-                        if found_light {
-                            return;
-                        }
-
-                        match instance.object_id {
-                            ObjectRef::None => {
-                                return;
+            instances
+                .iter()
+                .for_each(|(inst_idx, instance)| match instance.object_id {
+                    ObjectRef::None => return,
+                    ObjectRef::Static(mesh_id) => {
+                        let m = &meshes[mesh_id as usize];
+                        for v in m.meshes.iter() {
+                            let light_flag = light_flags.get(v.mat_id as usize);
+                            if light_flag.is_none() {
+                                continue;
                             }
-                            ObjectRef::Static(object_id) => {
-                                let object_id = object_id as usize;
-                                for j in 0..meshes[object_id].meshes.len() {
-                                    match light_flags
-                                        .get(meshes[object_id].meshes[j].mat_id as usize)
-                                    {
-                                        None => {}
-                                        Some(flag) => {
-                                            if *flag {
-                                                found_light = true;
-                                                break;
-                                            }
-                                        }
-                                    }
+
+                            if *light_flag.unwrap() {
+                                for i in (v.first as usize / 3)..(v.last as usize / 3) {
+                                    let i0 = i;
+                                    let i1 = i + 1;
+                                    let i2 = i + 2;
+
+                                    let v0 = &m.vertices[i0];
+                                    let v1 = &m.vertices[i1];
+                                    let v2 = &m.vertices[i2];
+
+                                    let vertex0: Vec3A =
+                                        instance.transform_vertex(Vec4::from(v0.vertex).truncate());
+                                    let vertex1: Vec3A =
+                                        instance.transform_vertex(Vec4::from(v1.vertex).truncate());
+                                    let vertex2: Vec3A =
+                                        instance.transform_vertex(Vec4::from(v2.vertex).truncate());
+
+                                    let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
+                                    let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
+                                    let color = materials[v.mat_id as usize].color;
+
+                                    let triangle_id = i;
+                                    let id = area_lights.len();
+                                    triangle_light_ids.push((
+                                        mesh_id as u32,
+                                        triangle_id as u32,
+                                        id as u32,
+                                    ));
+
+                                    area_lights.push(AreaLight::new(
+                                        position,
+                                        Vec4::from(color).truncate(),
+                                        normal,
+                                        inst_idx as i32,
+                                        vertex0,
+                                        vertex1,
+                                        vertex2,
+                                    ));
                                 }
                             }
-                            ObjectRef::Animated(object_id) => {
-                                let object_id = object_id as usize;
-                                for j in 0..anim_meshes[object_id].meshes.len() {
-                                    match light_flags
-                                        .get(anim_meshes[object_id].meshes[j].mat_id as usize)
-                                    {
-                                        None => {}
-                                        Some(flag) => {
-                                            if *flag {
-                                                found_light = true;
-                                                break;
-                                            }
-                                        }
-                                    }
+                        }
+                    }
+                    ObjectRef::Animated(mesh_id) => {
+                        let m = &anim_meshes[mesh_id as usize];
+                        for v in m.meshes.iter() {
+                            let light_flag = light_flags.get(v.mat_id as usize);
+                            if light_flag.is_none() {
+                                continue;
+                            }
+
+                            if *light_flag.unwrap() {
+                                for i in (v.first as usize / 3)..(v.last as usize / 3) {
+                                    let i0 = i;
+                                    let i1 = i + 1;
+                                    let i2 = i + 2;
+
+                                    let v0 = &m.vertices[i0];
+                                    let v1 = &m.vertices[i1];
+                                    let v2 = &m.vertices[i2];
+
+                                    let vertex0: Vec3A =
+                                        instance.transform_vertex(Vec4::from(v0.vertex).truncate());
+                                    let vertex1: Vec3A =
+                                        instance.transform_vertex(Vec4::from(v1.vertex).truncate());
+                                    let vertex2: Vec3A =
+                                        instance.transform_vertex(Vec4::from(v2.vertex).truncate());
+
+                                    let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
+                                    let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
+                                    let color = materials[v.mat_id as usize].color;
+
+                                    let triangle_id = i;
+                                    let id = area_lights.len();
+                                    triangle_light_ids.push((
+                                        mesh_id as u32,
+                                        triangle_id as u32,
+                                        id as u32,
+                                    ));
+
+                                    area_lights.push(AreaLight::new(
+                                        position,
+                                        Vec4::from(color).truncate(),
+                                        normal,
+                                        inst_idx as i32,
+                                        vertex0,
+                                        vertex1,
+                                        vertex2,
+                                    ));
                                 }
                             }
                         }
-                    });
-                }
-
-                meshes.reset_changed();
-                anim_meshes.reset_changed();
-                instances.reset_changed();
-            }
-
-            update_lights |= found_light;
-
-            if let Ok(mut materials) = self.scene.materials_lock() {
-                let mut mat_changed = false;
-                if materials.textures_changed() {
-                    renderer.set_textures(materials.textures_slice());
-                    changed = true;
-                    mat_changed = true;
-                }
-
-                if materials.changed() {
-                    let device_materials = materials.into_device_materials();
-                    renderer.set_materials(materials.as_slice(), device_materials.as_slice());
-                    changed = true;
-                    mat_changed = true;
-                }
-
-                materials.reset_changed();
-                update_lights = update_lights || mat_changed;
-            };
-
-            if update_lights {
-                self.scene.update_lights();
-            }
-
-            if let Ok(mut lights) = self.scene.lights_lock() {
-                unsafe {
-                    if lights.point_lights.any_changed() {
-                        renderer.set_point_lights(&lights.point_lights.changed(), lights.point_lights.as_slice());
-                        lights.point_lights.reset_changed();
-                        changed = true;
                     }
+                });
 
-                    if lights.spot_lights.any_changed() {
-                        renderer.set_spot_lights(&lights.spot_lights.changed(), lights.spot_lights.as_slice());
-                        lights.spot_lights.reset_changed();
-                        changed = true;
-                    }
+            let mut meshes = meshes;
+            triangle_light_ids
+                .into_iter()
+                .for_each(|(mesh_id, triangle_id, id)| {
+                    meshes[mesh_id as usize].triangles[triangle_id as usize].light_id = id as i32;
+                });
+        }
 
-                    if lights.area_lights.any_changed() {
-                        renderer.set_area_lights(&lights.area_lights.changed(), lights.area_lights.as_slice());
-                        lights.area_lights.reset_changed();
-                        changed = true;
-                    }
-
-                    if lights.directional_lights.any_changed() {
-                        renderer.set_directional_lights(
-                            &lights.directional_lights.changed(),
-                            lights.directional_lights.as_slice(),
-                        );
-                        lights.directional_lights.reset_changed();
-                        changed = true;
-                    }
-                }
-            }
-
-            if changed {
-                renderer.synchronize();
-            }
+        if let Ok(mut lights) = self.lights.lock() {
+            lights.area_lights = TrackedStorage::from(area_lights);
         }
     }
+}
 
-    pub fn get_settings(&self) -> Result<Vec<Setting>, ()> {
-        if let Ok(renderer) = self.renderer.try_lock() {
-            Ok(renderer.get_settings())
-        } else {
-            Err(())
-        }
-    }
+impl Bounds for Objects {
+    fn bounds(&self) -> AABB {
+        let mut aabb = AABB::new();
 
-    pub fn set_setting(&self, setting: Setting) -> Result<(), ()> {
-        if let Ok(mut renderer) = self.renderer.try_lock() {
-            renderer.set_setting(setting);
-            Ok(())
-        } else {
-            Err(())
-        }
-    }
-
-    pub fn set_skybox<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
-        if let Ok(texture) = Texture::load(path, Flip::FlipV) {
-            if let Ok(mut renderer) = self.renderer.try_lock() {
-                renderer.set_skybox(texture);
-                return Ok(());
+        if let Ok(instances) = self.instances.lock() {
+            for (_, instance) in instances.iter() {
+                aabb.grow_bb(&instance.bounds());
             }
         }
 
-        Err(())
+        aabb
     }
 }

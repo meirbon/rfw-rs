@@ -43,5 +43,5 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
         node_storage: &Mutex<NodeGraph>,
         skin_storage: &Mutex<TrackedStorage<Skin>>,
         instances_storage: &Mutex<TrackedStorage<Instance>>,
-    ) -> Result<LoadResult, crate::triangle_scene::SceneError>;
+    ) -> Result<LoadResult, crate::SceneError>;
 }

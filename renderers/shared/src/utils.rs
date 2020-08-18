@@ -79,29 +79,22 @@ impl<T: num::Float + num::FromPrimitive> Averager<T> {
 }
 
 pub trait BytesConversion {
-    fn to_bytes(&self) -> &[u8];
-    fn to_quad_bytes(&self) -> &[u32];
+    fn as_bytes(&self) -> &[u8];
+    fn as_quad_bytes(&self) -> &[u32];
 }
 
-impl<T: Sized, const N: usize> BytesConversion for &[T; N] {
-    fn to_bytes(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(self.as_ptr() as *const u8, N * std::mem::size_of::<T>())
-        }
-    }
+pub fn as_bytes<T: Sized>(data: &T) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(data as *const T as *const u8, std::mem::size_of::<T>()) }
+}
 
-    fn to_quad_bytes(&self) -> &[u32] {
-        unsafe {
-            std::slice::from_raw_parts(
-                self.as_ptr() as *const u32,
-                N * std::mem::size_of::<T>() / 4,
-            )
-        }
+pub fn as_quad_bytes<T: Sized>(data: &T) -> &[u32] {
+    unsafe {
+        std::slice::from_raw_parts(data as *const T as *const u32, std::mem::size_of::<T>() / 4)
     }
 }
 
 impl<T: Sized> BytesConversion for &[T] {
-    fn to_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts(
                 self.as_ptr() as *const u8,
@@ -110,7 +103,7 @@ impl<T: Sized> BytesConversion for &[T] {
         }
     }
 
-    fn to_quad_bytes(&self) -> &[u32] {
+    fn as_quad_bytes(&self) -> &[u32] {
         unsafe {
             std::slice::from_raw_parts(
                 self.as_ptr() as *const u32,
@@ -121,7 +114,7 @@ impl<T: Sized> BytesConversion for &[T] {
 }
 
 impl<T: Sized> BytesConversion for Vec<T> {
-    fn to_bytes(&self) -> &[u8] {
+    fn as_bytes(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts(
                 self.as_ptr() as *const u8,
@@ -130,7 +123,7 @@ impl<T: Sized> BytesConversion for Vec<T> {
         }
     }
 
-    fn to_quad_bytes(&self) -> &[u32] {
+    fn as_quad_bytes(&self) -> &[u32] {
         unsafe {
             std::slice::from_raw_parts(
                 self.as_ptr() as *const u32,

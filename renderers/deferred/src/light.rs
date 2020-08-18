@@ -3,14 +3,17 @@ use crate::instance::DeviceInstances;
 use crate::mesh::DeferredAnimMesh;
 use crate::skin::DeferredSkin;
 use futures::executor::block_on;
-use rtbvh::AABB;
-use scene::{
+use rfw_scene::{
     lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
     VertexData,
 };
+use rtbvh::AABB;
 use shared::*;
+use std::borrow::Cow;
 use std::fmt::Debug;
+use std::num::NonZeroU32;
 use std::ops::Range;
+use wgpu::util::DeviceExt;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,
@@ -23,7 +26,6 @@ impl DeferredLights {
     pub fn new(
         capacity: usize,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
         skin_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
@@ -31,7 +33,6 @@ impl DeferredLights {
             // point_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
             spot_lights: LightShadows::new(
                 device,
-                queue,
                 instance_bind_group_layout,
                 skin_bind_group_layout,
                 capacity,
@@ -39,7 +40,6 @@ impl DeferredLights {
             ),
             area_lights: LightShadows::new(
                 device,
-                queue,
                 instance_bind_group_layout,
                 skin_bind_group_layout,
                 capacity,
@@ -47,7 +47,6 @@ impl DeferredLights {
             ),
             directional_lights: LightShadows::new(
                 device,
-                queue,
                 instance_bind_group_layout,
                 skin_bind_group_layout,
                 capacity,
@@ -125,7 +124,6 @@ pub struct LightShadows<T: Sized + Light + Clone + Debug + Default> {
 impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
         skin_bind_group_layout: &wgpu::BindGroupLayout,
         capacity: usize,
@@ -133,9 +131,10 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     ) -> Self {
         let light_buffer_size = (capacity * std::mem::size_of::<T>()) as wgpu::BufferAddress;
         let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("light-buffer"),
+            label: Some("light-mem"),
             size: light_buffer_size,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         Self {
@@ -145,7 +144,6 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             info: Vec::new(),
             shadow_maps: ShadowMapArray::new(
                 device,
-                queue,
                 capacity,
                 instance_bind_group_layout,
                 skin_bind_group_layout,
@@ -178,7 +176,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("light-buffer-copy"),
+            label: Some("light-mem-copy"),
         });
 
         let mut changed = self.shadow_maps.resize(device, queue, self.lights.len());
@@ -187,32 +185,37 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             (self.lights.len() * std::mem::size_of::<T>()) as wgpu::BufferAddress;
         if light_buffer_size > self.light_buffer_size {
             self.light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("light-buffer"),
+                label: Some("light-mem"),
                 size: light_buffer_size,
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+                mapped_at_creation: false,
             });
             self.light_buffer_size = light_buffer_size;
 
             changed = true;
         }
 
-        let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("lights-staging-buffer"),
+        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lights-staging-mem"),
             size: self.light_buffer_size,
             usage: wgpu::BufferUsage::COPY_SRC,
+            mapped_at_creation: true,
         });
 
-        staging_buffer.data[0..light_buffer_size as usize].copy_from_slice(unsafe {
-            std::slice::from_raw_parts(
-                self.lights.as_ptr() as *const u8,
-                light_buffer_size as usize,
-            )
-        });
+        staging_buffer
+            .slice(0..light_buffer_size as _)
+            .get_mapped_range_mut()
+            .copy_from_slice(unsafe {
+                std::slice::from_raw_parts(
+                    self.lights.as_ptr() as *const u8,
+                    light_buffer_size as usize,
+                )
+            });
 
-        let staging_buffer = staging_buffer.finish();
+        staging_buffer.unmap();
 
         encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.light_buffer, 0, light_buffer_size);
-        queue.submit(&[encoder.finish()]);
+        queue.submit(std::iter::once(encoder.finish()));
         self.shadow_maps
             .update_infos(self.info.as_slice(), device, queue)
             .await;
@@ -224,31 +227,30 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         self.lights.len()
     }
 
-    pub fn uniform_binding(&self, binding: u32) -> wgpu::Binding {
-        wgpu::Binding {
+    pub fn uniform_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
+        wgpu::BindGroupEntry {
             binding,
-            resource: wgpu::BindingResource::Buffer {
-                buffer: &self.light_buffer,
-                range: 0..self.light_buffer_size,
-            },
+            resource: wgpu::BindingResource::Buffer(
+                self.light_buffer.slice(0..self.light_buffer_size),
+            ),
         }
     }
 
-    pub fn shadow_map_binding(&self, binding: u32) -> wgpu::Binding {
-        wgpu::Binding {
+    pub fn shadow_map_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
+        wgpu::BindGroupEntry {
             binding,
             resource: wgpu::BindingResource::TextureView(&self.shadow_maps.view),
         }
     }
 
-    pub fn infos_binding(&self, binding: u32) -> wgpu::Binding {
-        wgpu::Binding {
+    pub fn infos_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
+        wgpu::BindGroupEntry {
             binding,
-            resource: wgpu::BindingResource::Buffer {
-                buffer: &self.shadow_maps.uniform_buffer,
-                range: 0..(self.shadow_maps.len() * ShadowMapArray::UNIFORM_ELEMENT_SIZE)
-                    as wgpu::BufferAddress,
-            },
+            resource: wgpu::BindingResource::Buffer(
+                self.shadow_maps
+                    .uniform_buffer
+                    .slice(0..(self.shadow_maps.len() * ShadowMapArray::UNIFORM_ELEMENT_SIZE) as _),
+            ),
         }
     }
 
@@ -325,13 +327,12 @@ pub struct ShadowMapArray {
 impl ShadowMapArray {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Float;
-    pub const WIDTH: usize = 1024;
-    pub const HEIGHT: usize = 1024;
+    pub const WIDTH: usize = 2048;
+    pub const HEIGHT: usize = 2048;
     pub const UNIFORM_ELEMENT_SIZE: usize = std::mem::size_of::<LightInfo>();
 
     pub fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         count: usize,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
         skin_bind_group_layout: &wgpu::BindGroupLayout,
@@ -347,35 +348,36 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 1,
+                depth: count as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
             mip_level_count: 1,
             format: Self::FORMAT,
-            array_layer_count: count as u32,
         });
 
         let view = map.create_view(&wgpu::TextureViewDescriptor {
-            format: Self::FORMAT,
-            dimension: wgpu::TextureViewDimension::D2Array,
+            label: None,
+            format: Some(Self::FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: 1,
+            level_count: None,
             base_array_layer: 0,
-            array_layer_count: count as u32,
+            array_layer_count: NonZeroU32::new(count as _),
         });
 
         let views: Vec<wgpu::TextureView> = (0..count)
             .map(|i| {
                 map.create_view(&wgpu::TextureViewDescriptor {
-                    format: Self::FORMAT,
-                    dimension: wgpu::TextureViewDimension::D2,
+                    label: None,
+                    format: Some(Self::FORMAT),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: 1,
+                    level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: 1,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -390,35 +392,36 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 1,
+                depth: count as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
             mip_level_count: 1,
             format: Self::FORMAT,
-            array_layer_count: count as u32,
         });
 
         let filter_view = filter_map.create_view(&wgpu::TextureViewDescriptor {
-            format: Self::FORMAT,
-            dimension: wgpu::TextureViewDimension::D2Array,
+            label: None,
+            format: Some(Self::FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: 1,
+            level_count: None,
             base_array_layer: 0,
-            array_layer_count: count as u32,
+            array_layer_count: NonZeroU32::new(count as u32),
         });
 
         let filter_views: Vec<wgpu::TextureView> = (0..count)
             .map(|i| {
                 filter_map.create_view(&wgpu::TextureViewDescriptor {
-                    format: Self::FORMAT,
-                    dimension: wgpu::TextureViewDimension::D2,
+                    label: None,
+                    format: Some(Self::FORMAT),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: 1,
+                    level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: 1,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -439,57 +442,73 @@ impl ShadowMapArray {
             sample_count: 1,
             mip_level_count: 1,
             format: Self::DEPTH_FORMAT,
-            array_layer_count: 1,
         });
 
-        let depth_view = depth_map.create_default_view();
+        let depth_view = depth_map.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::DEPTH_FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            aspect: wgpu::TextureAspect::DepthOnly,
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
 
         let uniform_size = (count * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress;
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow-map-uniform-buffer"),
+            label: Some("shadow-map-uniform-mem"),
             size: uniform_size,
             usage: wgpu::BufferUsage::UNIFORM
                 | wgpu::BufferUsage::COPY_SRC
                 | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow-map-layout"),
-            bindings: &[wgpu::BindGroupLayoutEntry {
+            entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
+                count: None,
                 visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer { dynamic: true },
+                ty: wgpu::BindingType::UniformBuffer {
+                    min_binding_size: None,
+                    dynamic: true,
+                },
             }],
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             label: Some("shadow-map-uniform-bind-group"),
-            bindings: &[wgpu::Binding {
+            entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &uniform_buffer,
-                    range: 0..uniform_size,
-                },
+                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(0..uniform_size)),
             }],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout],
+            push_constant_ranges: &[],
         });
 
-        let vert_shader = include_bytes!("../shaders/shadow_single.vert.spv",);
-        let regular_frag_shader = include_bytes!("../shaders/shadow_single.frag.spv");
-        let linear_frag_shader = include_bytes!("../shaders/shadow_single_linear.frag.spv");
+        let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single.vert.spv",);
+        let regular_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single.frag.spv");
+        let linear_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
-        let frag_module = device.create_shader_module(match linear {
-            true => linear_frag_shader.to_quad_bytes(),
-            false => regular_frag_shader.to_quad_bytes(),
-        });
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
+        let frag_module =
+            device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(match linear {
+                true => linear_frag_shader.as_quad_bytes(),
+                false => regular_frag_shader.as_quad_bytes(),
+            })));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &pipeline_layout,
+            label: Some("shadow-pipeline"),
+            layout: Some(&pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &vert_module,
@@ -501,6 +520,7 @@ impl ShadowMapArray {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -516,10 +536,7 @@ impl ShadowMapArray {
                 format: Self::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: wgpu::StencilStateDescriptor::default(),
             }),
             vertex_state: wgpu::VertexStateDescriptor {
                 index_format: wgpu::IndexFormat::Uint32,
@@ -538,18 +555,23 @@ impl ShadowMapArray {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
-        let vert_module = device.create_shader_module(vert_shader.to_quad_bytes());
+        let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
 
         let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
             bind_group_layouts: &[
                 &bind_group_layout,
                 instance_bind_group_layout,
                 skin_bind_group_layout,
             ],
+            push_constant_ranges: &[],
         });
         let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            layout: &anim_pipeline_layout,
+            label: Some("shadow-anim-pipeline"),
+            layout: Some(&anim_pipeline_layout),
             vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &vert_module,
@@ -561,6 +583,7 @@ impl ShadowMapArray {
             rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
+                clamp_depth: false,
                 depth_bias: 0,
                 depth_bias_slope_scale: 0.0,
                 depth_bias_clamp: 0.0,
@@ -576,10 +599,7 @@ impl ShadowMapArray {
                 format: Self::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil_front: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_back: wgpu::StencilStateFaceDescriptor::IGNORE,
-                stencil_read_mask: 0,
-                stencil_write_mask: 0,
+                stencil: wgpu::StencilStateDescriptor::default(),
             }),
             vertex_state: wgpu::VertexStateDescriptor {
                 index_format: wgpu::IndexFormat::Uint32,
@@ -619,12 +639,12 @@ impl ShadowMapArray {
         let filter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("filter-bind-group-layout"),
-                bindings: &[
+                entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
-                            component_type: wgpu::TextureComponentType::Float,
                             dimension: wgpu::TextureViewDimension::D2,
                             format: Self::FORMAT,
                             readonly: false,
@@ -632,9 +652,9 @@ impl ShadowMapArray {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
-                            component_type: wgpu::TextureComponentType::Float,
                             dimension: wgpu::TextureViewDimension::D2,
                             format: Self::DEPTH_FORMAT,
                             readonly: true,
@@ -642,60 +662,36 @@ impl ShadowMapArray {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
+                        count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                        ty: wgpu::BindingType::UniformBuffer {
+                            min_binding_size: None,
+                            dynamic: false,
+                        },
                     },
                 ],
             });
 
-        let filter_uniform_weight_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter-uniform-weight-buffer"),
-            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            size: (std::mem::size_of::<u32>() * 2 + std::mem::size_of::<f32>() * 128)
-                as wgpu::BufferAddress,
-        });
-        let weights = super::pass::SSAOPass::calc_blur_data(32, 3.0);
-        assert_eq!(weights.len(), 128);
-        let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("staging-uniform-weight-buffer"),
-            usage: wgpu::BufferUsage::COPY_SRC,
-            size: (std::mem::size_of::<u32>() * 2 + std::mem::size_of::<f32>() * 128)
-                as wgpu::BufferAddress,
-        });
-
-        unsafe {
-            let width: [u32; 1] = [32];
-            let width2: [u32; 1] = [64];
-            let ptr = staging_buffer.data.as_mut_ptr();
-            ptr.copy_from(width.as_ptr() as *const u8, 4);
-            ptr.add(4).copy_from(width2.as_ptr() as *const u8, 4);
-            ptr.add(8).copy_from(weights.as_ptr() as *const u8, 4 * 128);
-        }
-        let staging_buffer = staging_buffer.finish();
-
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        encoder.copy_buffer_to_buffer(
-            &staging_buffer,
-            0,
-            &filter_uniform_weight_buffer,
-            0,
-            (std::mem::size_of::<u32>() * 2 + std::mem::size_of::<f32>() * 128)
-                as wgpu::BufferAddress,
-        );
-
-        let direction_x: [u32; 2] = [1, 0];
-        let direction_y: [u32; 2] = [0, 1];
+        let direction_x: [f32; 2] = [1.0, 0.0];
+        let direction_y: [f32; 2] = [0.0, 1.0];
         let dir_x = unsafe { std::slice::from_raw_parts(direction_x.as_ptr() as *const u8, 8) };
         let dir_y = unsafe { std::slice::from_raw_parts(direction_y.as_ptr() as *const u8, 8) };
-        let filter_direction_x = device.create_buffer_with_data(dir_x, wgpu::BufferUsage::COPY_SRC);
-        let filter_direction_y = device.create_buffer_with_data(dir_y, wgpu::BufferUsage::COPY_SRC);
+        let filter_direction_x = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: dir_x,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
+        let filter_direction_y = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: dir_y,
+            usage: wgpu::BufferUsage::COPY_SRC,
+        });
 
         let filter_uniform_direction_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("filter-uniform-direction-buffer"),
+            label: Some("filter-uniform-direction-mem"),
             size: 8,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let filter_bind_groups1: Vec<wgpu::BindGroup> = views
@@ -705,27 +701,27 @@ impl ShadowMapArray {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &filter_bind_group_layout,
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(v2),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(v1),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer {
-                                buffer: &filter_uniform_direction_buffer,
-                                range: 0..8,
-                            },
+                            resource: wgpu::BindingResource::Buffer(
+                                filter_uniform_direction_buffer.slice(0..8),
+                            ),
                         },
                     ],
                 })
             })
             .collect();
 
+        // TODO: Use push constants instead uniform bindings for filter direction
         let filter_bind_groups2: Vec<wgpu::BindGroup> = views
             .iter()
             .zip(filter_views.iter())
@@ -733,21 +729,20 @@ impl ShadowMapArray {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &filter_bind_group_layout,
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(v1),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(v2),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer {
-                                buffer: &filter_uniform_direction_buffer,
-                                range: 0..8,
-                            },
+                            resource: wgpu::BindingResource::Buffer(
+                                filter_uniform_direction_buffer.slice(0..8),
+                            ),
                         },
                     ],
                 })
@@ -756,19 +751,22 @@ impl ShadowMapArray {
 
         let filter_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
                 bind_group_layouts: &[&filter_bind_group_layout],
+                push_constant_ranges: &[],
             });
-        let shader = include_bytes!("../shaders/shadow_filter.comp.spv");
-        let shader_module = device.create_shader_module(shader.to_quad_bytes());
+        let shader: &[u8] = include_bytes!("../shaders/shadow_filter.comp.spv");
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+            Cow::from(shader.as_quad_bytes()),
+        ));
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            layout: &filter_pipeline_layout,
+            label: Some("shadow-filter-pipeline"),
+            layout: Some(&filter_pipeline_layout),
             compute_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &shader_module,
             },
         });
-
-        queue.submit(&[encoder.finish()]);
 
         Self {
             map,
@@ -821,35 +819,36 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 1,
+                depth: size as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
             mip_level_count: 1,
             format: Self::FORMAT,
-            array_layer_count: size as u32,
         });
 
         let view = map.create_view(&wgpu::TextureViewDescriptor {
-            format: Self::FORMAT,
-            dimension: wgpu::TextureViewDimension::D2Array,
+            label: None,
+            format: Some(Self::FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: 1,
+            level_count: None,
             base_array_layer: 0,
-            array_layer_count: size as u32,
+            array_layer_count: NonZeroU32::new(size as u32),
         });
 
         let views: Vec<wgpu::TextureView> = (0..size)
             .map(|i| {
                 map.create_view(&wgpu::TextureViewDescriptor {
-                    format: Self::FORMAT,
-                    dimension: wgpu::TextureViewDimension::D2,
+                    label: None,
+                    format: Some(Self::FORMAT),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: 1,
+                    level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: 1,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -865,23 +864,23 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 1,
+                depth: size as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
             mip_level_count: 1,
             format: Self::DEPTH_FORMAT,
-            array_layer_count: size as u32,
         });
 
         let new_depth_view = new_depth_map.create_view(&wgpu::TextureViewDescriptor {
-            format: Self::DEPTH_FORMAT,
-            dimension: wgpu::TextureViewDimension::D2Array,
+            label: None,
+            format: Some(Self::DEPTH_FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::DepthOnly,
             base_mip_level: 0,
-            level_count: 1,
+            level_count: None,
             base_array_layer: 0,
-            array_layer_count: size as u32,
+            array_layer_count: NonZeroU32::new(size as u32),
         });
 
         let filter_map = device.create_texture(&wgpu::TextureDescriptor {
@@ -894,35 +893,36 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 1,
+                depth: size as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
             mip_level_count: 1,
             format: Self::FORMAT,
-            array_layer_count: size as u32,
         });
 
         let filter_view = filter_map.create_view(&wgpu::TextureViewDescriptor {
-            format: Self::FORMAT,
-            dimension: wgpu::TextureViewDimension::D2Array,
+            label: None,
+            format: Some(Self::FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: 1,
+            level_count: None,
             base_array_layer: 0,
-            array_layer_count: size as u32,
+            array_layer_count: NonZeroU32::new(size as u32),
         });
 
         let filter_views: Vec<wgpu::TextureView> = (0..size)
             .map(|i| {
                 filter_map.create_view(&wgpu::TextureViewDescriptor {
-                    format: Self::FORMAT,
-                    dimension: wgpu::TextureViewDimension::D2,
+                    label: None,
+                    format: Some(Self::FORMAT),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: 1,
+                    level_count: None,
                     base_array_layer: i as u32,
-                    array_layer_count: 1,
+                    array_layer_count: NonZeroU32::new(1),
                 })
             })
             .collect();
@@ -935,15 +935,21 @@ impl ShadowMapArray {
         for i in 0..self.len() {
             encoder.copy_texture_to_texture(
                 wgpu::TextureCopyView {
-                    array_layer: i as u32,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as _,
+                    },
                     texture: &self.map,
                 },
                 wgpu::TextureCopyView {
-                    array_layer: i as u32,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as _,
+                    },
                     texture: &map,
                 },
                 wgpu::Extent3d {
@@ -955,15 +961,21 @@ impl ShadowMapArray {
 
             encoder.copy_texture_to_texture(
                 wgpu::TextureCopyView {
-                    array_layer: i as u32,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as _,
+                    },
                     texture: &self.filter_map,
                 },
                 wgpu::TextureCopyView {
-                    array_layer: i as u32,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as _,
+                    },
                     texture: &filter_map,
                 },
                 wgpu::Extent3d {
@@ -981,21 +993,20 @@ impl ShadowMapArray {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &self.filter_bind_group_layout,
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(v2),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(v1),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer {
-                                buffer: &self.filter_uniform_direction_buffer,
-                                range: 0..8,
-                            },
+                            resource: wgpu::BindingResource::Buffer(
+                                self.filter_uniform_direction_buffer.slice(0..8),
+                            ),
                         },
                     ],
                 })
@@ -1009,21 +1020,20 @@ impl ShadowMapArray {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("filter-bind-group"),
                     layout: &self.filter_bind_group_layout,
-                    bindings: &[
-                        wgpu::Binding {
+                    entries: &[
+                        wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(v1),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(v2),
                         },
-                        wgpu::Binding {
+                        wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer {
-                                buffer: &self.filter_uniform_direction_buffer,
-                                range: 0..8,
-                            },
+                            resource: wgpu::BindingResource::Buffer(
+                                self.filter_uniform_direction_buffer.slice(0..8),
+                            ),
                         },
                     ],
                 })
@@ -1033,22 +1043,20 @@ impl ShadowMapArray {
         let new_size = (size * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress;
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow-map-uniform-buffer"),
+            label: Some("shadow-map-uniform-mem"),
             size: new_size,
             usage: wgpu::BufferUsage::UNIFORM
                 | wgpu::BufferUsage::COPY_SRC
                 | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
         });
 
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.bind_group_layout,
             label: Some("shadow-map-uniform-bind-group"),
-            bindings: &[wgpu::Binding {
+            entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &uniform_buffer,
-                    range: 0..new_size,
-                },
+                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(0..new_size)),
             }],
         });
 
@@ -1060,7 +1068,7 @@ impl ShadowMapArray {
             (self.views.len() * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress,
         );
 
-        queue.submit(&[encoder.finish()]);
+        queue.submit(std::iter::once(encoder.finish()));
 
         self.uniform_buffer = uniform_buffer;
 
@@ -1083,15 +1091,17 @@ impl ShadowMapArray {
 
     pub fn create_sampler(device: &wgpu::Device) -> wgpu::Sampler {
         device.create_sampler(&wgpu::SamplerDescriptor {
+            label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            compare: wgpu::CompareFunction::Never,
+            compare: None,
             lod_max_clamp: 1.0,
             lod_min_clamp: 0.0,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
+            anisotropy_clamp: None,
         })
     }
 
@@ -1108,18 +1118,22 @@ impl ShadowMapArray {
         });
 
         let copy_size = infos.len() * Self::UNIFORM_ELEMENT_SIZE;
-        let staging_buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
-            label: Some("shadow-maps-update-infos-buffer"),
+        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow-maps-update-infos-mem"),
             size: copy_size as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::COPY_SRC,
+            mapped_at_creation: true,
         });
 
         unsafe {
-            let ptr = staging_buffer.data.as_mut_ptr();
+            let ptr = staging_buffer
+                .slice(0..copy_size as _)
+                .get_mapped_range_mut()
+                .as_mut_ptr();
             ptr.copy_from(infos.as_ptr() as *const u8, copy_size);
         }
 
-        let staging_buffer = staging_buffer.finish();
+        staging_buffer.unmap();
 
         encoder.copy_buffer_to_buffer(
             &staging_buffer,
@@ -1129,7 +1143,7 @@ impl ShadowMapArray {
             copy_size as wgpu::BufferAddress,
         );
 
-        queue.submit(&[encoder.finish()]);
+        queue.submit(std::iter::once(encoder.finish()));
     }
 
     pub async fn render(
@@ -1147,53 +1161,91 @@ impl ShadowMapArray {
         // TODO: Use anim meshes
         assert!(range.end as usize <= self.views.len());
         for v in range.into_iter() {
-            {
-                let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                        attachment: &self.views[v as usize],
-                        resolve_target: None,
-                        load_op: wgpu::LoadOp::Clear,
-                        store_op: wgpu::StoreOp::Store,
-                        clear_color: wgpu::Color::BLACK,
-                    }],
-                    depth_stencil_attachment: Some(
-                        wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                            attachment: &self.depth_view,
-                            clear_depth: 1.0,
-                            clear_stencil: 0,
-                            depth_load_op: wgpu::LoadOp::Clear,
-                            depth_store_op: wgpu::StoreOp::Store,
-                            stencil_load_op: wgpu::LoadOp::Clear,
-                            stencil_store_op: wgpu::StoreOp::Store,
-                        },
-                    ),
-                });
+            let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &self.views[v as usize],
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
 
-                let device_instance = &instances.device_instances;
+            let device_instance = &instances.device_instances;
 
-                (0..instances.len())
-                    .into_iter()
-                    .filter(|i| match instances.instances.get(*i) {
-                        None => false,
-                        Some(_) => true,
-                    })
-                    .for_each(|i| {
-                        let instance = &instances.instances[i];
-                        let bounds = &instances.bounds[i];
+            (0..instances.len())
+                .into_iter()
+                .filter(|i| match instances.instances.get(*i) {
+                    None => false,
+                    Some(_) => true,
+                })
+                .for_each(|i| {
+                    let instance = &instances.instances[i];
+                    let bounds = &instances.bounds[i];
 
-                        if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside
-                        {
-                            return;
+                    if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside {
+                        return;
+                    }
+
+                    match instance.object_id {
+                        ObjectRef::None => {}
+                        ObjectRef::Static(mesh_id) => {
+                            let mesh = &meshes[mesh_id as usize];
+                            let buffer = mesh.buffer.as_ref().unwrap();
+                            render_pass.set_pipeline(&self.pipeline);
+                            render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
+
+                            render_pass.set_bind_group(
+                                0,
+                                &self.bind_group,
+                                &[
+                                    (v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                        as wgpu::DynamicOffset,
+                                ],
+                            );
+                            render_pass.set_bind_group(
+                                1,
+                                &device_instance.bind_group,
+                                &[DeviceInstances::dynamic_offset_for(i) as u32],
+                            );
+
+                            for j in 0..mesh.sub_meshes.len() {
+                                if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                    if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside
+                                    {
+                                        continue;
+                                    }
+                                }
+
+                                let sub_mesh = &mesh.sub_meshes[j];
+                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                            }
                         }
-
-                        match instance.object_id {
-                            ObjectRef::None => {}
-                            ObjectRef::Static(mesh_id) => {
-                                let mesh = &meshes[mesh_id as usize];
+                        ObjectRef::Animated(mesh_id) => {
+                            let mesh = &anim_meshes[mesh_id as usize];
+                            if let Some(skin_id) = instance.skin_id {
                                 let buffer = mesh.buffer.as_ref().unwrap();
-                                render_pass.set_pipeline(&self.pipeline);
-                                render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
+                                let anim_buffer = mesh.anim_buffer.as_ref().unwrap();
+                                render_pass.set_pipeline(&self.anim_pipeline);
+                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
+                                render_pass.set_vertex_buffer(
+                                    1,
+                                    anim_buffer.slice(0..mesh.anim_buffer_size),
+                                );
+                                render_pass.set_vertex_buffer(
+                                    2,
+                                    anim_buffer.slice(0..mesh.anim_buffer_size),
+                                );
 
                                 render_pass.set_bind_group(
                                     0,
@@ -1205,6 +1257,11 @@ impl ShadowMapArray {
                                     1,
                                     &device_instance.bind_group,
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
+                                );
+                                render_pass.set_bind_group(
+                                    2,
+                                    skins[skin_id as usize].bind_group.as_ref().unwrap(),
+                                    &[],
                                 );
 
                                 for j in 0..mesh.sub_meshes.len() {
@@ -1219,90 +1276,39 @@ impl ShadowMapArray {
                                     let sub_mesh = &mesh.sub_meshes[j];
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
-                            }
-                            ObjectRef::Animated(mesh_id) => {
-                                let mesh = &anim_meshes[mesh_id as usize];
-                                if let Some(skin_id) = instance.skin_id {
-                                    let buffer = mesh.buffer.as_ref().unwrap();
-                                    let anim_buffer = mesh.anim_buffer.as_ref().unwrap();
-                                    render_pass.set_pipeline(&self.anim_pipeline);
-                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-                                    render_pass.set_vertex_buffer(
-                                        1,
-                                        anim_buffer,
-                                        0,
-                                        mesh.anim_buffer_size,
-                                    );
-                                    render_pass.set_vertex_buffer(
-                                        2,
-                                        anim_buffer,
-                                        0,
-                                        mesh.anim_buffer_size,
-                                    );
+                            } else {
+                                let buffer = mesh.buffer.as_ref().unwrap();
+                                render_pass.set_pipeline(&self.pipeline);
+                                render_pass.set_bind_group(
+                                    0,
+                                    &self.bind_group,
+                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                        as wgpu::DynamicOffset],
+                                );
+                                render_pass.set_bind_group(
+                                    1,
+                                    &device_instance.bind_group,
+                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
+                                );
 
-                                    render_pass.set_bind_group(
-                                        0,
-                                        &self.bind_group,
-                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                            as wgpu::DynamicOffset],
-                                    );
-                                    render_pass.set_bind_group(
-                                        1,
-                                        &device_instance.bind_group,
-                                        &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                    );
-                                    render_pass.set_bind_group(
-                                        2,
-                                        skins[skin_id as usize].bind_group.as_ref().unwrap(),
-                                        &[],
-                                    );
+                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
 
-                                    for j in 0..mesh.sub_meshes.len() {
-                                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                            if frustrum.aabb_in_frustrum(bounds)
-                                                == FrustrumResult::Outside
-                                            {
-                                                continue;
-                                            }
+                                for j in 0..mesh.sub_meshes.len() {
+                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                        if frustrum.aabb_in_frustrum(bounds)
+                                            == FrustrumResult::Outside
+                                        {
+                                            continue;
                                         }
-
-                                        let sub_mesh = &mesh.sub_meshes[j];
-                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                     }
-                                } else {
-                                    let buffer = mesh.buffer.as_ref().unwrap();
-                                    render_pass.set_pipeline(&self.pipeline);
-                                    render_pass.set_bind_group(
-                                        0,
-                                        &self.bind_group,
-                                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                            as wgpu::DynamicOffset],
-                                    );
-                                    render_pass.set_bind_group(
-                                        1,
-                                        &device_instance.bind_group,
-                                        &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                    );
 
-                                    render_pass.set_vertex_buffer(0, buffer, 0, mesh.buffer_size);
-
-                                    for j in 0..mesh.sub_meshes.len() {
-                                        if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                            if frustrum.aabb_in_frustrum(bounds)
-                                                == FrustrumResult::Outside
-                                            {
-                                                continue;
-                                            }
-                                        }
-
-                                        let sub_mesh = &mesh.sub_meshes[j];
-                                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                    }
+                                    let sub_mesh = &mesh.sub_meshes[j];
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 }
                             }
-                        };
-                    });
-            }
+                        }
+                    };
+                });
         }
 
         encoder.copy_buffer_to_buffer(

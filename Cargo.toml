@@ -1,15 +1,20 @@
 [workspace]
 members = [
     "examples/animated",
-    "examples/physics",
     "examples/nphysics",
     "examples/simple",
-    "renderers/cpu-rt",
     "renderers/deferred",
     "renderers/gpu-rt",
     "renderers/shared",
-    "scene"
+    "renderers/vulkan",
+    "renderers/gfx",
+    "scene",
+    "system",
+    "utils",
 ]
+
+[profile.dev.package."*"]
+opt-level = 2
 
 [profile.release]
 debug = 2

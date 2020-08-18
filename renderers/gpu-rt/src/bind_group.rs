@@ -97,20 +97,27 @@ impl Binding {
         match self {
             Binding::ReadStorageBuffer(_, _) => wgpu::BindingType::StorageBuffer {
                 dynamic: false,
+                min_binding_size: None,
                 readonly: true,
             },
             Binding::WriteStorageBuffer(_, _) => wgpu::BindingType::StorageBuffer {
                 dynamic: false,
+                min_binding_size: None,
                 readonly: false,
             },
             Binding::DynamicStorageBuffer(_, _) => wgpu::BindingType::StorageBuffer {
                 dynamic: true,
+                min_binding_size: None,
                 readonly: false,
             },
-            Binding::UniformBuffer(_, _) => wgpu::BindingType::UniformBuffer { dynamic: false },
-            Binding::DynamicUniformBuffer(_, _) => {
-                wgpu::BindingType::UniformBuffer { dynamic: true }
-            }
+            Binding::UniformBuffer(_, _) => wgpu::BindingType::UniformBuffer {
+                dynamic: false,
+                min_binding_size: None,
+            },
+            Binding::DynamicUniformBuffer(_, _) => wgpu::BindingType::UniformBuffer {
+                dynamic: true,
+                min_binding_size: None,
+            },
             Binding::SampledTexture(_, _, component_type, view_dim) => {
                 wgpu::BindingType::SampledTexture {
                     component_type: *component_type,
@@ -125,18 +132,16 @@ impl Binding {
                     multisampled: true,
                 }
             }
-            Binding::ReadStorageTexture(_, format, component_type, view_dim) => {
+            Binding::ReadStorageTexture(_, format, _component_type, view_dim) => {
                 wgpu::BindingType::StorageTexture {
                     dimension: *view_dim,
-                    component_type: *component_type,
                     readonly: true,
                     format: *format,
                 }
             }
-            Binding::WriteStorageTexture(_, format, component_type, view_dim) => {
+            Binding::WriteStorageTexture(_, format, _component_type, view_dim) => {
                 wgpu::BindingType::StorageTexture {
                     dimension: *view_dim,
-                    component_type: *component_type,
                     readonly: false,
                     format: *format,
                 }
@@ -148,26 +153,21 @@ impl Binding {
 
     pub fn as_resource(&self) -> wgpu::BindingResource {
         match self {
-            Binding::ReadStorageBuffer(buffer, range) => wgpu::BindingResource::Buffer {
-                buffer,
-                range: range.clone(),
-            },
-            Binding::WriteStorageBuffer(buffer, range) => wgpu::BindingResource::Buffer {
-                buffer,
-                range: range.clone(),
-            },
-            Binding::DynamicStorageBuffer(buffer, range) => wgpu::BindingResource::Buffer {
-                buffer,
-                range: range.clone(),
-            },
-            Binding::UniformBuffer(buffer, range) => wgpu::BindingResource::Buffer {
-                buffer,
-                range: range.clone(),
-            },
-            Binding::DynamicUniformBuffer(buffer, range) => wgpu::BindingResource::Buffer {
-                buffer,
-                range: range.clone(),
-            },
+            Binding::ReadStorageBuffer(buffer, range) => {
+                wgpu::BindingResource::Buffer(buffer.slice(range.clone()))
+            }
+            Binding::WriteStorageBuffer(buffer, range) => {
+                wgpu::BindingResource::Buffer(buffer.slice(range.clone()))
+            }
+            Binding::DynamicStorageBuffer(buffer, range) => {
+                wgpu::BindingResource::Buffer(buffer.slice(range.clone()))
+            }
+            Binding::UniformBuffer(buffer, range) => {
+                wgpu::BindingResource::Buffer(buffer.slice(range.clone()))
+            }
+            Binding::DynamicUniformBuffer(buffer, range) => {
+                wgpu::BindingResource::Buffer(buffer.slice(range.clone()))
+            }
             Binding::SampledTexture(view, _, _, _) => wgpu::BindingResource::TextureView(view),
             Binding::MultiSampledTexture(view, _, _, _) => wgpu::BindingResource::TextureView(view),
             Binding::ReadStorageTexture(view, _, _, _) => wgpu::BindingResource::TextureView(view),
@@ -222,11 +222,12 @@ impl BindGroupBinding {
             binding: self.index,
             visibility: self.visibility,
             ty: self.binding.binding_type(),
+            count: None,
         }
     }
 
-    pub fn as_binding(&self) -> wgpu::Binding {
-        wgpu::Binding {
+    pub fn as_binding(&self) -> wgpu::BindGroupEntry {
+        wgpu::BindGroupEntry {
             binding: self.index,
             resource: self.binding.as_resource(),
         }
@@ -270,11 +271,11 @@ impl BindGroupBuilder {
             .collect();
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: bindings_entries.as_slice(),
+            entries: bindings_entries.as_slice(),
             label: None,
         });
 
-        let bindings: Vec<wgpu::Binding> = self
+        let bindings: Vec<_> = self
             .bindings
             .iter()
             .map(|(_, binding)| binding.as_binding())
@@ -282,7 +283,7 @@ impl BindGroupBuilder {
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
-            bindings: bindings.as_slice(),
+            entries: bindings.as_slice(),
             label: if let Some(label) = self.label.as_ref() {
                 Some(label.as_str())
             } else {
@@ -368,14 +369,14 @@ impl BindGroup {
     }
 
     fn update_bind_group(&mut self, device: &wgpu::Device) {
-        let bindings: Vec<wgpu::Binding> = self
+        let bindings: Vec<_> = self
             .bindings
             .iter()
             .map(|(_, binding)| binding.as_binding())
             .collect();
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.layout,
-            bindings: bindings.as_slice(),
+            entries: bindings.as_slice(),
             label: if let Some(label) = self.label.as_ref() {
                 Some(label.as_str())
             } else {

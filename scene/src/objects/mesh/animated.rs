@@ -2,8 +2,8 @@ use glam::*;
 use rayon::prelude::*;
 
 use crate::objects::mesh::*;
+use crate::PrimID;
 use crate::{HitRecord, HitRecord4, Intersect, MaterialList, RTTriangle};
-use crate::{PrimID, USE_MBVH};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use std::fmt::Display;
 
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "object_caching")]
 use std::collections::HashMap;
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct AnimVertexData {
     pub joints: [u32; 4],
@@ -379,7 +380,7 @@ impl AnimatedMesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
                 .abs();
             let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
@@ -754,7 +755,7 @@ impl AnimatedMesh {
 
 impl Intersect for AnimatedMesh {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| {
@@ -762,31 +763,20 @@ impl Intersect for AnimatedMesh {
                 triangle.occludes(ray, t_min, t_max)
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().occludes(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.occludes(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            }
+            mbvh.occludes(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            )
         } else {
             false
         }
     }
 
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| {
@@ -799,31 +789,20 @@ impl Intersect for AnimatedMesh {
                 }
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().traverse(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.traverse(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            }
+            mbvh.traverse(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            )
         } else {
             None
         }
     }
 
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| {
@@ -834,31 +813,20 @@ impl Intersect for AnimatedMesh {
                 None
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().traverse_t(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.traverse_t(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            }
+            mbvh.traverse_t(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            )
         } else {
             None
         }
     }
 
     fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let (origin, direction) = ray.get_vectors::<Vec3A>();
 
             let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)> {
@@ -866,24 +834,13 @@ impl Intersect for AnimatedMesh {
                 triangle.depth_test(ray, t_min, t_max)
             };
 
-            let hit = unsafe {
-                match USE_MBVH {
-                    true => self.mbvh.as_ref().unwrap().depth_test(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                    _ => bvh.depth_test(
-                        origin.as_ref(),
-                        direction.as_ref(),
-                        t_min,
-                        t_max,
-                        intersection_test,
-                    ),
-                }
-            };
+            let hit = mbvh.depth_test(
+                origin.as_ref(),
+                direction.as_ref(),
+                t_min,
+                t_max,
+                intersection_test,
+            );
 
             Some(hit)
         } else {
@@ -892,7 +849,7 @@ impl Intersect for AnimatedMesh {
     }
 
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
-        if let Some(bvh) = self.bvh.as_ref() {
+        if let Some(mbvh) = self.mbvh.as_ref() {
             let mut prim_id = [-1 as PrimID; 4];
             let mut valid = false;
             let intersection_test = |i: usize, packet: &mut RayPacket4| {
@@ -907,16 +864,7 @@ impl Intersect for AnimatedMesh {
                 }
             };
 
-            unsafe {
-                match USE_MBVH {
-                    true => self
-                        .mbvh
-                        .as_ref()
-                        .unwrap()
-                        .traverse4(packet, intersection_test),
-                    _ => bvh.traverse4(packet, intersection_test),
-                }
-            };
+            mbvh.traverse4(packet, intersection_test);
 
             if valid {
                 Some(prim_id)
@@ -991,7 +939,7 @@ impl AnimatedMesh {
                     Vec4::from(v1.vertex).truncate(),
                     Vec4::from(v2.vertex).truncate(),
                 )
-                    .into(),
+                .into(),
                 n0: v0.normal,
                 n1: v1.normal,
                 n2: v2.normal,

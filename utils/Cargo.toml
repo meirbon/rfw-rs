@@ -1,0 +1,10 @@
+[package]
+name = "rfw-utils"
+version = "0.1.0"
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+
+[dependencies]
+crossbeam = "0.7.3"
+threadpool = "1.8.1"
+num_cpus = "1.13.0"
