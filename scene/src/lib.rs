@@ -145,20 +145,7 @@ pub struct Scene {
 
 impl Default for Scene {
     fn default() -> Self {
-        let mut loaders: HashMap<String, Box<dyn ObjectLoader>> = HashMap::new();
-
-        loaders.insert(
-            String::from("gltf"),
-            Box::new(crate::gltf::GltfLoader::default()),
-        );
-        loaders.insert(
-            String::from("glb"),
-            Box::new(crate::gltf::GltfLoader::default()),
-        );
-        loaders.insert(
-            String::from("obj"),
-            Box::new(crate::obj::ObjLoader::default()),
-        );
+        let loaders = Self::create_loaders();
 
         Self {
             loaders,
@@ -175,6 +162,7 @@ impl Default for Scene {
 struct SerializableScene {
     pub meshes: TrackedStorage<Mesh>,
     pub animated_meshes: TrackedStorage<AnimatedMesh>,
+    pub animations: TrackedStorage<graph::animation::Animation>,
     pub nodes: graph::NodeGraph,
     pub skins: TrackedStorage<graph::Skin>,
     pub instances: TrackedStorage<Instance>,
@@ -192,6 +180,7 @@ impl From<&Scene> for SerializableScene {
         Self {
             meshes: scene.objects.meshes.lock().unwrap().clone(),
             animated_meshes: scene.objects.animated_meshes.lock().unwrap().clone(),
+            animations: scene.objects.animations.lock().unwrap().clone(),
             nodes: scene.objects.nodes.lock().unwrap().clone(),
             skins: scene.objects.skins.lock().unwrap().clone(),
             instances: scene.objects.instances.lock().unwrap().clone(),
@@ -205,11 +194,18 @@ impl From<&Scene> for SerializableScene {
 impl Into<Scene> for SerializableScene {
     fn into(self) -> Scene {
         Scene {
-            objects: Objects::default(),
+            loaders: Scene::create_loaders(),
+            objects: Objects {
+                meshes: Arc::new(Mutex::new(self.meshes)),
+                animations: Arc::new(Mutex::new(self.animations)),
+                animated_meshes: Arc::new(Mutex::new(self.animated_meshes)),
+                nodes: Arc::new(Mutex::new(self.nodes)),
+                skins: Arc::new(Mutex::new(self.skins)),
+                instances: Arc::new(Mutex::new(self.instances)),
+            },
             lights: Arc::new(Mutex::new(self.lights)),
             materials: Arc::new(Mutex::new(self.materials)),
             settings: Arc::new(Mutex::new(self.settings)),
-            ..Default::default()
         }
     }
 }
@@ -471,6 +467,7 @@ impl Scene {
         let reader = BufReader::new(file);
         let mut object: SerializableScene = bincode::deserialize_from(reader)?;
 
+        object.animations.trigger_changed_all();
         object.nodes.trigger_changed_all();
         object.skins.trigger_changed_all();
         object.materials.set_changed();
@@ -693,6 +690,25 @@ impl Scene {
         if let Ok(mut lights) = self.lights.lock() {
             lights.area_lights = TrackedStorage::from(area_lights);
         }
+    }
+
+    fn create_loaders() -> HashMap<String, Box<dyn ObjectLoader>> {
+        let mut loaders: HashMap<String, Box<dyn ObjectLoader>> = HashMap::new();
+
+        loaders.insert(
+            String::from("gltf"),
+            Box::new(crate::gltf::GltfLoader::default()),
+        );
+        loaders.insert(
+            String::from("glb"),
+            Box::new(crate::gltf::GltfLoader::default()),
+        );
+        loaders.insert(
+            String::from("obj"),
+            Box::new(crate::obj::ObjLoader::default()),
+        );
+
+        loaders
     }
 }
 

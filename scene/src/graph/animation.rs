@@ -1,6 +1,10 @@
 use crate::graph::NodeGraph;
 use glam::*;
 
+#[cfg(feature = "object_caching")]
+use serde::{Deserialize, Serialize};
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Method {
     Linear,
@@ -8,6 +12,7 @@ pub enum Method {
     Step,
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Sampler {
     pub method: Method,
@@ -124,6 +129,7 @@ impl Sampler {
     }
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Target {
     Translation,
@@ -132,6 +138,7 @@ pub enum Target {
     MorphWeights,
 }
 
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Channel {
     pub node_id: u32,
@@ -272,6 +279,7 @@ impl Channel {
 }
 
 #[allow(dead_code)]
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Animation {
     pub name: String,

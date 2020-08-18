@@ -17,8 +17,8 @@ use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
     renderers::{RenderMode, Renderer, Setting},
-    AreaLight, BitVec, Camera, DeviceMaterial, DirectionalLight, Instance, Local, Material, Mesh,
-    PointLight, SpotLight, Texture,
+    AnimatedMesh, AreaLight, BitVec, Camera, ChangedIterator, DeviceMaterial, DirectionalLight,
+    Instance, Local, Material, Mesh, PointLight, SpotLight, Texture,
 };
 use std::io::Cursor;
 
@@ -667,10 +667,6 @@ impl Renderer for VkRenderer {
         }
     }
 
-    fn set_mesh(&mut self, _id: usize, _mesh: &Mesh) {}
-
-    fn set_instance(&mut self, _id: usize, _instance: &Instance) {}
-
     fn set_materials(&mut self, _materials: &[Material], _device_materials: &[DeviceMaterial]) {}
 
     fn set_textures(&mut self, _textures: &[Texture]) {}
@@ -939,6 +935,18 @@ impl Renderer for VkRenderer {
         }
     }
 
+    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
+        unimplemented!()
+    }
+
+    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
+        unimplemented!()
+    }
+
+    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>) {
+        unimplemented!()
+    }
+
     fn set_point_lights(&mut self, _changed: &BitVec, _lights: &[PointLight]) {}
 
     fn set_spot_lights(&mut self, _changed: &BitVec, _lights: &[SpotLight]) {}
@@ -961,11 +969,8 @@ impl Renderer for VkRenderer {
     }
 
     fn set_setting(&mut self, _setting: Setting) {}
-    fn set_animated_mesh(&mut self, _id: usize, _mesh: &rfw_scene::AnimatedMesh) {
-        todo!()
-    }
 
-    fn set_skin(&mut self, _id: usize, _skin: &Skin) {
+    fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         unimplemented!()
     }
 }

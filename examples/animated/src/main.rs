@@ -122,11 +122,14 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
-    // let renderer = RenderSystem::from_scene("scene", &window, render_width, render_height).unwrap()
-    //     as RenderSystem<T>;
-
-    let renderer =
-        RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
+    let (renderer, init) =
+        match RenderSystem::from_scene("scene", &window, render_width, render_height) {
+            Ok(r) => (r as RenderSystem<T>, false),
+            Err(_) => (
+                RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>,
+                true,
+            ),
+        };
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -141,35 +144,37 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
 
     let mut resized = false;
 
-    renderer.add_spot_light(
-        Vec3::new(0.0, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 100.0, 110.0),
-        45.0,
-        60.0,
-    );
-    let pica = renderer.load_async("models/pica/scene.gltf");
-    let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
+    if init {
+        renderer.add_spot_light(
+            Vec3::new(0.0, 15.0, 0.0),
+            Vec3::new(0.0, -1.0, 0.3),
+            Vec3::new(105.0, 100.0, 110.0),
+            45.0,
+            60.0,
+        );
+        let pica = renderer.load_async("models/pica/scene.gltf");
+        let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
 
-    let _pica = match block_on(pica)? {
-        LoadResult::Scene(root_nodes) => root_nodes,
-        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-    };
+        let _pica = match block_on(pica)? {
+            LoadResult::Scene(root_nodes) => root_nodes,
+            LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+        };
 
-    match block_on(cesium_man)? {
-        LoadResult::Scene(root_nodes) => {
-            root_nodes.iter().for_each(|node| {
-                renderer.get_node_mut(*node, |node| {
-                    if let Some(node) = node {
-                        node.set_scale(Vec3::splat(3.0));
-                        node.translate(Vec3::new(0.0, 0.5, 0.0));
-                        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
-                    }
+        match block_on(cesium_man)? {
+            LoadResult::Scene(root_nodes) => {
+                root_nodes.iter().for_each(|node| {
+                    renderer.get_node_mut(*node, |node| {
+                        if let Some(node) = node {
+                            node.set_scale(Vec3::splat(3.0));
+                            node.translate(Vec3::new(0.0, 0.5, 0.0));
+                            node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
+                        }
+                    });
                 });
-            });
-        }
-        LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-    };
+            }
+            LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
+        };
+    }
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
@@ -199,12 +204,16 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 window_id,
             } if window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
-                // renderer.save_scene("scene").unwrap();
+                if init {
+                    renderer.save_scene("scene").unwrap();
+                }
             }
             Event::RedrawRequested(_) => {
                 if key_handler.pressed(KeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
-                    // renderer.save_scene("scene").unwrap();
+                    if init {
+                        renderer.save_scene("scene").unwrap();
+                    }
                 }
 
                 if !settings.is_empty() {
@@ -305,16 +314,6 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 } else {
                     elapsed
                 };
-
-                if key_handler.pressed(KeyCode::Space) {
-                    _pica.iter().for_each(|id| {
-                        renderer.get_node_mut(*id, |node| {
-                            if let Some(node) = node {
-                                node.rotate_z(elapsed / 10.0);
-                            }
-                        });
-                    });
-                }
 
                 timer.reset();
 
