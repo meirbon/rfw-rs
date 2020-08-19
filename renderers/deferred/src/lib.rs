@@ -500,7 +500,7 @@ impl Renderer for Deferred {
                     height: tex.height,
                     depth: 1,
                 },
-                mip_level_count: rfw_scene::Texture::MIP_LEVELS as u32,
+                mip_level_count: tex.mip_levels,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Bgra8Unorm,
@@ -510,7 +510,7 @@ impl Renderer for Deferred {
             let mut width = tex.width;
             let mut height = tex.height;
             let mut local_offset = 0 as wgpu::BufferAddress;
-            for i in 0..rfw_scene::Texture::MIP_LEVELS {
+            for i in 0..tex.mip_levels {
                 let offset = offset + local_offset * std::mem::size_of::<u32>() as u64;
 
                 let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;

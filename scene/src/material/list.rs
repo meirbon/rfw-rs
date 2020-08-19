@@ -484,7 +484,9 @@ impl MaterialList {
 
         // Make sure always a single texture exists (as fallback)
         let mut textures = TrackedStorage::new();
-        textures.push(Texture::default());
+        let mut default = Texture::default();
+        default.generate_mipmaps(Texture::MIP_LEVELS);
+        textures.push(default);
 
         let mut light_flags = BitVec::new();
         light_flags.push(false);
