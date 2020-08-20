@@ -6,6 +6,7 @@ use rfw_scene::{
     raw_window_handle, Camera, DirectionalLight, Flip, Instance, LoadResult, ObjectRef, PointLight,
     RenderMode, Renderer, Scene, SceneError, SceneLights, Setting, SpotLight, Texture, ToMesh,
 };
+use scene::Material;
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -299,6 +300,22 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         } else {
             Err(SceneError::LockError)
         }
+    }
+
+    pub fn get_material<C>(&self, id: u32, cb: C)
+    where
+        C: Fn(Option<&Material>),
+    {
+        let materials = self.scene.materials.lock().unwrap();
+        cb(materials.get(id as usize));
+    }
+
+    pub fn get_material_mut<C>(&self, id: u32, cb: C)
+    where
+        C: Fn(Option<&mut Material>),
+    {
+        let mut materials = self.scene.materials.lock().unwrap();
+        materials.get_mut(id as usize, cb);
     }
 
     pub fn add_object<B: ToMesh>(&self, object: B) -> Result<ObjectRef, SceneError> {
