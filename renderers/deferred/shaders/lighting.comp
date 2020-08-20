@@ -16,13 +16,13 @@ layout(set = 0, binding = 0) uniform Locals {
     uvec4 light_count;
     vec4 cam_pos;
 };
-
 layout(std430, set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
-layout(set = 1, binding = 0, rgba16f) uniform writeonly image2D LightingTexture;
-layout(set = 1, binding = 1) uniform sampler Sampler;
-layout(set = 1, binding = 2, rgba16f) uniform readonly image2D Albedo;
-layout(set = 1, binding = 3, rgba16f) uniform readonly image2D Normal;
-layout(set = 1, binding = 4, rgba16f) uniform readonly image2D WorldPos;
+layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D LightingTexture;
+
+layout(set = 1, binding = 0, rgba16f) uniform readonly image2D Albedo;
+layout(set = 1, binding = 1, rgba16f) uniform readonly image2D Normal;
+layout(set = 1, binding = 2, rgba16f) uniform readonly image2D WorldPos;
+layout(set = 1, binding = 3, rgba16f) uniform readonly image2D MatParams;
 
 // layout(set = 2, binding = 0) uniform PointLights { PointLight point_lights[128]; };
 layout(set = 2, binding = 1) uniform AreaLights { AreaLight area_lights[128]; };
@@ -36,7 +36,7 @@ layout(set = 2, binding = 6) uniform texture2DArray AreaShadowMaps;
 layout(set = 2, binding = 7) uniform texture2DArray SpotShadowMaps;
 layout(set = 2, binding = 8) uniform texture2DArray DirShadowMaps;
 
-// layout(set = 1, binding = 9) uniform textureCubeArray PointShadowMatrices { LightInfo PointTransforms[128]; };
+// layout(set = 2, binding = 9) uniform textureCubeArray PointShadowMatrices { LightInfo PointTransforms[128]; };
 
 layout(set = 2, binding = 10) uniform AreaShadowMatrices { LightInfo AreaTransforms[128]; };
 layout(set = 2, binding = 11) uniform SpotShadowMatrices { LightInfo SpotTransforms[128]; };
@@ -57,13 +57,16 @@ void main() {
     const vec3 normal = imageLoad(Normal, pixel).xyz;
     const vec3 V = imageLoad(WorldPos, pixel).xyz - BIAS * normal;
     const vec4 albedo_mid = imageLoad(Albedo, pixel).xyzw;
+    const vec4 mat_params = imageLoad(MatParams, pixel).xyzw;
 
     const vec3 albedo = albedo_mid.xyz;
     const uint MID = uint(albedo_mid.w);
     const uvec4 parameters = materials[MID].parameters;
-    const uint flags = materials[MID].flags;
 
     ShadingData params = extractParameters(albedo, vec3(1.0), materials[MID].specular.xyz, parameters);
+    params.roughness = max(params.roughness, mat_params.x);
+    params.metallic = max(params.metallic, mat_params.y);
+    params.sheen = max(params.sheen, mat_params.z);
 
     const vec3 D = normalize(cam_pos.xyz - V);
 

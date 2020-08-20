@@ -44,6 +44,9 @@ pub struct DeferredOutput {
 
     pub ssao_filtered_output: wgpu::Texture,
     pub ssao_filtered_output_view: wgpu::TextureView,
+
+    pub mat_param_texture: wgpu::Texture,
+    pub mat_param_view: wgpu::TextureView,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -56,10 +59,11 @@ pub enum DeferredView {
     ScreenSpace = 5,
     SSAO = 6,
     FilteredSSAO = 7,
+    MatParams = 8,
 }
 
 impl DeferredView {
-    pub const COUNT: usize = 8;
+    pub const COUNT: usize = 9;
 }
 
 impl From<isize> for DeferredView {
@@ -73,6 +77,7 @@ impl From<isize> for DeferredView {
             5 => DeferredView::ScreenSpace,
             6 => DeferredView::SSAO,
             7 => DeferredView::FilteredSSAO,
+            8 => DeferredView::MatParams,
             _ => DeferredView::Output,
         }
     }
@@ -89,6 +94,7 @@ impl From<usize> for DeferredView {
             5 => DeferredView::ScreenSpace,
             6 => DeferredView::SSAO,
             7 => DeferredView::FilteredSSAO,
+            8 => DeferredView::MatParams,
             _ => DeferredView::Output,
         }
     }
@@ -99,6 +105,7 @@ impl DeferredOutput {
     pub const STORAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
     pub const SSAO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+    pub const MAT_PARAM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
     pub fn new(device: &wgpu::Device, width: usize, height: usize) -> Self {
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -147,7 +154,7 @@ impl DeferredOutput {
                     ty: wgpu::BindingType::SampledTexture {
                         component_type: wgpu::TextureComponentType::Float,
                         dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,    
+                        multisampled: false,
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -387,6 +394,19 @@ impl DeferredOutput {
                 array_layer_count: None,
             });
 
+        let mat_param_texture = Self::create_texture(device, Self::MAT_PARAM_FORMAT, width, height);
+        let mat_param_view = mat_param_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::MAT_PARAM_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
+
         let debug_bind_groups = (0..DeferredView::COUNT)
             .into_iter()
             .map(|i| {
@@ -409,6 +429,7 @@ impl DeferredOutput {
                                 5 => &screen_space_view,
                                 6 => &ssao_output_view,
                                 7 => &ssao_filtered_output_view,
+                                8 => &mat_param_view,
                                 _ => &output_texture_view,
                             }),
                         },
@@ -450,6 +471,8 @@ impl DeferredOutput {
             ssao_output_view,
             ssao_filtered_output,
             ssao_filtered_output_view,
+            mat_param_texture,
+            mat_param_view,
         }
     }
 
@@ -623,6 +646,20 @@ impl DeferredOutput {
             });
         self.ssao_filtered_output = ssao_filtered_output;
 
+        let mat_param_texture = Self::create_texture(device, Self::MAT_PARAM_FORMAT, width, height);
+        self.mat_param_view = mat_param_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(Self::MAT_PARAM_FORMAT),
+            dimension: None,
+            aspect: wgpu::TextureAspect::All,
+
+            base_mip_level: 0,
+            level_count: None,
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
+        self.mat_param_texture = mat_param_texture;
+
         self.debug_bind_groups = (0..DeferredView::COUNT)
             .into_iter()
             .map(|i| {
@@ -645,6 +682,7 @@ impl DeferredOutput {
                                 5 => &self.screen_space_view,
                                 6 => &self.ssao_output_view,
                                 7 => &self.ssao_filtered_output_view,
+                                8 => &self.mat_param_view,
                                 _ => &self.output_texture_view,
                             }),
                         },
@@ -669,6 +707,7 @@ impl DeferredOutput {
                 DeferredView::ScreenSpace => &self.screen_space_view,
                 DeferredView::SSAO => &self.ssao_output_view,
                 DeferredView::FilteredSSAO => &self.ssao_filtered_output_view,
+                DeferredView::MatParams => &self.mat_param_view,
             },
             resolve_target: None,
             ops: wgpu::Operations {
@@ -745,6 +784,7 @@ impl DeferredOutput {
                 DeferredView::ScreenSpace => &self.screen_space_view,
                 DeferredView::SSAO => &self.ssao_output_view,
                 DeferredView::FilteredSSAO => &self.ssao_filtered_output_view,
+                DeferredView::MatParams => &self.mat_param_view,
             }),
         }
     }
@@ -782,6 +822,7 @@ impl DeferredOutput {
             DeferredView::ScreenSpace => &self.debug_bind_groups[5],
             DeferredView::SSAO => &self.debug_bind_groups[6],
             DeferredView::FilteredSSAO => &self.debug_bind_groups[7],
+            DeferredView::MatParams => &self.debug_bind_groups[8],
         };
 
         render_pass.set_bind_group(0, bind_group, &[]);

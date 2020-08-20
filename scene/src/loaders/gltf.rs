@@ -3,7 +3,11 @@ use crate::{
     SceneError, TextureFormat,
 };
 use glam::*;
-use std::{collections::HashMap, path::{Path, PathBuf}, sync::Mutex};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use crate::graph::animation::{Animation, Channel, Method, Target};
 use crate::graph::{Node, NodeGraph, NodeMesh, Skin};
@@ -54,10 +58,9 @@ impl ObjectLoader for GltfLoader {
         skin_storage: &Mutex<TrackedStorage<Skin>>,
         instances_storage: &Mutex<TrackedStorage<Instance>>,
     ) -> Result<LoadResult, SceneError> {
-        let file = std::fs::File::open(&path)
-            .map_err(|_| SceneError::LoadError(path.clone()))?;
-        let gltf = gltf::Gltf::from_reader(&file)
-            .map_err(|_| SceneError::LoadError(path.clone()))?;
+        let file = std::fs::File::open(&path).map_err(|_| SceneError::LoadError(path.clone()))?;
+        let gltf =
+            gltf::Gltf::from_reader(&file).map_err(|_| SceneError::LoadError(path.clone()))?;
         let document = &gltf;
 
         let base_path = path.parent().expect("gltf base path");
@@ -74,8 +77,8 @@ impl ObjectLoader for GltfLoader {
 
             let load_texture = |source: gltf::image::Source| match source {
                 gltf::image::Source::View { view, .. } => {
-                    let texture_bytes = gltf_buffers.view(&gltf, &view)
-                        .expect("glTF texture bytes");
+                    let texture_bytes =
+                        gltf_buffers.view(&gltf, &view).expect("glTF texture bytes");
                     let texture = load_texture_from_memory(texture_bytes);
                     Some(TextureSource::Loaded(texture))
                 }
@@ -108,10 +111,6 @@ impl ObjectLoader for GltfLoader {
                     // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
                     // The metalness values are sampled from the B channel.
                     // The roughness values are sampled from the G channel.
-                    match pbr.metallic_roughness_texture() {
-                        Some(tex) => load_texture(tex.texture().source().source()),
-                        None => None,
-                    },
                     match pbr.metallic_roughness_texture() {
                         Some(tex) => load_texture(tex.texture().source().source()),
                         None => None,
@@ -155,7 +154,6 @@ impl ObjectLoader for GltfLoader {
                 let mut tex_coords: Vec<Vec2> = Vec::new();
 
                 mesh.primitives().for_each(|prim| {
-
                     let reader = prim.reader(|buffer| gltf_buffers.buffer(&gltf, &buffer));
                     if let Some(iter) = reader.read_positions() {
                         for pos in iter {
@@ -260,16 +258,19 @@ impl ObjectLoader for GltfLoader {
                         match iter {
                             ReadIndices::U8(iter) => {
                                 for idx in iter {
+                                    let idx = idx as u32;
                                     tmp_indices.push(idx as u32);
                                 }
                             }
                             ReadIndices::U16(iter) => {
                                 for idx in iter {
+                                    let idx = idx as u32;
                                     tmp_indices.push(idx as u32);
                                 }
                             }
                             ReadIndices::U32(iter) => {
                                 for idx in iter {
+                                    let idx = idx;
                                     tmp_indices.push(idx);
                                 }
                             }
@@ -670,7 +671,7 @@ fn load_texture_from_memory(texture_bytes: &[u8]) -> Texture {
 
     let image = image::load_from_memory(texture_bytes).unwrap();
     let width = image.width();
-    let height= image.height();
+    let height = image.height();
     let (format, bytes_per_px) = match image {
         ImageLuma8(_) => (TextureFormat::R, 1),
         ImageLumaA8(_) => (TextureFormat::RG, 2),
@@ -684,13 +685,7 @@ fn load_texture_from_memory(texture_bytes: &[u8]) -> Texture {
         ImageRgba16(_) => (TextureFormat::RGBA16, 8),
     };
 
-    Texture::from_bytes(
-        &image.to_bytes(),
-        width,
-        height,
-        format,
-        bytes_per_px,
-    )
+    Texture::from_bytes(&image.to_bytes(), width, height, format, bytes_per_px)
 }
 
 struct GltfBuffers {
@@ -698,9 +693,12 @@ struct GltfBuffers {
 }
 
 impl GltfBuffers {
-    pub fn load_from_gltf(base_path: impl AsRef<Path>, gltf: &gltf::Document) -> Result<Self, SceneError> {
-        use std::io::Read;
+    pub fn load_from_gltf(
+        base_path: impl AsRef<Path>,
+        gltf: &gltf::Document,
+    ) -> Result<Self, SceneError> {
         use gltf::buffer::Source;
+        use std::io::Read;
 
         let mut buffers = vec![];
         for (_index, buffer) in gltf.buffers().enumerate() {
@@ -712,7 +710,8 @@ impl GltfBuffers {
                         let path = base_path.as_ref().join(uri);
                         let mut file = std::fs::File::open(&path)
                             .map_err(|_| SceneError::LoadError(path.clone()))?;
-                        let metadata = file.metadata()
+                        let metadata = file
+                            .metadata()
                             .map_err(|_| SceneError::LoadError(path.clone()))?;
                         let mut data: Vec<u8> = Vec::with_capacity(metadata.len() as usize);
                         file.read_to_end(&mut data)
@@ -723,9 +722,7 @@ impl GltfBuffers {
                         Some(data)
                     }
                 }
-                Source::Bin => {
-                    None
-                }
+                Source::Bin => None,
             };
 
             buffers.push(data);
@@ -736,24 +733,31 @@ impl GltfBuffers {
     }
 
     /// Obtain the contents of a loaded buffer.
-    pub fn buffer<'a>(&'a self, gltf: &'a gltf::Gltf, buffer: &gltf::Buffer<'_>) -> Option<&'a [u8]> {
+    pub fn buffer<'a>(
+        &'a self,
+        gltf: &'a gltf::Gltf,
+        buffer: &gltf::Buffer<'_>,
+    ) -> Option<&'a [u8]> {
         use gltf::buffer::Source;
 
         match buffer.source() {
-            Source::Uri(_) => {
-                self.uri_buffers.get(buffer.index())
-                    .map(Option::as_ref).flatten()
-                    .map(Vec::as_slice)
-            }
-            Source::Bin => {
-                gltf.blob.as_ref().map(Vec::as_slice)
-            }
+            Source::Uri(_) => self
+                .uri_buffers
+                .get(buffer.index())
+                .map(Option::as_ref)
+                .flatten()
+                .map(Vec::as_slice),
+            Source::Bin => gltf.blob.as_ref().map(Vec::as_slice),
         }
     }
 
     /// Obtain the contents of a loaded buffer view.
     #[allow(unused)]
-    pub fn view<'a>(&'a self, gltf: &'a gltf::Gltf, view: &gltf::buffer::View<'_>) -> Option<&'a [u8]> {
+    pub fn view<'a>(
+        &'a self,
+        gltf: &'a gltf::Gltf,
+        view: &gltf::buffer::View<'_>,
+    ) -> Option<&'a [u8]> {
         self.buffer(gltf, &view.buffer()).map(|data| {
             let begin = view.offset();
             let end = begin + view.length();

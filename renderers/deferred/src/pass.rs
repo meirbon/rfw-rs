@@ -4,6 +4,7 @@ use super::{
 };
 use shared::*;
 use std::borrow::Cow;
+use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 
 pub struct BlitPass {
@@ -420,42 +421,89 @@ impl SSAOPass {
 
 pub struct RadiancePass {
     pipeline: wgpu::ComputePipeline,
-    deferred_sampler: wgpu::Sampler,
     shadow_sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     lights_bind_group_layout: wgpu::BindGroupLayout,
     lights_bind_group: wgpu::BindGroup,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
+    uniform_bind_group: wgpu::BindGroup,
 }
 
 impl RadiancePass {
     pub fn new(
         device: &wgpu::Device,
-        uniform_bind_group_layout: &wgpu::BindGroupLayout,
+        camera_buffer: &wgpu::Buffer,
+        material_buffer: &wgpu::Buffer,
         output: &DeferredOutput,
         lights: &DeferredLights,
     ) -> Self {
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        count: None,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::UniformBuffer {
+                            dynamic: false,
+                            min_binding_size: NonZeroU64::new(super::Deferred::UNIFORM_CAMERA_SIZE),
+                        },
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        count: None,
+                        visibility: wgpu::ShaderStage::COMPUTE,
+                        ty: wgpu::BindingType::StorageBuffer {
+                            dynamic: false,
+                            min_binding_size: None,
+                            readonly: true,
+                        },
+                    },
+                    output.as_storage_entry(
+                        2,
+                        wgpu::ShaderStage::COMPUTE,
+                        DeferredView::Radiance,
+                        false,
+                    ),
+                ],
+            });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(
+                        camera_buffer
+                            .slice(0..super::Deferred::UNIFORM_CAMERA_SIZE as wgpu::BufferAddress),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(material_buffer.slice(..)),
+                },
+                output.as_binding(2, DeferredView::Radiance),
+            ],
+        });
+
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("radiance-bind-group-layout"),
             entries: &[
+                output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, DeferredView::Albedo, true),
+                output.as_storage_entry(1, wgpu::ShaderStage::COMPUTE, DeferredView::Normal, true),
                 output.as_storage_entry(
-                    0,
-                    wgpu::ShaderStage::COMPUTE,
-                    DeferredView::Radiance,
-                    false,
-                ),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    count: None,
-                    visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Sampler { comparison: false },
-                },
-                output.as_storage_entry(2, wgpu::ShaderStage::COMPUTE, DeferredView::Albedo, true),
-                output.as_storage_entry(3, wgpu::ShaderStage::COMPUTE, DeferredView::Normal, true),
-                output.as_storage_entry(
-                    4,
+                    2,
                     wgpu::ShaderStage::COMPUTE,
                     DeferredView::WorldPos,
+                    true,
+                ),
+                output.as_storage_entry(
+                    3,
+                    wgpu::ShaderStage::COMPUTE,
+                    DeferredView::MatParams,
                     true,
                 ),
             ],
@@ -559,32 +607,14 @@ impl RadiancePass {
             });
         let shadow_sampler = ShadowMapArray::create_sampler(device);
 
-        let deferred_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: None,
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            compare: None,
-            lod_max_clamp: 0.0,
-            lod_min_clamp: 0.0,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: None,
-        });
-
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             label: Some("output-bind-group"),
             entries: &[
-                output.as_binding(0, DeferredView::Radiance),
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&deferred_sampler),
-                },
-                output.as_binding(2, DeferredView::Albedo),
-                output.as_binding(3, DeferredView::Normal),
-                output.as_binding(4, DeferredView::WorldPos),
+                output.as_binding(0, DeferredView::Albedo),
+                output.as_binding(1, DeferredView::Normal),
+                output.as_binding(2, DeferredView::WorldPos),
+                output.as_binding(3, DeferredView::MatParams),
             ],
         });
 
@@ -613,7 +643,7 @@ impl RadiancePass {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[
-                uniform_bind_group_layout,
+                &uniform_bind_group_layout,
                 &bind_group_layout,
                 &lights_bind_group_layout,
             ],
@@ -636,12 +666,13 @@ impl RadiancePass {
 
         Self {
             pipeline,
-            deferred_sampler,
             shadow_sampler,
             bind_group_layout,
             bind_group,
             lights_bind_group_layout,
             lights_bind_group,
+            uniform_bind_group_layout,
+            uniform_bind_group,
         }
     }
 
@@ -650,19 +681,36 @@ impl RadiancePass {
         device: &wgpu::Device,
         output: &DeferredOutput,
         lights: &DeferredLights,
+        camera_buffer: &wgpu::Buffer,
+        material_buffer: &wgpu::Buffer,
     ) {
+        self.uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(
+                        camera_buffer
+                            .slice(0..super::Deferred::UNIFORM_CAMERA_SIZE as wgpu::BufferAddress),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(material_buffer.slice(..)),
+                },
+                output.as_binding(2, DeferredView::Radiance),
+            ],
+        });
+
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.bind_group_layout,
             label: Some("output-bind-group"),
             entries: &[
-                output.as_binding(0, DeferredView::Radiance),
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.deferred_sampler),
-                },
-                output.as_binding(2, DeferredView::Albedo),
-                output.as_binding(3, DeferredView::Normal),
-                output.as_binding(4, DeferredView::WorldPos),
+                output.as_binding(0, DeferredView::Albedo),
+                output.as_binding(1, DeferredView::Normal),
+                output.as_binding(2, DeferredView::WorldPos),
+                output.as_binding(3, DeferredView::MatParams),
             ],
         });
 
@@ -689,16 +737,10 @@ impl RadiancePass {
         });
     }
 
-    pub fn launch(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        width: usize,
-        height: usize,
-        uniform_bind_group: &wgpu::BindGroup,
-    ) {
+    pub fn launch(&self, encoder: &mut wgpu::CommandEncoder, width: usize, height: usize) {
         let mut compute_pass = encoder.begin_compute_pass();
         compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, uniform_bind_group, &[]);
+        compute_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         compute_pass.set_bind_group(1, &self.bind_group, &[]);
         compute_pass.set_bind_group(2, &self.lights_bind_group, &[]);
         compute_pass.dispatch(

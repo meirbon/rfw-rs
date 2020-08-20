@@ -363,6 +363,55 @@ impl Texture {
         })
     }
 
+    pub fn merge(r: Option<&Self>, g: Option<&Self>, b: Option<&Self>, a: Option<&Self>) -> Self {
+        let mut wh = None;
+
+        let mut assert_tex_wh = |t: Option<&Self>| {
+            if let Some(t) = t {
+                if let Some((width, height)) = wh {
+                    assert_eq!(width, t.width);
+                    assert_eq!(height, t.height);
+                } else {
+                    wh = Some((t.width, t.height));
+                }
+            }
+        };
+
+        assert_tex_wh(r);
+        assert_tex_wh(g);
+        assert_tex_wh(b);
+        assert_tex_wh(a);
+
+        let (width, height) = wh.unwrap();
+
+        let sample = |t: Option<&Self>, index: usize| {
+            if let Some(t) = t {
+                t.data[index] & 255
+            } else {
+                0
+            }
+        };
+
+        let mut data = vec![0_u32; (width * height) as usize];
+        for y in 0..height {
+            for x in 0..width {
+                let index = (y * height + x) as usize;
+                let r = sample(r, index);
+                let g = sample(g, index);
+                let b = sample(b, index);
+                let a = sample(a, index);
+                data[index] = (a << 24) + (r << 16) + (g << 8) + b;
+            }
+        }
+
+        Texture {
+            data,
+            width,
+            height,
+            mip_levels: 1,
+        }
+    }
+
     /// Parses texture from bytes. Stride is size of texel in bytes
     pub fn from_bytes(
         bytes: &[u8],
@@ -526,8 +575,7 @@ impl MaterialList {
         transmission: f32,
         albedo: Option<TextureSource>,
         normal: Option<TextureSource>,
-        roughness_map: Option<TextureSource>,
-        metallic_map: Option<TextureSource>,
+        metallic_roughness_map: Option<TextureSource>,
         emissive_map: Option<TextureSource>,
         sheen_map: Option<TextureSource>,
     ) -> usize {
@@ -559,19 +607,8 @@ impl MaterialList {
             -1
         };
 
-        let roughness_tex = if let Some(roughness_map) = roughness_map {
-            match roughness_map {
-                TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
-                TextureSource::Filesystem(path, flip) => {
-                    self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
-                }
-            }
-        } else {
-            -1
-        };
-
-        let metallic_tex = if let Some(metallic_map) = metallic_map {
-            match metallic_map {
+        let metallic_roughness_tex = if let Some(metallic_roughness_map) = metallic_roughness_map {
+            match metallic_roughness_map {
                 TextureSource::Loaded(tex) => self.push_texture(tex) as i32,
                 TextureSource::Filesystem(path, flip) => {
                     self.get_texture_index(&path, flip).unwrap_or_else(|_| -1)
@@ -605,8 +642,7 @@ impl MaterialList {
 
         material.diffuse_tex = diffuse_tex as i16;
         material.normal_tex = normal_tex as i16;
-        material.roughness_tex = roughness_tex as i16;
-        material.metallic_tex = metallic_tex as i16;
+        material.metallic_roughness_tex = metallic_roughness_tex as i16;
         material.emissive_tex = emissive_tex as i16;
         material.sheen_tex = sheen_tex as i16;
 
@@ -623,6 +659,10 @@ impl MaterialList {
     }
 
     pub fn push_texture(&mut self, mut texture: Texture) -> usize {
+        if texture.width < 64 || texture.height < 64 {
+            texture = texture.resized(64.max(texture.width), 64.max(texture.height));
+        }
+
         texture.generate_mipmaps(Texture::MIP_LEVELS);
         let i = self.textures.len();
         self.textures.push(texture);
@@ -679,6 +719,10 @@ impl MaterialList {
 
         return match Texture::load(path, flip) {
             Ok(mut tex) => {
+                if tex.width < 64 || tex.height < 64 {
+                    tex = tex.resized(64.max(tex.width), 64.max(tex.height));
+                }
+
                 tex.generate_mipmaps(Texture::MIP_LEVELS);
 
                 self.textures.push(tex);

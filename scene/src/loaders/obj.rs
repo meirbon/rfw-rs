@@ -131,6 +131,38 @@ impl ObjectLoader for ObjLoader {
                     }
                 });
 
+                let metallic_roughness = match (roughness_map, metallic_map) {
+                    (Some(r), Some(m)) => {
+                        let r =
+                            Texture::load(&r, Flip::FlipV).map_err(|_| SceneError::LoadError(r))?;
+                        let m =
+                            Texture::load(&m, Flip::FlipV).map_err(|_| SceneError::LoadError(m))?;
+                        let (r, m) = if r.width != m.width || r.height != m.height {
+                            let width = r.width.max(m.width);
+                            let height = r.height.max(m.height);
+                            (r.resized(width, height), m.resized(width, height))
+                        } else {
+                            (r, m)
+                        };
+
+                        let combined = Texture::merge(Some(&r), Some(&m), None, None);
+                        Some(TextureSource::Loaded(combined))
+                    }
+                    (Some(r), None) => {
+                        let r =
+                            Texture::load(&r, Flip::FlipV).map_err(|_| SceneError::LoadError(r))?;
+                        let combined = Texture::merge(Some(&r), None, None, None);
+                        Some(TextureSource::Loaded(combined))
+                    }
+                    (None, Some(m)) => {
+                        let m =
+                            Texture::load(&m, Flip::FlipV).map_err(|_| SceneError::LoadError(m))?;
+                        let combined = Texture::merge(None, Some(&m), None, None);
+                        Some(TextureSource::Loaded(combined))
+                    }
+                    _ => None,
+                };
+
                 let mat_index = mat_manager.add_with_maps(
                     color,
                     roughness,
@@ -146,16 +178,7 @@ impl ObjectLoader for ObjLoader {
                     } else {
                         None
                     },
-                    if let Some(path) = roughness_map {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                    if let Some(path) = metallic_map {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
+                    metallic_roughness,
                     if let Some(path) = emissive_map {
                         Some(TextureSource::Filesystem(path, Flip::FlipV))
                     } else {

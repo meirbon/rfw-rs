@@ -10,7 +10,7 @@ struct Material {
     uint flags;
     int diffuse_map;
     int normal_map;
-    int roughness_map;
+    int metallic_roughness_map;
 
     int emissive_map;
     int sheen_map;
@@ -40,12 +40,11 @@ struct ShadingData {
     float custom3;
 };
 
-#define CHAR2FLT(x, s) ((float( ((x >> s) & 255)) ) * (1.0f / 255.0f))
+#define CHAR2FLT(x, s) ((float(((x >> s) & 255))) * (1.0f / 255.0f))
 
 #define HAS_DIFFUSE_MAP(flags) ((flags & (1 << 0)) > 0)
 #define HAS_NORMAL_MAP(flags) ((flags & (1 << 1)) > 0)
-#define HAS_ROUGHNESS_MAP(flags) ((flags & (1 << 2)) > 0)
-#define HAS_METALLIC_MAP(flags) ((flags & (1 << 3)) > 0)
+#define HAS_METAL_ROUGH_MAP(flags) ((flags & (1 << 2)) > 0)
 #define HAS_EMISSIVE_MAP(flags) ((flags & (1 << 4)) > 0)
 #define HAS_SHEEN_MAP(flags) ((flags & (1 << 5)) > 0)
 
@@ -54,7 +53,7 @@ struct ShadingData {
 #define METALLIC(parameters) CHAR2FLT(parameters.x, 0)
 #define SUBSURFACE(parameters) CHAR2FLT(parameters.x, 8)
 #define SPECULAR(parameters) CHAR2FLT(parameters.x, 16)
-#define ROUGHNESS(parameters) (max(0.01f, CHAR2FLT( parameters.x, 24 )))
+#define ROUGHNESS(parameters) (max(0.01f, CHAR2FLT(parameters.x, 24)))
 
 #define SPECTINT(parameters) CHAR2FLT(parameters.y, 0)
 #define ANISOTROPIC(parameters) CHAR2FLT(parameters.y, 8)

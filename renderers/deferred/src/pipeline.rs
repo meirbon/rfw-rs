@@ -82,6 +82,13 @@ impl RenderPipeline {
                     color_blend: wgpu::BlendDescriptor::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
                 },
+                wgpu::ColorStateDescriptor {
+                    // Mat params
+                    format: DeferredOutput::MAT_PARAM_FORMAT,
+                    alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                    color_blend: wgpu::BlendDescriptor::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                },
             ],
             depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                 format: DeferredOutput::DEPTH_FORMAT,
@@ -200,6 +207,13 @@ impl RenderPipeline {
                 wgpu::ColorStateDescriptor {
                     // Screen space
                     format: DeferredOutput::STORAGE_FORMAT,
+                    alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                    color_blend: wgpu::BlendDescriptor::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                },
+                wgpu::ColorStateDescriptor {
+                    // Mat params
+                    format: DeferredOutput::MAT_PARAM_FORMAT,
                     alpha_blend: wgpu::BlendDescriptor::REPLACE,
                     color_blend: wgpu::BlendDescriptor::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,

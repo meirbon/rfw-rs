@@ -100,8 +100,7 @@ pub struct Material {
     pub custom3: f32,
     pub diffuse_tex: i16,
     pub normal_tex: i16,
-    pub roughness_tex: i16,
-    pub metallic_tex: i16,
+    pub metallic_roughness_tex: i16,
     pub emissive_tex: i16,
     pub sheen_tex: i16,
 }
@@ -110,7 +109,7 @@ impl Display for Material {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Material {{ name: {}, color: {}, absorption: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, roughness_tex: {}, metallic_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
+            "Material {{ name: {}, color: {}, absorption: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, metallic_roughness_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
             self.name,
             Vec4::from(self.color),
             Vec4::from(self.absorption),
@@ -133,8 +132,7 @@ impl Display for Material {
             self.custom3,
             self.diffuse_tex,
             self.normal_tex,
-            self.roughness_tex,
-            self.metallic_tex,
+            self.metallic_roughness_tex,
             self.emissive_tex,
             self.sheen_tex,
         )
@@ -159,7 +157,7 @@ pub struct DeviceMaterial {
     // 72
     pub normal_map: i32,
     // 76
-    pub roughness_map: i32, // 80
+    pub metallic_roughness_map: i32, // 80
 
     pub emissive_map: i32,
     // 84
@@ -178,7 +176,7 @@ impl Default for DeviceMaterial {
             flags: 0,
             diffuse_map: -1,
             normal_map: -1,
-            roughness_map: -1,
+            metallic_roughness_map: -1,
             emissive_map: -1,
             sheen_map: -1,
             _dummy: [0; 2],
@@ -292,10 +290,8 @@ impl Into<DeviceMaterial> for &Material {
         if self.normal_tex >= 0 {
             flags.set(MaterialProps::HasNormalMap, true);
         }
-        if self.roughness_tex >= 0 {
+        if self.metallic_roughness_tex >= 0 {
             flags.set(MaterialProps::HasRoughnessMap, true);
-        }
-        if self.metallic_tex >= 0 {
             flags.set(MaterialProps::HasMetallicMap, true);
         }
         if self.emissive_tex >= 0 {
@@ -313,7 +309,7 @@ impl Into<DeviceMaterial> for &Material {
             flags: flags.into(),
             diffuse_map: self.diffuse_tex as i32,
             normal_map: self.normal_tex as i32,
-            roughness_map: self.roughness_tex as i32,
+            metallic_roughness_map: self.metallic_roughness_tex as i32,
             emissive_map: self.emissive_tex as i32,
             sheen_map: self.sheen_tex as i32,
             ..Default::default()
@@ -350,8 +346,7 @@ impl Default for Material {
 
             diffuse_tex: -1,
             normal_tex: -1,
-            roughness_tex: -1,
-            metallic_tex: -1,
+            metallic_roughness_tex: -1,
             emissive_tex: -1,
             sheen_tex: -1,
         }

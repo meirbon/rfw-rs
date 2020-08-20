@@ -123,6 +123,39 @@ impl Deferred {
                         dimension: wgpu::TextureViewDimension::D2,
                     },
                 },
+                wgpu::BindGroupLayoutEntry {
+                    // Roughness texture
+                    binding: 2,
+                    count: None,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        component_type: wgpu::TextureComponentType::Uint,
+                        multisampled: false,
+                        dimension: wgpu::TextureViewDimension::D2,
+                    },
+                },
+                wgpu::BindGroupLayoutEntry {
+                    // Emissive texture
+                    binding: 3,
+                    count: None,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        component_type: wgpu::TextureComponentType::Uint,
+                        multisampled: false,
+                        dimension: wgpu::TextureViewDimension::D2,
+                    },
+                },
+                wgpu::BindGroupLayoutEntry {
+                    // Sheen texture
+                    binding: 4,
+                    count: None,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        component_type: wgpu::TextureComponentType::Uint,
+                        multisampled: false,
+                        dimension: wgpu::TextureViewDimension::D2,
+                    },
+                },
             ],
         })
     }
@@ -202,7 +235,7 @@ impl Renderer for Deferred {
                 height: height as u32,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
             },
         );
 
@@ -284,8 +317,13 @@ impl Renderer for Deferred {
             std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10;
 
         let ssao_pass = pass::SSAOPass::new(&device, &uniform_bind_group_layout, &output);
-        let radiance_pass =
-            pass::RadiancePass::new(&device, &uniform_bind_group_layout, &output, &lights);
+        let radiance_pass = pass::RadiancePass::new(
+            &device,
+            &uniform_camera_buffer,
+            &material_buffer,
+            &output,
+            &lights,
+        );
         let blit_pass = pass::BlitPass::new(&device, &output);
 
         Ok(Box::new(Self {
@@ -427,9 +465,15 @@ impl Renderer for Deferred {
                 let material = &materials[i];
                 let albedo_tex = material.diffuse_map.max(0) as usize;
                 let normal_tex = material.normal_map.max(0) as usize;
+                let roughness_tex = material.metallic_roughness_map.max(0) as usize;
+                let emissive_tex = material.emissive_map.max(0) as usize;
+                let sheen_tex = material.sheen_map.max(0) as usize;
 
                 let albedo_view = &self.texture_views[albedo_tex];
                 let normal_view = &self.texture_views[normal_tex];
+                let roughness_view = &self.texture_views[roughness_tex];
+                let emissive_view = &self.texture_views[emissive_tex];
+                let sheen_view = &self.texture_views[sheen_tex];
 
                 self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: None,
@@ -441,6 +485,18 @@ impl Renderer for Deferred {
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(normal_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(roughness_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(emissive_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(sheen_view),
                         },
                     ],
                     layout: &self.texture_bind_group_layout,
@@ -534,28 +590,6 @@ impl Renderer for Deferred {
                     },
                 );
 
-                // encoder.copy_buffer_to_texture(
-                //     wgpu::BufferCopyView {
-                //         mem: &staging_buffer,
-                //         layout: wgpu::TextureDataLayout {
-                //             offset: offset
-                //                 + local_offset * std::mem::size_of::<u32>() as wgpu::BufferAddress,
-                //             bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
-                //             rows_per_image: tex.height,
-                //         },
-                //     },
-                //     wgpu::TextureCopyView {
-                //         origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                //         mip_level: i as u32,
-                //         texture: &texture,
-                //     },
-                //     wgpu::Extent3d {
-                //         width,
-                //         height,
-                //         depth: 1,
-                //     },
-                // );
-
                 local_offset += (width * height) as wgpu::BufferAddress;
                 width >>= 1;
                 height >>= 1;
@@ -611,8 +645,13 @@ impl Renderer for Deferred {
         self.lights_changed |= self.lights.synchronize(&self.device, &self.queue);
 
         if self.lights_changed {
-            self.radiance_pass
-                .update_bind_groups(&self.device, &self.output, &self.lights);
+            self.radiance_pass.update_bind_groups(
+                &self.device,
+                &self.output,
+                &self.lights,
+                &self.uniform_camera_buffer,
+                &self.material_buffer,
+            );
         }
 
         block_on(update);
@@ -685,15 +724,20 @@ impl Renderer for Deferred {
             &wgpu::SwapChainDescriptor {
                 width: width as u32,
                 height: height as u32,
-                present_mode: wgpu::PresentMode::Immediate,
+                present_mode: wgpu::PresentMode::Mailbox,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },
         );
 
         self.output.resize(&self.device, width, height);
-        self.radiance_pass
-            .update_bind_groups(&self.device, &self.output, &self.lights);
+        self.radiance_pass.update_bind_groups(
+            &self.device,
+            &self.output,
+            &self.lights,
+            &self.uniform_camera_buffer,
+            &self.material_buffer,
+        );
         self.ssao_pass
             .update_bind_groups(&self.device, &self.output);
         self.blit_pass
@@ -880,6 +924,7 @@ impl Deferred {
                     d_output.as_descriptor(DeferredView::Normal),
                     d_output.as_descriptor(DeferredView::WorldPos),
                     d_output.as_descriptor(DeferredView::ScreenSpace),
+                    d_output.as_descriptor(DeferredView::MatParams),
                 ],
                 depth_stencil_attachment: Some(d_output.as_depth_descriptor()),
             });
@@ -1024,12 +1069,7 @@ impl Deferred {
             &uniform_bind_group,
         );
 
-        radiance_pass.launch(
-            &mut rasterize_pass,
-            d_output.width,
-            d_output.height,
-            &uniform_bind_group,
-        );
+        radiance_pass.launch(&mut rasterize_pass, d_output.width, d_output.height);
 
         rasterize_pass.finish()
     }
