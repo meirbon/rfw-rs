@@ -19,6 +19,7 @@ rand = { version = "0.7", features = ["small_rng"] }
 raw-window-handle = "0.3"
 gltf = { version = "0.15", features = ["extras", "names", "utils"] }
 mimalloc = "0.1.19"
+owning_ref = "0.4.1"
 
 [features]
 default = []

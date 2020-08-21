@@ -6,7 +6,7 @@ use rfw_scene::{
     raw_window_handle, Camera, DirectionalLight, Flip, Instance, LoadResult, ObjectRef, PointLight,
     RenderMode, Renderer, Scene, SceneError, SceneLights, Setting, SpotLight, Texture, ToMesh,
 };
-use scene::Material;
+use scene::{Flags, Material};
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -318,6 +318,13 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         materials.get_mut(id as usize, cb);
     }
 
+    pub fn get_intersector<C>(&mut self, mut cb: C)
+    where
+        C: FnMut(rfw_scene::TIntersector),
+    {
+        cb(self.scene.create_intersector().unwrap());
+    }
+
     pub fn add_object<B: ToMesh>(&self, object: B) -> Result<ObjectRef, SceneError> {
         let m = object.into_mesh();
         match self.scene.add_object(m) {
@@ -587,6 +594,13 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         } else {
             Err(())
         }
+    }
+
+    pub fn get_scene_flags<C>(&self, mut cb: C)
+    where
+        C: FnMut(&mut Flags),
+    {
+        cb(&mut self.scene.settings.lock().unwrap());
     }
 
     pub fn set_skybox<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {

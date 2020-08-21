@@ -38,7 +38,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "object_caching")]
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
+use bvh::{BVH, MBVH};
 use glam::*;
+use owning_ref::MutexGuardRef;
+use rayon::prelude::*;
 use rtbvh::{Bounds, AABB};
 use std::{
     collections::HashMap,
@@ -141,6 +144,8 @@ pub struct Scene {
     pub lights: Arc<Mutex<SceneLights>>,
     pub materials: Arc<Mutex<MaterialList>>,
     pub settings: Arc<Mutex<Flags>>,
+    bvh: Option<BVH>,
+    mbvh: Option<MBVH>,
 }
 
 impl Default for Scene {
@@ -153,6 +158,8 @@ impl Default for Scene {
             lights: Arc::new(Mutex::new(SceneLights::default())),
             materials: Arc::new(Mutex::new(MaterialList::new())),
             settings: Arc::new(Mutex::new(Flags::default())),
+            bvh: None,
+            mbvh: None,
         }
     }
 }
@@ -206,6 +213,8 @@ impl Into<Scene> for SerializableScene {
             lights: Arc::new(Mutex::new(self.lights)),
             materials: Arc::new(Mutex::new(self.materials)),
             settings: Arc::new(Mutex::new(self.settings)),
+            bvh: None,
+            mbvh: None,
         }
     }
 }
@@ -276,11 +285,18 @@ impl Scene {
         Err(SceneError::NoFileLoader(extension))
     }
 
-    pub fn add_object(&self, object: Mesh) -> Result<usize, SceneError> {
+    pub fn add_object(&self, mut object: Mesh) -> Result<usize, SceneError> {
+        if let Ok(settings) = self.settings.lock() {
+            if settings.has_flag(SceneFlags::BuildBVHs) {
+                object.construct_bvh();
+            }
+        }
+
         let mut meshes = match self.objects.meshes.lock() {
             Ok(m) => m,
             Err(_) => return Err(SceneError::LockError),
         };
+
         let id = meshes.push(object);
         Ok(id)
     }
@@ -709,6 +725,70 @@ impl Scene {
         );
 
         loaders
+    }
+
+    pub fn create_intersector(&mut self) -> Result<TIntersector<'_>, SceneError> {
+        let mut meshes = self
+            .objects
+            .meshes
+            .lock()
+            .map_err(|_| SceneError::LockError)?;
+        let anim_meshes = self
+            .objects
+            .animated_meshes
+            .lock()
+            .map_err(|_| SceneError::LockError)?;
+        let instances = self
+            .objects
+            .instances
+            .lock()
+            .map_err(|_| SceneError::LockError)?;
+
+        meshes.iter_mut().par_bridge().for_each(|(i, mesh)| {
+            if let None = mesh.bvh {
+                mesh.refit_bvh();
+            }
+        });
+
+        if let Some(_) = self.bvh {
+            if instances.any_changed() {
+                let (bvh, mbvh) = Self::construct_bvh(&instances);
+                self.bvh = Some(bvh);
+                self.mbvh = Some(mbvh);
+            }
+        } else {
+            if instances.len() == 0 {
+                self.bvh = Some(BVH::empty());
+                self.mbvh = Some(MBVH::empty());
+            } else {
+                let (bvh, mbvh) = Self::construct_bvh(&instances);
+                self.bvh = Some(bvh);
+                self.mbvh = Some(mbvh);
+            }
+        };
+
+        Ok(TIntersector::new(
+            MutexGuardRef::new(meshes),
+            MutexGuardRef::new(anim_meshes),
+            MutexGuardRef::new(instances),
+            self.mbvh.as_ref().unwrap(),
+        ))
+    }
+
+    fn construct_bvh(instances: &TrackedStorage<Instance>) -> (BVH, MBVH) {
+        let aabbs = instances
+            .iter()
+            .map(|(_, inst)| inst.bounds())
+            .collect::<Vec<_>>();
+        let centers: Vec<Vec3A> = aabbs.iter().map(|bb| bb.center()).collect();
+        let bvh = rtbvh::BVH::construct(
+            aabbs.as_slice(),
+            centers.as_slice(),
+            rtbvh::builders::BVHType::BinnedSAH,
+        );
+        let mbvh = rtbvh::MBVH::construct(&bvh);
+
+        (bvh, mbvh)
     }
 }
 

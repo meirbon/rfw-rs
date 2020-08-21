@@ -1,21 +1,22 @@
 use crate::objects::*;
 
-use crate::{InstanceID, PrimID};
+use crate::{InstanceID, PrimID, TrackedStorage};
 use glam::*;
+use owning_ref::MutexGuardRef;
 use rtbvh::{Ray, RayPacket4, ShadowPacket4, MBVH};
 
 pub struct TIntersector<'a> {
-    meshes: &'a [Mesh],
-    anim_meshes: &'a [AnimatedMesh],
-    instances: &'a [Instance],
+    meshes: MutexGuardRef<'a, TrackedStorage<Mesh>>,
+    anim_meshes: MutexGuardRef<'a, TrackedStorage<AnimatedMesh>>,
+    instances: MutexGuardRef<'a, TrackedStorage<Instance>>,
     mbvh: &'a MBVH,
 }
 
 impl<'a> TIntersector<'a> {
     pub fn new(
-        meshes: &'a [Mesh],
-        anim_meshes: &'a [AnimatedMesh],
-        instances: &'a [Instance],
+        meshes: MutexGuardRef<'a, TrackedStorage<Mesh>>,
+        anim_meshes: MutexGuardRef<'a, TrackedStorage<AnimatedMesh>>,
+        instances: MutexGuardRef<'a, TrackedStorage<Instance>>,
         mbvh: &'a MBVH,
     ) -> Self {
         Self {
