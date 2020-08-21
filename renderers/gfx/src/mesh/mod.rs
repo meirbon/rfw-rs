@@ -3,7 +3,6 @@ use crate::hal::format::Aspects;
 use crate::hal::image::{Access, Kind, Layout, Level, SubresourceRange, Tiling};
 use crate::hal::memory::Segment;
 use crate::hal::memory::{Barrier, Dependencies};
-use crate::hal::pool::CommandPool;
 use crate::mem::{Allocator, Buffer, Memory};
 use crate::{hal, instances::SceneList, CmdBufferPool, DeviceHandle, Queue};
 
@@ -1404,7 +1403,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         )),
                     });
                     // Texture 2
-                    let view = &*self.texture_views[mat.roughness_map.max(0) as usize];
+                    let view = &*self.texture_views[mat.metallic_roughness_map.max(0) as usize];
                     writes.push(pso::DescriptorSetWrite {
                         set,
                         binding: 4,

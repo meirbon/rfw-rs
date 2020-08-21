@@ -4,20 +4,9 @@ pub use gfx_hal as hal;
 
 use hal::prelude::*;
 use hal::{
-    adapter::PhysicalDevice,
-    command,
-    command::CommandBuffer,
-    device::Device,
-    format as f,
-    format::ChannelType,
-    pool,
-    pool::CommandPool,
-    pso,
-    queue::Submission,
-    queue::{CommandQueue, QueueFamily},
-    window,
-    window::PresentationSurface,
-    Instance, *,
+    adapter::PhysicalDevice, command, command::CommandBuffer, device::Device, format as f,
+    format::ChannelType, pool, pool::CommandPool, pso, queue::QueueFamily, queue::Submission,
+    window, window::PresentationSurface, Instance, *,
 };
 use instances::SceneList;
 use mem::Allocator;

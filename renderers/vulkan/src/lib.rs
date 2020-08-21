@@ -667,9 +667,9 @@ impl Renderer for VkRenderer {
         }
     }
 
-    fn set_materials(&mut self, _materials: &[Material], _device_materials: &[DeviceMaterial]) {}
+    fn set_materials(&mut self, _materials: ChangedIterator<'_, DeviceMaterial>) {}
 
-    fn set_textures(&mut self, _textures: &[Texture]) {}
+    fn set_textures(&mut self, _textures: ChangedIterator<'_, Texture>) {}
 
     fn synchronize(&mut self) {}
 
@@ -947,18 +947,13 @@ impl Renderer for VkRenderer {
         unimplemented!()
     }
 
-    fn set_point_lights(&mut self, _changed: &BitVec, _lights: &[PointLight]) {}
+    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, PointLight>) {}
 
-    fn set_spot_lights(&mut self, _changed: &BitVec, _lights: &[SpotLight]) {}
+    fn set_spot_lights(&mut self, _lights: ChangedIterator<'_, SpotLight>) {}
 
-    fn set_area_lights(&mut self, _changed: &BitVec, _lights: &[AreaLight]) {}
+    fn set_area_lights(&mut self, _lights: ChangedIterator<'_, AreaLight>) {}
 
-    fn set_directional_lights(
-        &mut self,
-        _changed: &BitVec<Local, usize>,
-        _lights: &[DirectionalLight],
-    ) {
-    }
+    fn set_directional_lights(&mut self, _lights: ChangedIterator<'_, DirectionalLight>) {}
 
     fn set_skybox(&mut self, _skybox: Texture) {
         unimplemented!()
