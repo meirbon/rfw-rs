@@ -6,7 +6,6 @@ members = [
     "renderers/deferred",
     "renderers/gpu-rt",
     "renderers/shared",
-    "renderers/vulkan",
     "renderers/gfx",
     "scene",
     "system",
