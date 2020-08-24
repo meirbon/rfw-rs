@@ -221,7 +221,7 @@ impl InstanceList {
                 let instance = &self.instances[i];
                 let root_bounds = instance.bounds();
                 let mesh_bounds = match instance.object_id {
-                    ObjectRef::None => panic!("Invalid"),
+                    ObjectRef::None => vec![AABB::empty(); 1],
                     ObjectRef::Static(mesh_id) => {
                         let mesh = &meshes[mesh_id as usize];
                         let transform = instance.get_transform();

@@ -1,9 +1,11 @@
 use crate::utils::*;
 use crate::{Instance, ObjectRef};
 use glam::*;
+use rayon::prelude::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
+use std::sync::RwLock;
 
 pub mod animation;
 
@@ -25,7 +27,7 @@ impl Into<u8> for NodeFlags {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NodeMesh {
     pub object_id: ObjectRef,
-    pub instance_id: u32,
+    pub instance_id: Option<u32>,
 }
 
 impl std::fmt::Display for NodeMesh {
@@ -189,6 +191,8 @@ impl Node {
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
     root_nodes: TrackedStorage<u32>,
+    animations: TrackedStorage<animation::Animation>,
+    active_animation: Option<usize>,
 }
 
 impl Default for NodeGraph {
@@ -196,6 +200,8 @@ impl Default for NodeGraph {
         Self {
             nodes: TrackedStorage::new(),
             root_nodes: TrackedStorage::new(),
+            animations: TrackedStorage::new(),
+            active_animation: None,
         }
     }
 }
@@ -203,6 +209,24 @@ impl Default for NodeGraph {
 impl NodeGraph {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn initialize(&mut self, instances: &RwLock<TrackedStorage<Instance>>) {
+        for (_, node) in self.nodes.iter_mut() {
+            for mesh in &mut node.meshes {
+                if mesh.instance_id.is_none() {
+                    let mut instances = instances.write().unwrap();
+                    let id = instances.allocate();
+                    mesh.instance_id = Some(id as u32);
+                    instances[id].object_id = mesh.object_id;
+                    instances[id].skin_id = node.skin;
+                }
+            }
+        }
+    }
+
+    pub fn add_animation(&mut self, anim: animation::Animation) -> usize {
+        self.animations.push(anim)
     }
 
     pub fn allocate(&mut self) -> usize {
@@ -233,9 +257,13 @@ impl NodeGraph {
 
     pub fn update(
         &mut self,
-        instances: &mut TrackedStorage<Instance>,
-        skins: &mut TrackedStorage<Skin>,
+        instances: &RwLock<TrackedStorage<Instance>>,
+        skins: &RwLock<TrackedStorage<Skin>>,
     ) -> bool {
+        if !self.root_nodes.any_changed() && !self.nodes.any_changed() {
+            return false;
+        }
+
         let mut changed = false;
         for i in 0..self.root_nodes.len() {
             let id = self.root_nodes[i] as usize;
@@ -255,6 +283,7 @@ impl NodeGraph {
         }
 
         self.root_nodes.reset_changed();
+        self.nodes.reset_changed();
 
         changed
     }
@@ -287,8 +316,8 @@ impl NodeGraph {
         current_index: usize,
         accumulated_matrix: Mat4,
         nodes: &mut TrackedStorage<Node>,
-        instances: &mut TrackedStorage<Instance>,
-        skins: &mut TrackedStorage<Skin>,
+        instances: &RwLock<TrackedStorage<Instance>>,
+        skins: &RwLock<TrackedStorage<Skin>>,
     ) -> bool {
         let mut changed = nodes[current_index].changed;
         if changed {
@@ -317,32 +346,45 @@ impl NodeGraph {
         }
 
         let meshes = &nodes[current_index].meshes;
-        meshes.iter().for_each(|m| {
-            instances[m.instance_id as usize].set_transform(combined_matrix);
+        meshes
+            .iter()
+            .filter(|m| m.instance_id.is_some())
+            .for_each(|m| {
+                if let Ok(mut instances) = instances.write() {
+                    instances[m.instance_id.unwrap() as usize].set_transform(combined_matrix);
+                }
 
-            // TODO: Morph animations
-        });
+                // TODO: Morph animations
+            });
 
         // Update skin
         if let Some(skin) = nodes[current_index].skin {
-            let skin = &mut skins[skin as usize];
-            let inverse_transform = combined_matrix.inverse();
-            let inverse_bind_matrices = &skin.inverse_bind_matrices;
-            let joint_matrices = &mut skin.joint_matrices;
+            if let Ok(mut skins) = skins.write() {
+                let skin = &mut skins[skin as usize];
+                let inverse_transform = combined_matrix.inverse();
+                let inverse_bind_matrices = &skin.inverse_bind_matrices;
+                let joint_matrices = &mut skin.joint_matrices;
 
-            skin.joint_nodes
+                skin.joint_nodes
+                    .iter()
+                    .enumerate()
+                    .for_each(|(i, node_id)| {
+                        let node_id = *node_id as usize;
+                        joint_matrices[i] = inverse_transform
+                            * nodes[node_id].combined_matrix
+                            * inverse_bind_matrices[i];
+                    });
+            }
+
+            meshes
                 .iter()
-                .enumerate()
-                .for_each(|(i, node_id)| {
-                    let node_id = *node_id as usize;
-                    joint_matrices[i] = inverse_transform
-                        * nodes[node_id].combined_matrix
-                        * inverse_bind_matrices[i];
+                .filter(|m| m.instance_id.is_some())
+                .for_each(|m| {
+                    if let Ok(mut instances) = instances.write() {
+                        instances[m.instance_id.unwrap() as usize].skin_id =
+                            nodes[current_index].skin;
+                    }
                 });
-
-            meshes.iter().for_each(|m| {
-                instances[m.instance_id as usize].skin_id = nodes[current_index].skin;
-            });
         }
 
         nodes[current_index].changed = false;
@@ -351,8 +393,73 @@ impl NodeGraph {
         changed
     }
 
-    pub fn iter_root_nodes(&self) -> FlaggedIterator<'_, u32> {
-        self.root_nodes.iter()
+    pub fn root_nodes(&self) -> Vec<u32> {
+        self.root_nodes.iter().map(|(_, i)| *i).collect()
+    }
+
+    pub fn iter_root_nodes(&self) -> RootNodeIterator<'_> {
+        RootNodeIterator {
+            nodes: unsafe { self.nodes.as_slice() },
+            root_nodes: self.root_nodes.iter(),
+        }
+    }
+
+    pub fn iter_root_nodes_mut(&mut self) -> RootNodeIteratorMut<'_> {
+        RootNodeIteratorMut {
+            nodes: unsafe { self.nodes.as_mut_slice() },
+            root_nodes: self.root_nodes.iter(),
+        }
+    }
+
+    pub fn update_animation(&mut self, time: f32) {
+        if let Some(animation) = self.active_animation {
+            self.animations[animation].set_time(time, &mut self.nodes);
+        }
+    }
+
+    pub fn set_active_animation(&mut self, id: usize) -> Result<(), ()> {
+        if let Some(_) = self.animations.get(id) {
+            self.active_animation = Some(id);
+            return Ok(());
+        }
+
+        Err(())
+    }
+}
+
+pub struct RootNodeIterator<'a> {
+    nodes: &'a [Node],
+    root_nodes: FlaggedIterator<'a, u32>,
+}
+
+impl<'a> Iterator for RootNodeIterator<'a> {
+    type Item = &'a Node;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some((_, root_node)) = self.root_nodes.next() {
+            Some(&self.nodes[*root_node as usize])
+        } else {
+            None
+        }
+    }
+}
+
+pub struct RootNodeIteratorMut<'a> {
+    nodes: &'a mut [Node],
+    root_nodes: FlaggedIterator<'a, u32>,
+}
+
+impl<'a> Iterator for RootNodeIteratorMut<'a> {
+    type Item = &'a mut Node;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some((_, root_node)) = self.root_nodes.next() {
+            let ptr = self.nodes.as_mut_ptr();
+            let reference = unsafe { ptr.add(*root_node as usize).as_mut().unwrap() };
+            Some(reference)
+        } else {
+            None
+        }
     }
 }
 
@@ -386,5 +493,76 @@ impl Default for Skin {
             inverse_bind_matrices: Vec::new(),
             joint_matrices: Vec::new(),
         }
+    }
+}
+
+#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone)]
+pub struct SceneGraph {
+    sub_graphs: TrackedStorage<NodeGraph>,
+}
+
+impl Default for SceneGraph {
+    fn default() -> Self {
+        Self {
+            sub_graphs: TrackedStorage::default(),
+        }
+    }
+}
+
+impl SceneGraph {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn synchronize(
+        &mut self,
+        instances: &RwLock<TrackedStorage<Instance>>,
+        skins: &RwLock<TrackedStorage<Skin>>,
+    ) -> bool {
+        let changed: u32 = self
+            .sub_graphs
+            .iter_mut()
+            .par_bridge()
+            .map(|(_, graph)| {
+                if graph.update(instances, skins) {
+                    graph.reset_changed();
+                    1
+                } else {
+                    0
+                }
+            })
+            .sum();
+        changed > 0
+    }
+
+    pub fn add_graph(&mut self, graph: NodeGraph) -> u32 {
+        self.sub_graphs.push(graph) as u32
+    }
+
+    pub fn remove_graph(&mut self, id: u32, instances: &RwLock<TrackedStorage<Instance>>) -> bool {
+        // Remove instances part of this sub graph
+        if let Some(graph) = self.sub_graphs.get(id as usize) {
+            for (_, node) in graph.nodes.iter() {
+                for mesh in &node.meshes {
+                    if let Some(id) = mesh.instance_id {
+                        // instances.write().unwrap().erase(id as usize).unwrap();
+                        let instance = &mut instances.write().unwrap()[id as usize];
+                        instance.object_id = ObjectRef::None;
+                    }
+                }
+            }
+        }
+
+        match self.sub_graphs.erase(id as usize) {
+            Ok(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn set_animations(&mut self, time: f32) {
+        self.sub_graphs.iter_mut().par_bridge().for_each(|(_, g)| {
+            g.update_animation(time);
+        })
     }
 }

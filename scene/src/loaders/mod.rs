@@ -1,19 +1,18 @@
-use crate::graph::animation::Animation;
 use crate::graph::{NodeGraph, Skin};
 use crate::utils::TrackedStorage;
-use crate::{AnimatedMesh, Instance, MaterialList, Mesh, ObjectRef};
+use crate::{AnimatedMesh, MaterialList, Mesh, ObjectRef};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 pub mod gltf;
 pub mod obj;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum LoadResult {
     /// Reference to single mesh
     Object(ObjectRef),
     /// Indices of root nodes of scene
-    Scene(Vec<u32>),
+    Scene(NodeGraph),
 }
 
 impl LoadResult {
@@ -24,7 +23,7 @@ impl LoadResult {
         }
     }
 
-    pub fn scene(self) -> Result<Vec<u32>, ()> {
+    pub fn scene(self) -> Result<NodeGraph, ()> {
         match self {
             LoadResult::Object(_) => Err(()),
             LoadResult::Scene(nodes) => Ok(nodes),
@@ -36,12 +35,9 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &Mutex<MaterialList>,
-        mesh_storage: &Mutex<TrackedStorage<Mesh>>,
-        animation_storage: &Mutex<TrackedStorage<Animation>>,
-        animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
-        node_storage: &Mutex<NodeGraph>,
-        skin_storage: &Mutex<TrackedStorage<Skin>>,
-        instances_storage: &Mutex<TrackedStorage<Instance>>,
+        mat_manager: &RwLock<MaterialList>,
+        mesh_storage: &RwLock<TrackedStorage<Mesh>>,
+        animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
+        skin_storage: &RwLock<TrackedStorage<Skin>>,
     ) -> Result<LoadResult, crate::SceneError>;
 }

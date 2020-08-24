@@ -1,12 +1,12 @@
 use crate::{
-    AnimatedMesh, Flip, Instance, Material, MaterialList, Mesh, ObjectLoader, ObjectRef,
-    SceneError, TextureFormat,
+    AnimatedMesh, Flip, Material, MaterialList, Mesh, ObjectLoader, ObjectRef, SceneError,
+    TextureFormat,
 };
 use glam::*;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::RwLock,
 };
 
 use crate::graph::animation::{Animation, Channel, Method, Target};
@@ -50,13 +50,10 @@ impl ObjectLoader for GltfLoader {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &Mutex<MaterialList>,
-        mesh_storage: &Mutex<TrackedStorage<Mesh>>,
-        animation_storage: &Mutex<TrackedStorage<Animation>>,
-        animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
-        node_storage: &Mutex<NodeGraph>,
-        skin_storage: &Mutex<TrackedStorage<Skin>>,
-        instances_storage: &Mutex<TrackedStorage<Instance>>,
+        mat_manager: &RwLock<MaterialList>,
+        mesh_storage: &RwLock<TrackedStorage<Mesh>>,
+        animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
+        skin_storage: &RwLock<TrackedStorage<Skin>>,
     ) -> Result<LoadResult, SceneError> {
         let file = std::fs::File::open(&path).map_err(|_| SceneError::LoadError(path.clone()))?;
         let gltf =
@@ -68,8 +65,9 @@ impl ObjectLoader for GltfLoader {
 
         let mut mat_mapping = HashMap::new();
 
+        let mut nodes = NodeGraph::new();
         {
-            let mut mat_manager = mat_manager.lock().unwrap();
+            let mut mat_manager = mat_manager.write().unwrap();
             let parent_folder = match path.parent() {
                 Some(parent) => parent.to_path_buf(),
                 None => PathBuf::from(""),
@@ -130,15 +128,13 @@ impl ObjectLoader for GltfLoader {
         let mut node_mapping: HashMap<usize, usize> = HashMap::new();
 
         {
-            let mut skin_storage = skin_storage.lock().unwrap();
+            let mut skin_storage = skin_storage.write().unwrap();
             // Store each skin and create a mapping
             document.skins().for_each(|s| {
                 let skin_id = skin_storage.allocate();
                 skin_mapping.insert(s.index(), skin_id);
             });
         }
-
-        let mut root_nodes = Vec::new();
 
         let meshes: Vec<LoadedMesh> = document
             .meshes()
@@ -359,27 +355,23 @@ impl ObjectLoader for GltfLoader {
             .map(|m| match m {
                 LoadedMesh::Static(m) => {
                     let clone = m.clone();
-                    let mut mesh_storage = mesh_storage.lock().unwrap();
-                    let mesh_id = mesh_storage.allocate();
-                    mesh_storage[mesh_id] = clone;
+                    let mut mesh_storage = mesh_storage.write().unwrap();
+                    let mesh_id = mesh_storage.push(clone);
                     LoadedMeshID::Static(mesh_id, m.bounds.clone())
                 }
                 LoadedMesh::Animated(m) => {
                     let clone = m.clone();
-                    let mut animated_mesh_storage = animated_mesh_storage.lock().unwrap();
-                    let mesh_id = animated_mesh_storage.allocate();
-                    animated_mesh_storage[mesh_id] = clone;
+                    let mut animated_mesh_storage = animated_mesh_storage.write().unwrap();
+                    let mesh_id = animated_mesh_storage.push(clone);
                     LoadedMeshID::Animated(mesh_id, m.bounds.clone())
                 }
             })
             .collect::<Vec<LoadedMeshID>>();
 
         {
-            let mut node_storage = node_storage.lock().unwrap();
-
             // Create a mapping of all nodes
             document.nodes().for_each(|node| {
-                let node_id = node_storage.allocate();
+                let node_id = nodes.allocate();
                 node_mapping.insert(node.index(), node_id);
             });
 
@@ -414,27 +406,22 @@ impl ObjectLoader for GltfLoader {
 
                 if let Some(mesh) = node.mesh() {
                     let mesh = &meshes[mesh.index()];
-                    let mut instance_storage = instances_storage.lock().unwrap();
 
                     match mesh {
-                        LoadedMeshID::Static(id, bounds) => {
-                            let instance_id = instance_storage.allocate();
+                        LoadedMeshID::Static(id, _) => {
                             let object = ObjectRef::Static(*id as u32);
-                            instance_storage[instance_id] = Instance::new(object, bounds);
 
                             new_node.meshes.push(NodeMesh {
                                 object_id: object,
-                                instance_id: instance_id as u32,
+                                instance_id: None,
                             });
                         }
-                        LoadedMeshID::Animated(id, bounds) => {
-                            let instance_id = instance_storage.allocate();
+                        LoadedMeshID::Animated(id, _) => {
                             let object = ObjectRef::Animated(*id as u32);
-                            instance_storage[instance_id] = Instance::new(object, bounds);
 
                             new_node.meshes.push(NodeMesh {
                                 object_id: object,
-                                instance_id: instance_id as u32,
+                                instance_id: None,
                             });
                         }
                     }
@@ -466,14 +453,13 @@ impl ObjectLoader for GltfLoader {
                 // node.camera().unwrap();
 
                 new_node.update_matrix();
-                node_storage[node_id] = new_node;
+                nodes[node_id] = new_node;
             });
 
             document.scenes().into_iter().for_each(|scene| {
                 scene.nodes().for_each(|node| {
                     let id = *node_mapping.get(&node.index()).unwrap();
-                    node_storage.add_root_node(id);
-                    root_nodes.push(id as u32);
+                    nodes.add_root_node(id);
                 });
             });
         }
@@ -622,16 +608,16 @@ impl ObjectLoader for GltfLoader {
                 })
                 .collect::<Vec<Channel>>();
 
-            let mut animations = animation_storage.lock().unwrap();
-            let mut animation = Animation {
+            let animation = Animation {
                 name: anim.name().unwrap_or("").to_string(),
-                affected_roots: root_nodes.clone(),
+                affected_roots: nodes.root_nodes(),
                 channels,
                 time: 0.0,
             };
 
-            animation.set_time(0.0, &mut node_storage.lock().unwrap());
-            animations.push(animation);
+            let anim_id = nodes.add_animation(animation);
+            nodes.set_active_animation(anim_id).unwrap();
+            nodes.update_animation(0.0);
         });
 
         // Store each skin and create a mapping
@@ -658,10 +644,10 @@ impl ObjectLoader for GltfLoader {
                     .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
             }
 
-            skin_storage.lock().unwrap()[skin_id] = skin;
+            skin_storage.write().unwrap()[skin_id] = skin;
         });
 
-        Ok(LoadResult::Scene(root_nodes))
+        Ok(LoadResult::Scene(nodes))
     }
 }
 

@@ -2,7 +2,7 @@ use crate::hal;
 use crate::instances::{RenderBuffers, SceneList};
 use crate::skinning::SkinList;
 use hal::*;
-use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool, *};
+use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool};
 use rfw_scene::{AnimVertexData, FrustrumG, Light, LightInfo, TrackedStorage, VertexData};
 use shared::BytesConversion;
 use std::{fmt::Debug, mem::ManuallyDrop, sync::Arc};

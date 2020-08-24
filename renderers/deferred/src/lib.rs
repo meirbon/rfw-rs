@@ -942,7 +942,7 @@ impl Deferred {
                         .should_render()
                 })
                 .for_each(|(i, instance, bounds)| match instance.object_id {
-                    ObjectRef::None => panic!("Invalid"),
+                    ObjectRef::None => {}
                     ObjectRef::Static(mesh_id) => {
                         let mesh = &meshes[mesh_id as usize];
                         if let Some(buffer) = mesh.buffer.as_ref() {

@@ -1,6 +1,7 @@
-use crate::graph::NodeGraph;
+use crate::graph::Node;
 use glam::*;
 
+use crate::TrackedStorage;
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
@@ -305,12 +306,12 @@ impl Animation {
         Self::default()
     }
 
-    pub fn update(&mut self, dt: f32, nodes: &mut NodeGraph) {
+    pub fn update(&mut self, dt: f32, nodes: &mut TrackedStorage<Node>) {
         self.time += dt;
         self.set_time(self.time, nodes);
     }
 
-    pub fn set_time(&mut self, time: f32, nodes: &mut NodeGraph) {
+    pub fn set_time(&mut self, time: f32, nodes: &mut TrackedStorage<Node>) {
         self.affected_roots.iter().for_each(|id| {
             let id = *id as usize;
             nodes.trigger_changed(id);

@@ -1,6 +1,6 @@
 use glam::*;
 pub use rfw_scene as scene;
-use rfw_scene::graph::Node;
+use rfw_scene::graph::NodeGraph;
 use rfw_scene::utils::{FlaggedIterator, FlaggedIteratorMut};
 use rfw_scene::{
     raw_window_handle, Camera, DirectionalLight, Flip, Instance, LoadResult, ObjectRef, PointLight,
@@ -9,7 +9,7 @@ use rfw_scene::{
 use scene::Material;
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 #[derive(Debug, Clone)]
 pub enum SceneLight {
@@ -21,11 +21,11 @@ pub enum SceneLight {
 pub struct LightRef {
     id: usize,
     light: SceneLight,
-    lights: Arc<Mutex<SceneLights>>,
+    lights: Arc<RwLock<SceneLights>>,
 }
 
 impl LightRef {
-    fn new(id: usize, light: SceneLight, lights: Arc<Mutex<SceneLights>>) -> Self {
+    fn new(id: usize, light: SceneLight, lights: Arc<RwLock<SceneLights>>) -> Self {
         Self { id, light, lights }
     }
 
@@ -122,7 +122,7 @@ impl LightRef {
     }
 
     pub fn synchronize(&self) -> Result<(), ()> {
-        if let Ok(mut lights) = self.lights.try_lock() {
+        if let Ok(mut lights) = self.lights.write() {
             match &self.light {
                 SceneLight::Point(l) => {
                     lights.point_lights[self.id] = l.clone();
@@ -179,7 +179,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: FnOnce(FlaggedIterator<'_, Instance>),
     {
-        let lock = self.scene.objects.instances.lock().unwrap();
+        let lock = self.scene.objects.instances.read().unwrap();
         cb(lock.iter());
     }
 
@@ -187,7 +187,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: FnOnce(FlaggedIteratorMut<'_, Instance>),
     {
-        let mut lock = self.scene.objects.instances.lock().unwrap();
+        let mut lock = self.scene.objects.instances.write().unwrap();
         cb(lock.iter_mut());
     }
 
@@ -195,7 +195,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: FnOnce(Option<&Instance>),
     {
-        let lock = self.scene.objects.instances.lock().unwrap();
+        let lock = self.scene.objects.instances.read().unwrap();
         cb(lock.get(index))
     }
 
@@ -203,7 +203,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: FnOnce(Option<&mut Instance>),
     {
-        let mut lock = self.scene.objects.instances.lock().unwrap();
+        let mut lock = self.scene.objects.instances.write().unwrap();
         cb(lock.get_mut(index))
     }
 
@@ -211,7 +211,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: FnOnce(&SceneLights),
     {
-        let lock = self.scene.lights.lock().unwrap();
+        let lock = self.scene.lights.read().unwrap();
         cb(&lock)
     }
 
@@ -219,31 +219,15 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: FnOnce(&mut SceneLights),
     {
-        let mut lock = self.scene.lights.lock().unwrap();
+        let mut lock = self.scene.lights.write().unwrap();
         cb(&mut lock)
-    }
-
-    pub fn get_node<C>(&self, index: usize, cb: C)
-    where
-        C: FnOnce(Option<&Node>),
-    {
-        let lock = self.scene.objects.nodes.lock().unwrap();
-        cb(lock.get(index))
-    }
-
-    pub fn get_node_mut<C>(&self, index: u32, cb: C)
-    where
-        C: FnOnce(Option<&mut Node>),
-    {
-        let mut lock = self.scene.objects.nodes.lock().unwrap();
-        cb(lock.get_mut(index as usize))
     }
 
     pub fn find_mesh_by_name(&self, name: String) -> Vec<ObjectRef> {
         let mut result = Vec::new();
         if let (Ok(meshes), Ok(anim_meshes)) = (
-            self.scene.objects.meshes.lock(),
-            self.scene.objects.animated_meshes.lock(),
+            self.scene.objects.meshes.read(),
+            self.scene.objects.animated_meshes.read(),
         ) {
             for m_id in 0..meshes.len() {
                 if let Some(m) = meshes.get(m_id) {
@@ -295,7 +279,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         specular: B,
         transmission: f32,
     ) -> Result<u32, SceneError> {
-        if let Ok(mut materials) = self.scene.materials.lock() {
+        if let Ok(mut materials) = self.scene.materials.write() {
             Ok(materials.add(color, roughness, specular, transmission) as u32)
         } else {
             Err(SceneError::LockError)
@@ -306,7 +290,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: Fn(Option<&Material>),
     {
-        let materials = self.scene.materials.lock().unwrap();
+        let materials = self.scene.materials.read().unwrap();
         cb(materials.get(id as usize));
     }
 
@@ -314,7 +298,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     where
         C: Fn(Option<&mut Material>),
     {
-        let mut materials = self.scene.materials.lock().unwrap();
+        let mut materials = self.scene.materials.write().unwrap();
         materials.get_mut(id as usize, cb);
     }
 
@@ -330,6 +314,30 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         self.scene.add_instance(object)
     }
 
+    pub fn add_scene(&self, mut graph: NodeGraph) -> Result<u32, SceneError> {
+        // TODO: This should be part of the scene crate API
+        if let Ok(mut g) = self.scene.objects.graph.write() {
+            graph.initialize(&self.scene.objects.instances);
+            let id = g.add_graph(graph);
+            Ok(id)
+        } else {
+            Err(SceneError::LockError)
+        }
+    }
+
+    pub fn remove_scene(&self, id: u32) -> Result<(), SceneError> {
+        // TODO: This should be part of the scene crate API
+        if let Ok(mut g) = self.scene.objects.graph.write() {
+            if g.remove_graph(id, &self.scene.objects.instances) {
+                Ok(())
+            } else {
+                Err(SceneError::InvalidSceneID(id))
+            }
+        } else {
+            Err(SceneError::LockError)
+        }
+    }
+
     /// Will return a reference to the point light if the scene is not locked
     pub fn add_point_light<B: Into<[f32; 3]>>(&self, position: B, radiance: B) -> Option<LightRef> {
         if let Ok(mut lights) = self.scene.lights_lock() {
@@ -342,7 +350,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let light = LightRef::new(
                 lights.point_lights.len() - 1,
                 SceneLight::Point(light),
-                self.scene.get_lights(),
+                self.scene.lights.clone(),
             );
 
             Some(light)
@@ -378,7 +386,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let light = LightRef::new(
                 lights.spot_lights.len() - 1,
                 SceneLight::Spot(light),
-                self.scene.get_lights(),
+                self.scene.lights.clone(),
             );
 
             Some(light)
@@ -401,7 +409,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let light = LightRef::new(
                 lights.directional_lights.len() - 1,
                 SceneLight::Directional(light),
-                self.scene.get_lights(),
+                self.scene.lights.clone(),
             );
 
             Ok(light)
@@ -411,13 +419,9 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn set_animation_time(&self, time: f32) {
-        if let (Ok(mut nodes), Ok(mut animations)) = (
-            self.scene.objects.nodes.lock(),
-            self.scene.objects.animations.lock(),
-        ) {
-            animations.iter_mut().for_each(|(_, anim)| {
-                anim.set_time(time, &mut nodes);
-            });
+        // TODO: Add a function to do this on a graph by graph basis
+        if let Ok(mut graph) = self.scene.objects.graph.write() {
+            graph.set_animations(time);
         }
     }
 
@@ -427,35 +431,32 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             let mut update_lights = false;
             let mut found_light = false;
 
-            if let (Ok(mut nodes), Ok(mut skins), Ok(mut instances)) = (
-                self.scene.objects.nodes.lock(),
-                self.scene.objects.skins.lock(),
-                self.scene.objects.instances.lock(),
-            ) {
-                if nodes.any_changed() {
-                    nodes.update(&mut instances, &mut skins);
-                }
+            if let Ok(mut graph) = self.scene.objects.graph.write() {
+                graph.synchronize(&self.scene.objects.instances, &self.scene.objects.skins);
+            }
 
+            if let Ok(mut skins) = self.scene.objects.skins.write() {
                 if skins.any_changed() {
                     renderer.set_skins(skins.iter_changed());
+                    skins.reset_changed();
                 }
-
-                skins.reset_changed();
-                nodes.reset_changed();
             }
 
             if let (Ok(mut meshes), Ok(mut anim_meshes), Ok(mut instances)) = (
-                self.scene.objects.meshes.lock(),
-                self.scene.objects.animated_meshes.lock(),
-                self.scene.objects.instances.lock(),
+                self.scene.objects.meshes.write(),
+                self.scene.objects.animated_meshes.write(),
+                self.scene.objects.instances.write(),
             ) {
                 if meshes.any_changed() {
                     renderer.set_meshes(meshes.iter_changed());
                     changed = true;
+                    meshes.reset_changed();
                 }
 
                 if anim_meshes.any_changed() {
                     renderer.set_animated_meshes(anim_meshes.iter_changed());
+                    changed = true;
+                    anim_meshes.reset_changed();
                 }
 
                 if let Ok(materials) = self.scene.materials_lock() {
@@ -470,7 +471,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
 
                         match instance.object_id {
                             ObjectRef::None => {
-                                return;
+                                break;
                             }
                             ObjectRef::Static(object_id) => {
                                 let object_id = object_id as usize;
@@ -510,11 +511,9 @@ impl<T: Sized + Renderer> RenderSystem<T> {
 
                 if instances.any_changed() {
                     renderer.set_instances(instances.iter_changed());
+                    changed = true;
+                    instances.reset_changed();
                 }
-
-                meshes.reset_changed();
-                anim_meshes.reset_changed();
-                instances.reset_changed();
             }
 
             update_lights |= found_light;

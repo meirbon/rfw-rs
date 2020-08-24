@@ -1,12 +1,11 @@
 use glam::*;
-use std::{path::PathBuf, sync::Mutex};
+use std::{path::PathBuf, sync::RwLock};
 
-use crate::graph::animation::Animation;
-use crate::graph::{NodeGraph, Skin};
+use crate::graph::Skin;
 use crate::material::*;
 use crate::utils::*;
 use crate::SceneError;
-use crate::{AnimatedMesh, Instance, LoadResult, Mesh, ObjectLoader, ObjectRef};
+use crate::{AnimatedMesh, LoadResult, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {
     HasNormals = 1,
@@ -38,13 +37,10 @@ impl ObjectLoader for ObjLoader {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &Mutex<MaterialList>,
-        mesh_storage: &Mutex<TrackedStorage<Mesh>>,
-        _animation_storage: &Mutex<TrackedStorage<Animation>>,
-        _animated_mesh_storage: &Mutex<TrackedStorage<AnimatedMesh>>,
-        _node_storage: &Mutex<NodeGraph>,
-        _skin_storage: &Mutex<TrackedStorage<Skin>>,
-        _instances_storage: &Mutex<TrackedStorage<Instance>>,
+        mat_manager: &RwLock<MaterialList>,
+        mesh_storage: &RwLock<TrackedStorage<Mesh>>,
+        _animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
+        _skin_storage: &RwLock<TrackedStorage<Skin>>,
     ) -> Result<LoadResult, SceneError> {
         let object = tobj::load_obj(&path);
         if let Err(_) = object {
@@ -54,7 +50,7 @@ impl ObjectLoader for ObjLoader {
         let mut material_indices = vec![0; materials.len()];
 
         {
-            let mut mat_manager = mat_manager.lock().unwrap();
+            let mut mat_manager = mat_manager.write().unwrap();
             for (i, material) in materials.iter().enumerate() {
                 let mut color = Vec3::from(material.diffuse);
                 let specular = Vec3::from(material.specular);
@@ -263,7 +259,7 @@ impl ObjectLoader for ObjLoader {
             }
         }
 
-        let mut mesh_storage = mesh_storage.lock().unwrap();
+        let mut mesh_storage = mesh_storage.write().unwrap();
         let mesh_id = mesh_storage.allocate();
         mesh_storage[mesh_id] = Mesh::new(
             vertices,

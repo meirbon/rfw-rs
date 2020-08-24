@@ -14,11 +14,10 @@ use winit::{
     window::WindowBuilder,
 };
 
-use futures::executor::block_on;
 use rfw_system::{
     scene::{
         renderers::{RenderMode, Setting, SettingValue},
-        Camera, LoadResult, Renderer,
+        Camera, Renderer,
     },
     RenderSystem,
 };
@@ -122,14 +121,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
-    let (renderer, init) =
-        match RenderSystem::from_scene("scene", &window, render_width, render_height) {
-            Ok(r) => (r as RenderSystem<T>, false),
-            Err(_) => (
-                RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>,
-                true,
-            ),
-        };
+    let renderer =
+        RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -144,37 +137,38 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
 
     let mut resized = false;
 
-    if init {
-        renderer.add_spot_light(
-            Vec3::new(0.0, 15.0, 0.0),
-            Vec3::new(0.0, -1.0, 0.3),
-            Vec3::new(105.0, 100.0, 110.0),
-            45.0,
-            60.0,
-        );
-        let pica = renderer.load_async("models/pica/scene.gltf");
-        let cesium_man = renderer.load_async("models/CesiumMan/CesiumMan.gltf");
+    renderer.add_spot_light(
+        Vec3::new(0.0, 15.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.3),
+        Vec3::new(105.0, 100.0, 110.0),
+        45.0,
+        60.0,
+    );
 
-        let _pica = match block_on(pica)? {
-            LoadResult::Scene(root_nodes) => root_nodes,
-            LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-        };
-
-        match block_on(cesium_man)? {
-            LoadResult::Scene(root_nodes) => {
-                root_nodes.iter().for_each(|node| {
-                    renderer.get_node_mut(*node, |node| {
-                        if let Some(node) = node {
-                            node.set_scale(Vec3::splat(3.0));
-                            node.translate(Vec3::new(0.0, 0.5, 0.0));
-                            node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
-                        }
-                    });
-                });
-            }
-            LoadResult::Object(_) => panic!("Gltf files should be loaded as scenes"),
-        };
+    let mut cesium_man1 = renderer
+        .load("models/CesiumMan/CesiumMan.gltf")?
+        .scene()
+        .unwrap();
+    for node in cesium_man1.iter_root_nodes_mut() {
+        node.set_scale(Vec3::splat(3.0));
+        node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
     }
+
+    let mut cesium_man2 = cesium_man1.clone();
+    for node in cesium_man2.iter_root_nodes_mut() {
+        node.translate(Vec3::new(-3.0, 0.0, 0.0));
+    }
+
+    let mut cesium_man3 = cesium_man2.clone();
+    for node in cesium_man3.iter_root_nodes_mut() {
+        node.translate(Vec3::new(-3.0, 0.0, 0.0));
+    }
+
+    renderer.add_scene(cesium_man1)?;
+    renderer.add_scene(cesium_man2)?;
+
+    let pica = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
+    renderer.add_scene(pica)?;
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
@@ -184,6 +178,9 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     renderer.set_animation_time(0.0);
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
+
+    let mut scene_timer = utils::Timer::new();
+    let mut scene_id = None;
 
     let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
@@ -204,16 +201,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 window_id,
             } if window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
-                if init {
-                    renderer.save_scene("scene").unwrap();
-                }
             }
             Event::RedrawRequested(_) => {
                 if key_handler.pressed(KeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
-                    if init {
-                        renderer.save_scene("scene").unwrap();
-                    }
                 }
 
                 if !settings.is_empty() {
@@ -248,6 +239,17 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                         setting.set(SettingValue::Int(value));
                         renderer.set_setting(setting).unwrap();
                     }
+                }
+
+                if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
+                    if let Some(id) = scene_id {
+                        renderer.remove_scene(id).unwrap();
+                        scene_id = None;
+                    } else {
+                        scene_id = Some(renderer.add_scene(cesium_man3.clone()).unwrap());
+                    }
+
+                    scene_timer.reset();
                 }
 
                 let mut view_change = Vec3::new(0.0, 0.0, 0.0);

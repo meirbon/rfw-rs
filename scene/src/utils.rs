@@ -127,6 +127,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
     pub fn allocate(&mut self) -> usize {
         while let Some(index) = self.empty_slots.pop() {
             if !self.active.get(index as usize).unwrap() {
+                self.active.set(index as usize, true);
                 return index as usize;
             }
         }
@@ -476,7 +477,6 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn push(&mut self, val: T) -> usize {
         let index = self.allocate();
         self.storage[index] = val;
-        self.changed.set(index, true);
         index
     }
 
