@@ -14,6 +14,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+use rfw_gfx::GfxBackend;
 use rfw_system::{
     scene::{
         renderers::{RenderMode, Setting, SettingValue},
@@ -99,6 +100,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match matches.value_of("renderer") {
         Some("gpu-rt") => run_application::<RayTracer>(),
+        Some("gfx") => run_application::<GfxBackend>(),
         _ => run_application::<Deferred>(),
     }
 }
@@ -164,8 +166,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         node.translate(Vec3::new(-3.0, 0.0, 0.0));
     }
 
-    renderer.add_scene(cesium_man1)?;
-    renderer.add_scene(cesium_man2)?;
+    let cesium_man1 = renderer.add_scene(cesium_man1)?;
+    let cesium_man2 = renderer.add_scene(cesium_man2)?;
 
     let pica = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
     renderer.add_scene(pica)?;
@@ -175,7 +177,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let app_time = utils::Timer::new();
 
     timer2.reset();
-    renderer.set_animation_time(0.0);
+    renderer.set_animations_time(0.0);
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
 
@@ -347,7 +349,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 });
 
                 timer2.reset();
-                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
+                let time = app_time.elapsed_in_millis() / 1000.0;
+                renderer.set_animation_time(cesium_man1, time);
+                renderer.set_animation_time(cesium_man2, time / 2.0);
+                if let Some(cesium_man3) = scene_id {
+                    renderer.set_animation_time(cesium_man3, time / 3.0);
+                }
                 renderer.synchronize();
                 synchronize.add_sample(timer2.elapsed_in_millis());
 

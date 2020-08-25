@@ -317,7 +317,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn add_scene(&self, mut graph: NodeGraph) -> Result<u32, SceneError> {
         // TODO: This should be part of the scene crate API
         if let Ok(mut g) = self.scene.objects.graph.write() {
-            graph.initialize(&self.scene.objects.instances);
+            graph.initialize(&self.scene.objects.instances, &self.scene.objects.skins);
             let id = g.add_graph(graph);
             Ok(id)
         } else {
@@ -328,7 +328,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn remove_scene(&self, id: u32) -> Result<(), SceneError> {
         // TODO: This should be part of the scene crate API
         if let Ok(mut g) = self.scene.objects.graph.write() {
-            if g.remove_graph(id, &self.scene.objects.instances) {
+            if g.remove_graph(id, &self.scene.objects.instances, &self.scene.objects.skins) {
                 Ok(())
             } else {
                 Err(SceneError::InvalidSceneID(id))
@@ -418,7 +418,14 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
-    pub fn set_animation_time(&self, time: f32) {
+    pub fn set_animation_time(&self, id: u32, time: f32) {
+        // TODO: Add a function to do this on a graph by graph basis
+        if let Ok(mut graph) = self.scene.objects.graph.write() {
+            graph.set_animation(id, time);
+        }
+    }
+
+    pub fn set_animations_time(&self, time: f32) {
         // TODO: Add a function to do this on a graph by graph basis
         if let Ok(mut graph) = self.scene.objects.graph.write() {
             graph.set_animations(time);

@@ -191,8 +191,9 @@ impl Node {
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
     root_nodes: TrackedStorage<u32>,
-    animations: TrackedStorage<animation::Animation>,
-    active_animation: Option<usize>,
+    pub animations: TrackedStorage<animation::Animation>,
+    pub skins: TrackedStorage<Skin>,
+    pub active_animation: Option<usize>,
 }
 
 impl Default for NodeGraph {
@@ -201,6 +202,7 @@ impl Default for NodeGraph {
             nodes: TrackedStorage::new(),
             root_nodes: TrackedStorage::new(),
             animations: TrackedStorage::new(),
+            skins: TrackedStorage::new(),
             active_animation: None,
         }
     }
@@ -211,8 +213,19 @@ impl NodeGraph {
         Self::default()
     }
 
-    pub fn initialize(&mut self, instances: &RwLock<TrackedStorage<Instance>>) {
+    pub fn initialize(
+        &mut self,
+        instances: &RwLock<TrackedStorage<Instance>>,
+        skins: &RwLock<TrackedStorage<Skin>>,
+    ) {
         for (_, node) in self.nodes.iter_mut() {
+            if let Some(skin_id) = node.skin {
+                if let Ok(mut skins) = skins.write() {
+                    let skin_id = skins.push(self.skins[skin_id as usize].clone());
+                    node.skin = Some(skin_id as u32);
+                }
+            }
+
             for mesh in &mut node.meshes {
                 if mesh.instance_id.is_none() {
                     let mut instances = instances.write().unwrap();
@@ -227,6 +240,10 @@ impl NodeGraph {
 
     pub fn add_animation(&mut self, anim: animation::Animation) -> usize {
         self.animations.push(anim)
+    }
+
+    pub fn add_skin(&mut self, skin: Skin) -> usize {
+        self.skins.push(skin)
     }
 
     pub fn allocate(&mut self) -> usize {
@@ -500,12 +517,14 @@ impl Default for Skin {
 #[derive(Debug, Clone)]
 pub struct SceneGraph {
     sub_graphs: TrackedStorage<NodeGraph>,
+    times: TrackedStorage<f32>,
 }
 
 impl Default for SceneGraph {
     fn default() -> Self {
         Self {
             sub_graphs: TrackedStorage::default(),
+            times: TrackedStorage::default(),
         }
     }
 }
@@ -520,6 +539,16 @@ impl SceneGraph {
         instances: &RwLock<TrackedStorage<Instance>>,
         skins: &RwLock<TrackedStorage<Skin>>,
     ) -> bool {
+        let times = &self.times;
+        self.sub_graphs
+            .iter_mut()
+            .filter(|(i, _)| times.get_changed(*i))
+            .par_bridge()
+            .for_each(|(i, g)| {
+                let time = times[i];
+                g.update_animation(time);
+            });
+
         let changed: u32 = self
             .sub_graphs
             .iter_mut()
@@ -533,17 +562,31 @@ impl SceneGraph {
                 }
             })
             .sum();
+
+        self.times.reset_changed();
+        self.sub_graphs.reset_changed();
         changed > 0
     }
 
     pub fn add_graph(&mut self, graph: NodeGraph) -> u32 {
-        self.sub_graphs.push(graph) as u32
+        let id = self.sub_graphs.push(graph);
+        self.times.overwrite(id, 0.0);
+        id as u32
     }
 
-    pub fn remove_graph(&mut self, id: u32, instances: &RwLock<TrackedStorage<Instance>>) -> bool {
+    pub fn remove_graph(
+        &mut self,
+        id: u32,
+        instances: &RwLock<TrackedStorage<Instance>>,
+        skins: &RwLock<TrackedStorage<Skin>>,
+    ) -> bool {
         // Remove instances part of this sub graph
         if let Some(graph) = self.sub_graphs.get(id as usize) {
             for (_, node) in graph.nodes.iter() {
+                if let Some(skin_id) = node.skin {
+                    skins.write().unwrap().erase(skin_id as usize);
+                }
+
                 for mesh in &node.meshes {
                     if let Some(id) = mesh.instance_id {
                         // instances.write().unwrap().erase(id as usize).unwrap();
@@ -554,15 +597,24 @@ impl SceneGraph {
             }
         }
 
-        match self.sub_graphs.erase(id as usize) {
-            Ok(_) => true,
+        match (
+            self.sub_graphs.erase(id as usize),
+            self.times.erase(id as usize),
+        ) {
+            (Ok(_), Ok(_)) => true,
             _ => false,
         }
     }
 
+    pub fn set_animation(&mut self, id: u32, time: f32) {
+        if let Some(t) = self.times.get_mut(id as usize) {
+            *t = time;
+        }
+    }
+
     pub fn set_animations(&mut self, time: f32) {
-        self.sub_graphs.iter_mut().par_bridge().for_each(|(_, g)| {
-            g.update_animation(time);
-        })
+        self.times.iter_mut().for_each(|(_, t)| {
+            *t = time;
+        });
     }
 }

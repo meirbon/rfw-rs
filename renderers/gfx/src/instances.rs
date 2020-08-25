@@ -17,6 +17,7 @@ use rfw_scene::{
     bvh::{Bounds, AABB},
     AnimVertexData, FlaggedStorage, ObjectRef, TrackedStorage, VertexData, VertexMesh,
 };
+use rfw_utils::*;
 use shared::BytesConversion;
 use std::{collections::HashSet, mem::ManuallyDrop, ptr, sync::Arc};
 
@@ -105,14 +106,19 @@ pub struct SceneList<B: hal::Backend> {
     pub desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_set: B::DescriptorSet,
     pub set_layout: ManuallyDrop<B::DescriptorSetLayout>,
-    task_pool: rfw_utils::TaskPool<TaskResult<B>>,
+    task_pool: ManagedTaskPool<TaskResult<B>>,
 }
 
 #[allow(dead_code)]
 impl<B: hal::Backend> SceneList<B> {
     const DEFAULT_CAPACITY: usize = 32;
 
-    pub fn new(device: DeviceHandle<B>, allocator: Allocator<B>, queue: Queue<B>) -> Self {
+    pub fn new(
+        device: DeviceHandle<B>,
+        allocator: Allocator<B>,
+        queue: Queue<B>,
+        task_pool: &TaskPool,
+    ) -> Self {
         let instance_buffer = allocator
             .allocate_buffer(
                 std::mem::size_of::<Instance>() * Self::DEFAULT_CAPACITY,
@@ -178,7 +184,10 @@ impl<B: hal::Backend> SceneList<B> {
         }
         let cmd_pool = ManuallyDrop::new(unsafe {
             device
-                .create_command_pool(queue.family, hal::pool::CommandPoolCreateFlags::empty())
+                .create_command_pool(
+                    queue.family,
+                    hal::pool::CommandPoolCreateFlags::RESET_INDIVIDUAL,
+                )
                 .expect("Can't create command pool")
         });
 
@@ -197,7 +206,7 @@ impl<B: hal::Backend> SceneList<B> {
             desc_pool,
             desc_set,
             set_layout,
-            task_pool: rfw_utils::TaskPool::new(4),
+            task_pool: ManagedTaskPool::from(task_pool),
         }
     }
 
@@ -419,14 +428,21 @@ impl<B: hal::Backend> SceneList<B> {
 
     pub fn synchronize(&mut self) {
         let mut to_free = Vec::new();
-        if self.task_pool.has_jobs() {
-            match self.queue.wait_idle() {
-                Ok(_) => {}
-                Err(e) => eprintln!("error waiting for transfer queue: {}", e),
-            }
-        }
+        let mut first = true;
 
-        for result in self.task_pool.take_finished() {
+        for result in self
+            .task_pool
+            .sync()
+            .filter(|t| t.is_some())
+            .map(|t| t.unwrap())
+        {
+            if first {
+                match self.queue.wait_idle() {
+                    Ok(_) => {}
+                    Err(e) => eprintln!("error waiting for transfer queue: {}", e),
+                }
+                first = false;
+            }
             match result {
                 TaskResult::Mesh(new_mesh, _, cmd_buffer) => {
                     let id = new_mesh.id as usize;

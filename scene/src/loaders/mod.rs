@@ -1,4 +1,4 @@
-use crate::graph::{NodeGraph, Skin};
+use crate::graph::NodeGraph;
 use crate::utils::TrackedStorage;
 use crate::{AnimatedMesh, MaterialList, Mesh, ObjectRef};
 use std::path::PathBuf;
@@ -38,6 +38,5 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
         mat_manager: &RwLock<MaterialList>,
         mesh_storage: &RwLock<TrackedStorage<Mesh>>,
         animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
-        skin_storage: &RwLock<TrackedStorage<Skin>>,
     ) -> Result<LoadResult, crate::SceneError>;
 }

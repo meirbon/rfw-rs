@@ -14,7 +14,7 @@ use rfw_scene::{
     AnimatedMesh, Camera, ChangedIterator, DeviceMaterial, FlaggedStorage, Instance, Mesh,
     ObjectRef, Texture, TrackedStorage, VertexMesh,
 };
-use rfw_utils::TaskPool;
+use rfw_utils::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
@@ -73,7 +73,7 @@ pub struct Deferred {
 
     mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
     anim_mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
-    task_pool: TaskPool<TaskResult>,
+    task_pool: ManagedTaskPool<TaskResult>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -361,7 +361,7 @@ impl Renderer for Deferred {
 
             mesh_bounds: FlaggedStorage::new(),
             anim_mesh_bounds: FlaggedStorage::new(),
-            task_pool: TaskPool::default(),
+            task_pool: ManagedTaskPool::default(),
         }))
     }
 
@@ -621,7 +621,13 @@ impl Renderer for Deferred {
         {
             let meshes = &mut self.meshes;
             let anim_meshes = &mut self.anim_meshes;
-            for result in self.task_pool.sync() {
+
+            for result in self
+                .task_pool
+                .sync()
+                .filter(|t| t.is_some())
+                .map(|t| t.unwrap())
+            {
                 match result {
                     TaskResult::Mesh(id, mesh) => {
                         meshes.overwrite(id, mesh);

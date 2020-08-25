@@ -1,7 +1,6 @@
 use glam::*;
 use std::{path::PathBuf, sync::RwLock};
 
-use crate::graph::Skin;
 use crate::material::*;
 use crate::utils::*;
 use crate::SceneError;
@@ -40,7 +39,6 @@ impl ObjectLoader for ObjLoader {
         mat_manager: &RwLock<MaterialList>,
         mesh_storage: &RwLock<TrackedStorage<Mesh>>,
         _animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
-        _skin_storage: &RwLock<TrackedStorage<Skin>>,
     ) -> Result<LoadResult, SceneError> {
         let object = tobj::load_obj(&path);
         if let Err(_) = object {

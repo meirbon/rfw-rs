@@ -51,6 +51,7 @@ impl std::error::Error for GfxError {}
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
+use rfw_utils::TaskPool;
 
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
@@ -239,8 +240,20 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let device: DeviceHandle<B> = DeviceHandle::new(device);
         let allocator = Allocator::new(device.clone(), &adapter);
 
-        let scene_list = SceneList::new(device.clone(), allocator.clone(), transfer_queue.clone());
-        let skins = SkinList::new(device.clone(), allocator.clone(), transfer_queue.clone());
+        let task_pool = TaskPool::default();
+
+        let scene_list = SceneList::new(
+            device.clone(),
+            allocator.clone(),
+            transfer_queue.clone(),
+            &task_pool,
+        );
+        let skins = SkinList::new(
+            device.clone(),
+            allocator.clone(),
+            transfer_queue.clone(),
+            &task_pool,
+        );
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),

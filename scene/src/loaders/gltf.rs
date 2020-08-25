@@ -53,7 +53,6 @@ impl ObjectLoader for GltfLoader {
         mat_manager: &RwLock<MaterialList>,
         mesh_storage: &RwLock<TrackedStorage<Mesh>>,
         animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
-        skin_storage: &RwLock<TrackedStorage<Skin>>,
     ) -> Result<LoadResult, SceneError> {
         let file = std::fs::File::open(&path).map_err(|_| SceneError::LoadError(path.clone()))?;
         let gltf =
@@ -128,10 +127,9 @@ impl ObjectLoader for GltfLoader {
         let mut node_mapping: HashMap<usize, usize> = HashMap::new();
 
         {
-            let mut skin_storage = skin_storage.write().unwrap();
             // Store each skin and create a mapping
             document.skins().for_each(|s| {
-                let skin_id = skin_storage.allocate();
+                let skin_id = nodes.add_skin(Skin::default());
                 skin_mapping.insert(s.index(), skin_id);
             });
         }
@@ -644,7 +642,7 @@ impl ObjectLoader for GltfLoader {
                     .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
             }
 
-            skin_storage.write().unwrap()[skin_id] = skin;
+            nodes.skins[skin_id] = skin;
         });
 
         Ok(LoadResult::Scene(nodes))

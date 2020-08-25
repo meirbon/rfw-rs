@@ -5,7 +5,7 @@ use crate::{hal, DeviceHandle, Queue};
 use glam::*;
 use hal::*;
 use rfw_scene::TrackedStorage;
-use rfw_utils::TaskPool;
+use rfw_utils::*;
 use shared::BytesConversion;
 use std::mem::ManuallyDrop;
 use std::ptr;
@@ -43,11 +43,16 @@ pub struct SkinList<B: hal::Backend> {
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     pub desc_layout: ManuallyDrop<B::DescriptorSetLayout>,
     desc_sets: Vec<Option<B::DescriptorSet>>,
-    task_pool: TaskPool<(usize, GfxSkin<B>)>,
+    task_pool: ManagedTaskPool<(usize, GfxSkin<B>)>,
 }
 
 impl<B: hal::Backend> SkinList<B> {
-    pub fn new(device: DeviceHandle<B>, allocator: Allocator<B>, queue: Queue<B>) -> Self {
+    pub fn new(
+        device: DeviceHandle<B>,
+        allocator: Allocator<B>,
+        queue: Queue<B>,
+        task_pool: &TaskPool,
+    ) -> Self {
         let desc_layout = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_set_layout(
@@ -96,7 +101,7 @@ impl<B: hal::Backend> SkinList<B> {
             desc_pool,
             desc_layout,
             desc_sets: Vec::new(),
-            task_pool: TaskPool::new(2),
+            task_pool: ManagedTaskPool::from(task_pool),
         }
     }
 
@@ -182,27 +187,20 @@ impl<B: hal::Backend> SkinList<B> {
     }
 
     pub fn synchronize(&mut self) {
-        for (id, result) in self.task_pool.take_finished() {
-            self.skins.overwrite(id, result);
-        }
-
-        self.desc_sets.resize_with(self.skins.len(), || None);
-        let mut to_allocate = 0;
-
-        for (id, _) in self.skins.iter_changed() {
-            if self.desc_sets[id].is_none() {
-                to_allocate += 1;
+        for result in self.task_pool.sync() {
+            if let Some((id, result)) = result {
+                self.skins.overwrite(id, result);
             }
         }
 
-        let layouts: Vec<&B::DescriptorSetLayout> = vec![&self.desc_layout; to_allocate];
+        self.desc_sets.resize_with(self.skins.len(), || None);
 
-        let mut allocated_sets = Vec::with_capacity(to_allocate);
-        let mut set_writes = Vec::with_capacity(to_allocate);
-        unsafe { self.desc_pool.allocate(layouts, &mut allocated_sets) }.unwrap();
-
-        for (set, (id, _)) in allocated_sets.into_iter().zip(self.skins.iter_changed()) {
-            self.desc_sets[id] = Some(set);
+        let mut set_writes = Vec::with_capacity(self.skins.len());
+        for (id, _) in self.skins.iter_changed() {
+            if self.desc_sets[id].is_none() {
+                self.desc_sets[id] =
+                    Some(unsafe { self.desc_pool.allocate_set(&self.desc_layout).unwrap() });
+            }
         }
 
         for (id, skin) in self.skins.iter_changed() {

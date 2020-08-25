@@ -263,7 +263,6 @@ impl Scene {
                 &self.materials,
                 &self.objects.meshes,
                 &self.objects.animated_meshes,
-                &self.objects.skins,
             );
         }
 

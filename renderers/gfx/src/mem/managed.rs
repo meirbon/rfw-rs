@@ -1,6 +1,5 @@
 use super::*;
 use crate::hal;
-use hal::*;
 
 use shared::BytesConversion;
 use std::ops::{Index, IndexMut};
