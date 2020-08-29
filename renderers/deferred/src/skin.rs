@@ -84,35 +84,10 @@ impl DeferredSkin {
         );
     }
 
-    pub async fn update(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub fn update(&self, queue: &wgpu::Queue) {
         if let Some(buffer) = self.matrices_buffer.as_ref() {
-            let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("skin-update-staging-mem"),
-                size: self.joint_matrices_buffer_size,
-                usage: wgpu::BufferUsage::COPY_SRC,
-                mapped_at_creation: true,
-            });
-
             let data = self.skin.joint_matrices.as_bytes();
-            staging_buffer
-                .slice(0..data.len() as _)
-                .get_mapped_range_mut()
-                .as_mut()
-                .copy_from_slice(data);
-            staging_buffer.unmap();
-
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-            encoder.copy_buffer_to_buffer(
-                &staging_buffer,
-                0,
-                buffer,
-                0,
-                self.joint_matrices_buffer_size,
-            );
-
-            queue.submit(std::iter::once(encoder.finish()));
+            queue.write_buffer(buffer, 0, data);
         }
     }
 }

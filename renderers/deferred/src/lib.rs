@@ -15,6 +15,7 @@ use rfw_scene::{
     ObjectRef, Texture, TrackedStorage, VertexMesh,
 };
 use rfw_utils::*;
+use shared::BytesConversion;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
@@ -431,15 +432,6 @@ impl Renderer for Deferred {
     fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
         let materials = materials.as_slice();
         let size = (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
-        let staging_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: unsafe {
-                    std::slice::from_raw_parts(materials.as_ptr() as *const u8, size as usize)
-                },
-                usage: wgpu::BufferUsage::COPY_SRC,
-            });
 
         if size > self.material_buffer_size {
             self.material_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -451,14 +443,8 @@ impl Renderer for Deferred {
             self.material_buffer_size = size;
         }
 
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("create-material-cmd-mem"),
-            });
-
-        encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.material_buffer, 0, size);
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.queue
+            .write_buffer(&self.material_buffer, 0, materials.as_bytes());
 
         self.material_bind_groups = (0..materials.len())
             .map(|i| {
@@ -639,7 +625,7 @@ impl Renderer for Deferred {
             }
         }
 
-        let update = Self::record_update(
+        Self::record_update(
             &self.device,
             &self.queue,
             &mut self.instances,
@@ -659,8 +645,6 @@ impl Renderer for Deferred {
                 &self.material_buffer,
             );
         }
-
-        block_on(update);
 
         self.skins.reset_changed();
         self.meshes.reset_changed();
@@ -700,7 +684,6 @@ impl Renderer for Deferred {
             &self.radiance_pass,
         );
 
-        let light_pass = futures::executor::block_on(light_pass);
         self.queue.submit(std::iter::once(light_pass));
 
         let mut output_pass = self
@@ -715,8 +698,6 @@ impl Renderer for Deferred {
             self.output
                 .blit_debug(&output.output.view, &mut output_pass, self.debug_view);
         }
-
-        let render_pass = futures::executor::block_on(render_pass);
 
         self.queue.submit(vec![render_pass, output_pass.finish()]);
 
@@ -805,7 +786,7 @@ impl Renderer for Deferred {
 }
 
 impl Deferred {
-    async fn record_update(
+    fn record_update(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         instances: &mut InstanceList,
@@ -813,37 +794,18 @@ impl Deferred {
         anim_meshes: &TrackedStorage<DeferredAnimMesh>,
         skins: &TrackedStorage<DeferredSkin>,
     ) {
-        let s = skins
+        skins.iter_changed().for_each(|(_, s)| s.update(queue));
+
+        instances.update(device, &meshes, &anim_meshes, &queue);
+
+        meshes.iter_changed().for_each(|(_, m)| m.copy_data(queue));
+
+        anim_meshes
             .iter_changed()
-            .map(|(_, s)| s.update(device, queue))
-            .collect::<Vec<_>>();
-
-        let instances_update = instances.update(device, &meshes, &anim_meshes, &queue);
-
-        let mesh_updates = meshes
-            .iter_changed()
-            .map(|(_, m)| m.copy_data(device, queue))
-            .collect::<Vec<_>>();
-
-        let anim_mesh_updates = anim_meshes
-            .iter_changed()
-            .map(|(_, m)| m.copy_data(device, queue))
-            .collect::<Vec<_>>();
-
-        for s in s.into_iter() {
-            s.await
-        }
-        for m in mesh_updates.into_iter() {
-            m.await
-        }
-        for m in anim_mesh_updates.into_iter() {
-            m.await
-        }
-
-        instances_update.await;
+            .for_each(|(_, m)| m.copy_data(queue));
     }
 
-    async fn render_lights(
+    fn render_lights(
         device: &wgpu::Device,
         lights: &mut DeferredLights,
         instances: &InstanceList,
@@ -854,13 +816,11 @@ impl Deferred {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render-lights"),
         });
-        lights
-            .render(&mut encoder, instances, meshes, anim_meshes, skins)
-            .await;
+        lights.render(&mut encoder, instances, meshes, anim_meshes, skins);
         encoder.finish()
     }
 
-    async fn render_scene(
+    fn render_scene(
         device: &wgpu::Device,
         camera: &Camera,
         light_counts: [u32; 4],
@@ -985,9 +945,7 @@ impl Deferred {
                     }
                     ObjectRef::Animated(mesh_id) => {
                         let mesh = &anim_meshes[mesh_id as usize];
-                        if let (Some(buffer), Some(anim_buffer)) =
-                            (mesh.buffer.as_ref(), mesh.anim_buffer.as_ref())
-                        {
+                        if let Some(buffer) = mesh.buffer.as_ref() {
                             if let Some(skin_id) = instance.skin_id {
                                 render_pass.set_pipeline(&pipeline.anim_pipeline);
                                 render_pass.set_bind_group(0, &uniform_bind_group, &[]);
@@ -997,8 +955,9 @@ impl Deferred {
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
                                 );
 
-                                let buffer_slice = buffer.slice(0..mesh.buffer_size);
-                                let anim_buffer_slice = anim_buffer.slice(0..mesh.anim_buffer_size);
+                                let buffer_slice = buffer.slice(mesh.buffer_start..mesh.buffer_end);
+                                let anim_buffer_slice =
+                                    buffer.slice(mesh.anim_start..mesh.anim_end);
                                 render_pass.set_vertex_buffer(0, buffer_slice);
                                 render_pass.set_vertex_buffer(1, buffer_slice);
                                 render_pass.set_vertex_buffer(2, buffer_slice);
@@ -1041,7 +1000,7 @@ impl Deferred {
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
                                 );
 
-                                let buffer_slice = buffer.slice(0..mesh.buffer_size);
+                                let buffer_slice = buffer.slice(mesh.buffer_start..mesh.buffer_end);
                                 render_pass.set_vertex_buffer(0, buffer_slice);
                                 render_pass.set_vertex_buffer(1, buffer_slice);
                                 render_pass.set_vertex_buffer(2, buffer_slice);

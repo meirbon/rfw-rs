@@ -1,6 +1,5 @@
 use rfw_scene::{AnimVertexData, AnimatedMesh, Mesh, VertexData, VertexMesh};
 use shared::BytesConversion;
-use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
 pub struct DeferredAnimMesh {
@@ -8,9 +7,10 @@ pub struct DeferredAnimMesh {
     pub vertex_data: Vec<VertexData>,
     pub anim_vertex_data: Vec<AnimVertexData>,
     pub buffer: Option<wgpu::Buffer>,
-    pub buffer_size: wgpu::BufferAddress,
-    pub anim_buffer: Option<wgpu::Buffer>,
-    pub anim_buffer_size: wgpu::BufferAddress,
+    pub buffer_start: wgpu::BufferAddress,
+    pub buffer_end: wgpu::BufferAddress,
+    pub anim_start: wgpu::BufferAddress,
+    pub anim_end: wgpu::BufferAddress,
 }
 
 impl Clone for DeferredAnimMesh {
@@ -20,9 +20,10 @@ impl Clone for DeferredAnimMesh {
             vertex_data: self.vertex_data.clone(),
             anim_vertex_data: self.anim_vertex_data.clone(),
             buffer: None,
-            buffer_size: 0,
-            anim_buffer: None,
-            anim_buffer_size: 0,
+            buffer_start: 0,
+            buffer_end: 0,
+            anim_start: 0,
+            anim_end: 0,
         }
     }
 }
@@ -34,9 +35,10 @@ impl Default for DeferredAnimMesh {
             vertex_data: Vec::new(),
             anim_vertex_data: Vec::new(),
             buffer: None,
-            buffer_size: 0,
-            anim_buffer: None,
-            anim_buffer_size: 0,
+            buffer_start: 0,
+            buffer_end: 0,
+            anim_start: 0,
+            anim_end: 0,
         }
     }
 }
@@ -99,53 +101,25 @@ impl DeferredMesh {
         self.vertex_data.len()
     }
 
-    pub async fn copy_data(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("mesh-update"),
-        });
-
-        let data = unsafe {
-            std::slice::from_raw_parts(
-                self.vertex_data.as_ptr() as *const u8,
-                self.vertex_data.len() * std::mem::size_of::<VertexData>(),
-            )
-        };
-
-        let staging_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: data,
-            usage: wgpu::BufferUsage::COPY_SRC,
-        });
-
-        encoder.copy_buffer_to_buffer(
-            &staging_buffer,
-            0,
+    pub fn copy_data(&self, queue: &wgpu::Queue) {
+        queue.write_buffer(
             self.buffer.as_ref().unwrap(),
             0,
-            self.buffer_size as wgpu::BufferAddress,
+            self.vertex_data.as_bytes(),
         );
-        queue.submit(std::iter::once(encoder.finish()));
     }
 }
 
 #[allow(dead_code)]
 impl DeferredAnimMesh {
     pub fn new(device: &wgpu::Device, mesh: &AnimatedMesh) -> Self {
-        let buffer_size = mesh.vertices.as_bytes().len() as wgpu::BufferAddress;
+        let buffer_size = (mesh.vertices.as_bytes().len() + mesh.anim_vertex_data.as_bytes().len())
+            as wgpu::BufferAddress;
         assert!(buffer_size > 0);
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(mesh.name.as_str()),
             size: buffer_size,
-            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let anim_buffer_size = mesh.anim_vertex_data.as_bytes().len() as wgpu::BufferAddress;
-        assert!(anim_buffer_size > 0);
-        let anim_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(mesh.name.as_str()),
-            size: anim_buffer_size,
             usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
@@ -159,9 +133,11 @@ impl DeferredAnimMesh {
             vertex_data,
             anim_vertex_data,
             buffer: Some(buffer),
-            buffer_size,
-            anim_buffer: Some(anim_buffer),
-            anim_buffer_size,
+            buffer_start: 0,
+            buffer_end: mesh.vertices.as_bytes().len() as wgpu::BufferAddress,
+            anim_start: mesh.vertices.as_bytes().len() as wgpu::BufferAddress,
+            anim_end: mesh.vertices.as_bytes().len() as wgpu::BufferAddress
+                + mesh.anim_vertex_data.as_bytes().len() as wgpu::BufferAddress,
         }
     }
 
@@ -169,38 +145,17 @@ impl DeferredAnimMesh {
         self.vertex_data.len()
     }
 
-    pub async fn copy_data(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("anim-mesh-copy"),
-        });
-        let staging_buffer1 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: self.vertex_data.as_bytes(),
-            usage: wgpu::BufferUsage::COPY_SRC,
-        });
-
-        encoder.copy_buffer_to_buffer(
-            &staging_buffer1,
-            0,
+    pub fn copy_data(&self, queue: &wgpu::Queue) {
+        queue.write_buffer(
             self.buffer.as_ref().unwrap(),
             0,
-            self.buffer_size as wgpu::BufferAddress,
+            self.vertex_data.as_bytes(),
         );
 
-        let staging_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            contents: self.anim_vertex_data.as_bytes(),
-            usage: wgpu::BufferUsage::COPY_SRC,
-            label: None,
-        });
-
-        encoder.copy_buffer_to_buffer(
-            &staging_buffer2,
-            0,
-            self.anim_buffer.as_ref().unwrap(),
-            0,
-            self.anim_buffer_size as wgpu::BufferAddress,
+        queue.write_buffer(
+            self.buffer.as_ref().unwrap(),
+            self.anim_start,
+            self.anim_vertex_data.as_bytes(),
         );
-
-        queue.submit(std::iter::once(encoder.finish()));
     }
 }

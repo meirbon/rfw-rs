@@ -136,7 +136,7 @@ impl InstanceList {
         }
     }
 
-    pub async fn update(
+    pub fn update(
         &mut self,
         device: &wgpu::Device,
         meshes: &TrackedStorage<DeferredMesh>,

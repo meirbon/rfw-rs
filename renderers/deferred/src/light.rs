@@ -2,7 +2,6 @@ use super::{instance::InstanceList, mesh::DeferredMesh};
 use crate::instance::DeviceInstances;
 use crate::mesh::DeferredAnimMesh;
 use crate::skin::DeferredSkin;
-use futures::executor::block_on;
 use rfw_scene::{
     lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
     VertexData,
@@ -82,18 +81,20 @@ impl DeferredLights {
     }
 
     pub fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
-        let changed1 = self.spot_lights.synchronize(device, queue);
-        let changed2 = self.area_lights.synchronize(device, queue);
-        let changed3 = self.directional_lights.synchronize(device, queue);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("light-mem-copy"),
+        });
+        let changed1 = self.spot_lights.synchronize(&mut encoder, device, queue);
+        let changed2 = self.area_lights.synchronize(&mut encoder, device, queue);
+        let changed3 = self
+            .directional_lights
+            .synchronize(&mut encoder, device, queue);
 
-        let changed1 = block_on(changed1);
-        let changed2 = block_on(changed2);
-        let changed3 = block_on(changed3);
-
+        queue.submit(std::iter::once(encoder.finish()));
         changed1 || changed2 || changed3
     }
 
-    pub async fn render(
+    pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         instances: &InstanceList,
@@ -102,14 +103,11 @@ impl DeferredLights {
         skins: &TrackedStorage<DeferredSkin>,
     ) {
         self.area_lights
-            .render(encoder, instances, meshes, anim_meshes, skins)
-            .await;
+            .render(encoder, instances, meshes, anim_meshes, skins);
         self.spot_lights
-            .render(encoder, instances, meshes, anim_meshes, skins)
-            .await;
+            .render(encoder, instances, meshes, anim_meshes, skins);
         self.directional_lights
-            .render(encoder, instances, meshes, anim_meshes, skins)
-            .await;
+            .render(encoder, instances, meshes, anim_meshes, skins);
     }
 }
 
@@ -170,14 +168,15 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub async fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+    pub fn synchronize(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> bool {
         if self.len() == 0 || !self.lights.any_changed() {
             return false;
         }
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("light-mem-copy"),
-        });
 
         let mut changed = self.shadow_maps.resize(device, queue, self.lights.len());
 
@@ -215,10 +214,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         staging_buffer.unmap();
 
         encoder.copy_buffer_to_buffer(&staging_buffer, 0, &self.light_buffer, 0, light_buffer_size);
-        queue.submit(std::iter::once(encoder.finish()));
-        self.shadow_maps
-            .update_infos(self.info.as_slice(), device, queue)
-            .await;
+        self.shadow_maps.update_infos(self.info.as_slice(), queue);
 
         changed
     }
@@ -254,7 +250,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub async fn render(
+    pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         instances: &InstanceList,
@@ -263,16 +259,14 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         skins: &TrackedStorage<DeferredSkin>,
     ) {
         if instances.changed() {
-            self.shadow_maps
-                .render(
-                    0..self.lights.len() as u32,
-                    encoder,
-                    instances,
-                    meshes,
-                    anim_meshes,
-                    skins,
-                )
-                .await;
+            self.shadow_maps.render(
+                0..self.lights.len() as u32,
+                encoder,
+                instances,
+                meshes,
+                anim_meshes,
+                skins,
+            );
         } else {
             if !self.lights.any_changed() {
                 return;
@@ -281,8 +275,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             for (i, _) in self.lights.iter_changed() {
                 let i = i as u32;
                 self.shadow_maps
-                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes, skins)
-                    .await;
+                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes, skins);
             }
         };
 
@@ -1105,48 +1098,12 @@ impl ShadowMapArray {
         })
     }
 
-    pub async fn update_infos(
-        &mut self,
-        infos: &[LightInfo],
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
+    pub fn update_infos(&mut self, infos: &[LightInfo], queue: &wgpu::Queue) {
         self.light_infos = Vec::from(infos);
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("shadow-maps-update-infos"),
-        });
-
-        let copy_size = infos.len() * Self::UNIFORM_ELEMENT_SIZE;
-        let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow-maps-update-infos-mem"),
-            size: copy_size as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::COPY_SRC,
-            mapped_at_creation: true,
-        });
-
-        unsafe {
-            let ptr = staging_buffer
-                .slice(0..copy_size as _)
-                .get_mapped_range_mut()
-                .as_mut_ptr();
-            ptr.copy_from(infos.as_ptr() as *const u8, copy_size);
-        }
-
-        staging_buffer.unmap();
-
-        encoder.copy_buffer_to_buffer(
-            &staging_buffer,
-            0,
-            &self.uniform_buffer,
-            0,
-            copy_size as wgpu::BufferAddress,
-        );
-
-        queue.submit(std::iter::once(encoder.finish()));
+        queue.write_buffer(&self.uniform_buffer, 0, infos.as_bytes());
     }
 
-    pub async fn render(
+    pub fn render(
         &self,
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
@@ -1235,16 +1192,14 @@ impl ShadowMapArray {
                             let mesh = &anim_meshes[mesh_id as usize];
                             if let Some(skin_id) = instance.skin_id {
                                 let buffer = mesh.buffer.as_ref().unwrap();
-                                let anim_buffer = mesh.anim_buffer.as_ref().unwrap();
                                 render_pass.set_pipeline(&self.anim_pipeline);
-                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
                                 render_pass.set_vertex_buffer(
-                                    1,
-                                    anim_buffer.slice(0..mesh.anim_buffer_size),
+                                    0,
+                                    buffer.slice(mesh.buffer_start..mesh.buffer_end),
                                 );
                                 render_pass.set_vertex_buffer(
-                                    2,
-                                    anim_buffer.slice(0..mesh.anim_buffer_size),
+                                    1,
+                                    buffer.slice(mesh.anim_start..mesh.anim_end),
                                 );
 
                                 render_pass.set_bind_group(
@@ -1291,7 +1246,10 @@ impl ShadowMapArray {
                                     &[DeviceInstances::dynamic_offset_for(i) as u32],
                                 );
 
-                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
+                                render_pass.set_vertex_buffer(
+                                    0,
+                                    buffer.slice(mesh.buffer_start..mesh.buffer_end),
+                                );
 
                                 for j in 0..mesh.sub_meshes.len() {
                                     if let Some(bounds) = bounds.mesh_bounds.get(i) {
