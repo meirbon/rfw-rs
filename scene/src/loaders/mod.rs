@@ -1,4 +1,4 @@
-use crate::graph::NodeGraph;
+use crate::graph::SceneDescriptor;
 use crate::utils::TrackedStorage;
 use crate::{AnimatedMesh, MaterialList, Mesh, ObjectRef};
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ pub enum LoadResult {
     /// Reference to single mesh
     Object(ObjectRef),
     /// Indices of root nodes of scene
-    Scene(NodeGraph),
+    Scene(SceneDescriptor),
 }
 
 impl LoadResult {
@@ -23,10 +23,10 @@ impl LoadResult {
         }
     }
 
-    pub fn scene(self) -> Result<NodeGraph, ()> {
+    pub fn scene(self) -> Result<SceneDescriptor, ()> {
         match self {
             LoadResult::Object(_) => Err(()),
-            LoadResult::Scene(nodes) => Ok(nodes),
+            LoadResult::Scene(scene) => Ok(scene),
         }
     }
 }
@@ -40,3 +40,27 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
         animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
     ) -> Result<LoadResult, crate::SceneError>;
 }
+
+/*pub struct MaterialId(u32);
+pub struct MeshId(u32);
+pub struct AnimationId(u32);
+pub struct AnimatedMeshId(u32);
+pub struct SkinId(u32);
+pub struct InstanceId(u32);
+
+pub struct AssetManager {
+    mat_manager: Mutex<MaterialList>,
+    mesh_storage: Mutex<TrackedStorage<Mesh>>,
+    animation_storage: Mutex<TrackedStorage<Animation>>,
+    animated_mesh_storage: Mutex<TrackedStorage<AnimatedMesh>>,
+    skin_storage: Mutex<TrackedStorage<Skin>>,
+    instances_storage: Mutex<TrackedStorage<Instance>>,
+}
+
+impl AssetManager {
+    pub fn new() -> Self {
+        AssetManager {
+            ..Default::default()
+        }
+    }
+}*/

@@ -143,7 +143,7 @@ impl LightRef {
 }
 
 pub struct RenderSystem<T: Sized + Renderer> {
-    scene: Scene,
+    pub scene: Scene,
     renderer: Arc<Mutex<Box<T>>>,
 }
 
