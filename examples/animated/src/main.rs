@@ -154,7 +154,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         .unwrap();
 
     let mut cesium_man1 = scene::graph::NodeGraph::new();
+    let mut cesium_man2 = scene::graph::NodeGraph::new();
     cesium_man1.load_scene_descriptor(
+        &cesium_man,
+        &mut renderer.scene.objects.instances.write().unwrap(),
+    );
+    cesium_man2.load_scene_descriptor(
         &cesium_man,
         &mut renderer.scene.objects.instances.write().unwrap(),
     );
@@ -164,13 +169,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
     }
 
-    let mut cesium_man2 = cesium_man1.clone();
     for node in cesium_man2.iter_root_nodes_mut() {
-        node.translate(Vec3::new(-3.0, 0.0, 0.0));
-    }
-
-    let mut cesium_man3 = cesium_man2.clone();
-    for node in cesium_man3.iter_root_nodes_mut() {
         node.translate(Vec3::new(-3.0, 0.0, 0.0));
     }
 
@@ -261,7 +260,15 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                         renderer.remove_scene(id).unwrap();
                         scene_id = None;
                     } else {
-                        scene_id = Some(renderer.add_scene(cesium_man3.clone()).unwrap());
+                        let mut cesium_man3 = scene::graph::NodeGraph::new();
+                        cesium_man3.load_scene_descriptor(
+                            &cesium_man,
+                            &mut renderer.scene.objects.instances.write().unwrap(),
+                        );
+                        for node in cesium_man3.iter_root_nodes_mut() {
+                            node.translate(Vec3::new(-6.0, 0.0, 0.0));
+                        }
+                        scene_id = Some(renderer.add_scene(cesium_man3).unwrap());
                     }
 
                     scene_timer.reset();
