@@ -17,6 +17,7 @@ use winit::{
 use rfw_gfx::GfxBackend;
 use rfw_system::{
     scene::{
+        self,
         renderers::{RenderMode, Setting, SettingValue},
         Camera, Renderer,
     },
@@ -147,10 +148,17 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         60.0,
     );
 
-    let mut cesium_man1 = renderer
+    let mut cesium_man = renderer
         .load("models/CesiumMan/CesiumMan.gltf")?
         .scene()
         .unwrap();
+
+    let mut cesium_man1 = scene::graph::NodeGraph::new();
+    cesium_man1.load_scene_descriptor(
+        &cesium_man,
+        &mut renderer.scene.objects.instances.write().unwrap(),
+    );
+
     for node in cesium_man1.iter_root_nodes_mut() {
         node.set_scale(Vec3::splat(3.0));
         node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
@@ -169,7 +177,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let cesium_man1 = renderer.add_scene(cesium_man1)?;
     let cesium_man2 = renderer.add_scene(cesium_man2)?;
 
-    let pica = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
+    let pica_desc = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
+    let mut pica = scene::graph::NodeGraph::new();
+    pica.load_scene_descriptor(
+        &pica_desc,
+        &mut renderer.scene.objects.instances.write().unwrap(),
+    );
     renderer.add_scene(pica)?;
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();

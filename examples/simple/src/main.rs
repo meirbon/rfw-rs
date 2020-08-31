@@ -69,7 +69,10 @@ impl MouseButtonHandler {
 }
 
 use glam::*;
-use rfw_system::{scene::renderers::RenderMode, scene::Camera, RenderSystem};
+use rfw_system::{
+    scene::{self, Camera, renderers::RenderMode},
+    RenderSystem,
+};
 use shared::utils;
 use winit::window::Fullscreen;
 
@@ -111,31 +114,42 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
     let mut synchronize = utils::Averager::new();
     let mut resized = false;
 
+    let mut node_graph = scene::graph::NodeGraph::new();
+
     match renderer
         .load_async("models/CesiumMan/CesiumMan.gltf")
         .await?
     {
-        rfw_system::scene::LoadResult::Scene(mut graph) => {
-            for node in graph.iter_root_nodes_mut() {
+        rfw_system::scene::LoadResult::Scene(scene) => {
+            node_graph.load_scene_descriptor(
+                &scene,
+                &mut renderer.scene.objects.instances.write().unwrap(),
+            );
+
+            for node in node_graph.iter_root_nodes_mut() {
                 node.set_scale(Vec3::splat(3.0));
                 node.set_rotation(Quat::from_rotation_y(180.0_f32.to_radians()));
             }
-            renderer.add_scene(graph)?;
         }
         _ => panic!("Gltf files should be loaded as scenes"),
     };
 
     match renderer.load_async("models/pica/scene.gltf").await? {
-        rfw_system::scene::LoadResult::Scene(graph) => {
-            renderer.add_scene(graph)?;
+        rfw_system::scene::LoadResult::Scene(scene) => {
+            node_graph.load_scene_descriptor(
+                &scene,
+                &mut renderer.scene.objects.instances.write().unwrap(),
+            );
         }
         _ => panic!("Gltf files should be loaded as scenes"),
     };
 
+    let scene_id = renderer.add_scene(node_graph)?;
+
     let app_time = utils::Timer::new();
 
     timer2.reset();
-    renderer.set_animation_time(0.0);
+    renderer.set_animation_time(scene_id, 0.0);
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
 
@@ -248,7 +262,7 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
                 }
 
                 timer2.reset();
-                renderer.set_animation_time(app_time.elapsed_in_millis() / 1000.0);
+                renderer.set_animation_time(scene_id, app_time.elapsed_in_millis() / 1000.0);
                 renderer.synchronize();
                 synchronize.add_sample(timer2.elapsed_in_millis());
 

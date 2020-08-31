@@ -515,9 +515,10 @@ impl NodeGraph {
                 channels,
                 time: 0.0,
             });
-        }
 
-        self.set_active_animation(0);
+            self.set_active_animation(animation_id);
+            self.update_animation(0.0);
+        }
     }
 
     pub fn load_node_descriptor(
