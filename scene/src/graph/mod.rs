@@ -599,6 +599,26 @@ impl NodeGraph {
 
         node_id
     }
+
+    pub fn from_scene_descriptor(
+        scene_descriptor: &SceneDescriptor,
+        instances: &mut TrackedStorage<Instance>,
+    ) -> Self {
+        let mut graph = Self::new();
+        graph.load_scene_descriptor(scene_descriptor, instances);
+        graph
+    }
+
+    pub fn from_node_descriptor(
+        node_map: &mut HashMap<u32, u32>,
+        descriptor: &NodeDescriptor,
+        scene_descriptor: &SceneDescriptor,
+        instances: &mut TrackedStorage<Instance>,
+    ) -> Self {
+        let mut graph = Self::new();
+        graph.load_node_descriptor(node_map, descriptor, scene_descriptor, instances);
+        graph
+    }
 }
 
 pub struct RootNodeIterator<'a> {
