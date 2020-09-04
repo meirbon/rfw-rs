@@ -1,7 +1,5 @@
 use crate::{
-    graph::{
-        AnimationDescriptor, NodeDescriptor, SceneDescriptor, SkinDescriptor,
-    },
+    graph::{AnimationDescriptor, NodeDescriptor, SceneDescriptor, SkinDescriptor},
     AnimatedMesh, Flip, Material, MaterialList, Mesh, ObjectLoader, ObjectRef, SceneError,
     TextureFormat,
 };
@@ -12,8 +10,8 @@ use std::{
     sync::RwLock,
 };
 
-use crate::graph::animation::{Animation, Channel, Method, Target};
-use crate::graph::{Node, NodeGraph, NodeMesh, Skin};
+use crate::graph::animation::{Channel, Method, Target};
+use crate::graph::{Node, NodeGraph};
 use crate::utils::TrackedStorage;
 use crate::{material::Texture, LoadResult, TextureSource};
 use gltf::animation::util::{MorphTargetWeights, ReadOutputs, Rotations};
@@ -512,11 +510,9 @@ impl ObjectLoader for GltfLoader {
         for scene in document.scenes().into_iter() {
             // Iterate over root nodes.
             for node in scene.nodes() {
-                node_descriptors.push(load_node(
-                    &gltf, &gltf_buffers, &meshes, &node,
-                ));
+                node_descriptors.push(load_node(&gltf, &gltf_buffers, &meshes, &node));
             }
-        };
+        }
 
         Ok(LoadResult::Scene(SceneDescriptor {
             nodes: node_descriptors,
@@ -536,7 +532,7 @@ fn load_node(
         Transform::Matrix { matrix } => {
             let (scale, rotation, translation) =
                 Mat4::from_cols_array_2d(&matrix).to_scale_rotation_translation();
-            
+
             (scale.into(), rotation, translation.into())
         }
         Transform::Decomposed {
@@ -545,12 +541,7 @@ fn load_node(
             scale,
         } => {
             let scale = Vec3A::from(scale);
-            let rotation = Quat::from_xyzw(
-                rotation[0],
-                rotation[1],
-                rotation[2],
-                rotation[3],
-            );
+            let rotation = Quat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3]);
             let translation = Vec3A::from(translation);
 
             (scale, rotation, translation)
@@ -564,14 +555,16 @@ fn load_node(
 
     let maybe_skin = node.skin().map(|s| {
         let name = s.name().map(|n| n.into()).unwrap_or(String::new());
-        let joint_nodes = s.joints().map(|joint_node| joint_node.index() as u32).collect();
+        let joint_nodes = s
+            .joints()
+            .map(|joint_node| joint_node.index() as u32)
+            .collect();
 
         let mut inverse_bind_matrices = vec![];
         let reader = s.reader(|buffer| gltf_buffers.buffer(&gltf, &buffer));
         if let Some(ibm) = reader.read_inverse_bind_matrices() {
             ibm.for_each(|m| {
-                inverse_bind_matrices
-                    .push(Mat4::from_cols_array_2d(&m));
+                inverse_bind_matrices.push(Mat4::from_cols_array_2d(&m));
             });
         }
 
@@ -586,9 +579,7 @@ fn load_node(
     if node.children().len() > 0 {
         child_nodes.reserve(node.children().len());
         for child in node.children() {
-            child_nodes.push(load_node(
-                gltf, gltf_buffers, meshes, &child,
-            ));
+            child_nodes.push(load_node(gltf, gltf_buffers, meshes, &child));
         }
     }
 

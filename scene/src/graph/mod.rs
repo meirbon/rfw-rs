@@ -1,6 +1,6 @@
-use animation::{Animation, Channel};
 use crate::utils::*;
 use crate::{Instance, ObjectRef};
+use animation::{Animation, Channel};
 use glam::*;
 use rayon::prelude::*;
 
@@ -78,7 +78,7 @@ pub struct AnimationDescriptor {
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
     pub nodes: Vec<NodeDescriptor>,
-    pub animations: Vec<AnimationDescriptor>
+    pub animations: Vec<AnimationDescriptor>,
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
@@ -489,24 +489,26 @@ impl NodeGraph {
         scene_descriptor: &SceneDescriptor,
         instances: &mut TrackedStorage<Instance>,
     ) {
-        let mut node_map: HashMap<u32, u32> = HashMap::new();
+        let mut node_map: HashMap<u32, u32> = HashMap::with_capacity(scene_descriptor.nodes.len());
 
-        let mut root_nodes = vec![];
+        let mut root_nodes = Vec::with_capacity(scene_descriptor.nodes.len());
         for node in &scene_descriptor.nodes {
-            let node_id = self.load_node_descriptor(
-                &mut node_map,
-                node, scene_descriptor, instances,
-            );
+            let node_id =
+                self.load_node_descriptor(&mut node_map, node, scene_descriptor, instances);
 
             root_nodes.push(node_id);
             self.root_nodes.push(node_id);
         }
 
         for animation in &scene_descriptor.animations {
-            let channels = animation.channels.iter().map(|(node_desc_id, channel)| {
-                let node_id = node_map[&node_desc_id];
-                (node_id, channel.clone())
-            }).collect();
+            let channels = animation
+                .channels
+                .iter()
+                .map(|(node_desc_id, channel)| {
+                    let node_id = node_map[&node_desc_id];
+                    (node_id, channel.clone())
+                })
+                .collect();
 
             let animation_id = self.animations.push(Animation {
                 name: animation.name.clone(),
@@ -516,7 +518,7 @@ impl NodeGraph {
                 time: 0.0,
             });
 
-            self.set_active_animation(animation_id);
+            self.set_active_animation(animation_id).unwrap();
             self.update_animation(0.0);
         }
     }
@@ -528,7 +530,9 @@ impl NodeGraph {
         scene_descriptor: &SceneDescriptor,
         instances: &mut TrackedStorage<Instance>,
     ) -> u32 {
-        let child_nodes: Vec<u32> = descriptor.child_nodes.iter()
+        let child_nodes: Vec<u32> = descriptor
+            .child_nodes
+            .iter()
             .map(|child_node_descriptor| {
                 self.load_node_descriptor(
                     node_map,
@@ -539,20 +543,28 @@ impl NodeGraph {
             })
             .collect();
 
-        let skin_id = descriptor.skin.as_ref().map(|s| {
-            let joint_nodes = s.joint_nodes.iter().map(|joint_node_id| {
-                node_map[joint_node_id]
-            }).collect();
+        let skin_id = descriptor
+            .skin
+            .as_ref()
+            .map(|s| {
+                let joint_nodes = s
+                    .joint_nodes
+                    .iter()
+                    .map(|joint_node_id| node_map[joint_node_id])
+                    .collect();
 
-            self.skins.push(Skin {
-                name: s.name.clone(),
-                joint_nodes,
-                inverse_bind_matrices: s.inverse_bind_matrices.clone(),
-                joint_matrices: vec![Mat4::identity(); s.inverse_bind_matrices.len()],
+                self.skins.push(Skin {
+                    name: s.name.clone(),
+                    joint_nodes,
+                    inverse_bind_matrices: s.inverse_bind_matrices.clone(),
+                    joint_matrices: vec![Mat4::identity(); s.inverse_bind_matrices.len()],
+                })
             })
-        }).map(|id| id as u32);
+            .map(|id| id as u32);
 
-        let meshes: Vec<NodeMesh> = descriptor.meshes.iter()
+        let meshes: Vec<NodeMesh> = descriptor
+            .meshes
+            .iter()
             .map(|mesh| {
                 let instance_id = instances.allocate();
                 instances[instance_id].object_id = *mesh;
@@ -729,7 +741,7 @@ impl SceneGraph {
         if let Some(graph) = self.sub_graphs.get(id as usize) {
             for (_, node) in graph.nodes.iter() {
                 if let Some(skin_id) = node.skin {
-                    skins.write().unwrap().erase(skin_id as usize);
+                    skins.write().unwrap().erase(skin_id as usize).unwrap();
                 }
 
                 for mesh in &node.meshes {
