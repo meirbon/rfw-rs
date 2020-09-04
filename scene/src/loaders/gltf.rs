@@ -1,4 +1,7 @@
 use crate::{
+    graph::{
+        AnimationDescriptor, NodeDescriptor, SceneDescriptor, SkinDescriptor,
+    },
     AnimatedMesh, Flip, Material, MaterialList, Mesh, ObjectLoader, ObjectRef, SceneError,
     TextureFormat,
 };
@@ -120,17 +123,6 @@ impl ObjectLoader for GltfLoader {
                 );
 
                 mat_mapping.insert(m.index().unwrap_or(i), index);
-            });
-        }
-
-        let mut skin_mapping: HashMap<usize, usize> = HashMap::new();
-        let mut node_mapping: HashMap<usize, usize> = HashMap::new();
-
-        {
-            // Store each skin and create a mapping
-            document.skins().for_each(|s| {
-                let skin_id = nodes.add_skin(Skin::default());
-                skin_mapping.insert(s.index(), skin_id);
             });
         }
 
@@ -348,122 +340,25 @@ impl ObjectLoader for GltfLoader {
             })
             .collect();
 
-        let meshes = meshes
-            .iter()
+        let meshes: Vec<ObjectRef> = meshes
+            .into_iter()
             .map(|m| match m {
                 LoadedMesh::Static(m) => {
-                    let clone = m.clone();
                     let mut mesh_storage = mesh_storage.write().unwrap();
-                    let mesh_id = mesh_storage.push(clone);
-                    LoadedMeshID::Static(mesh_id, m.bounds.clone())
+                    let mesh_id = mesh_storage.push(m);
+                    ObjectRef::Static(mesh_id as u32)
                 }
                 LoadedMesh::Animated(m) => {
-                    let clone = m.clone();
                     let mut animated_mesh_storage = animated_mesh_storage.write().unwrap();
-                    let mesh_id = animated_mesh_storage.push(clone);
-                    LoadedMeshID::Animated(mesh_id, m.bounds.clone())
+                    let mesh_id = animated_mesh_storage.push(m);
+                    ObjectRef::Animated(mesh_id as u32)
                 }
             })
-            .collect::<Vec<LoadedMeshID>>();
+            .collect();
 
-        {
-            // Create a mapping of all nodes
-            document.nodes().for_each(|node| {
-                let node_id = nodes.allocate();
-                node_mapping.insert(node.index(), node_id);
-            });
-
-            // Add each node
-            document.nodes().for_each(|node| {
-                let node_id = *node_mapping.get(&node.index()).unwrap();
-
-                let mut new_node = Node::default();
-                match node.transform() {
-                    Transform::Matrix { matrix } => {
-                        new_node.set_matrix_cols(matrix);
-                    }
-                    Transform::Decomposed {
-                        translation,
-                        rotation,
-                        scale,
-                    } => {
-                        new_node.set_scale(Vec3A::from(scale));
-                        new_node.set_rotation(Quat::from_xyzw(
-                            rotation[0],
-                            rotation[1],
-                            rotation[2],
-                            rotation[3],
-                        ));
-                        new_node.set_translation(Vec3A::from(translation));
-                    }
-                }
-
-                if let Some(weights) = node.weights() {
-                    new_node.weights = weights.to_vec();
-                }
-
-                if let Some(mesh) = node.mesh() {
-                    let mesh = &meshes[mesh.index()];
-
-                    match mesh {
-                        LoadedMeshID::Static(id, _) => {
-                            let object = ObjectRef::Static(*id as u32);
-
-                            new_node.meshes.push(NodeMesh {
-                                object_id: object,
-                                instance_id: None,
-                            });
-                        }
-                        LoadedMeshID::Animated(id, _) => {
-                            let object = ObjectRef::Animated(*id as u32);
-
-                            new_node.meshes.push(NodeMesh {
-                                object_id: object,
-                                instance_id: None,
-                            });
-                        }
-                    }
-                }
-
-                if node.children().len() > 0 {
-                    new_node.child_nodes.reserve(node.children().len());
-                    for child in node.children() {
-                        new_node.child_nodes.push(
-                            match node_mapping.get(&(child.index() as usize)) {
-                                Some(val) => *val as u32,
-                                None => panic!("Node with id {} was not in mapping", child.index()),
-                            },
-                        );
-                    }
-                }
-
-                new_node.skin = if let Some(skin) = node.skin() {
-                    Some((*skin_mapping.get(&skin.index()).unwrap() as u32) as u32)
-                } else {
-                    None
-                };
-
-                if let Some(name) = node.name() {
-                    new_node.name = String::from(name);
-                }
-
-                // TODO: Implement camera as well
-                // node.camera().unwrap();
-
-                new_node.update_matrix();
-                nodes[node_id] = new_node;
-            });
-
-            document.scenes().into_iter().for_each(|scene| {
-                scene.nodes().for_each(|node| {
-                    let id = *node_mapping.get(&node.index()).unwrap();
-                    nodes.add_root_node(id);
-                });
-            });
-        }
-
-        document.animations().for_each(|anim| {
-            let channels = anim
+        let mut animations: Vec<AnimationDescriptor> = Vec::new();
+        for anim in document.animations() {
+            let channels: Vec<(u32, Channel)> = anim
                 .channels()
                 .map(|c| {
                     let mut channel = Channel::default();
@@ -476,9 +371,7 @@ impl ObjectLoader for GltfLoader {
                     };
 
                     let target = c.target();
-                    let original_node_id = target.node().index();
-                    let new_target_id = *node_mapping.get(&original_node_id).unwrap() as u32;
-                    channel.node_id = new_target_id;
+                    let target_node_id = target.node().index();
 
                     channel.targets.push(match target.property() {
                         Property::Translation => Target::Translation,
@@ -602,50 +495,123 @@ impl ObjectLoader for GltfLoader {
 
                     channel.duration = *channel.key_frames.last().unwrap();
 
-                    channel
+                    (target_node_id as u32, channel)
                 })
-                .collect::<Vec<Channel>>();
+                .collect();
 
-            let animation = Animation {
+            animations.push(AnimationDescriptor {
                 name: anim.name().unwrap_or("").to_string(),
-                affected_roots: nodes.root_nodes(),
+                // TODO
+                //affected_roots: nodes.root_nodes(),
                 channels,
-                time: 0.0,
-            };
-
-            let anim_id = nodes.add_animation(animation);
-            nodes.set_active_animation(anim_id).unwrap();
-            nodes.update_animation(0.0);
-        });
-
-        // Store each skin and create a mapping
-        document.skins().for_each(|s| {
-            let skin_id = *skin_mapping.get(&s.index()).unwrap() as usize;
-            let mut skin = Skin::default();
-            if let Some(name) = s.name() {
-                skin.name = String::from(name);
-            }
-
-            s.joints().for_each(|j| {
-                skin.joint_nodes
-                    .push(*node_mapping.get(&j.index()).unwrap() as u32);
             });
+        }
 
-            let reader = s.reader(|buffer| gltf_buffers.buffer(&gltf, &buffer));
-            if let Some(ibm) = reader.read_inverse_bind_matrices() {
-                ibm.for_each(|m| {
-                    skin.inverse_bind_matrices
-                        .push(Mat4::from_cols_array_2d(&m));
-                });
+        let mut node_descriptors = vec![];
 
-                skin.joint_matrices
-                    .resize(skin.inverse_bind_matrices.len(), Mat4::identity());
+        for scene in document.scenes().into_iter() {
+            // Iterate over root nodes.
+            for node in scene.nodes() {
+                node_descriptors.push(load_node(
+                    &gltf, &gltf_buffers, &meshes, &node,
+                ));
             }
+        };
 
-            nodes.skins[skin_id] = skin;
-        });
+        Ok(LoadResult::Scene(SceneDescriptor {
+            nodes: node_descriptors,
+            animations,
+        }))
+    }
+}
 
-        Ok(LoadResult::Scene(nodes))
+fn load_node(
+    gltf: &gltf::Gltf,
+    gltf_buffers: &GltfBuffers,
+    meshes: &Vec<ObjectRef>,
+    node: &gltf::Node,
+) -> NodeDescriptor {
+    let mut new_node = Node::default();
+    let (scale, rotation, translation): (Vec3A, Quat, Vec3A) = match node.transform() {
+        Transform::Matrix { matrix } => {
+            let (scale, rotation, translation) =
+                Mat4::from_cols_array_2d(&matrix).to_scale_rotation_translation();
+            
+            (scale.into(), rotation, translation.into())
+        }
+        Transform::Decomposed {
+            translation,
+            rotation,
+            scale,
+        } => {
+            let scale = Vec3A::from(scale);
+            let rotation = Quat::from_xyzw(
+                rotation[0],
+                rotation[1],
+                rotation[2],
+                rotation[3],
+            );
+            let translation = Vec3A::from(translation);
+
+            (scale, rotation, translation)
+        }
+    };
+
+    let mut node_meshes = vec![];
+    if let Some(mesh) = node.mesh() {
+        node_meshes.push(meshes[mesh.index()]);
+    }
+
+    let maybe_skin = node.skin().map(|s| {
+        let name = s.name().map(|n| n.into()).unwrap_or(String::new());
+        let joint_nodes = s.joints().map(|joint_node| joint_node.index() as u32).collect();
+
+        let mut inverse_bind_matrices = vec![];
+        let reader = s.reader(|buffer| gltf_buffers.buffer(&gltf, &buffer));
+        if let Some(ibm) = reader.read_inverse_bind_matrices() {
+            ibm.for_each(|m| {
+                inverse_bind_matrices
+                    .push(Mat4::from_cols_array_2d(&m));
+            });
+        }
+
+        SkinDescriptor {
+            name,
+            inverse_bind_matrices,
+            joint_nodes,
+        }
+    });
+
+    let mut child_nodes = vec![];
+    if node.children().len() > 0 {
+        child_nodes.reserve(node.children().len());
+        for child in node.children() {
+            child_nodes.push(load_node(
+                gltf, gltf_buffers, meshes, &child,
+            ));
+        }
+    }
+
+    if let Some(name) = node.name() {
+        new_node.name = String::from(name);
+    }
+
+    // TODO: Implement camera as well
+    // node.camera().unwrap();
+
+    NodeDescriptor {
+        name: node.name().map(|n| n.into()).unwrap_or("".into()),
+        child_nodes,
+
+        translation,
+        rotation,
+        scale,
+
+        meshes: node_meshes,
+        skin: maybe_skin,
+        weights: node.weights().map(|w| w.to_vec()).unwrap_or(vec![]),
+
+        id: node.index() as u32,
     }
 }
 

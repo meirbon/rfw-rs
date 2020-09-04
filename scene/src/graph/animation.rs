@@ -14,123 +14,6 @@ pub enum Method {
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct Sampler {
-    pub method: Method,
-    pub key_frames: Vec<f32>,
-    pub float_frames: Vec<f32>,
-    pub vec_frames: Vec<Vec3>,
-    pub rot_frames: Vec<Quat>,
-}
-
-impl Default for Sampler {
-    fn default() -> Self {
-        Self {
-            method: Method::Linear,
-            key_frames: Vec::new(),
-            float_frames: Vec::new(),
-            vec_frames: Vec::new(),
-            rot_frames: Vec::new(),
-        }
-    }
-}
-
-impl Sampler {
-    pub fn sample_vec3(&self, time: f32, k: usize) -> Vec3 {
-        let t0 = self.key_frames[k];
-        let t1 = self.key_frames[k + 1];
-        let f = (time - t0) / (t1 - t0);
-
-        if f <= 0.0 {
-            self.vec_frames[0]
-        } else {
-            match self.method {
-                Method::Linear => (1.0 - f) * self.vec_frames[k] + f * self.vec_frames[k + 1],
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
-                    let p0 = self.vec_frames[k * 3 + 1];
-                    let m0 = (t1 - t0) * self.vec_frames[k * 3 + 2];
-                    let p1 = self.vec_frames[(k + 1) * 3 + 1];
-                    let m1 = (t1 - t0) * self.vec_frames[(k + 1) * 3];
-                    m0 * (t3 - 2.0 * t2 + t)
-                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                        + p1 * (-2.0 * t3 + 3.0 * t2)
-                        + m1 * (t3 - t2)
-                }
-                Method::Step => self.vec_frames[k],
-            }
-        }
-    }
-
-    pub fn sample_float(&self, time: f32, k: usize, i: usize, count: usize) -> f32 {
-        let t0 = self.key_frames[k];
-        let t1 = self.key_frames[k + 1];
-        let f = (time - t0) / (t1 - t0);
-
-        if f <= 0.0 {
-            self.float_frames[0]
-        } else {
-            match self.method {
-                Method::Linear => {
-                    (1.0 - f) * self.float_frames[k * count + i]
-                        + f * self.float_frames[(k + 1) * count + i]
-                }
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
-                    let p0 = self.float_frames[(k * count + i) * 3 + 1];
-                    let m0 = (t1 - t0) * self.float_frames[(k * count + i) * 3 + 2];
-                    let p1 = self.float_frames[((k + 1) * count + i) * 3 + 1];
-                    let m1 = (t1 - t0) * self.float_frames[((k + 1) * count + i) * 3];
-                    m0 * (t3 - 2.0 * t2 + t)
-                        + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                        + p1 * (-2.0 * t3 + 3.0 * t2)
-                        + m1 * (t3 - t2)
-                }
-                Method::Step => self.float_frames[k],
-            }
-        }
-    }
-
-    pub fn sample_rotation(&self, time: f32, k: usize) -> Quat {
-        let t0 = self.key_frames[k];
-        let t1 = self.key_frames[k + 1];
-        let f = (time - t0) / (t1 - t0);
-
-        if f <= 0.0 {
-            self.rot_frames[0]
-        } else {
-            match self.method {
-                Method::Linear => Quat::from(
-                    (Vec4::from(self.rot_frames[k]) * (1.0 - f))
-                        + (Vec4::from(self.rot_frames[k + 1]) * f),
-                ),
-                Method::Spline => {
-                    let t = f;
-                    let t2 = t * t;
-                    let t3 = t2 * t;
-
-                    let p0 = Vec4::from(self.rot_frames[k * 3 + 1]);
-                    let m0 = Vec4::from(self.rot_frames[k * 3 + 2]) * (t1 - t0);
-                    let p1 = Vec4::from(self.rot_frames[(k + 1) * 3 + 1]);
-                    let m1 = Vec4::from(self.rot_frames[(k + 1) * 3]) * (t1 - t0);
-                    Quat::from(
-                        m0 * (t3 - 2.0 * t2 + t)
-                            + p0 * (2.0 * t3 - 3.0 * t2 + 1.0)
-                            + p1 * (-2.0 * t3 + 3.0 * t2)
-                            + m1 * (t3 - t2),
-                    )
-                }
-                Method::Step => self.rot_frames[k],
-            }
-        }
-    }
-}
-
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Target {
     Translation,
@@ -142,8 +25,6 @@ pub enum Target {
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Channel {
-    pub node_id: u32,
-    pub sampler_ids: Vec<u32>,
     pub targets: Vec<Target>,
     pub key_frames: Vec<f32>,
 
@@ -158,10 +39,8 @@ pub struct Channel {
 impl Default for Channel {
     fn default() -> Self {
         Self {
-            sampler_ids: Vec::new(),
             targets: Vec::new(),
             key_frames: Vec::new(),
-            node_id: std::u32::MAX,
 
             sampler: Method::Linear,
             vec3s: Vec::new(),
@@ -285,7 +164,7 @@ impl Channel {
 pub struct Animation {
     pub name: String,
     pub affected_roots: Vec<u32>,
-    pub channels: Vec<Channel>,
+    pub channels: Vec<(u32, Channel)>, // Vec<(node id, channel)>
     pub time: f32,
 }
 
@@ -320,9 +199,9 @@ impl Animation {
         self.time = time;
         let channels = &mut self.channels;
 
-        channels.iter_mut().for_each(|c| {
+        channels.iter_mut().for_each(|(node_id, c)| {
             let current_time = time % c.duration;
-            let node_id = c.node_id as usize;
+            let node_id = *node_id as usize;
             c.targets.iter().for_each(|t| {
                 let mut key = 0;
                 while current_time > c.key_frames[key as usize + 1] {
@@ -345,7 +224,7 @@ impl Animation {
                         for i in 0..weights {
                             node.weights[i] = c.sample_weight(current_time, key, i, weights);
                         }
-                        node.morhped = true;
+                        node.morphed = true;
                     }
                 }
             });

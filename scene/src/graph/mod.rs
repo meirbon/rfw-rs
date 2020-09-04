@@ -1,3 +1,4 @@
+use animation::{Animation, Channel};
 use crate::utils::*;
 use crate::{Instance, ObjectRef};
 use glam::*;
@@ -5,6 +6,7 @@ use rayon::prelude::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::RwLock;
 
 pub mod animation;
@@ -40,6 +42,45 @@ impl std::fmt::Display for NodeMesh {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct NodeDescriptor {
+    pub name: String,
+    pub child_nodes: Vec<NodeDescriptor>,
+
+    pub translation: Vec3A,
+    pub rotation: Quat,
+    pub scale: Vec3A,
+
+    pub meshes: Vec<ObjectRef>,
+    pub skin: Option<SkinDescriptor>,
+    pub weights: Vec<f32>,
+
+    /// An ID that is guaranteed to be unique within the scene descriptor this
+    /// node descriptor belongs to.
+    pub id: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SkinDescriptor {
+    pub name: String,
+    pub inverse_bind_matrices: Vec<Mat4>,
+    // Joint node descriptor IDs (NodeDescriptor::id)
+    pub joint_nodes: Vec<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnimationDescriptor {
+    pub name: String,
+    // (node descriptor ID, animation channel)
+    pub channels: Vec<(u32, Channel)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SceneDescriptor {
+    pub nodes: Vec<NodeDescriptor>,
+    pub animations: Vec<AnimationDescriptor>
+}
+
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
@@ -56,7 +97,7 @@ pub struct Node {
     pub name: String,
     pub changed: bool,
     pub first: bool,
-    pub morhped: bool,
+    pub morphed: bool,
 }
 
 impl Default for Node {
@@ -73,7 +114,7 @@ impl Default for Node {
             meshes: Vec::new(),
             child_nodes: Vec::new(),
             changed: true,
-            morhped: false,
+            morphed: false,
             first: true,
             name: String::new(),
         }
@@ -191,7 +232,7 @@ impl Node {
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
     root_nodes: TrackedStorage<u32>,
-    pub animations: TrackedStorage<animation::Animation>,
+    pub animations: TrackedStorage<Animation>,
     pub skins: TrackedStorage<Skin>,
     pub active_animation: Option<usize>,
 }
@@ -238,7 +279,7 @@ impl NodeGraph {
         }
     }
 
-    pub fn add_animation(&mut self, anim: animation::Animation) -> usize {
+    pub fn add_animation(&mut self, anim: Animation) -> usize {
         self.animations.push(anim)
     }
 
@@ -441,6 +482,110 @@ impl NodeGraph {
         }
 
         Err(())
+    }
+
+    pub fn load_scene_descriptor(
+        &mut self,
+        scene_descriptor: &SceneDescriptor,
+        instances: &mut TrackedStorage<Instance>,
+    ) {
+        let mut node_map: HashMap<u32, u32> = HashMap::new();
+
+        let mut root_nodes = vec![];
+        for node in &scene_descriptor.nodes {
+            let node_id = self.load_node_descriptor(
+                &mut node_map,
+                node, scene_descriptor, instances,
+            );
+
+            root_nodes.push(node_id);
+            self.root_nodes.push(node_id);
+        }
+
+        for animation in &scene_descriptor.animations {
+            let channels = animation.channels.iter().map(|(node_desc_id, channel)| {
+                let node_id = node_map[&node_desc_id];
+                (node_id, channel.clone())
+            }).collect();
+
+            let animation_id = self.animations.push(Animation {
+                name: animation.name.clone(),
+                // TODO
+                affected_roots: root_nodes.clone(),
+                channels,
+                time: 0.0,
+            });
+
+            self.set_active_animation(animation_id);
+            self.update_animation(0.0);
+        }
+    }
+
+    pub fn load_node_descriptor(
+        &mut self,
+        node_map: &mut HashMap<u32, u32>,
+        descriptor: &NodeDescriptor,
+        scene_descriptor: &SceneDescriptor,
+        instances: &mut TrackedStorage<Instance>,
+    ) -> u32 {
+        let child_nodes: Vec<u32> = descriptor.child_nodes.iter()
+            .map(|child_node_descriptor| {
+                self.load_node_descriptor(
+                    node_map,
+                    child_node_descriptor,
+                    scene_descriptor,
+                    instances,
+                )
+            })
+            .collect();
+
+        let skin_id = descriptor.skin.as_ref().map(|s| {
+            let joint_nodes = s.joint_nodes.iter().map(|joint_node_id| {
+                node_map[joint_node_id]
+            }).collect();
+
+            self.skins.push(Skin {
+                name: s.name.clone(),
+                joint_nodes,
+                inverse_bind_matrices: s.inverse_bind_matrices.clone(),
+                joint_matrices: vec![Mat4::identity(); s.inverse_bind_matrices.len()],
+            })
+        }).map(|id| id as u32);
+
+        let meshes: Vec<NodeMesh> = descriptor.meshes.iter()
+            .map(|mesh| {
+                let instance_id = instances.allocate();
+                instances[instance_id].object_id = *mesh;
+                instances[instance_id].skin_id = skin_id;
+                NodeMesh {
+                    object_id: *mesh,
+                    instance_id: Some(instance_id as u32),
+                }
+            })
+            .collect();
+
+        let mut node = Node {
+            translation: descriptor.translation,
+            rotation: descriptor.rotation,
+            scale: descriptor.scale,
+            matrix: Mat4::identity(),
+            local_matrix: Mat4::identity(),
+            combined_matrix: Mat4::identity(),
+            skin: skin_id,
+            weights: descriptor.weights.clone(),
+            meshes,
+            child_nodes: child_nodes,
+            changed: true,
+            morphed: false,
+            first: true,
+            name: descriptor.name.clone(),
+        };
+        node.update_matrix();
+        let node_id = self.nodes.push(node) as u32;
+
+        node_map.insert(descriptor.id, node_id);
+
+        node_id
     }
 }
 
