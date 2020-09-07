@@ -7,6 +7,7 @@ use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
 
+use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
@@ -22,6 +23,7 @@ use std::num::{NonZeroU64, NonZeroU8};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
+mod d2;
 mod instance;
 mod light;
 mod mesh;
@@ -75,6 +77,7 @@ pub struct Deferred {
     mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
     anim_mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
     task_pool: ManagedTaskPool<TaskResult>,
+    d2_renderer: d2::Renderer,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -327,6 +330,8 @@ impl Renderer for Deferred {
         );
         let blit_pass = pass::BlitPass::new(&device, &output);
 
+        let d2_renderer = d2::Renderer::new(&device);
+
         Ok(Box::new(Self {
             device: Arc::new(device),
             queue,
@@ -363,7 +368,16 @@ impl Renderer for Deferred {
             mesh_bounds: FlaggedStorage::new(),
             anim_mesh_bounds: FlaggedStorage::new(),
             task_pool: ManagedTaskPool::default(),
+            d2_renderer,
         }))
+    }
+
+    fn set_2d_meshes(&mut self, meshes: ChangedIterator<'_, D2Mesh>) {
+        self.d2_renderer.update_meshes(&self.device, meshes);
+    }
+
+    fn set_2d_instances(&mut self, instances: ChangedIterator<'_, D2Instance>) {
+        self.d2_renderer.update_instances(&self.queue, instances);
     }
 
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
@@ -601,6 +615,9 @@ impl Renderer for Deferred {
                 })
             })
             .collect();
+
+        self.d2_renderer
+            .update_bind_groups(&self.device, self.texture_views.as_slice());
     }
 
     fn synchronize(&mut self) {
@@ -699,7 +716,17 @@ impl Renderer for Deferred {
                 .blit_debug(&output.output.view, &mut output_pass, self.debug_view);
         }
 
-        self.queue.submit(vec![render_pass, output_pass.finish()]);
+        let mut d2_encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        self.d2_renderer.render(
+            &mut d2_encoder,
+            &output.output.view,
+            &self.output.depth_texture_view,
+        );
+
+        self.queue
+            .submit(vec![render_pass, output_pass.finish(), d2_encoder.finish()]);
 
         self.instances.reset_changed();
         self.lights_changed = false;

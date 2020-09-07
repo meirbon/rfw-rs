@@ -14,6 +14,7 @@ pub mod lights;
 pub mod loaders;
 pub mod material;
 pub mod objects;
+pub mod r2d;
 pub mod renderers;
 
 pub mod utils;
@@ -38,6 +39,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "object_caching")]
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
+use crate::r2d::{D2Instance, D2Mesh};
 use glam::*;
 use rtbvh::{Bounds, AABB};
 use std::{
@@ -52,6 +54,7 @@ pub enum SceneError {
     InvalidObjectIndex(usize),
     InvalidInstanceIndex(usize),
     InvalidSceneID(u32),
+    InvalidID(u32),
     LoadError(PathBuf),
     LockError,
     UnknownError,
@@ -78,6 +81,7 @@ impl std::fmt::Display for SceneError {
             Self::InvalidObjectIndex(idx) => format!("invalid object index {}", idx),
             Self::InvalidInstanceIndex(idx) => format!("invalid instances index {}", idx),
             Self::InvalidSceneID(id) => format!("invalid scene id {}", id),
+            Self::InvalidID(id) => format!("invalid id {}", id),
             Self::LoadError(path) => format!("could not load file: {}", path.display()),
             Self::LockError => String::from("could not acquire lock"),
             Self::UnknownError => String::new(),
@@ -94,20 +98,24 @@ impl std::error::Error for SceneError {}
 #[derive(Debug, Clone)]
 pub struct Objects {
     pub meshes: Arc<RwLock<TrackedStorage<Mesh>>>,
+    pub d2_meshes: Arc<RwLock<TrackedStorage<D2Mesh>>>,
     pub animated_meshes: Arc<RwLock<TrackedStorage<AnimatedMesh>>>,
     pub graph: Arc<RwLock<graph::SceneGraph>>,
     pub skins: Arc<RwLock<TrackedStorage<graph::Skin>>>,
     pub instances: Arc<RwLock<TrackedStorage<Instance>>>,
+    pub d2_instances: Arc<RwLock<TrackedStorage<D2Instance>>>,
 }
 
 impl Default for Objects {
     fn default() -> Self {
         Self {
             meshes: Arc::new(RwLock::new(TrackedStorage::new())),
+            d2_meshes: Arc::new(RwLock::new(TrackedStorage::new())),
             animated_meshes: Arc::new(RwLock::new(TrackedStorage::new())),
             graph: Arc::new(RwLock::new(graph::SceneGraph::new())),
             skins: Arc::new(RwLock::new(TrackedStorage::new())),
             instances: Arc::new(RwLock::new(TrackedStorage::new())),
+            d2_instances: Arc::new(RwLock::new(TrackedStorage::new())),
         }
     }
 }
@@ -161,10 +169,12 @@ impl Default for Scene {
 #[derive(Debug)]
 struct SerializableScene {
     pub meshes: TrackedStorage<Mesh>,
+    pub d2_meshes: TrackedStorage<D2Mesh>,
     pub animated_meshes: TrackedStorage<AnimatedMesh>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
     pub instances: TrackedStorage<Instance>,
+    pub d2_instances: TrackedStorage<D2Instance>,
     pub lights: SceneLights,
     pub materials: MaterialList,
     pub settings: Flags,
@@ -178,10 +188,12 @@ impl From<&Scene> for SerializableScene {
 
         Self {
             meshes: scene.objects.meshes.read().unwrap().clone(),
+            d2_meshes: scene.objects.d2_meshes.read().unwrap().clone(),
             animated_meshes: scene.objects.animated_meshes.read().unwrap().clone(),
             graph: scene.objects.graph.read().unwrap().clone(),
             skins: scene.objects.skins.read().unwrap().clone(),
             instances: scene.objects.instances.read().unwrap().clone(),
+            d2_instances: scene.objects.d2_instances.read().unwrap().clone(),
             lights: lights.clone(),
             materials: mat_lock.clone(),
             settings: settings.clone(),
@@ -195,10 +207,12 @@ impl Into<Scene> for SerializableScene {
             loaders: Scene::create_loaders(),
             objects: Objects {
                 meshes: Arc::new(RwLock::new(self.meshes)),
+                d2_meshes: Arc::new(RwLock::new(self.d2_meshes)),
                 animated_meshes: Arc::new(RwLock::new(self.animated_meshes)),
                 graph: Arc::new(RwLock::new(self.graph)),
                 skins: Arc::new(RwLock::new(self.skins)),
                 instances: Arc::new(RwLock::new(self.instances)),
+                d2_instances: Arc::new(RwLock::new(self.d2_instances)),
             },
             lights: Arc::new(RwLock::new(self.lights)),
             materials: Arc::new(RwLock::new(self.materials)),
@@ -279,6 +293,16 @@ impl Scene {
         Ok(id)
     }
 
+    pub fn add_2d_object(&self, object: D2Mesh) -> Result<usize, SceneError> {
+        let mut meshes = self
+            .objects
+            .d2_meshes
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+        let id = meshes.push(object);
+        Ok(id)
+    }
+
     pub fn add_animated_object(&self, object: AnimatedMesh) -> Result<usize, SceneError> {
         let mut meshes = self
             .objects
@@ -323,6 +347,21 @@ impl Scene {
         Ok(())
     }
 
+    pub fn set_2d_object(&self, index: usize, object: D2Mesh) -> Result<(), SceneError> {
+        let mut meshes = self
+            .objects
+            .d2_meshes
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+
+        if meshes.get(index).is_none() {
+            Err(SceneError::InvalidObjectIndex(index))
+        } else {
+            meshes[index] = object;
+            Ok(())
+        }
+    }
+
     pub fn remove_object(&mut self, index: usize) -> Result<(), SceneError> {
         // TODO: Remove instances that contained this object
         // TODO: Remove scenes that contained this object
@@ -353,27 +392,22 @@ impl Scene {
         }
     }
 
-    pub fn add_instance(&self, index: ObjectRef) -> Result<usize, SceneError> {
-        let bounds = match index {
-            ObjectRef::None => {
-                return Err(SceneError::InvalidObjectRef);
-            }
-            ObjectRef::Static(id) => match self.objects.meshes.read() {
-                Ok(m) => match m.get(id as usize) {
-                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                    _ => m.get(id as usize).unwrap().bounds.clone(),
-                },
-                Err(_) => return Err(SceneError::LockError),
-            },
-            ObjectRef::Animated(id) => match self.objects.animated_meshes.read() {
-                Ok(m) => match m.get(id as usize) {
-                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                    _ => m.get(id as usize).unwrap().bounds.clone(),
-                },
-                Err(_) => return Err(SceneError::LockError),
-            },
-        };
+    pub fn remove_2d_object(&mut self, index: usize) -> Result<(), SceneError> {
+        // TODO: Remove 2d instances that contained this object
+        let mut meshes = self
+            .objects
+            .d2_meshes
+            .write()
+            .map_err(|_| SceneError::LockError)?;
 
+        match meshes.erase(index) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SceneError::InvalidObjectIndex(index)),
+        }
+    }
+
+    pub fn add_instance(&self, index: ObjectRef) -> Result<usize, SceneError> {
+        let bounds = self.get_bounds(index)?;
         let mut instances = self
             .objects
             .instances
@@ -385,31 +419,24 @@ impl Scene {
         Ok(instance_id)
     }
 
+    pub fn add_2d_instance(&self, index: u32) -> Result<usize, SceneError> {
+        let mut instances = self
+            .objects
+            .d2_instances
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+
+        let instance_id = instances.allocate();
+        instances[instance_id] = D2Instance::new(index);
+        Ok(instance_id)
+    }
+
     pub fn set_instance_object(
         &self,
         instance: usize,
         obj_index: ObjectRef,
     ) -> Result<(), SceneError> {
-        let bounds = match obj_index {
-            ObjectRef::None => {
-                return Err(SceneError::InvalidObjectRef);
-            }
-            ObjectRef::Static(id) => match self.objects.meshes.read() {
-                Ok(m) => match m.get(id as usize) {
-                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                    _ => m.get(id as usize).unwrap().bounds.clone(),
-                },
-                Err(_) => return Err(SceneError::LockError),
-            },
-            ObjectRef::Animated(id) => match self.objects.animated_meshes.read() {
-                Ok(m) => match m.get(id as usize) {
-                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                    _ => m.get(id as usize).unwrap().bounds.clone(),
-                },
-                Err(_) => return Err(SceneError::LockError),
-            },
-        };
-
+        let bounds = self.get_bounds(obj_index)?;
         let mut instances = self
             .objects
             .instances
@@ -428,17 +455,40 @@ impl Scene {
     }
 
     pub fn remove_instance(&self, index: usize) -> Result<(), SceneError> {
-        match self.objects.meshes.read() {
-            Ok(m) => match m.get(index) {
-                None => return Err(SceneError::InvalidObjectIndex(index)),
-                _ => {}
-            },
+        match self.objects.instances.read() {
+            Ok(m) => {
+                if m.get(index).is_none() {
+                    return Err(SceneError::InvalidInstanceIndex(index));
+                }
+            }
             Err(_) => return Err(SceneError::LockError),
         };
 
         let mut instances = self
             .objects
             .instances
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+
+        match instances.erase(index) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(SceneError::UnknownError),
+        }
+    }
+
+    pub fn remove_2d_instance(&self, index: usize) -> Result<(), SceneError> {
+        match self.objects.d2_instances.read() {
+            Ok(m) => {
+                if m.get(index).is_none() {
+                    return Err(SceneError::InvalidInstanceIndex(index));
+                }
+            }
+            Err(_) => return Err(SceneError::LockError),
+        };
+
+        let mut instances = self
+            .objects
+            .d2_instances
             .write()
             .map_err(|_| SceneError::LockError)?;
 
@@ -577,7 +627,6 @@ impl Scene {
             instances
                 .iter()
                 .for_each(|(inst_idx, instance)| match instance.object_id {
-                    ObjectRef::None => return,
                     ObjectRef::Static(mesh_id) => {
                         let m = &meshes[mesh_id as usize];
                         for v in m.meshes.iter() {
@@ -678,6 +727,7 @@ impl Scene {
                             }
                         }
                     }
+                    _ => return,
                 });
 
             let mut meshes = meshes;
@@ -710,6 +760,30 @@ impl Scene {
         );
 
         loaders
+    }
+
+    fn get_bounds(&self, index: ObjectRef) -> Result<AABB, SceneError> {
+        let bounds = match index {
+            ObjectRef::Static(id) => match self.objects.meshes.read() {
+                Ok(m) => match m.get(id as usize) {
+                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
+                    _ => m.get(id as usize).unwrap().bounds,
+                },
+                Err(_) => return Err(SceneError::LockError),
+            },
+            ObjectRef::Animated(id) => match self.objects.animated_meshes.read() {
+                Ok(m) => match m.get(id as usize) {
+                    None => return Err(SceneError::InvalidObjectIndex(id as usize)),
+                    _ => m.get(id as usize).unwrap().bounds,
+                },
+                Err(_) => return Err(SceneError::LockError),
+            },
+            _ => {
+                return Err(SceneError::InvalidObjectRef);
+            }
+        };
+
+        Ok(bounds)
     }
 }
 

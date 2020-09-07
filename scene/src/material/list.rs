@@ -79,8 +79,26 @@ pub struct Texture {
 
 impl Default for Texture {
     fn default() -> Self {
+        let mut data = Vec::with_capacity(64 * 64);
+        for y in 0..64 {
+            for x in 0..64 {
+                let r = x as f32 / 64.0_f32;
+                let g = y as f32 / 64.0_f32;
+                let b = (r + g) / 2.0;
+
+                let r = (r * 255.0) as u32;
+                let g = (g * 255.0) as u32;
+                let b = (b * 255.0) as u32;
+                let a = 255_u32;
+
+                data.push((a << 24) + ((r >> 2) << 16) + ((g >> 2) << 8) + (b >> 2));
+            }
+        }
+
+        assert_eq!(data.len(), 64 * 64);
+
         Self {
-            data: vec![0_u32; 64 * 64],
+            data,
             width: 64,
             height: 64,
             mip_levels: 1,

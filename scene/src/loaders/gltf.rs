@@ -11,14 +11,13 @@ use std::{
 };
 
 use crate::graph::animation::{Channel, Method, Target};
-use crate::graph::{Node, NodeGraph};
+use crate::graph::Node;
 use crate::utils::TrackedStorage;
 use crate::{material::Texture, LoadResult, TextureSource};
 use gltf::animation::util::{MorphTargetWeights, ReadOutputs, Rotations};
 use gltf::json::animation::{Interpolation, Property};
 use gltf::mesh::util::{ReadIndices, ReadJoints, ReadTexCoords, ReadWeights};
 use gltf::scene::Transform;
-use rtbvh::AABB;
 
 #[derive(Debug, Copy, Clone)]
 pub struct GltfLoader {}
@@ -41,12 +40,6 @@ enum LoadedMesh {
     Animated(AnimatedMesh),
 }
 
-#[derive(Debug, Clone)]
-enum LoadedMeshID {
-    Static(usize, AABB),
-    Animated(usize, AABB),
-}
-
 impl ObjectLoader for GltfLoader {
     fn load(
         &self,
@@ -65,7 +58,6 @@ impl ObjectLoader for GltfLoader {
 
         let mut mat_mapping = HashMap::new();
 
-        let mut nodes = NodeGraph::new();
         {
             let mut mat_manager = mat_manager.write().unwrap();
             let parent_folder = match path.parent() {

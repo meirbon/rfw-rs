@@ -51,6 +51,7 @@ impl std::error::Error for GfxError {}
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
+use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_utils::TaskPool;
 
 pub struct GfxRenderer<B: hal::Backend> {
@@ -288,6 +289,14 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             mesh_renderer,
             skins,
         }))
+    }
+
+    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
+        unimplemented!()
+    }
+
+    fn set_2d_instances(&mut self, instances: ChangedIterator<'_, D2Instance>) {
+        unimplemented!()
     }
 
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {

@@ -1,6 +1,8 @@
+use crate::scene::r2d::D2Instance;
 use glam::*;
 pub use rfw_scene as scene;
 use rfw_scene::graph::NodeGraph;
+use rfw_scene::r2d::D2Mesh;
 use rfw_scene::utils::{FlaggedIterator, FlaggedIteratorMut};
 use rfw_scene::{
     raw_window_handle, Camera, DirectionalLight, Flip, Instance, LoadResult, ObjectRef, PointLight,
@@ -207,6 +209,22 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         cb(lock.get_mut(index))
     }
 
+    pub fn get_2d_instance<C>(&self, index: usize, cb: C)
+    where
+        C: FnOnce(Option<&D2Instance>),
+    {
+        let lock = self.scene.objects.d2_instances.read().unwrap();
+        cb(lock.get(index))
+    }
+
+    pub fn get_2d_instance_mut<C>(&self, index: usize, cb: C)
+    where
+        C: FnOnce(Option<&mut D2Instance>),
+    {
+        let mut lock = self.scene.objects.d2_instances.write().unwrap();
+        cb(lock.get_mut(index))
+    }
+
     pub fn get_lights<C>(&self, cb: C)
     where
         C: FnOnce(&SceneLights),
@@ -310,8 +328,34 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         }
     }
 
+    pub fn add_2d_object(&self, object: D2Mesh) -> Result<u32, SceneError> {
+        match self.scene.add_2d_object(object) {
+            Ok(id) => Ok(id as u32),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn set_2d_object(&self, id: u32, object: D2Mesh) -> Result<(), SceneError> {
+        let mut meshes = self
+            .scene
+            .objects
+            .d2_meshes
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+        if let Some(mesh) = meshes.get_mut(id as usize) {
+            *mesh = object;
+            Ok(())
+        } else {
+            Err(SceneError::InvalidObjectIndex(id as usize))
+        }
+    }
+
     pub fn create_instance(&self, object: ObjectRef) -> Result<usize, SceneError> {
         self.scene.add_instance(object)
+    }
+
+    pub fn create_2d_instance(&self, object: u32) -> Result<usize, SceneError> {
+        self.scene.add_2d_instance(object)
     }
 
     pub fn add_scene(&self, mut graph: NodeGraph) -> Result<u32, SceneError> {
@@ -336,6 +380,39 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         } else {
             Err(SceneError::LockError)
         }
+    }
+
+    pub fn remove_instance(&self, id: u32) -> Result<(), SceneError> {
+        self.scene.remove_instance(id as usize)
+    }
+
+    pub fn remove_2d_instance(&self, id: u32) -> Result<(), SceneError> {
+        self.scene.remove_2d_instance(id as usize)
+    }
+
+    pub fn add_texture(&self, texture: Texture) -> Result<u32, SceneError> {
+        let mut materials = self
+            .scene
+            .materials
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+        Ok(materials.push_texture(texture) as u32)
+    }
+
+    pub fn set_texture(&self, id: u32, texture: Texture) -> Result<(), SceneError> {
+        let mut materials = self
+            .scene
+            .materials
+            .write()
+            .map_err(|_| SceneError::LockError)?;
+
+        let tex = materials.get_texture_mut(id as usize);
+        if tex.is_none() {
+            return Err(SceneError::InvalidID(id));
+        }
+
+        *tex.unwrap() = texture;
+        Ok(())
     }
 
     /// Will return a reference to the point light if the scene is not locked
@@ -446,6 +523,20 @@ impl<T: Sized + Renderer> RenderSystem<T> {
                 if skins.any_changed() {
                     renderer.set_skins(skins.iter_changed());
                     skins.reset_changed();
+                }
+            }
+
+            if let Ok(mut meshes) = self.scene.objects.d2_meshes.write() {
+                if meshes.any_changed() {
+                    renderer.set_2d_meshes(meshes.iter_changed());
+                    meshes.reset_changed();
+                }
+            }
+
+            if let Ok(mut instances) = self.scene.objects.d2_instances.write() {
+                if instances.any_changed() {
+                    renderer.set_2d_instances(instances.iter_changed());
+                    instances.reset_changed();
                 }
             }
 

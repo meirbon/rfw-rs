@@ -5,6 +5,7 @@ use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 
+use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
@@ -1124,6 +1125,14 @@ impl Renderer for RayTracer {
         }))
     }
 
+    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
+        unimplemented!()
+    }
+
+    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, D2Instance>) {
+        unimplemented!()
+    }
+
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
         for (id, mesh) in meshes {
             if id >= self.meshes.len() {
@@ -2004,7 +2013,6 @@ impl RayTracer {
         })
     }
 
-    
     fn read_camera_data(&mut self, camera_data: &mut CameraData) {
         {
             let slice = self.camera_read_buffer.slice(..);

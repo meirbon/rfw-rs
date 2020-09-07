@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use glyph_brush::{ab_glyph::FontArc, BrushAction, BrushError, GlyphBrushBuilder, Section, Text};
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -15,6 +16,8 @@ use winit::{
 };
 
 use rfw_gfx::GfxBackend;
+use rfw_system::scene::r2d::D2Mesh;
+use rfw_system::scene::Texture;
 use rfw_system::{
     scene::{
         self,
@@ -181,6 +184,28 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     );
     renderer.add_scene(pica)?;
 
+    let d2_mesh = renderer.add_2d_object(D2Mesh::new(
+        vec![
+            [-0.5, -0.5, 0.5],
+            [0.5, -0.5, 0.5],
+            [0.5, 0.5, 0.5],
+            [-0.5, 0.5, 0.5],
+            [-0.5, -0.5, 0.5],
+            [0.5, 0.5, 0.5],
+        ],
+        vec![
+            [0.01, 0.01],
+            [0.99, 0.01],
+            [0.99, 0.99],
+            [0.01, 0.99],
+            [0.01, 0.01],
+            [0.99, 0.99],
+        ],
+        Some(renderer.add_texture(Texture::default())?),
+        [1.0, 1.0, 1.0, 0.5],
+    ))?;
+    let d2_inst = renderer.create_2d_instance(d2_mesh)?;
+
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
     let app_time = utils::Timer::new();
@@ -317,6 +342,18 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     }
                     fullscreen_timer = 0.0;
                 }
+
+                renderer.get_2d_instance_mut(d2_inst, |inst| {
+                    if let Some(inst) = inst {
+                        let time = app_time.elapsed_in_millis() / 1000.0;
+                        inst.transform = Mat4::from_translation(Vec3::new(
+                            time.cos() * 0.5,
+                            time.sin() * 0.5,
+                            0.0,
+                        ))
+                        .to_cols_array();
+                    }
+                });
 
                 let elapsed = timer.elapsed_in_millis();
                 fullscreen_timer += elapsed;
