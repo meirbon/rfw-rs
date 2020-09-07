@@ -157,33 +157,23 @@ impl ObjectLoader for ObjLoader {
                     _ => None,
                 };
 
-                let mat_index = mat_manager.add_with_maps(
-                    color,
-                    roughness,
-                    specular,
-                    opacity,
-                    if let Some(path) = d_path {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                    if let Some(path) = n_path {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                    metallic_roughness,
-                    if let Some(path) = emissive_map {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                    if let Some(path) = sheen_map {
-                        Some(TextureSource::Filesystem(path, Flip::FlipV))
-                    } else {
-                        None
-                    },
-                );
+                let mut textures = TextureDescriptor::default();
+                if let Some(path) = d_path {
+                    textures = textures.with_albedo(TextureSource::Filesystem(path, Flip::FlipV));
+                }
+                if let Some(path) = n_path {
+                    textures = textures.with_normal(TextureSource::Filesystem(path, Flip::FlipV));
+                }
+                textures.metallic_roughness_map = metallic_roughness;
+                if let Some(path) = emissive_map {
+                    textures = textures.with_emissive(TextureSource::Filesystem(path, Flip::FlipV));
+                }
+                if let Some(path) = sheen_map {
+                    textures = textures.with_sheen(TextureSource::Filesystem(path, Flip::FlipV));
+                }
+
+                let mat_index =
+                    mat_manager.add_with_maps(color, roughness, specular, opacity, textures);
                 mat_manager.get_mut(mat_index, |m| {
                     if let Some(mat) = m {
                         mat.eta = eta;

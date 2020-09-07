@@ -83,14 +83,10 @@ impl Renderer {
             primitive_topology: wgpu::PrimitiveTopology::TriangleList,
             color_states: &[wgpu::ColorStateDescriptor {
                 format: super::output::DeferredOutput::OUTPUT_FORMAT,
-                alpha_blend: wgpu::BlendDescriptor {
-                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::DstAlpha,
-                    operation: wgpu::BlendOperation::Add,
-                },
+                alpha_blend: wgpu::BlendDescriptor::REPLACE,
                 color_blend: wgpu::BlendDescriptor {
                     src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::DstAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                     operation: wgpu::BlendOperation::Add,
                 },
                 write_mask: wgpu::ColorWrite::ALL,

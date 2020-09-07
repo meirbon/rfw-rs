@@ -5,7 +5,7 @@ use glam::*;
 use image::GenericImageView;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::ops::{Index, IndexMut};
+use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "object_caching")]
@@ -67,6 +67,225 @@ pub enum TextureFormat {
     RGBA16,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct Pixel {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl Default for Pixel {
+    fn default() -> Self {
+        Self {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        }
+    }
+}
+
+impl From<[f32; 4]> for Pixel {
+    fn from(c: [f32; 4]) -> Self {
+        Self {
+            r: c[0],
+            g: c[1],
+            b: c[2],
+            a: c[3],
+        }
+    }
+}
+
+impl Into<[f32; 4]> for Pixel {
+    fn into(self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+}
+
+impl Pixel {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn zero() -> Self {
+        Self::from([0.0; 4])
+    }
+
+    pub fn one() -> Self {
+        Self::from([1.0; 4])
+    }
+
+    pub fn from_bgra(pixel: u32) -> Self {
+        let r = pixel.overflowing_shr(16).0 & 255;
+        let g = pixel.overflowing_shr(8).0 & 255;
+        let b = pixel & 255;
+        let a = pixel.overflowing_shr(24).0 & 255;
+
+        let r = r as f32 / 255.0;
+        let g = g as f32 / 255.0;
+        let b = b as f32 / 255.0;
+        let a = a as f32 / 255.0;
+
+        Self { r, g, b, a }
+    }
+
+    pub fn from_rgba(pixel: u32) -> Self {
+        let r = pixel.overflowing_shr(0).0 & 255;
+        let g = pixel.overflowing_shr(8).0 & 255;
+        let b = pixel.overflowing_shr(16).0 & 255;
+        let a = pixel.overflowing_shr(24).0 & 255;
+
+        let r = r as f32 / 255.0;
+        let g = g as f32 / 255.0;
+        let b = b as f32 / 255.0;
+        let a = a as f32 / 255.0;
+
+        Self { r, g, b, a }
+    }
+
+    pub fn scaled(self, factor: f32) -> Self {
+        Self {
+            r: self.r * factor,
+            g: self.g * factor,
+            b: self.b * factor,
+            a: self.a * factor,
+        }
+    }
+
+    pub fn sqrt(self) -> Self {
+        Self {
+            r: if self.r <= 0.0 { 0.0 } else { self.r.sqrt() },
+            g: if self.g <= 0.0 { 0.0 } else { self.g.sqrt() },
+            b: if self.b <= 0.0 { 0.0 } else { self.b.sqrt() },
+            a: if self.a <= 0.0 { 0.0 } else { self.a.sqrt() },
+        }
+    }
+
+    pub fn pow(self, exp: f32) -> Self {
+        Self {
+            r: if self.r <= 0.0 { 0.0 } else { self.r.powf(exp) },
+            g: if self.g <= 0.0 { 0.0 } else { self.g.powf(exp) },
+            b: if self.b <= 0.0 { 0.0 } else { self.b.powf(exp) },
+            a: if self.a <= 0.0 { 0.0 } else { self.a.powf(exp) },
+        }
+    }
+}
+
+impl Add<Pixel> for Pixel {
+    type Output = Self;
+
+    fn add(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r + rhs.r,
+            g: self.g + rhs.g,
+            b: self.b + rhs.b,
+            a: self.a + rhs.a,
+        }
+    }
+}
+
+impl Sub<Pixel> for Pixel {
+    type Output = Self;
+
+    fn sub(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r - rhs.r,
+            g: self.g - rhs.g,
+            b: self.b - rhs.b,
+            a: self.a - rhs.a,
+        }
+    }
+}
+
+impl Div<Pixel> for Pixel {
+    type Output = Self;
+
+    fn div(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r / rhs.r,
+            g: self.g / rhs.g,
+            b: self.b / rhs.b,
+            a: self.a / rhs.a,
+        }
+    }
+}
+
+impl Mul<Pixel> for Pixel {
+    type Output = Self;
+
+    fn mul(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r * rhs.r,
+            g: self.g * rhs.g,
+            b: self.b * rhs.b,
+            a: self.a * rhs.a,
+        }
+    }
+}
+
+impl AddAssign<Pixel> for Pixel {
+    fn add_assign(&mut self, rhs: Pixel) {
+        self.r += rhs.r;
+        self.g += rhs.g;
+        self.b += rhs.b;
+        self.a += rhs.a;
+    }
+}
+
+impl SubAssign<Pixel> for Pixel {
+    fn sub_assign(&mut self, rhs: Pixel) {
+        self.r -= rhs.r;
+        self.g -= rhs.g;
+        self.b -= rhs.b;
+        self.a -= rhs.a;
+    }
+}
+
+impl DivAssign<Pixel> for Pixel {
+    fn div_assign(&mut self, rhs: Pixel) {
+        self.r /= rhs.r;
+        self.g /= rhs.g;
+        self.b /= rhs.b;
+        self.a /= rhs.a;
+    }
+}
+
+impl MulAssign<Pixel> for Pixel {
+    fn mul_assign(&mut self, rhs: Pixel) {
+        self.r *= rhs.r;
+        self.g *= rhs.g;
+        self.b *= rhs.b;
+        self.a *= rhs.a;
+    }
+}
+
+impl Index<usize> for Pixel {
+    type Output = f32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0 => &self.r,
+            1 => &self.g,
+            2 => &self.b,
+            3 => &self.a,
+            _ => panic!("invalid index {}", index),
+        }
+    }
+}
+
+impl IndexMut<usize> for Pixel {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match index {
+            0 => &mut self.r,
+            1 => &mut self.g,
+            2 => &mut self.b,
+            3 => &mut self.a,
+            _ => panic!("invalid index {}", index),
+        }
+    }
+}
+
 // TODO: Support other formats than BGRA8
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
@@ -84,7 +303,7 @@ impl Default for Texture {
             for x in 0..64 {
                 let r = x as f32 / 64.0_f32;
                 let g = y as f32 / 64.0_f32;
-                let b = (r + g) / 2.0;
+                let b = 0.2;
 
                 let r = (r * 255.0) as u32;
                 let g = (g * 255.0) as u32;
@@ -133,9 +352,9 @@ impl Texture {
         let mut src_offset = 0;
         let mut dst_offset = src_offset + self.width as usize * self.height as usize;
 
-        let mut pw = self.width as usize;
-        let mut w = self.width as usize >> 1;
-        let mut h = self.height as usize >> 1;
+        let mut pw: usize = self.width as usize;
+        let mut w: usize = self.width as usize >> 1;
+        let mut h: usize = self.height as usize >> 1;
 
         for _ in 1..levels {
             let max_dst_offset = dst_offset + (w * h);
@@ -275,6 +494,10 @@ impl Texture {
     /// Texel count
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub fn offset_for_level(&self, mip_level: usize) -> usize {
@@ -523,11 +746,120 @@ impl Texture {
             mip_levels: 1,
         }
     }
+
+    pub fn transformed<C>(mut self, cb: C) -> Texture
+    where
+        C: Fn(Pixel) -> Pixel,
+    {
+        for pixel in self.data.iter_mut() {
+            let cb = &cb;
+            let p: u32 = *pixel;
+
+            let r: u32 = p.overflowing_shr(16).0 & 255;
+            let g: u32 = p.overflowing_shr(8).0 & 255;
+            let b: u32 = p & 255;
+            let a: u32 = p.overflowing_shr(24).0 & 255;
+
+            let r: f32 = r as f32 / 255.0;
+            let g: f32 = g as f32 / 255.0;
+            let b: f32 = b as f32 / 255.0;
+            let a: f32 = a as f32 / 255.0;
+
+            let colors: Pixel = cb(Pixel::from([r, g, b, a]));
+            let r: u32 = (colors.r.min(1.0).max(0.0) * 255.0) as u32;
+            let g: u32 = (colors.g.min(1.0).max(0.0) * 255.0) as u32;
+            let b: u32 = (colors.b.min(1.0).max(0.0) * 255.0) as u32;
+            let a: u32 = (colors.a.min(1.0).max(0.0) * 255.0) as u32;
+
+            *pixel = (a << 24) + (r << 16) + (g << 8) + b;
+        }
+
+        self
+    }
 }
 
 impl<T: AsRef<Path>> From<T> for Texture {
     fn from(path: T) -> Self {
         Self::load(path, Flip::default()).unwrap()
+    }
+}
+
+impl Default for MaterialList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TextureDescriptor {
+    pub albedo: Option<TextureSource>,
+    pub normal: Option<TextureSource>,
+    pub metallic_roughness_map: Option<TextureSource>,
+    pub emissive_map: Option<TextureSource>,
+    pub sheen_map: Option<TextureSource>,
+}
+
+impl TextureDescriptor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_albedo(mut self, tex: TextureSource) -> Self {
+        self.albedo = Some(tex);
+        self
+    }
+
+    pub fn with_normal(mut self, tex: TextureSource) -> Self {
+        self.normal = Some(tex);
+        self
+    }
+
+    pub fn with_metallic_roughness(mut self, tex: TextureSource) -> Self {
+        self.metallic_roughness_map = Some(tex);
+        self
+    }
+
+    pub fn with_metallic_roughness_maps(
+        mut self,
+        metallic: TextureSource,
+        roughness: TextureSource,
+    ) -> Self {
+        let metallic = match metallic {
+            TextureSource::Loaded(t) => t,
+            TextureSource::Filesystem(path, flip) => Texture::load(path, flip).unwrap(),
+        };
+
+        let roughness = match roughness {
+            TextureSource::Loaded(t) => t,
+            TextureSource::Filesystem(path, flip) => Texture::load(path, flip).unwrap(),
+        };
+
+        let tex = Texture::merge(Some(&metallic), Some(&roughness), None, None);
+
+        self.metallic_roughness_map = Some(TextureSource::Loaded(tex));
+        self
+    }
+
+    pub fn with_emissive(mut self, tex: TextureSource) -> Self {
+        self.emissive_map = Some(tex);
+        self
+    }
+
+    pub fn with_sheen(mut self, tex: TextureSource) -> Self {
+        self.sheen_map = Some(tex);
+        self
+    }
+}
+
+impl Default for TextureDescriptor {
+    fn default() -> Self {
+        Self {
+            albedo: None,
+            normal: None,
+            metallic_roughness_map: None,
+            emissive_map: None,
+            sheen_map: None,
+        }
     }
 }
 
@@ -591,12 +923,14 @@ impl MaterialList {
         roughness: f32,
         specular: Vec3,
         transmission: f32,
-        albedo: Option<TextureSource>,
-        normal: Option<TextureSource>,
-        metallic_roughness_map: Option<TextureSource>,
-        emissive_map: Option<TextureSource>,
-        sheen_map: Option<TextureSource>,
+        textures: TextureDescriptor,
     ) -> usize {
+        let albedo = textures.albedo;
+        let normal = textures.normal;
+        let metallic_roughness_map = textures.metallic_roughness_map;
+        let emissive_map = textures.emissive_map;
+        let sheen_map = textures.sheen_map;
+
         let mut material = Material::default();
         material.color = color.extend(1.0).into();
         material.specular = specular.extend(1.0).into();
@@ -758,6 +1092,10 @@ impl MaterialList {
 
     pub fn get_default(&self) -> usize {
         0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.materials.is_empty()
     }
 
     pub fn len(&self) -> usize {

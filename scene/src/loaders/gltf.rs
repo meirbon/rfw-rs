@@ -1,7 +1,7 @@
 use crate::{
     graph::{AnimationDescriptor, NodeDescriptor, SceneDescriptor, SkinDescriptor},
     AnimatedMesh, Flip, Material, MaterialList, Mesh, ObjectLoader, ObjectRef, SceneError,
-    TextureFormat,
+    TextureDescriptor, TextureFormat,
 };
 use glam::*;
 use std::{
@@ -85,31 +85,38 @@ impl ObjectLoader for GltfLoader {
                 material.roughness = pbr.roughness_factor();
                 material.color = pbr.base_color_factor();
                 material.metallic = pbr.metallic_factor();
+
+                let mut textures = TextureDescriptor::default();
+                if let Some(tex) = pbr.base_color_texture() {
+                    if let Some(tex) = load_texture(tex.texture().source().source()) {
+                        textures = textures.with_albedo(tex);
+                    }
+                }
+                if let Some(tex) = m.normal_texture() {
+                    if let Some(tex) = load_texture(tex.texture().source().source()) {
+                        textures = textures.with_normal(tex);
+                    }
+                }
+                // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
+                // The metalness values are sampled from the B channel.
+                // The roughness values are sampled from the G channel.
+                if let Some(tex) = pbr.metallic_roughness_texture() {
+                    if let Some(tex) = load_texture(tex.texture().source().source()) {
+                        textures = textures.with_metallic_roughness(tex);
+                    }
+                }
+                if let Some(tex) = m.emissive_texture() {
+                    if let Some(tex) = load_texture(tex.texture().source().source()) {
+                        textures = textures.with_emissive(tex);
+                    }
+                }
+
                 let index = mat_manager.add_with_maps(
                     Vec4::from(pbr.base_color_factor()).truncate().into(),
                     pbr.roughness_factor(),
                     Vec4::from(pbr.base_color_factor()).truncate().into(),
                     0.0,
-                    match pbr.base_color_texture() {
-                        Some(tex) => load_texture(tex.texture().source().source()),
-                        None => None,
-                    },
-                    match m.normal_texture() {
-                        Some(tex) => load_texture(tex.texture().source().source()),
-                        None => None,
-                    },
-                    // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
-                    // The metalness values are sampled from the B channel.
-                    // The roughness values are sampled from the G channel.
-                    match pbr.metallic_roughness_texture() {
-                        Some(tex) => load_texture(tex.texture().source().source()),
-                        None => None,
-                    },
-                    match m.emissive_texture() {
-                        Some(tex) => load_texture(tex.texture().source().source()),
-                        None => None,
-                    },
-                    None, //sheen_map
+                    textures,
                 );
 
                 mat_mapping.insert(m.index().unwrap_or(i), index);

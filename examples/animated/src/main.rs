@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use glyph_brush::{ab_glyph::FontArc, BrushAction, BrushError, GlyphBrushBuilder, Section, Text};
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -184,6 +183,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     );
     renderer.add_scene(pica)?;
 
+    let tex = renderer.add_texture(Texture::default())?;
     let d2_mesh = renderer.add_2d_object(D2Mesh::new(
         vec![
             [-0.5, -0.5, 0.5],
@@ -201,10 +201,14 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
             [0.01, 0.01],
             [0.99, 0.99],
         ],
-        Some(renderer.add_texture(Texture::default())?),
-        [1.0, 1.0, 1.0, 0.5],
+        Some(tex),
+        [1.0; 4],
     ))?;
     let d2_inst = renderer.create_2d_instance(d2_mesh)?;
+    renderer.get_2d_instance_mut(d2_inst, |inst| {
+        inst.unwrap().transform =
+            Mat4::from_scale(Vec3::new(1.0 / camera.aspect_ratio, 1.0, 1.0)).to_cols_array();
+    });
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
@@ -346,12 +350,13 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 renderer.get_2d_instance_mut(d2_inst, |inst| {
                     if let Some(inst) = inst {
                         let time = app_time.elapsed_in_millis() / 1000.0;
-                        inst.transform = Mat4::from_translation(Vec3::new(
-                            time.cos() * 0.5,
-                            time.sin() * 0.5,
-                            0.0,
-                        ))
-                        .to_cols_array();
+                        inst.transform =
+                            (Mat4::from_translation(Vec3::new(
+                                time.cos() * 0.5,
+                                time.sin() * 0.5,
+                                0.0,
+                            )) * Mat4::from_scale(Vec3::new(1.0 / camera.aspect_ratio, 1.0, 1.0)))
+                            .to_cols_array();
                     }
                 });
 
