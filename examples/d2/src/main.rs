@@ -333,11 +333,6 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 let fps_avg = fps.get_average();
                 let render_avg = render.get_average();
                 let sync_avg = synchronize.get_average();
-                let title = format!(
-                    "rfw-rs - FPS: {:.2}, render: {:.2} ms, synchronize: {:.2} ms",
-                    fps_avg, render_avg, sync_avg
-                );
-                window.set_title(title.as_str());
 
                 let elapsed = if key_handler.pressed(KeyCode::LShift) {
                     elapsed * 2.0
@@ -363,6 +358,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     renderer.resize(&window, render_width, render_height);
                     camera.resize(render_width as u32, render_height as u32);
                     resized = false;
+
+                    renderer.get_2d_instance_mut(d2_inst, |inst| {
+                        inst.unwrap().transform =
+                            Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0)
+                                .to_cols_array();
+                    });
                 }
 
                 glyph_brush.queue(
@@ -473,7 +474,6 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                             },
                         )
                         .unwrap();
-                    tex_changed = false;
                 }
 
                 timer2.reset();
