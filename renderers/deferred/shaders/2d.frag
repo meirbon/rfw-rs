@@ -5,7 +5,6 @@ layout(location = 1) in vec4 Color;
 
 struct Instance {
     mat4 matrix;
-    vec4 color;
     uvec4 aux;
 };
 
@@ -19,6 +18,10 @@ void main() {
     vec4 color = Color;
     if (UvTex.z > 0.0) {
         color = color * texture(sampler2D(Tex, Sampler), UvTex.xy).rgba;
+    }
+
+    if (color.a <= 0.0) {
+        discard;
     }
 
     C = color;

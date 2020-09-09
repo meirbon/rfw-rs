@@ -105,13 +105,23 @@ impl Renderer {
                     attributes: &[
                         wgpu::VertexAttributeDescriptor {
                             offset: 0,
-                            format: wgpu::VertexFormat::Float4,
+                            format: wgpu::VertexFormat::Float3,
                             shader_location: 0,
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            offset: 12,
+                            format: wgpu::VertexFormat::Uint,
+                            shader_location: 1,
                         },
                         wgpu::VertexAttributeDescriptor {
                             offset: 16,
                             format: wgpu::VertexFormat::Float2,
-                            shader_location: 1,
+                            shader_location: 2,
+                        },
+                        wgpu::VertexAttributeDescriptor {
+                            offset: 24,
+                            format: wgpu::VertexFormat::Float4,
+                            shader_location: 3,
                         },
                     ],
                 }],
@@ -257,7 +267,6 @@ impl Renderer {
                     if let Some(mesh) = self.meshes.get(mesh_id as usize) {
                         InstanceDescriptor {
                             matrix: Mat4::from_cols_array(&i.transform),
-                            color: mesh.color,
                             aux: [mesh.tex_id.unwrap_or(0), mesh_id, 0, 0],
                         }
                     } else {
@@ -278,7 +287,6 @@ impl Renderer {
 #[repr(C)]
 pub struct InstanceDescriptor {
     matrix: Mat4,
-    color: [f32; 4],
     aux: [u32; 4], // Additional data (currently only texture id & mesh id),
 }
 
@@ -286,7 +294,6 @@ impl Default for InstanceDescriptor {
     fn default() -> Self {
         Self {
             matrix: Mat4::identity(),
-            color: [0.0; 4],
             aux: [0; 4],
         }
     }
@@ -310,7 +317,6 @@ impl InstanceDescriptor {
 pub struct Mesh {
     pub buffer: Option<Arc<wgpu::Buffer>>,
     pub buffer_size: wgpu::BufferAddress,
-    pub color: [f32; 4],
     pub vertex_count: u32,
     pub tex_id: Option<u32>,
 }
@@ -320,7 +326,6 @@ impl Clone for Mesh {
         Self {
             buffer: self.buffer.clone(),
             buffer_size: self.buffer_size,
-            color: self.color,
             vertex_count: self.vertex_count,
             tex_id: self.tex_id,
         }
@@ -332,7 +337,6 @@ impl Default for Mesh {
         Self {
             buffer: None,
             buffer_size: 0,
-            color: [0.0; 4],
             vertex_count: 0,
             tex_id: None,
         }
@@ -353,7 +357,6 @@ impl Mesh {
         Self {
             buffer: Some(Arc::new(buffer)),
             buffer_size,
-            color: mesh.color,
             vertex_count,
             tex_id: mesh.tex_id,
         }

@@ -532,6 +532,11 @@ impl Renderer for Deferred {
     }
 
     fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+        // TODO: We should only update changed textures, not all
+        self.textures.clear();
+        self.texture_views.clear();
+        self.material_bind_groups.clear();
+
         let textures = textures.as_slice();
         let staging_size =
             textures.iter().map(|t| t.data.len()).sum::<usize>() * std::mem::size_of::<u32>();
@@ -702,7 +707,6 @@ impl Renderer for Deferred {
         );
 
         self.queue.submit(std::iter::once(light_pass));
-
         let mut output_pass = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {

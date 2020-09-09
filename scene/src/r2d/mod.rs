@@ -1,4 +1,5 @@
 use glam::*;
+use rayon::prelude::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
@@ -8,16 +9,16 @@ use serde::{Deserialize, Serialize};
 pub struct D2Mesh {
     pub vertices: Vec<D2Vertex>,
     pub tex_id: Option<u32>,
-    pub color: [f32; 4],
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct D2Vertex {
-    vertex: [f32; 3],
-    tex_id: u32,
-    uv: [f32; 2],
+    pub vertex: [f32; 3],
+    pub has_tex: u32,
+    pub uv: [f32; 2],
+    pub color: [f32; 4],
 }
 
 impl Default for D2Mesh {
@@ -25,7 +26,6 @@ impl Default for D2Mesh {
         Self {
             vertices: Vec::new(),
             tex_id: None,
-            color: [0.0_f32; 4],
         }
     }
 }
@@ -50,15 +50,46 @@ impl D2Mesh {
             .zip(uvs.iter())
             .map(|(v, t)| D2Vertex {
                 vertex: *v,
-                tex_id: tex,
+                has_tex: tex,
                 uv: *t,
+                color,
             })
             .collect();
 
+        Self { vertices, tex_id }
+    }
+
+    pub fn set_tex_id(&mut self, id: u32) {
+        let has_tex = match id {
+            0 => 0,
+            _ => 1,
+        };
+        self.vertices.par_iter_mut().for_each(|v| {
+            v.has_tex = has_tex;
+        });
+    }
+
+    pub fn set_color(&mut self, color: [f32; 4]) {
+        self.vertices.par_iter_mut().for_each(|v| {
+            v.color = color;
+        });
+    }
+}
+
+impl From<Vec<D2Vertex>> for D2Mesh {
+    fn from(vec: Vec<D2Vertex>) -> Self {
         Self {
-            vertices,
-            tex_id,
-            color,
+            vertices: vec,
+            tex_id: None,
+        }
+    }
+}
+
+impl From<&[D2Vertex]> for D2Mesh {
+    fn from(vec: &[D2Vertex]) -> Self {
+        Self {
+            vertices: vec.to_vec(),
+            tex_id: None,
         }
     }
 }

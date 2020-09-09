@@ -604,6 +604,40 @@ impl Texture {
         })
     }
 
+    pub fn flipped(&mut self, flip: Flip) -> Self {
+        let mut img: image::ImageBuffer<image::Bgra<u8>, Vec<u8>> =
+            image::ImageBuffer::new(self.width, self.height);
+        img.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                self.data.as_ptr() as *const u8,
+                (self.width * self.height) as usize * std::mem::size_of::<u32>(),
+            )
+        });
+
+        let img = image::DynamicImage::ImageBgra8(img);
+        let img = match flip {
+            Flip::None => img,
+            Flip::FlipU => img.fliph(),
+            Flip::FlipV => img.flipv(),
+            Flip::FlipUV => img.fliph().flipv(),
+        };
+
+        let mut data = vec![0; (self.width * self.height) as usize];
+        data.copy_from_slice(unsafe {
+            std::slice::from_raw_parts(
+                img.as_bgra8().unwrap().as_ptr() as *const u32,
+                (self.width * self.height) as usize,
+            )
+        });
+
+        Texture {
+            data,
+            width: self.width,
+            height: self.height,
+            mip_levels: 1,
+        }
+    }
+
     pub fn merge(r: Option<&Self>, g: Option<&Self>, b: Option<&Self>, a: Option<&Self>) -> Self {
         let mut wh = None;
 

@@ -1,11 +1,12 @@
 #version 450
 
-layout(location = 0) in vec4 V;
-layout(location = 1) in vec2 UV;
+layout(location = 0) in vec3 V;
+layout(location = 1) in uint HasTex;
+layout(location = 2) in vec2 UV;
+layout(location = 3) in vec4 C;
 
 struct Instance {
     mat4 matrix;
-    vec4 color;
     uvec4 aux;
 };
 
@@ -16,6 +17,6 @@ layout(location = 1) out vec4 Color;
 
 void main() {
     gl_Position = Instances[gl_InstanceIndex].matrix * vec4(V.xyz, 1.0);
-    UvTex = vec3(UV, Instances[gl_InstanceIndex].aux.x > 0 ? 1.0 : 0.0);
-    Color =  Instances[gl_InstanceIndex].color;
+    UvTex = vec3(UV, HasTex);
+    Color = C;
 }
