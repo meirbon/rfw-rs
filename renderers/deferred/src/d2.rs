@@ -1,9 +1,65 @@
+use crate::DeferredTexture;
 use glam::*;
 use rfw_scene::r2d::{D2Instance, D2Mesh, D2Vertex};
-use rfw_scene::{ChangedIterator, TrackedStorage};
+use rfw_scene::{ChangedIterator, FlaggedStorage, TrackedStorage};
 use shared::BytesConversion;
+use std::ops::Deref;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+
+#[derive(Debug)]
+struct D2BindGroup {
+    pub group: Arc<Option<wgpu::BindGroup>>,
+}
+
+impl D2BindGroup {
+    pub fn new(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        matrices_buffer: &wgpu::Buffer,
+        tex: &DeferredTexture,
+        sampler: &wgpu::Sampler,
+    ) -> Self {
+        Self {
+            group: Arc::new(Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(matrices_buffer.slice(..)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(
+                            tex.view.deref().as_ref().unwrap(),
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            }))),
+        }
+    }
+}
+
+impl Clone for D2BindGroup {
+    fn clone(&self) -> Self {
+        Self {
+            group: self.group.clone(),
+        }
+    }
+}
+
+impl Default for D2BindGroup {
+    fn default() -> Self {
+        Self {
+            group: Arc::new(None),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -14,7 +70,7 @@ pub struct Renderer {
     meshes: TrackedStorage<Mesh>,
     matrices_buffer: wgpu::Buffer,
     matrices_buffer_size: wgpu::BufferAddress,
-    bind_groups: Vec<wgpu::BindGroup>,
+    bind_groups: FlaggedStorage<D2BindGroup>,
     sampler: wgpu::Sampler,
 }
 
@@ -162,7 +218,7 @@ impl Renderer {
             meshes: Default::default(),
             matrices_buffer,
             matrices_buffer_size,
-            bind_groups: vec![],
+            bind_groups: Default::default(),
             sampler,
         }
     }
@@ -207,9 +263,17 @@ impl Renderer {
                     if let Some(bind_group) =
                         self.bind_groups.get(mesh.tex_id.unwrap_or(0) as usize)
                     {
-                        render_pass.set_bind_group(0, bind_group, &[]);
+                        render_pass.set_bind_group(
+                            0,
+                            bind_group.group.deref().as_ref().unwrap(),
+                            &[],
+                        );
                     } else {
-                        render_pass.set_bind_group(0, &self.bind_groups[0], &[]);
+                        render_pass.set_bind_group(
+                            0,
+                            self.bind_groups[0].group.deref().as_ref().unwrap(),
+                            &[],
+                        );
                     }
                     let i = i as u32;
                     render_pass.draw(0..mesh.vertex_count, i..(i + 1));
@@ -221,31 +285,22 @@ impl Renderer {
     pub fn update_bind_groups(
         &mut self,
         device: &wgpu::Device,
-        texture_views: &[wgpu::TextureView],
+        textures: &FlaggedStorage<DeferredTexture>,
     ) {
-        self.bind_groups = texture_views
-            .iter()
-            .map(|v| {
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    layout: &self.bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::Buffer(self.matrices_buffer.slice(..)),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(v),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler),
-                        },
-                    ],
-                })
-            })
-            .collect();
+        self.bind_groups.clear();
+
+        for (i, tex) in textures.iter() {
+            self.bind_groups.overwrite_val(
+                i,
+                D2BindGroup::new(
+                    device,
+                    &self.bind_group_layout,
+                    &self.matrices_buffer,
+                    tex,
+                    &self.sampler,
+                ),
+            );
+        }
     }
 
     pub fn update_meshes(&mut self, device: &wgpu::Device, meshes: ChangedIterator<'_, D2Mesh>) {

@@ -259,6 +259,13 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
             None => None,
         }
     }
+
+    pub fn clear(&mut self) {
+        self.storage.clear();
+        self.storage_ptr = 0;
+        self.active.clear();
+        self.empty_slots.clear();
+    }
 }
 
 impl<T: Default + Clone + std::fmt::Debug> From<&[T]> for FlaggedStorage<T> {

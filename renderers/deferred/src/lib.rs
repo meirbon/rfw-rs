@@ -17,9 +17,11 @@ use rfw_scene::{
 };
 use rfw_utils::*;
 use shared::BytesConversion;
+use std::borrow::Borrow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::num::{NonZeroU64, NonZeroU8};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroU8};
+use std::ops::Deref;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -38,6 +40,268 @@ pub enum TaskResult {
     AnimMesh(usize, DeferredAnimMesh),
 }
 
+#[derive(Debug)]
+pub struct DeferredTexture {
+    dims: (u32, u32),
+    texture: Arc<Option<wgpu::Texture>>,
+    view: Arc<Option<wgpu::TextureView>>,
+}
+
+impl Default for DeferredTexture {
+    fn default() -> Self {
+        Self {
+            dims: (0, 0),
+            texture: Arc::new(None),
+            view: Arc::new(None),
+        }
+    }
+}
+
+impl DeferredTexture {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, tex: &Texture) -> Self {
+        let mut texture = Self::default();
+        texture.init(device, queue, tex);
+        texture
+    }
+
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tex: &Texture) {
+        if self.texture.is_none() || tex.width != self.dims.0 || tex.height != self.dims.1 {
+            self.init(device, queue, tex);
+            return;
+        }
+
+        let texture: &Option<wgpu::Texture> = &self.texture;
+        let texture: &wgpu::Texture = texture.as_ref().unwrap();
+
+        let mut width = tex.width;
+        let mut height = tex.height;
+        let mut local_offset = 0 as wgpu::BufferAddress;
+        for i in 0..tex.mip_levels {
+            let offset = local_offset * std::mem::size_of::<u32>() as u64;
+
+            let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;
+
+            queue.write_texture(
+                wgpu::TextureCopyView {
+                    mip_level: i as u32,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    texture: &texture,
+                },
+                &tex.data.as_bytes()[(offset as usize)..(offset + end) as usize],
+                wgpu::TextureDataLayout {
+                    offset: 0,
+                    bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
+                    rows_per_image: tex.height,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+            );
+
+            local_offset += (width * height) as wgpu::BufferAddress;
+            width >>= 1;
+            height >>= 1;
+        }
+    }
+
+    fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tex: &Texture) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: tex.width,
+                height: tex.height,
+                depth: 1,
+            },
+            mip_level_count: tex.mip_levels,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
+        });
+
+        let mut width = tex.width;
+        let mut height = tex.height;
+        let mut local_offset = 0 as wgpu::BufferAddress;
+        for i in 0..tex.mip_levels {
+            let offset = local_offset * std::mem::size_of::<u32>() as u64;
+
+            let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;
+
+            queue.write_texture(
+                wgpu::TextureCopyView {
+                    mip_level: i as u32,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    texture: &texture,
+                },
+                &tex.data.as_bytes()[(offset as usize)..(offset + end) as usize],
+                wgpu::TextureDataLayout {
+                    offset: 0,
+                    bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
+                    rows_per_image: tex.height,
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth: 1,
+                },
+            );
+
+            local_offset += (width * height) as wgpu::BufferAddress;
+            width >>= 1;
+            height >>= 1;
+        }
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label: None,
+            format: Some(wgpu::TextureFormat::Bgra8Unorm),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            aspect: Default::default(),
+            base_mip_level: 0,
+            level_count: NonZeroU32::new(tex.mip_levels),
+            base_array_layer: 0,
+            array_layer_count: None,
+        });
+
+        self.dims = (tex.width, tex.height);
+        self.texture = Arc::new(Some(texture));
+        self.view = Arc::new(Some(view));
+    }
+}
+
+impl Clone for DeferredTexture {
+    fn clone(&self) -> Self {
+        Self {
+            dims: self.dims,
+            texture: self.texture.clone(),
+            view: self.view.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DeferredBindGroup {
+    pub group: Arc<Option<wgpu::BindGroup>>,
+}
+
+impl DeferredBindGroup {
+    pub fn new(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        material: &DeviceMaterial,
+        textures: &FlaggedStorage<DeferredTexture>,
+    ) -> Self {
+        let albedo_tex = material.diffuse_map.max(0) as usize;
+        let normal_tex = material.normal_map.max(0) as usize;
+        let roughness_tex = material.metallic_roughness_map.max(0) as usize;
+        let emissive_tex = material.emissive_map.max(0) as usize;
+        let sheen_tex = material.sheen_map.max(0) as usize;
+
+        let albedo_view = textures[albedo_tex].view.deref().as_ref().unwrap();
+        let normal_view = textures[normal_tex].view.deref().as_ref().unwrap();
+        let roughness_view = textures[roughness_tex].view.deref().as_ref().unwrap();
+        let emissive_view = textures[emissive_tex].view.deref().as_ref().unwrap();
+        let sheen_view = textures[sheen_tex].view.deref().as_ref().unwrap();
+
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(albedo_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(normal_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(roughness_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(emissive_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(sheen_view),
+                },
+            ],
+            layout,
+        });
+
+        Self {
+            group: Arc::new(Some(group)),
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        material: &DeviceMaterial,
+        textures: &FlaggedStorage<DeferredTexture>,
+    ) {
+        let albedo_tex = material.diffuse_map.max(0) as usize;
+        let normal_tex = material.normal_map.max(0) as usize;
+        let roughness_tex = material.metallic_roughness_map.max(0) as usize;
+        let emissive_tex = material.emissive_map.max(0) as usize;
+        let sheen_tex = material.sheen_map.max(0) as usize;
+
+        let albedo_view = textures[albedo_tex].view.deref().as_ref().unwrap();
+        let normal_view = textures[normal_tex].view.deref().as_ref().unwrap();
+        let roughness_view = textures[roughness_tex].view.deref().as_ref().unwrap();
+        let emissive_view = textures[emissive_tex].view.deref().as_ref().unwrap();
+        let sheen_view = textures[sheen_tex].view.deref().as_ref().unwrap();
+
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(albedo_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(normal_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(roughness_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(emissive_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(sheen_view),
+                },
+            ],
+            layout,
+        });
+
+        self.group = Arc::new(Some(group));
+    }
+}
+
+impl Default for DeferredBindGroup {
+    fn default() -> Self {
+        Self {
+            group: Arc::new(None),
+        }
+    }
+}
+
+impl Clone for DeferredBindGroup {
+    fn clone(&self) -> Self {
+        Self {
+            group: self.group.clone(),
+        }
+    }
+}
+
 pub struct Deferred {
     device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
@@ -48,10 +312,9 @@ pub struct Deferred {
     instances: instance::InstanceList,
     material_buffer: wgpu::Buffer,
     material_buffer_size: wgpu::BufferAddress,
-    material_bind_groups: Vec<wgpu::BindGroup>,
+    material_bind_groups: FlaggedStorage<DeferredBindGroup>,
     texture_sampler: wgpu::Sampler,
-    textures: Vec<wgpu::Texture>,
-    texture_views: Vec<wgpu::TextureView>,
+    textures: FlaggedStorage<DeferredTexture>,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     lights: light::DeferredLights,
 
@@ -342,10 +605,9 @@ impl Renderer for Deferred {
             instances,
             material_buffer,
             material_buffer_size,
-            material_bind_groups: Vec::new(),
+            material_bind_groups: Default::default(),
             texture_sampler,
-            textures: Vec::new(),
-            texture_views: Vec::new(),
+            textures: FlaggedStorage::new(),
             texture_bind_group_layout,
             lights,
             uniform_bind_group_layout,
@@ -444,65 +706,36 @@ impl Renderer for Deferred {
     }
 
     fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
-        let materials = materials.as_slice();
-        let size = (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
+        {
+            let materials = materials.as_slice();
+            let size =
+                (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
 
-        if size > self.material_buffer_size {
-            self.material_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                mapped_at_creation: false,
-                label: Some("material-mem"),
-                size,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
-            });
-            self.material_buffer_size = size;
+            if size > self.material_buffer_size {
+                self.material_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    mapped_at_creation: false,
+                    label: Some("material-mem"),
+                    size,
+                    usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
+                });
+                self.material_buffer_size = size;
+            }
+
+            self.queue
+                .write_buffer(&self.material_buffer, 0, materials.as_bytes());
         }
 
-        self.queue
-            .write_buffer(&self.material_buffer, 0, materials.as_bytes());
-
-        self.material_bind_groups = (0..materials.len())
-            .map(|i| {
-                let material = &materials[i];
-                let albedo_tex = material.diffuse_map.max(0) as usize;
-                let normal_tex = material.normal_map.max(0) as usize;
-                let roughness_tex = material.metallic_roughness_map.max(0) as usize;
-                let emissive_tex = material.emissive_map.max(0) as usize;
-                let sheen_tex = material.sheen_map.max(0) as usize;
-
-                let albedo_view = &self.texture_views[albedo_tex];
-                let normal_view = &self.texture_views[normal_tex];
-                let roughness_view = &self.texture_views[roughness_tex];
-                let emissive_view = &self.texture_views[emissive_tex];
-                let sheen_view = &self.texture_views[sheen_tex];
-
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(albedo_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(normal_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(roughness_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(emissive_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: wgpu::BindingResource::TextureView(sheen_view),
-                        },
-                    ],
-                    layout: &self.texture_bind_group_layout,
-                })
-            })
-            .collect();
+        for (i, material) in materials {
+            self.material_bind_groups.overwrite_val(
+                i,
+                DeferredBindGroup::new(
+                    &self.device,
+                    &self.texture_bind_group_layout,
+                    material,
+                    &self.textures,
+                ),
+            );
+        }
 
         self.uniform_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("uniform-bind-group"),
@@ -532,97 +765,17 @@ impl Renderer for Deferred {
     }
 
     fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
-        // TODO: We should only update changed textures, not all
-        self.textures.clear();
-        self.texture_views.clear();
-        self.material_bind_groups.clear();
-
-        let textures = textures.as_slice();
-        let staging_size =
-            textures.iter().map(|t| t.data.len()).sum::<usize>() * std::mem::size_of::<u32>();
-        let mut data = vec![0_u8; staging_size];
-        let mut data_ptr = data.as_mut_ptr() as *mut u32;
-
-        {
-            for tex in textures.iter() {
-                unsafe {
-                    std::ptr::copy(tex.data.as_ptr(), data_ptr, tex.data.len());
-                    data_ptr = data_ptr.add(tex.data.len());
-                }
+        for (i, tex) in textures {
+            if let Some(t) = self.textures.get_mut(i) {
+                t.update(&self.device, &self.queue, tex);
+            } else {
+                self.textures
+                    .overwrite_val(i, DeferredTexture::new(&self.device, &self.queue, tex));
             }
         }
-
-        let mut offset = 0 as wgpu::BufferAddress;
-        for (i, tex) in textures.iter().enumerate() {
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(format!("texture-{}", i).as_str()),
-                size: wgpu::Extent3d {
-                    width: tex.width,
-                    height: tex.height,
-                    depth: 1,
-                },
-                mip_level_count: tex.mip_levels,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Bgra8Unorm,
-                usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
-            });
-
-            let mut width = tex.width;
-            let mut height = tex.height;
-            let mut local_offset = 0 as wgpu::BufferAddress;
-            for i in 0..tex.mip_levels {
-                let offset = offset + local_offset * std::mem::size_of::<u32>() as u64;
-
-                let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;
-
-                self.queue.write_texture(
-                    wgpu::TextureCopyView {
-                        mip_level: i as u32,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                        texture: &texture,
-                    },
-                    &data[(offset as usize)..(offset + end) as usize],
-                    wgpu::TextureDataLayout {
-                        offset: 0,
-                        bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
-                        rows_per_image: tex.height,
-                    },
-                    wgpu::Extent3d {
-                        width,
-                        height,
-                        depth: 1,
-                    },
-                );
-
-                local_offset += (width * height) as wgpu::BufferAddress;
-                width >>= 1;
-                height >>= 1;
-            }
-
-            offset += (tex.data.len() * std::mem::size_of::<u32>()) as wgpu::BufferAddress;
-            self.textures.push(texture);
-        }
-
-        self.texture_views = self
-            .textures
-            .iter()
-            .map(|t| {
-                t.create_view(&wgpu::TextureViewDescriptor {
-                    label: None,
-                    format: Some(wgpu::TextureFormat::Bgra8Unorm),
-                    array_layer_count: None,
-                    aspect: wgpu::TextureAspect::All,
-                    base_mip_level: 0,
-                    level_count: None,
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: 0,
-                })
-            })
-            .collect();
 
         self.d2_renderer
-            .update_bind_groups(&self.device, self.texture_views.as_slice());
+            .update_bind_groups(&self.device, &self.textures);
     }
 
     fn synchronize(&mut self) {
@@ -863,7 +1016,7 @@ impl Deferred {
         d_output: &output::DeferredOutput,
         uniform_camera_buffer: &wgpu::Buffer,
         uniform_bind_group: &wgpu::BindGroup,
-        material_bind_groups: &[wgpu::BindGroup],
+        material_bind_groups: &[DeferredBindGroup],
         ssao_pass: &pass::SSAOPass,
         radiance_pass: &pass::RadiancePass,
     ) -> wgpu::CommandBuffer {
@@ -969,7 +1122,11 @@ impl Deferred {
                                 .for_each(|(_, sub_mesh)| {
                                     let bind_group =
                                         &material_bind_groups[sub_mesh.mat_id as usize];
-                                    render_pass.set_bind_group(2, bind_group, &[]);
+                                    render_pass.set_bind_group(
+                                        2,
+                                        bind_group.group.deref().as_ref().unwrap(),
+                                        &[],
+                                    );
                                     render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                 });
                         }
@@ -1008,7 +1165,11 @@ impl Deferred {
                                     .for_each(|(_, sub_mesh)| {
                                         let bind_group =
                                             &material_bind_groups[sub_mesh.mat_id as usize];
-                                        render_pass.set_bind_group(2, bind_group, &[]);
+                                        render_pass.set_bind_group(
+                                            2,
+                                            bind_group.group.deref().as_ref().unwrap(),
+                                            &[],
+                                        );
                                         render_pass.set_bind_group(
                                             3,
                                             match skins[skin_id as usize].bind_group.as_ref() {
@@ -1049,7 +1210,11 @@ impl Deferred {
                                     .for_each(|(_, sub_mesh)| {
                                         let bind_group =
                                             &material_bind_groups[sub_mesh.mat_id as usize];
-                                        render_pass.set_bind_group(2, bind_group, &[]);
+                                        render_pass.set_bind_group(
+                                            2,
+                                            bind_group.group.deref().as_ref().unwrap(),
+                                            &[],
+                                        );
                                         render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
                                     });
                             }

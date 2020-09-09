@@ -1,9 +1,9 @@
-use crate::{material::Material, ChangedIterator, DeviceMaterial, TrackedStorage};
+use crate::{material::Material, ChangedIterator, DeviceMaterial, FlaggedStorage, TrackedStorage};
 
 use bitvec::prelude::*;
 use glam::*;
 use image::GenericImageView;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
 use std::path::{Path, PathBuf};
@@ -19,6 +19,7 @@ pub struct MaterialList {
     device_materials: TrackedStorage<DeviceMaterial>,
     tex_path_mapping: HashMap<PathBuf, usize>,
     textures: TrackedStorage<Texture>,
+    tex_material_mapping: FlaggedStorage<HashSet<u32>>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -907,6 +908,7 @@ impl MaterialList {
             device_materials: TrackedStorage::new(),
             tex_path_mapping: HashMap::new(),
             textures: TrackedStorage::new(),
+            tex_material_mapping: FlaggedStorage::new(),
         }
     }
 
@@ -930,6 +932,7 @@ impl MaterialList {
             device_materials: TrackedStorage::new(),
             tex_path_mapping: HashMap::new(),
             textures,
+            tex_material_mapping: FlaggedStorage::new(),
         }
     }
 
@@ -1039,6 +1042,22 @@ impl MaterialList {
         let i = self.materials.len();
         let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any();
 
+        if mat.diffuse_tex >= 0 {
+            self.tex_material_mapping[mat.diffuse_tex as usize].insert(i as u32);
+        }
+        if mat.normal_tex >= 0 {
+            self.tex_material_mapping[mat.normal_tex as usize].insert(i as u32);
+        }
+        if mat.metallic_roughness_tex >= 0 {
+            self.tex_material_mapping[mat.metallic_roughness_tex as usize].insert(i as u32);
+        }
+        if mat.emissive_tex >= 0 {
+            self.tex_material_mapping[mat.emissive_tex as usize].insert(i as u32);
+        }
+        if mat.sheen_tex >= 0 {
+            self.tex_material_mapping[mat.sheen_tex as usize].insert(i as u32);
+        }
+
         self.light_flags.push(is_light);
         self.materials.push(mat);
         i
@@ -1052,6 +1071,7 @@ impl MaterialList {
         texture.generate_mipmaps(Texture::MIP_LEVELS);
         let i = self.textures.len();
         self.textures.push(texture);
+        self.tex_material_mapping.overwrite_val(i, HashSet::new());
         i
     }
 
@@ -1060,14 +1080,49 @@ impl MaterialList {
     }
 
     pub fn get_mut<T: FnMut(Option<&mut Material>)>(&mut self, index: usize, mut cb: T) {
+        if let Some(mat) = self.materials.get_mut(index) {
+            if mat.diffuse_tex >= 0 {
+                self.tex_material_mapping[mat.diffuse_tex as usize].remove(&(index as u32));
+            }
+            if mat.normal_tex >= 0 {
+                self.tex_material_mapping[mat.normal_tex as usize].remove(&(index as u32));
+            }
+            if mat.metallic_roughness_tex >= 0 {
+                self.tex_material_mapping[mat.metallic_roughness_tex as usize]
+                    .remove(&(index as u32));
+            }
+            if mat.emissive_tex >= 0 {
+                self.tex_material_mapping[mat.emissive_tex as usize].remove(&(index as u32));
+            }
+            if mat.sheen_tex >= 0 {
+                self.tex_material_mapping[mat.sheen_tex as usize].remove(&(index as u32));
+            }
+        }
+
         cb(self.materials.get_mut(index));
-        self.light_flags.set(
-            index,
-            Vec4::from(self.materials[index].color)
-                .truncate()
-                .cmpgt(Vec3A::one())
-                .any(),
-        );
+
+        if let Some(mat) = self.materials.get_mut(index) {
+            self.light_flags.set(
+                index,
+                Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any(),
+            );
+
+            if mat.diffuse_tex >= 0 {
+                self.tex_material_mapping[mat.diffuse_tex as usize].insert(index as u32);
+            }
+            if mat.normal_tex >= 0 {
+                self.tex_material_mapping[mat.normal_tex as usize].insert(index as u32);
+            }
+            if mat.metallic_roughness_tex >= 0 {
+                self.tex_material_mapping[mat.metallic_roughness_tex as usize].insert(index as u32);
+            }
+            if mat.emissive_tex >= 0 {
+                self.tex_material_mapping[mat.emissive_tex as usize].insert(index as u32);
+            }
+            if mat.sheen_tex >= 0 {
+                self.tex_material_mapping[mat.sheen_tex as usize].insert(index as u32);
+            }
+        }
     }
 
     pub unsafe fn get_unchecked(&self, index: usize) -> &Material {
@@ -1090,6 +1145,11 @@ impl MaterialList {
     }
 
     pub fn get_texture_mut(&mut self, index: usize) -> Option<&mut Texture> {
+        for id in self.tex_material_mapping[index].iter() {
+            let id = *id as usize;
+            self.materials.trigger_changed(id);
+        }
+
         self.textures.get_mut(index)
     }
 
@@ -1111,8 +1171,9 @@ impl MaterialList {
 
                 tex.generate_mipmaps(Texture::MIP_LEVELS);
 
-                self.textures.push(tex);
-                let index = self.textures.len() - 1;
+                let index = self.textures.push(tex);
+                self.tex_material_mapping
+                    .overwrite_val(index, HashSet::new());
 
                 // Add to mapping to prevent loading the same image multiple times
                 self.tex_path_mapping
