@@ -104,9 +104,9 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    let renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
-    let mut camera =
-        Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
+    let mut renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
+    let cam_id = renderer.create_camera(width as u32, height as u32);
+    *renderer.get_camera_mut(cam_id).unwrap() = Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
     let mut fps = utils::Averager::new();
@@ -116,14 +116,12 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
 
     let mut node_graph = scene::graph::NodeGraph::new();
 
-    match renderer
-        .load_async("models/CesiumMan/CesiumMan.gltf")
-        .await?
+    match renderer.load("models/CesiumMan/CesiumMan.gltf")?
     {
         rfw_system::scene::LoadResult::Scene(scene) => {
             node_graph.load_scene_descriptor(
                 &scene,
-                &mut renderer.scene.objects.instances.write().unwrap(),
+                &mut renderer.scene.objects.instances,
             );
 
             for node in node_graph.iter_root_nodes_mut() {
@@ -134,17 +132,17 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
         _ => panic!("Gltf files should be loaded as scenes"),
     };
 
-    match renderer.load_async("models/pica/scene.gltf").await? {
+    match renderer.load("models/pica/scene.gltf")? {
         rfw_system::scene::LoadResult::Scene(scene) => {
             node_graph.load_scene_descriptor(
                 &scene,
-                &mut renderer.scene.objects.instances.write().unwrap(),
+                &mut renderer.scene.objects.instances,
             );
         }
         _ => panic!("Gltf files should be loaded as scenes"),
     };
 
-    let scene_id = renderer.add_scene(node_graph)?;
+    let scene_id = renderer.add_scene(node_graph);
 
     let app_time = utils::Timer::new();
 
@@ -248,16 +246,21 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
                 let view_change = view_change * elapsed * 0.001;
                 let pos_change = pos_change * elapsed * 0.01;
 
-                if view_change != [0.0; 3].into() {
-                    camera.translate_target(view_change);
-                }
-                if pos_change != [0.0; 3].into() {
-                    camera.translate_relative(pos_change);
+                if let Some(camera) = renderer.get_camera_mut(cam_id) {
+                    if view_change != [0.0; 3].into() {
+                        camera.translate_target(view_change);
+                    }
+                    if pos_change != [0.0; 3].into() {
+                        camera.translate_relative(pos_change);
+                    }
+
+                    if resized {
+                        camera.resize(width as u32, height as u32);
+                    }
                 }
 
                 if resized {
                     renderer.resize(&window, width, height);
-                    camera.resize(width as u32, height as u32);
                     resized = false;
                 }
 
@@ -267,7 +270,10 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                renderer.render(&camera, RenderMode::Reset);
+                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
+                    eprintln!("Error while rendering: {}", e);
+                    *control_flow = ControlFlow::Exit;
+                }
                 render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {

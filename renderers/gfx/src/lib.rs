@@ -168,7 +168,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         let command_pool = unsafe {
             device.create_command_pool(queue.family, pool::CommandPoolCreateFlags::empty())
         }
-        .expect("Can't create command pool");
+            .expect("Can't create command pool");
 
         let frames_in_flight = 3;
 
@@ -335,8 +335,12 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         };
 
         let framebuffer = unsafe {
+            let (width, height) = camera.get_dimensions();
             self.mesh_renderer
-                .create_frame_buffer(&surface_image, self.dimensions)
+                .create_frame_buffer(&surface_image, Extent2D {
+                    width,
+                    height,
+                })
         };
 
         // Compute index into our resource ring buffers based on the frame number
@@ -427,8 +431,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
     fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::AreaLight>) {}
 
-    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {
-    }
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {}
 
     fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
 

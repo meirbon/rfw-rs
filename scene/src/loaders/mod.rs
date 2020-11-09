@@ -2,7 +2,6 @@ use crate::graph::SceneDescriptor;
 use crate::utils::TrackedStorage;
 use crate::{AnimatedMesh, MaterialList, Mesh, ObjectRef};
 use std::path::PathBuf;
-use std::sync::RwLock;
 
 pub mod gltf;
 pub mod obj;
@@ -35,9 +34,9 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &RwLock<MaterialList>,
-        mesh_storage: &RwLock<TrackedStorage<Mesh>>,
-        animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
+        mat_manager: &mut MaterialList,
+        mesh_storage: &mut TrackedStorage<Mesh>,
+        animated_mesh_storage: &mut TrackedStorage<AnimatedMesh>,
     ) -> Result<LoadResult, crate::SceneError>;
 }
 

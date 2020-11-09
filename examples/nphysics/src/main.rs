@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     height = window.inner_size().height as usize;
 
     use rfw_deferred::Deferred as Renderer;
-    let renderer: RenderSystem<Renderer> = RenderSystem::new(&window, width, height)?;
+    let mut renderer: RenderSystem<Renderer> = RenderSystem::new(&window, width, height)?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -126,8 +126,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut joint_constraints = DefaultJointConstraintSet::new();
     let mut force_generators = DefaultForceGeneratorSet::new();
 
-    let mut camera =
-        Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
+    let cam_id = renderer.create_camera(width as u32, height as u32);
+    *renderer.get_camera_mut(cam_id).unwrap() = Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
     let mut fps = utils::Averager::new();
@@ -136,10 +136,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut render = utils::Averager::new();
     let mut resized = false;
 
-    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0))?;
+    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     // Ground
-    let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0)?;
+    let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0);
     let plane = Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
     let plane = renderer.add_object(plane)?;
     let _plane_inst = renderer.create_instance(plane)?;
@@ -160,15 +160,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     colliders.insert(ground_collider);
 
-    let sphere_material = renderer.add_material([0.0, 0.5, 1.0], 1.0, [1.0; 3], 0.0)?;
+    let sphere_material = renderer.add_material([0.0, 0.5, 1.0], 1.0, [1.0; 3], 0.0);
     let sphere_radius = 0.5_f32;
     let sphere_center: [f32; 3] = [0.0, 5.0, 0.0];
     let sphere = Sphere::new([0.0; 3], sphere_radius, sphere_material);
     let sphere = renderer.add_object(sphere)?;
     let sphere_inst = renderer.create_instance(sphere)?;
-    renderer.get_instance_mut(sphere_inst, |instance| {
-        instance.unwrap().set_translation(sphere_center);
-    });
+    renderer.get_instance_mut(sphere_inst).unwrap().set_translation(sphere_center);
 
     let sphere = ShapeHandle::new(Ball::new(sphere_radius));
 
@@ -352,16 +350,21 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let view_change = view_change * camera_elapsed * 0.001;
                 let pos_change = pos_change * camera_elapsed * 0.01;
 
-                if view_change != [0.0; 3].into() {
-                    camera.translate_target(view_change);
-                }
-                if pos_change != [0.0; 3].into() {
-                    camera.translate_relative(pos_change);
+                if let Some(camera) = renderer.get_camera_mut(cam_id) {
+                    if view_change != [0.0; 3].into() {
+                        camera.translate_target(view_change);
+                    }
+                    if pos_change != [0.0; 3].into() {
+                        camera.translate_relative(pos_change);
+                    }
+
+                    if resized {
+                        camera.resize(width as u32, height as u32);
+                    }
                 }
 
                 if resized {
                     renderer.resize(&window, width, height);
-                    camera.resize(width as u32, height as u32);
                     resized = false;
                 }
 
@@ -401,26 +404,28 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 physics.add_sample(timer2.elapsed_in_millis());
 
-                renderer.get_instance_mut(sphere_inst, |instance| {
-                    if let Some(instance) = instance {
-                        let translation =
-                            Vec3::new(data.translation.x, data.translation.y, data.translation.z);
-                        instance.set_translation(translation);
-                        let rotation = Quat::from(Vec4::new(
-                            data.rotation.i,
-                            data.rotation.j,
-                            data.rotation.k,
-                            data.rotation.w,
-                        ));
-                        instance.set_rotation_quat(rotation);
-                    }
-                });
+                if let Some(instance) = renderer.get_instance_mut(sphere_inst) {
+                    let translation =
+                        Vec3::new(data.translation.x, data.translation.y, data.translation.z);
+                    instance.set_translation(translation);
+                    let rotation = Quat::from(Vec4::new(
+                        data.rotation.i,
+                        data.rotation.j,
+                        data.rotation.k,
+                        data.rotation.w,
+                    ));
+                    instance.set_rotation_quat(rotation);
+                }
+
                 timer2.reset();
                 renderer.synchronize();
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                renderer.render(&camera, RenderMode::Reset);
+                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
+                    eprintln!("Error while rendering: {}", e);
+                    *control_flow = ControlFlow::Exit;
+                }
                 render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {

@@ -1,9 +1,6 @@
 use rfw_scene::FlaggedStorage;
 use std::fmt::Debug;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex};
 use threadpool::ThreadPool;
 
 #[derive(Debug, Clone)]
@@ -126,8 +123,8 @@ impl TaskPool {
     }
 
     pub fn push<F, T: 'static + Debug + Sized + Send + Sync>(&mut self, job: F) -> Signal<T>
-    where
-        F: FnOnce(Finish<T>) + Send + 'static,
+        where
+            F: FnOnce(Finish<T>) + Send + 'static,
     {
         let (finish, signal) = Finish::new();
         self.executor.execute(move || job(finish));
@@ -153,8 +150,8 @@ impl<T: 'static + Debug + Sized + Send + Sync> ManagedTaskPool<T> {
     }
 
     pub fn push<F>(&mut self, job: F)
-    where
-        F: FnOnce(Finish<T>) + Send + 'static,
+        where
+            F: FnOnce(Finish<T>) + Send + 'static,
     {
         let signal = self.executor.push(job);
         self.jobs.push(signal);
