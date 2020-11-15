@@ -24,7 +24,6 @@ use rfw_system::{
 };
 use shared::utils;
 use winit::window::Fullscreen;
-use winit::platform::macos::WindowBuilderExtMacOS;
 
 pub struct KeyHandler {
     states: HashMap<VirtualKeyCode, bool>,
@@ -114,11 +113,15 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         .build(&event_loop)
         .unwrap();
 
-    let mut render_width = window.inner_size().width as usize;
-    let mut render_height = window.inner_size().height as usize;
+    let mut width = window.inner_size().width as usize;
+    let mut height = window.inner_size().height as usize;
+
+    let dpi_factor = window.current_monitor().scale_factor();
+    let mut render_width = (width as f64 / dpi_factor) as usize;
+    let mut render_height = (height as f64 / dpi_factor) as usize;
 
     let mut renderer =
-        RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
+        RenderSystem::new(&window, (width, height), (render_width, render_height)).unwrap() as RenderSystem<T>;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -343,7 +346,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 }
 
                 if resized {
-                    renderer.resize(&window, render_width, render_height);
+                    renderer.resize(&window, (width, height), (render_width, render_height));
                     renderer.get_camera_mut(cam_id).map(|c| {
                         c.resize(render_width as u32, render_height as u32);
                     });
@@ -381,8 +384,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 event: WindowEvent::Resized(size),
                 window_id,
             } if window_id == window.id() => {
-                render_width = size.width as usize;
-                render_height = size.height as usize;
+                width = size.width as usize;
+                height = size.height as usize;
+                render_width = (width as f64 / dpi_factor) as usize;
+                render_height = (height as f64 / dpi_factor) as usize;
                 resized = true;
             }
             Event::WindowEvent {

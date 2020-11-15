@@ -146,10 +146,10 @@ pub struct RenderSystem<T: Sized + Renderer> {
 impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn new<B: raw_window_handle::HasRawWindowHandle>(
         window: &B,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) -> Result<Self, Box<dyn Error>> {
-        let renderer = T::init(window, width, height)?;
+        let renderer = T::init(window, window_size, render_size)?;
 
         Ok(Self {
             scene: Scene::new(),
@@ -160,10 +160,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
         scene: P,
         window: &B,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) -> Result<Self, Box<dyn Error>> {
-        let renderer = T::init(window, width, height)?;
+        let renderer = T::init(window, window_size, render_size)?;
 
         Ok(Self {
             scene: Scene::deserialize(scene)?,
@@ -219,10 +219,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     pub fn resize<B: raw_window_handle::HasRawWindowHandle>(
         &self,
         window: &B,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) {
-        self.renderer.lock().unwrap().resize(window, width, height);
+        self.renderer.lock().unwrap().resize(window, window_size, render_size);
     }
 
     pub fn render(&self, camera_id: usize, mode: RenderMode) -> Result<(), SceneError> {

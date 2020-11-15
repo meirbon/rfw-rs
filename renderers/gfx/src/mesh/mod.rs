@@ -87,6 +87,21 @@ pub struct RenderPipeline<B: hal::Backend> {
     mat_sets: Vec<B::DescriptorSet>,
     material_buffer: Buffer<B>,
     tex_sampler: ManuallyDrop<B::Sampler>,
+
+    output_image: ManuallyDrop<B::Image>,
+    output_image_view: ManuallyDrop<B::ImageView>,
+    output_memory: Memory<B>,
+
+    output_sampler: ManuallyDrop<B::Sampler>,
+    output_pipeline_layout: ManuallyDrop<B::PipelineLayout>,
+    output_pipeline: ManuallyDrop<B::GraphicsPipeline>,
+    output_pass: ManuallyDrop<B::RenderPass>,
+    output_set_layout: ManuallyDrop<B::DescriptorSetLayout>,
+    output_set: ManuallyDrop<B::DescriptorSet>,
+    output_framebuffer: ManuallyDrop<B::Framebuffer>,
+
+    output_format: format::Format,
+    viewport: Viewport,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -215,17 +230,31 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let mut desc_pool = ManuallyDrop::new(
             unsafe {
                 device.create_descriptor_pool(
-                    1, // sets
-                    &[pso::DescriptorRangeDesc {
-                        ty: pso::DescriptorType::Buffer {
-                            ty: pso::BufferDescriptorType::Uniform,
-                            format: pso::BufferDescriptorFormat::Structured {
-                                dynamic_offset: false,
+                    2, // sets
+                    &[
+                        pso::DescriptorRangeDesc {
+                            ty: pso::DescriptorType::Buffer {
+                                ty: pso::BufferDescriptorType::Uniform,
+                                format: pso::BufferDescriptorFormat::Structured {
+                                    dynamic_offset: false,
+                                },
                             },
+                            count: 1,
                         },
-                        count: 1,
-                    }],
-                    pso::DescriptorPoolCreateFlags::empty(),
+                        pso::DescriptorRangeDesc {
+                            ty: DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                        },
+                        pso::DescriptorRangeDesc {
+                            ty: DescriptorType::Sampler,
+                            count: 1,
+                        },
+                    ],
+                    pso::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
                 )
             }
             .expect("Can't create descriptor pool"),
@@ -274,7 +303,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     pass::AttachmentStoreOp::Store,
                 ),
                 stencil_ops: pass::AttachmentOps::DONT_CARE,
-                layouts: image::Layout::Undefined..image::Layout::Present,
+                layouts: image::Layout::Undefined..image::Layout::ShaderReadOnlyOptimal,
             };
 
             let depth_attachment = pass::Attachment {
@@ -781,6 +810,259 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 .unwrap()
         };
 
+        let output_sampler = unsafe {
+            device
+                .create_sampler(&image::SamplerDesc {
+                    min_filter: hal::image::Filter::Nearest,
+                    mag_filter: hal::image::Filter::Nearest,
+                    mip_filter: hal::image::Filter::Nearest,
+                    wrap_mode: (
+                        hal::image::WrapMode::Border,
+                        hal::image::WrapMode::Border,
+                        hal::image::WrapMode::Border,
+                    ),
+                    lod_bias: hal::image::Lod(0.0),
+                    lod_range: hal::image::Lod(0.0)..hal::image::Lod(1.0),
+                    comparison: None,
+                    border: hal::image::PackedColor::from([0.0; 4]),
+                    normalized: true,
+                    anisotropy_clamp: None,
+                })
+                .expect("Could not create output sampler")
+        };
+
+        let output_set_layout = unsafe {
+            device
+                .create_descriptor_set_layout(
+                    &[
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 0,
+                            ty: pso::DescriptorType::Image {
+                                ty: pso::ImageDescriptorType::Sampled {
+                                    with_sampler: false,
+                                },
+                            },
+                            count: 1,
+                            /// Valid shader stages.
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            /// Use the associated list of immutable samplers.
+                            immutable_samplers: false,
+                        },
+                        pso::DescriptorSetLayoutBinding {
+                            binding: 1,
+                            ty: pso::DescriptorType::Sampler,
+                            count: 1,
+                            /// Valid shader stages.
+                            stage_flags: pso::ShaderStageFlags::FRAGMENT,
+                            /// Use the associated list of immutable samplers.
+                            immutable_samplers: false,
+                        },
+                    ],
+                    &[],
+                )
+                .expect("Could not create output set layout")
+        };
+
+        let output_set = unsafe {
+            desc_pool
+                .allocate_set(&output_set_layout)
+                .expect("Could not create output descriptor set")
+        };
+
+        let (output_image, output_image_view, output_memory) = unsafe {
+            let mut image = device
+                .create_image(
+                    Kind::D2(width, height, 1, 1),
+                    1,
+                    format,
+                    Tiling::Optimal,
+                    image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED,
+                    image::ViewCapabilities::empty(),
+                )
+                .expect("Could not create depth image.");
+
+            let req = device.get_image_requirements(&image);
+            let output_memory = allocator
+                .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
+                .unwrap();
+
+            device
+                .bind_image_memory(output_memory.memory(), 0, &mut image)
+                .unwrap();
+
+            let image_view = device
+                .create_image_view(
+                    &image,
+                    image::ViewKind::D2,
+                    format,
+                    hal::format::Swizzle::NO,
+                    hal::image::SubresourceRange {
+                        aspects: hal::format::Aspects::DEPTH,
+                        level_start: 0,
+                        level_count: Some(1),
+                        layer_start: 0,
+                        layer_count: Some(1),
+                    },
+                )
+                .unwrap();
+
+            (image, image_view, output_memory)
+        };
+
+        let output_image = ManuallyDrop::new(output_image);
+        let output_image_view = ManuallyDrop::new(output_image_view);
+
+        unsafe {
+            device.write_descriptor_sets(vec![
+                pso::DescriptorSetWrite {
+                    set: &output_set,
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: std::iter::once(&pso::Descriptor::Image(
+                        &*output_image_view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                },
+                pso::DescriptorSetWrite {
+                    set: &output_set,
+                    binding: 1,
+                    array_offset: 0,
+                    descriptors: std::iter::once(&pso::Descriptor::Sampler(&output_sampler)),
+                },
+            ]);
+        }
+
+        let output_pipeline_layout = unsafe {
+            device
+                .create_pipeline_layout(std::iter::once(&output_set_layout), &[])
+                .expect("Could not create output pipeline layout")
+        };
+
+        let output_pass = unsafe {
+            device
+                .create_render_pass(
+                    std::iter::once(pass::Attachment {
+                        format: Some(format),
+                        samples: 1,
+                        ops: pass::AttachmentOps {
+                            load: pass::AttachmentLoadOp::Clear,
+                            store: pass::AttachmentStoreOp::Store,
+                        },
+                        stencil_ops: pass::AttachmentOps {
+                            load: pass::AttachmentLoadOp::DontCare,
+                            store: pass::AttachmentStoreOp::DontCare,
+                        },
+                        layouts: pass::AttachmentLayout::Undefined
+                            ..pass::AttachmentLayout::Present,
+                    }),
+                    &[pass::SubpassDesc {
+                        colors: &[(0, image::Layout::ColorAttachmentOptimal)],
+                        depth_stencil: None,
+                        inputs: &[],
+                        resolves: &[],
+                        preserves: &[],
+                    }],
+                    &[],
+                )
+                .expect("Could not create output pass")
+        };
+
+        let output_pipeline = unsafe {
+            let vs_module = {
+                let spirv: &[u8] = include_bytes!("../../shaders/blit.vert.spv");
+                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
+            };
+
+            let fs_module = {
+                let spirv: &[u8] = include_bytes!("../../shaders/blit.frag.spv");
+                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
+            };
+
+            let (vs_entry, fs_entry) = (
+                pso::EntryPoint {
+                    entry: "main",
+                    module: &vs_module,
+                    specialization: pso::Specialization::default(),
+                },
+                pso::EntryPoint {
+                    entry: "main",
+                    module: &fs_module,
+                    specialization: pso::Specialization::default(),
+                },
+            );
+
+            device
+                .create_graphics_pipeline(
+                    &pso::GraphicsPipelineDesc {
+                        primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
+                            buffers: &[],
+                            attributes: &[],
+                            input_assembler: pso::InputAssemblerDesc {
+                                primitive: Primitive::TriangleList,
+                                with_adjacency: false,
+                                restart_index: None,
+                            },
+                            vertex: vs_entry,
+                            tessellation: None,
+                            geometry: None,
+                        },
+                        rasterizer: pso::Rasterizer {
+                            polygon_mode: pso::PolygonMode::Fill,
+                            cull_face: pso::Face::NONE,
+                            front_face: pso::FrontFace::CounterClockwise,
+                            depth_clamping: false,
+                            depth_bias: None,
+                            conservative: false,
+                            line_width: State::Dynamic,
+                        },
+                        fragment: Some(fs_entry),
+                        blender: pso::BlendDesc {
+                            logic_op: None,
+                            targets: vec![pso::ColorBlendDesc {
+                                mask: pso::ColorMask::ALL,
+                                blend: None,
+                            }],
+                        },
+                        depth_stencil: pso::DepthStencilDesc {
+                            depth: Some(DepthTest::PASS_TEST),
+                            depth_bounds: false,
+                            stencil: None,
+                        },
+                        multisampling: Some(Multisampling {
+                            rasterization_samples: 1 as image::NumSamples,
+                            sample_shading: None,
+                            sample_mask: !0,
+                            alpha_coverage: false,
+                            alpha_to_one: false,
+                        }),
+                        baked_states: pso::BakedStates::default(),
+                        layout: &output_pipeline_layout,
+                        subpass: Subpass {
+                            index: 0,
+                            main_pass: &output_pass,
+                        },
+                        flags: pso::PipelineCreationFlags::empty(),
+                        parent: BasePipeline::None,
+                    },
+                    None,
+                )
+                .expect("Could not create output pipeline")
+        };
+
+        let output_framebuffer = unsafe {
+            device
+                .create_framebuffer(
+                    &render_pass,
+                    vec![&*output_image_view, &depth_image_view],
+                    image::Extent {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                )
+                .expect("Could not create output frame buffer")
+        };
+
         let cmd_pool = CmdBufferPool::new(
             device.clone(),
             &queue,
@@ -801,32 +1083,19 @@ impl<B: hal::Backend> RenderPipeline<B> {
             device
                 .create_sampler(&hal::image::SamplerDesc {
                     min_filter: hal::image::Filter::Linear,
-                    /// Magnification filter method to use.
                     mag_filter: hal::image::Filter::Nearest,
-                    /// Mip filter method to use.
                     mip_filter: hal::image::Filter::Nearest,
-                    /// Wrapping mode for each of the U, V, and W axis (S, T, and R in OpenGL
-                    /// speak).
                     wrap_mode: (
                         hal::image::WrapMode::Tile,
                         hal::image::WrapMode::Tile,
                         hal::image::WrapMode::Tile,
                     ),
-                    /// This bias is added to every computed mipmap level (N + lod_bias). For
-                    /// example, if it would select mipmap level 2 and lod_bias is 1, it will
-                    /// use mipmap level 3.
                     lod_bias: hal::image::Lod(0.0),
-                    /// This range is used to clamp LOD level used for sampling.
                     lod_range: hal::image::Lod(0.0)
                         ..hal::image::Lod(rfw_scene::Texture::MIP_LEVELS as f32),
-                    /// Comparison mode, used primary for a shadow map.
                     comparison: None,
-                    /// Border color is used when one of the wrap modes is set to border.
                     border: hal::image::PackedColor::from([0.0; 4]),
-                    /// Specifies whether the texture coordinates are normalized.
                     normalized: true,
-                    /// Anisotropic filtering.
-                    /// Can be `Some(_)` only if `Features::SAMPLER_ANISOTROPY` is enabled.
                     anisotropy_clamp: Some(8),
                 })
                 .unwrap()
@@ -857,6 +1126,29 @@ impl<B: hal::Backend> RenderPipeline<B> {
             mat_sets: Vec::new(),
             material_buffer,
             tex_sampler,
+
+            output_image,
+            output_image_view,
+            output_memory,
+
+            output_sampler: ManuallyDrop::new(output_sampler),
+            output_pipeline_layout: ManuallyDrop::new(output_pipeline_layout),
+            output_pipeline: ManuallyDrop::new(output_pipeline),
+            output_pass: ManuallyDrop::new(output_pass),
+            output_set_layout: ManuallyDrop::new(output_set_layout),
+            output_set: ManuallyDrop::new(output_set),
+            output_framebuffer: ManuallyDrop::new(output_framebuffer),
+            output_format: format,
+
+            viewport: Viewport {
+                rect: pso::Rect {
+                    x: 0,
+                    y: 0,
+                    w: width as _,
+                    h: height as _,
+                },
+                depth: 0.0..1.0,
+            },
         }
     }
 
@@ -867,8 +1159,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
     ) -> B::Framebuffer {
         self.device
             .create_framebuffer(
-                &self.render_pass,
-                vec![surface_image.borrow(), &self.depth_image_view],
+                &self.output_pass,
+                vec![surface_image.borrow()],
                 hal::image::Extent {
                     width: dimensions.width,
                     height: dimensions.height,
@@ -912,16 +1204,18 @@ impl<B: hal::Backend> RenderPipeline<B> {
     pub unsafe fn draw(
         &self,
         cmd_buffer: &mut B::CommandBuffer,
-        frame_buffer: &B::Framebuffer,
-        viewport: &Viewport,
+        target_framebuffer: &B::Framebuffer,
+        target_viewport: &Viewport,
         scene: &SceneList<B>,
         skins: &SkinList<B>,
         frustrum: &FrustrumG,
     ) {
+        cmd_buffer.set_viewports(0, &[self.viewport.clone()]);
+        cmd_buffer.set_scissors(0, &[self.viewport.rect]);
         cmd_buffer.begin_render_pass(
             &self.render_pass,
-            frame_buffer,
-            viewport.rect,
+            &self.output_framebuffer,
+            self.viewport.rect,
             &[
                 command::ClearValue {
                     color: command::ClearColor {
@@ -1047,16 +1341,65 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 cmd_buffer.draw(mesh.first..mesh.last, instance.id..(instance.id + 1));
             });
         });
+        cmd_buffer.end_render_pass();
 
+        cmd_buffer.pipeline_barrier(pso::PipelineStage::FRAGMENT_SHADER..pso::PipelineStage::BOTTOM_OF_PIPE, Dependencies::VIEW_LOCAL,
+        std::iter::once(memory::Barrier::Image {
+            states: (image::Access::COLOR_ATTACHMENT_WRITE, image::Layout::ColorAttachmentOptimal)..(image::Access::COLOR_ATTACHMENT_READ, image::Layout::ShaderReadOnlyOptimal),
+            target: &*self.output_image,
+            range: image::SubresourceRange {
+                aspects: format::Aspects::COLOR,
+                level_start: 0,
+                level_count: Some(1),
+                layer_start: 0,
+                layer_count: Some(1)
+            },
+            families: None
+        }));
+
+        cmd_buffer.set_viewports(0, &[target_viewport.clone()]);
+        cmd_buffer.set_scissors(0, &[target_viewport.rect]);
+        cmd_buffer.begin_render_pass(
+            &self.output_pass,
+            target_framebuffer,
+            target_viewport.rect,
+            &[command::ClearValue {
+                color: command::ClearColor {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            }],
+            command::SubpassContents::Inline,
+        );
+        cmd_buffer.bind_graphics_pipeline(&*self.output_pipeline);
+
+        cmd_buffer.bind_graphics_descriptor_sets(
+            &*self.output_pipeline_layout,
+            0,
+            std::iter::once(&*self.output_set),
+            &[],
+        );
+        cmd_buffer.draw(0..6, 0..1);
         cmd_buffer.end_render_pass();
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         unsafe {
+            unsafe {
+                self.device
+                    .destroy_framebuffer(ManuallyDrop::into_inner(ptr::read(
+                        &self.output_framebuffer,
+                    )));
+            }
+
             self.device
                 .destroy_image_view(ManuallyDrop::into_inner(ptr::read(&self.depth_image_view)));
             self.device
                 .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.depth_image)));
+
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(ptr::read(&self.output_image_view)));
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.output_image)));
         }
 
         let (depth_image, depth_image_view) = unsafe {
@@ -1106,6 +1449,91 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         self.depth_image = ManuallyDrop::new(depth_image);
         self.depth_image_view = ManuallyDrop::new(depth_image_view);
+
+        let (output_image, output_image_view) = unsafe {
+            let mut image = self
+                .device
+                .create_image(
+                    Kind::D2(width, height, 1, 1),
+                    1,
+                    self.output_format,
+                    Tiling::Optimal,
+                    image::Usage::COLOR_ATTACHMENT | image::Usage::SAMPLED,
+                    image::ViewCapabilities::empty(),
+                )
+                .expect("Could not create depth image.");
+
+            let req = self.device.get_image_requirements(&image);
+            if req.size > self.output_memory.len() as _ {
+                self.output_memory = self
+                    .allocator
+                    .allocate_with_reqs(req, memory::Properties::DEVICE_LOCAL, None)
+                    .unwrap();
+            }
+
+            self.device
+                .bind_image_memory(self.output_memory.memory(), 0, &mut image)
+                .unwrap();
+
+            let image_view = self
+                .device
+                .create_image_view(
+                    &image,
+                    image::ViewKind::D2,
+                    self.output_format,
+                    hal::format::Swizzle::NO,
+                    hal::image::SubresourceRange {
+                        aspects: hal::format::Aspects::DEPTH,
+                        level_start: 0,
+                        level_count: Some(1),
+                        layer_start: 0,
+                        layer_count: Some(1),
+                    },
+                )
+                .unwrap();
+
+            (image, image_view)
+        };
+
+        self.output_image = ManuallyDrop::new(output_image);
+        self.output_image_view = ManuallyDrop::new(output_image_view);
+
+        self.output_framebuffer = ManuallyDrop::new(unsafe {
+            self.device
+                .create_framebuffer(
+                    &*self.render_pass,
+                    vec![&*self.output_image_view, &self.depth_image_view],
+                    image::Extent {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                )
+                .expect("Could not create output frame buffer")
+        });
+
+        unsafe {
+            self.device.write_descriptor_sets(vec![
+                pso::DescriptorSetWrite {
+                    set: &*self.output_set,
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: std::iter::once(&pso::Descriptor::Image(
+                        &*self.output_image_view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                },
+                pso::DescriptorSetWrite {
+                    set: &*self.output_set,
+                    binding: 1,
+                    array_offset: 0,
+                    descriptors: std::iter::once(&pso::Descriptor::Sampler(&*self.output_sampler)),
+                },
+            ]);
+        }
+
+        self.viewport.rect.w = width as _;
+        self.viewport.rect.h = height as _;
     }
 
     pub fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
@@ -1472,7 +1900,20 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
                 )));
 
             self.device
+                .destroy_descriptor_set_layout(ManuallyDrop::into_inner(ptr::read(
+                    &self.output_set_layout,
+                )));
+
+            self.device
+                .destroy_framebuffer(ManuallyDrop::into_inner(ptr::read(
+                    &self.output_framebuffer,
+                )));
+
+            self.device
                 .destroy_sampler(ManuallyDrop::into_inner(ptr::read(&self.tex_sampler)));
+
+            self.device
+                .destroy_sampler(ManuallyDrop::into_inner(ptr::read(&self.output_sampler)));
 
             self.device
                 .destroy_render_pass(ManuallyDrop::into_inner(ptr::read(&self.render_pass)));
@@ -1485,6 +1926,19 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
             self.device
                 .destroy_pipeline_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.pipeline_layout,
+                )));
+
+            self.device
+                .destroy_image(ManuallyDrop::into_inner(ptr::read(&self.output_image)));
+            self.device
+                .destroy_image_view(ManuallyDrop::into_inner(ptr::read(&self.output_image_view)));
+            self.device
+                .destroy_graphics_pipeline(ManuallyDrop::into_inner(ptr::read(
+                    &self.output_pipeline,
+                )));
+            self.device
+                .destroy_pipeline_layout(ManuallyDrop::into_inner(ptr::read(
+                    &self.output_pipeline_layout,
                 )));
         }
     }
