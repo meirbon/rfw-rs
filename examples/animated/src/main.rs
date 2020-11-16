@@ -22,7 +22,7 @@ use rfw_system::{
     scene::{
         self,
         renderers::{RenderMode, Setting, SettingValue},
-        Camera, Renderer,
+        Renderer,
     },
     RenderSystem,
 };
@@ -110,30 +110,27 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>> {
-    let mut width = 1280;
-    let mut height = 720;
-
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
-        .with_inner_size(LogicalSize::new(width as f64, height as f64))
+        .with_inner_size(LogicalSize::new(1280 as f64, 720 as f64))
         .build(&event_loop)
         .unwrap();
 
-    width = window.inner_size().width as usize;
-    height = window.inner_size().height as usize;
+    let mut width = window.inner_size().width as usize;
+    let mut height = window.inner_size().height as usize;
 
     let dpi_factor = window.current_monitor().scale_factor();
-    let render_width = (width as f64 / dpi_factor) as usize;
-    let render_height = (height as f64 / dpi_factor) as usize;
+    let mut render_width = (width as f64 / dpi_factor) as usize;
+    let mut render_height = (height as f64 / dpi_factor) as usize;
 
-    let renderer =
-        RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
+    let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
+        .unwrap() as RenderSystem<T>;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let mut camera = Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
+    let cam_id = renderer.create_camera(render_width as u32, render_height as u32);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -176,10 +173,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let mut tex_data = vec![0_u32; (tex_width * tex_height) as usize];
 
     let d2_inst = renderer.create_2d_instance(d2_mesh)?;
-    renderer.get_2d_instance_mut(d2_inst, |inst| {
-        inst.unwrap().transform =
+    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
+        inst.transform =
             Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0).to_cols_array();
-    });
+    }
 
     renderer.add_spot_light(
         Vec3::new(0.0, 15.0, 0.0),
@@ -196,11 +193,11 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
 
     let mut cesium_man1 = scene::graph::NodeGraph::from_scene_descriptor(
         &cesium_man,
-        &mut renderer.scene.objects.instances.write().unwrap(),
+        &mut renderer.scene.objects.instances,
     );
     let mut cesium_man2 = scene::graph::NodeGraph::from_scene_descriptor(
         &cesium_man,
-        &mut renderer.scene.objects.instances.write().unwrap(),
+        &mut renderer.scene.objects.instances,
     );
 
     for node in cesium_man1.iter_root_nodes_mut() {
@@ -211,16 +208,13 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         node.translate(Vec3::new(-3.0, 0.0, 0.0));
     }
 
-    let cesium_man1 = renderer.add_scene(cesium_man1)?;
-    let cesium_man2 = renderer.add_scene(cesium_man2)?;
+    let cesium_man1 = renderer.add_scene(cesium_man1);
+    let cesium_man2 = renderer.add_scene(cesium_man2);
 
     let pica_desc = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
     let mut pica = scene::graph::NodeGraph::new();
-    pica.load_scene_descriptor(
-        &pica_desc,
-        &mut renderer.scene.objects.instances.write().unwrap(),
-    );
-    renderer.add_scene(pica)?;
+    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.objects.instances);
+    renderer.add_scene(pica);
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
@@ -300,12 +294,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     } else {
                         let mut cesium_man3 = scene::graph::NodeGraph::from_scene_descriptor(
                             &cesium_man,
-                            &mut renderer.scene.objects.instances.write().unwrap(),
+                            &mut renderer.scene.objects.instances,
                         );
                         for node in cesium_man3.iter_root_nodes_mut() {
                             node.translate(Vec3::new(-6.0, 0.0, 0.0));
                         }
-                        scene_id = Some(renderer.add_scene(cesium_man3).unwrap());
+                        scene_id = Some(renderer.add_scene(cesium_man3));
                     }
 
                     scene_timer.reset();
@@ -377,25 +371,27 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 let view_change = view_change * elapsed * 0.001;
                 let pos_change = pos_change * elapsed * 0.01;
 
-                if view_change != [0.0; 3].into() {
-                    camera.translate_target(view_change);
-                }
-                if pos_change != [0.0; 3].into() {
-                    camera.translate_relative(pos_change);
+                if let Some(camera) = renderer.get_camera_mut(cam_id) {
+                    if view_change != [0.0; 3].into() {
+                        camera.translate_target(view_change);
+                    }
+                    if pos_change != [0.0; 3].into() {
+                        camera.translate_relative(pos_change);
+                    }
                 }
 
                 if resized {
-                    let render_width = (width as f64 / dpi_factor) as usize;
-                    let render_height = (height as f64 / dpi_factor) as usize;
-                    renderer.resize(&window, render_width, render_height);
-                    camera.resize(render_width as u32, render_height as u32);
+                    renderer.resize(&window, (width, height), (render_width, render_height));
+                    renderer.get_camera_mut(cam_id).map(|c| {
+                        c.resize(render_width as u32, render_height as u32);
+                    });
                     resized = false;
 
-                    renderer.get_2d_instance_mut(d2_inst, |inst| {
-                        inst.unwrap().transform =
+                    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
+                        inst.transform =
                             Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0)
                                 .to_cols_array();
-                    });
+                    }
                 }
 
                 glyph_brush.queue(
@@ -440,7 +436,6 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     to_vertex,
                 ) {
                     Ok(BrushAction::Draw(vertices)) => {
-                        let color = vertices[0].color;
                         let mut verts = Vec::with_capacity(vertices.len() * 6);
                         let vertices: Vec<_> = vertices
                             .par_iter()
@@ -508,14 +503,15 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                         .unwrap();
                 }
 
-                renderer.get_lights_mut(|lights| {
+                {
+                    let lights = renderer.get_lights_mut();
                     lights.spot_lights.iter_mut().for_each(|(_, sl)| {
                         let direction = Vec3::from(sl.direction);
                         let direction = Quat::from_rotation_y((elapsed / 10.0).to_radians())
                             .mul_vec3(direction);
                         sl.direction = direction.into();
                     });
-                });
+                }
 
                 timer2.reset();
                 let time = app_time.elapsed_in_millis() / 1000.0;
@@ -528,7 +524,10 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                renderer.render(&camera, RenderMode::Reset);
+                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
+                    eprintln!("Error while rendering: {}", e);
+                    *control_flow = ControlFlow::Exit;
+                }
                 render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
@@ -537,7 +536,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
             } if window_id == window.id() => {
                 width = size.width as usize;
                 height = size.height as usize;
-
+                render_width = (width as f64 / dpi_factor) as usize;
+                render_height = (height as f64 / dpi_factor) as usize;
                 resized = true;
             }
             Event::WindowEvent {

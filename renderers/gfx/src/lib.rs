@@ -50,6 +50,7 @@ impl std::error::Error for GfxError {}
 
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
+use crate::mem::image::{Texture, TextureDescriptor};
 pub use cmd::*;
 use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_utils::TaskPool;
@@ -68,7 +69,9 @@ pub struct GfxRenderer<B: hal::Backend> {
     viewport: pso::Viewport,
     frame: usize,
     frames_in_flight: usize,
-    dimensions: Extent2D,
+
+    window_size: Extent2D,
+    render_size: Extent2D,
 
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
@@ -78,13 +81,15 @@ pub struct GfxRenderer<B: hal::Backend> {
 impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     fn init<T: rfw_scene::raw_window_handle::HasRawWindowHandle>(
         window: &T,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn std::error::Error>> {
         let instance: B::Instance = match hal::Instance::create("RFW", 1) {
             Ok(instance) => instance,
             Err(_) => return Err(Box::new(GfxError::UnsupportedBackend)),
         };
+
+        let (render_width, render_height) = render_size;
 
         let mut surface: B::Surface = match unsafe { instance.create_surface(window) } {
             Ok(surface) => surface,
@@ -216,12 +221,13 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             &caps,
             format,
             Extent2D {
-                width: width as u32,
-                height: height as u32,
+                width: window_size.0 as u32,
+                height: window_size.1 as u32,
             },
         );
 
         let extent = swap_config.extent;
+
         unsafe {
             surface
                 .configure_swapchain(&device, swap_config)
@@ -261,8 +267,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             allocator,
             transfer_queue.clone(),
             format,
-            width as u32,
-            height as u32,
+            render_width as u32,
+            render_height as u32,
             &scene_list,
             &skins,
         );
@@ -281,9 +287,13 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             viewport,
             frame: 0,
             frames_in_flight,
-            dimensions: Extent2D {
-                width: width as u32,
-                height: height as u32,
+            window_size: Extent2D {
+                width: window_size.0 as u32,
+                height: window_size.1 as u32,
+            },
+            render_size: Extent2D {
+                width: render_size.0 as u32,
+                height: render_size.1 as u32,
             },
             scene_list,
             mesh_renderer,
@@ -292,11 +302,11 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     }
 
     fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
-        unimplemented!()
+        // unimplemented!()
     }
 
-    fn set_2d_instances(&mut self, instances: ChangedIterator<'_, D2Instance>) {
-        unimplemented!()
+    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, D2Instance>) {
+        // unimplemented!()
     }
 
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
@@ -322,7 +332,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     }
 
     fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
-        self.mesh_renderer.set_textures(textures.as_slice());
+        self.mesh_renderer.set_textures(textures);
     }
 
     fn synchronize(&mut self) {
@@ -344,8 +354,13 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         };
 
         let framebuffer = unsafe {
-            self.mesh_renderer
-                .create_frame_buffer(&surface_image, self.dimensions)
+            self.mesh_renderer.create_frame_buffer(
+                &surface_image,
+                Extent2D {
+                    width: self.window_size.width as _,
+                    height: self.window_size.height as _,
+                },
+            )
         };
 
         // Compute index into our resource ring buffers based on the frame number
@@ -374,9 +389,6 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         unsafe {
             cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
 
-            cmd_buffer.set_viewports(0, &[self.viewport.clone()]);
-            cmd_buffer.set_scissors(0, &[self.viewport.rect]);
-
             self.mesh_renderer.draw(
                 cmd_buffer,
                 &framebuffer,
@@ -385,6 +397,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
                 &self.skins,
                 &camera.calculate_frustrum(),
             );
+
             cmd_buffer.finish();
 
             let submission = Submission {
@@ -419,15 +432,22 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     fn resize<T: rfw_scene::raw_window_handle::HasRawWindowHandle>(
         &mut self,
         _window: &T,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) {
         self.device.wait_idle().unwrap();
+        self.window_size = Extent2D {
+            width: window_size.0 as u32,
+            height: window_size.1 as u32,
+        };
+        self.render_size = Extent2D {
+            width: render_size.0 as u32,
+            height: render_size.1 as u32,
+        };
 
-        self.dimensions.width = width as u32;
-        self.dimensions.height = height as u32;
         self.recreate_swapchain();
-        self.mesh_renderer.resize(width as u32, height as u32);
+        self.mesh_renderer
+            .resize(self.render_size.width, self.render_size.height);
     }
 
     fn set_point_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::PointLight>) {}
@@ -457,8 +477,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 impl<B: hal::Backend> GfxRenderer<B> {
     fn recreate_swapchain(&mut self) {
         let caps = self.surface.capabilities(&self.adapter.physical_device);
-        let swap_config = window::SwapchainConfig::from_caps(&caps, self.format, self.dimensions);
-
+        let swap_config = window::SwapchainConfig::from_caps(&caps, self.format, self.window_size);
         let extent = swap_config.extent.to_extent();
 
         unsafe {
@@ -487,7 +506,6 @@ impl<B: hal::Backend> Drop for GfxRenderer<B> {
                 self.device.destroy_fence(f);
             }
 
-            // TODO: When ManuallyDrop::take (soon to be renamed to ManuallyDrop::read) is stabilized we should use that instead.
             self.surface.unconfigure_swapchain(&self.device);
             let surface = ManuallyDrop::into_inner(ptr::read(&self.surface));
             self.instance.destroy_surface(surface);

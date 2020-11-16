@@ -116,6 +116,10 @@ impl<B: hal::Backend> Texture<B> {
     pub fn kind(&self) -> image::Kind {
         self.descriptor.kind
     }
+
+    pub fn image(&self) -> &B::Image {
+        &*self.texture
+    }
 }
 
 impl<B: hal::Backend> Deref for Texture<B> {
@@ -132,6 +136,12 @@ impl<B: hal::Backend> Drop for Texture<B> {
             self.device
                 .destroy_image(ManuallyDrop::into_inner(std::ptr::read(&self.texture)));
         }
+    }
+}
+
+impl<B: hal::Backend> TextureView<B> {
+    pub fn view(&self) -> &B::ImageView {
+        &*self.view
     }
 }
 

@@ -705,7 +705,7 @@ impl Texture {
                         (width * height) as usize,
                     )
                 }
-                .to_vec(),
+                    .to_vec(),
                 width,
                 height,
                 mip_levels: 1,

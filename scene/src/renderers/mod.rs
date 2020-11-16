@@ -107,8 +107,8 @@ pub trait Renderer {
     /// Initializes renderer with surface given through a raw window handle
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>>;
 
     /// Updates 2d meshes
@@ -140,8 +140,9 @@ pub trait Renderer {
     fn render(&mut self, camera: &Camera, mode: RenderMode);
 
     /// Resizes framebuffer
-    fn resize<T: HasRawWindowHandle>(&mut self, window: &T, width: usize, height: usize);
-
+    fn resize<T: HasRawWindowHandle>(&mut self, window: &T,
+                                     window_size: (usize, usize),
+                                     render_size: (usize, usize));
     /// Updates point lights, only lights with their 'changed' flag set to true have changed
     fn set_point_lights(&mut self, lights: ChangedIterator<'_, PointLight>);
 

@@ -17,7 +17,6 @@ use rfw_scene::{
 };
 use rfw_utils::*;
 use shared::BytesConversion;
-use std::borrow::Borrow;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU32, NonZeroU64, NonZeroU8};
@@ -469,8 +468,8 @@ impl Deferred {
 impl Renderer for Deferred {
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        width: usize,
-        height: usize,
+        _window_size: (usize, usize),
+        render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
@@ -483,6 +482,11 @@ impl Renderer for Deferred {
         };
 
         println!("Picked device: {}", adapter.get_info().name);
+
+        let (width, height) = render_size;
+        let (render_width, render_height) = render_size;
+        let width = width as u32;
+        let height = height as u32;
 
         let (device, queue) = block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -498,8 +502,8 @@ impl Renderer for Deferred {
         let swap_chain = device.create_swap_chain(
             &surface,
             &wgpu::SwapChainDescriptor {
-                width: width as u32,
-                height: height as u32,
+                width,
+                height,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
                 format: output::DeferredOutput::OUTPUT_FORMAT,
                 present_mode: wgpu::PresentMode::Mailbox,
@@ -570,7 +574,7 @@ impl Renderer for Deferred {
             ],
         });
 
-        let output = output::DeferredOutput::new(&device, width, height);
+        let output = output::DeferredOutput::new(&device, render_width, render_height);
 
         let pipeline = pipeline::RenderPipeline::new(
             &device,
@@ -889,19 +893,27 @@ impl Renderer for Deferred {
         self.lights_changed = false;
     }
 
-    fn resize<T: HasRawWindowHandle>(&mut self, _window: &T, width: usize, height: usize) {
+    fn resize<T: HasRawWindowHandle>(
+        &mut self,
+        _window: &T,
+        _window_size: (usize, usize),
+        render_size: (usize, usize),
+    ) {
+        let (render_width, render_height) = render_size;
+
         self.swap_chain = self.device.create_swap_chain(
             &self.surface,
             &wgpu::SwapChainDescriptor {
-                width: width as u32,
-                height: height as u32,
+                width: render_width as u32,
+                height: render_height as u32,
                 present_mode: wgpu::PresentMode::Mailbox,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             },
         );
 
-        self.output.resize(&self.device, width, height);
+        self.output
+            .resize(&self.device, render_width, render_height);
         self.radiance_pass.update_bind_groups(
             &self.device,
             &self.output,

@@ -256,20 +256,17 @@ impl NodeGraph {
 
     pub fn initialize(
         &mut self,
-        instances: &RwLock<TrackedStorage<Instance>>,
-        skins: &RwLock<TrackedStorage<Skin>>,
+        instances: &mut TrackedStorage<Instance>,
+        skins: &mut TrackedStorage<Skin>,
     ) {
         for (_, node) in self.nodes.iter_mut() {
             if let Some(skin_id) = node.skin {
-                if let Ok(mut skins) = skins.write() {
-                    let skin_id = skins.push(self.skins[skin_id as usize].clone());
-                    node.skin = Some(skin_id as u32);
-                }
+                let skin_id = skins.push(self.skins[skin_id as usize].clone());
+                node.skin = Some(skin_id as u32);
             }
 
             for mesh in &mut node.meshes {
                 if mesh.instance_id.is_none() {
-                    let mut instances = instances.write().unwrap();
                     let id = instances.allocate();
                     mesh.instance_id = Some(id as u32);
                     instances[id].object_id = mesh.object_id;
@@ -315,8 +312,8 @@ impl NodeGraph {
 
     pub fn update(
         &mut self,
-        instances: &RwLock<TrackedStorage<Instance>>,
-        skins: &RwLock<TrackedStorage<Skin>>,
+        instances: &RwLock<&mut TrackedStorage<Instance>>,
+        skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         if !self.root_nodes.any_changed() && !self.nodes.any_changed() {
             return false;
@@ -374,8 +371,8 @@ impl NodeGraph {
         current_index: usize,
         accumulated_matrix: Mat4,
         nodes: &mut TrackedStorage<Node>,
-        instances: &RwLock<TrackedStorage<Instance>>,
-        skins: &RwLock<TrackedStorage<Skin>>,
+        instances: &RwLock<&mut TrackedStorage<Instance>>,
+        skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         let mut changed = nodes[current_index].changed;
         if changed {
@@ -713,8 +710,8 @@ impl SceneGraph {
 
     pub fn synchronize(
         &mut self,
-        instances: &RwLock<TrackedStorage<Instance>>,
-        skins: &RwLock<TrackedStorage<Skin>>,
+        instances: &mut TrackedStorage<Instance>,
+        skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let times = &self.times;
         self.sub_graphs
@@ -726,12 +723,14 @@ impl SceneGraph {
                 g.update_animation(time);
             });
 
+        let (instances, skins) = (RwLock::new(instances), RwLock::new(skins));
+
         let changed: u32 = self
             .sub_graphs
             .iter_mut()
             .par_bridge()
             .map(|(_, graph)| {
-                if graph.update(instances, skins) {
+                if graph.update(&instances, &skins) {
                     graph.reset_changed();
                     1
                 } else {
@@ -754,20 +753,20 @@ impl SceneGraph {
     pub fn remove_graph(
         &mut self,
         id: u32,
-        instances: &RwLock<TrackedStorage<Instance>>,
-        skins: &RwLock<TrackedStorage<Skin>>,
+        instances: &mut TrackedStorage<Instance>,
+        skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         // Remove instances part of this sub graph
         if let Some(graph) = self.sub_graphs.get(id as usize) {
             for (_, node) in graph.nodes.iter() {
                 if let Some(skin_id) = node.skin {
-                    skins.write().unwrap().erase(skin_id as usize).unwrap();
+                    skins.erase(skin_id as usize).unwrap();
                 }
 
                 for mesh in &node.meshes {
                     if let Some(id) = mesh.instance_id {
                         // instances.write().unwrap().erase(id as usize).unwrap();
-                        let instance = &mut instances.write().unwrap()[id as usize];
+                        let instance = &mut instances[id as usize];
                         instance.object_id = ObjectRef::None;
                     }
                 }

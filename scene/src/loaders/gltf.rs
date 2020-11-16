@@ -7,7 +7,6 @@ use glam::*;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::RwLock,
 };
 
 use crate::graph::animation::{Channel, Method, Target};
@@ -44,9 +43,9 @@ impl ObjectLoader for GltfLoader {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &RwLock<MaterialList>,
-        mesh_storage: &RwLock<TrackedStorage<Mesh>>,
-        animated_mesh_storage: &RwLock<TrackedStorage<AnimatedMesh>>,
+        mat_manager: &mut MaterialList,
+        mesh_storage: &mut TrackedStorage<Mesh>,
+        animated_mesh_storage: &mut TrackedStorage<AnimatedMesh>,
     ) -> Result<LoadResult, SceneError> {
         let file = std::fs::File::open(&path).map_err(|_| SceneError::LoadError(path.clone()))?;
         let gltf =
@@ -58,70 +57,66 @@ impl ObjectLoader for GltfLoader {
 
         let mut mat_mapping = HashMap::new();
 
-        {
-            let mut mat_manager = mat_manager.write().unwrap();
-            let parent_folder = match path.parent() {
-                Some(parent) => parent.to_path_buf(),
-                None => PathBuf::from(""),
-            };
+        let parent_folder = match path.parent() {
+            Some(parent) => parent.to_path_buf(),
+            None => PathBuf::from(""),
+        };
 
-            let load_texture = |source: gltf::image::Source| match source {
-                gltf::image::Source::View { view, .. } => {
-                    let texture_bytes =
-                        gltf_buffers.view(&gltf, &view).expect("glTF texture bytes");
-                    let texture = load_texture_from_memory(texture_bytes);
-                    Some(TextureSource::Loaded(texture))
-                }
-                gltf::image::Source::Uri { uri, .. } => Some(TextureSource::Filesystem(
-                    parent_folder.join(uri),
-                    Flip::None,
-                )),
-            };
+        let load_texture = |source: gltf::image::Source| match source {
+            gltf::image::Source::View { view, .. } => {
+                let texture_bytes = gltf_buffers.view(&gltf, &view).expect("glTF texture bytes");
+                let texture = load_texture_from_memory(texture_bytes);
+                Some(TextureSource::Loaded(texture))
+            }
+            gltf::image::Source::Uri { uri, .. } => Some(TextureSource::Filesystem(
+                parent_folder.join(uri),
+                Flip::None,
+            )),
+        };
 
-            document.materials().enumerate().for_each(|(i, m)| {
-                let mut material = Material::default();
-                material.name = m.name().unwrap_or("").to_string();
-                let pbr = m.pbr_metallic_roughness();
-                material.roughness = pbr.roughness_factor();
-                material.color = pbr.base_color_factor();
-                material.metallic = pbr.metallic_factor();
+        document.materials().enumerate().for_each(|(i, m)| {
+            let mut material = Material::default();
+            material.name = m.name().unwrap_or("").to_string();
+            let pbr = m.pbr_metallic_roughness();
+            material.roughness = pbr.roughness_factor();
+            material.color = pbr.base_color_factor();
+            material.metallic = pbr.metallic_factor();
 
-                let mut textures = TextureDescriptor::default();
-                if let Some(tex) = pbr.base_color_texture() {
-                    if let Some(tex) = load_texture(tex.texture().source().source()) {
-                        textures = textures.with_albedo(tex);
-                    }
+            let mut textures = TextureDescriptor::default();
+            if let Some(tex) = pbr.base_color_texture() {
+                if let Some(tex) = load_texture(tex.texture().source().source()) {
+                    textures = textures.with_albedo(tex);
                 }
-                if let Some(tex) = m.normal_texture() {
-                    if let Some(tex) = load_texture(tex.texture().source().source()) {
-                        textures = textures.with_normal(tex);
-                    }
+            }
+            if let Some(tex) = m.normal_texture() {
+                if let Some(tex) = load_texture(tex.texture().source().source()) {
+                    textures = textures.with_normal(tex);
                 }
-                // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
-                // The metalness values are sampled from the B channel.
-                // The roughness values are sampled from the G channel.
-                if let Some(tex) = pbr.metallic_roughness_texture() {
-                    if let Some(tex) = load_texture(tex.texture().source().source()) {
-                        textures = textures.with_metallic_roughness(tex);
-                    }
+            }
+            // TODO: Make sure this works correctly in renderers & modify other loaders to use similar kind of system
+            // The metalness values are sampled from the B channel.
+            // The roughness values are sampled from the G channel.
+            if let Some(tex) = pbr.metallic_roughness_texture() {
+                if let Some(tex) = load_texture(tex.texture().source().source()) {
+                    textures = textures.with_metallic_roughness(tex);
                 }
-                if let Some(tex) = m.emissive_texture() {
-                    if let Some(tex) = load_texture(tex.texture().source().source()) {
-                        textures = textures.with_emissive(tex);
-                    }
+            }
+            if let Some(tex) = m.emissive_texture() {
+                if let Some(tex) = load_texture(tex.texture().source().source()) {
+                    textures = textures.with_emissive(tex);
                 }
+            }
 
-                let index = mat_manager.add_with_maps(
-                    Vec4::from(pbr.base_color_factor()).truncate().into(),
-                    pbr.roughness_factor(),
-                    Vec4::from(pbr.base_color_factor()).truncate().into(),
-                    0.0,
-                    textures,
-                );
+            let index = mat_manager.add_with_maps(
+                Vec4::from(pbr.base_color_factor()).truncate().into(),
+                pbr.roughness_factor(),
+                Vec4::from(pbr.base_color_factor()).truncate().into(),
+                0.0,
+                textures,
+            );
 
-                mat_mapping.insert(m.index().unwrap_or(i), index);
-            });
-        }
+            mat_mapping.insert(m.index().unwrap_or(i), index);
+        });
 
         let meshes: Vec<LoadedMesh> = document
             .meshes()
@@ -155,12 +150,18 @@ impl ObjectLoader for GltfLoader {
                         match iter {
                             ReadTexCoords::U8(iter) => {
                                 for uv in iter {
-                                    tex_coords.push(Vec2::new(uv[0] as f32, uv[1] as f32));
+                                    tex_coords.push(Vec2::new(
+                                        uv[0] as f32 / u8::MAX as f32,
+                                        uv[1] as f32 / u8::MAX as f32,
+                                    ));
                                 }
                             }
                             ReadTexCoords::U16(iter) => {
                                 for uv in iter {
-                                    tex_coords.push(Vec2::new(uv[0] as f32, uv[1] as f32));
+                                    tex_coords.push(Vec2::new(
+                                        uv[0] as f32 / u16::MAX as f32,
+                                        uv[1] as f32 / u16::MAX as f32,
+                                    ));
                                 }
                             }
                             ReadTexCoords::F32(iter) => {
@@ -341,12 +342,10 @@ impl ObjectLoader for GltfLoader {
             .into_iter()
             .map(|m| match m {
                 LoadedMesh::Static(m) => {
-                    let mut mesh_storage = mesh_storage.write().unwrap();
                     let mesh_id = mesh_storage.push(m);
                     ObjectRef::Static(mesh_id as u32)
                 }
                 LoadedMesh::Animated(m) => {
-                    let mut animated_mesh_storage = animated_mesh_storage.write().unwrap();
                     let mesh_id = animated_mesh_storage.push(m);
                     ObjectRef::Animated(mesh_id as u32)
                 }

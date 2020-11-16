@@ -573,6 +573,18 @@ pub struct ChangedIterator<'a, T: Default + Clone + std::fmt::Debug> {
     current: usize,
 }
 
+impl<'a, T: Default + Clone + std::fmt::Debug> Clone for ChangedIterator<'a, T> {
+    fn clone(&self) -> Self {
+        Self {
+            storage: self.storage,
+            flags: self.flags,
+            changed: self.changed,
+            length: self.length,
+            current: self.current,
+        }
+    }
+}
+
 impl<'a, T: Default + Clone + std::fmt::Debug> ChangedIterator<'a, T> {
     pub fn to_buffer(&self) -> Vec<T> {
         self.storage.to_owned()

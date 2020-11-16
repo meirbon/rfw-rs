@@ -378,8 +378,8 @@ impl RayTracer {
 impl Renderer for RayTracer {
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        width: usize,
-        height: usize,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
@@ -390,6 +390,8 @@ impl Renderer for RayTracer {
             Some(adapter) => adapter,
             None => return Err(Box::new(RayTracerError::RequestDeviceError)),
         };
+
+        let (width, height) = render_size;
 
         println!("Picked render device: {}", adapter.get_info().name);
 
@@ -1749,7 +1751,13 @@ impl Renderer for RayTracer {
         }
     }
 
-    fn resize<T: HasRawWindowHandle>(&mut self, _window: &T, width: usize, height: usize) {
+    fn resize<T: HasRawWindowHandle>(
+        &mut self,
+        _window: &T,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
+    ) {
+        let (width, height) = render_size;
         if (width * height) > self.buffer_capacity {
             self.buffer_capacity = ((width * height) as f64 * 1.5).ceil() as usize;
             self.intersection_bind_group

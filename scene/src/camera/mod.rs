@@ -13,17 +13,17 @@ use serde::{Deserialize, Serialize};
 
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-    unsafe {
+        unsafe {
         use std::arch::x86_64::_mm_sqrt_ps;
         _mm_sqrt_ps(vec.into()).into()
     }
     #[cfg(any(
-        all(not(target_arch = "x86_64"), not(target_arch = "x86")),
-        target_arch = "wasm32-unknown-unknown"
+    all(not(target_arch = "x86_64"), not(target_arch = "x86")),
+    target_arch = "wasm32-unknown-unknown"
     ))]
-    {
-        Vec4::new(vec[0].sqrt(), vec[1].sqrt(), vec[2].sqrt(), vec[3].sqrt())
-    }
+        {
+            Vec4::new(vec[0].sqrt(), vec[1].sqrt(), vec[2].sqrt(), vec[3].sqrt())
+        }
 }
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
@@ -41,6 +41,25 @@ pub struct Camera {
     pub near_plane: f32,
     pub far_plane: f32,
     pub speed: f32,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            pos: [0.0; 3],
+            up: [0.0, 1.0, 0.0],
+            direction: [0.0, 0.0, 1.0],
+            fov: 60.0,
+            width: 1024,
+            height: 768,
+            aspect_ratio: 1024_f32 / 768_f32,
+            aperture: 0.0001,
+            focal_distance: 1.0,
+            near_plane: 1e-2,
+            far_plane: 1e5,
+            speed: 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -354,6 +373,10 @@ impl Camera {
 
     pub fn get_aspect_ratio(&self) -> f32 {
         self.aspect_ratio
+    }
+
+    pub fn get_dimensions(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
