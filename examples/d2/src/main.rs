@@ -129,13 +129,16 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let render_width = (width as f64 / dpi_factor) as usize;
     let render_height = (height as f64 / dpi_factor) as usize;
 
-    let renderer =
-        RenderSystem::new(&window, render_width, render_height).unwrap() as RenderSystem<T>;
+    let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
+        .unwrap() as RenderSystem<T>;
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let mut camera = Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
+    let cam_id = renderer.create_camera(render_width as u32, render_height as u32);
+    if let Some(camera) = renderer.get_camera_mut(cam_id) {
+        *camera = Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
+    }
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -174,7 +177,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         [1.0; 4],
     ))?;
 
-    let d2_mesh2 = renderer.add_2d_object(D2Mesh::new(
+    let _d2_mesh2 = renderer.add_2d_object(D2Mesh::new(
         vec![
             [-0.5, -0.5, 0.5],
             [0.5, -0.5, 0.5],
@@ -199,26 +202,21 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let mut tex_data = vec![0_u32; (tex_width * tex_height) as usize];
 
     let d2_inst = renderer.create_2d_instance(d2_mesh)?;
-    renderer.get_2d_instance_mut(d2_inst, |inst| {
-        inst.unwrap().transform =
+    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
+        inst.transform =
             Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0).to_cols_array();
-    });
+    }
 
-    let d2_inst = renderer.create_2d_instance(d2_mesh2)?;
-    renderer.get_2d_instance_mut(d2_inst, |inst| {
-        inst.unwrap().transform =
-            Mat4::from_scale(Vec3::new(1.0 / camera.aspect_ratio, 1.0, 1.0)).to_cols_array();
-    });
+    let aspect_ratio = renderer.get_camera(cam_id).unwrap().aspect_ratio;
+    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
+        inst.transform = Mat4::from_scale(Vec3::new(1.0 / aspect_ratio, 1.0, 1.0)).to_cols_array();
+    }
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
-
-    let app_time = utils::Timer::new();
 
     timer2.reset();
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
-
-    let mut scene_timer = utils::Timer::new();
 
     let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
@@ -342,28 +340,33 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
 
                 timer.reset();
 
-                let view_change = view_change * elapsed * 0.001;
-                let pos_change = pos_change * elapsed * 0.01;
+                if let Some(camera) = renderer.get_camera_mut(cam_id) {
+                    let view_change = view_change * elapsed * 0.001;
+                    let pos_change = pos_change * elapsed * 0.01;
 
-                if view_change != [0.0; 3].into() {
-                    camera.translate_target(view_change);
-                }
-                if pos_change != [0.0; 3].into() {
-                    camera.translate_relative(pos_change);
+                    if view_change != [0.0; 3].into() {
+                        camera.translate_target(view_change);
+                    }
+                    if pos_change != [0.0; 3].into() {
+                        camera.translate_relative(pos_change);
+                    }
+
+                    if resized {
+                        camera.resize(render_width as u32, render_height as u32);
+                    }
                 }
 
                 if resized {
                     let render_width = (width as f64 / dpi_factor) as usize;
                     let render_height = (height as f64 / dpi_factor) as usize;
-                    renderer.resize(&window, render_width, render_height);
-                    camera.resize(render_width as u32, render_height as u32);
+                    renderer.resize(&window, (width, height), (render_width, render_height));
                     resized = false;
 
-                    renderer.get_2d_instance_mut(d2_inst, |inst| {
-                        inst.unwrap().transform =
+                    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
+                        inst.transform =
                             Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0)
                                 .to_cols_array();
-                    });
+                    }
                 }
 
                 glyph_brush.queue(
@@ -481,7 +484,9 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                renderer.render(&camera, RenderMode::Reset);
+                renderer
+                    .render(cam_id, RenderMode::Reset)
+                    .expect("Rendering error");
                 render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {

@@ -264,7 +264,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             .add(color, roughness, specular, transmission) as u32
     }
 
-    pub fn get_material<C>(&mut self, id: u32, cb: C)
+    pub fn get_material<C>(&self, id: u32, cb: C)
     where
         C: Fn(Option<&Material>),
     {
@@ -276,6 +276,22 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         C: Fn(Option<&mut Material>),
     {
         self.scene.materials.get_mut(id as usize, cb);
+    }
+
+    pub fn iter_materials(&self) -> FlaggedIterator<'_, Material> {
+        self.scene.materials.iter()
+    }
+
+    pub fn iter_materials_mut(&mut self) -> FlaggedIteratorMut<'_, Material> {
+        self.scene.materials.iter_mut()
+    }
+
+    pub fn iter_textures(&self) -> FlaggedIterator<'_, Texture> {
+        self.scene.materials.tex_iter()
+    }
+
+    pub fn iter_textures_mut(&mut self) -> FlaggedIteratorMut<'_, Texture> {
+        self.scene.materials.tex_iter_mut()
     }
 
     pub fn add_object<B: ToMesh>(&mut self, object: B) -> Result<ObjectRef, SceneError> {
@@ -352,16 +368,18 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         self.scene.remove_2d_instance(id as usize)
     }
 
-    pub fn add_texture(&mut self, texture: Texture) -> Result<u32, SceneError> {
+    pub fn add_texture(&mut self, mut texture: Texture) -> Result<u32, SceneError> {
+        texture.generate_mipmaps(Texture::MIP_LEVELS);
         Ok(self.scene.materials.push_texture(texture) as u32)
     }
 
-    pub fn set_texture(&mut self, id: u32, texture: Texture) -> Result<(), SceneError> {
+    pub fn set_texture(&mut self, id: u32, mut texture: Texture) -> Result<(), SceneError> {
         let tex = self.scene.materials.get_texture_mut(id as usize);
         if tex.is_none() {
             return Err(SceneError::InvalidID(id));
         }
 
+        texture.generate_mipmaps(Texture::MIP_LEVELS);
         *tex.unwrap() = texture;
         Ok(())
     }

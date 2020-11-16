@@ -1,4 +1,7 @@
-use crate::{material::Material, ChangedIterator, DeviceMaterial, FlaggedStorage, TrackedStorage};
+use crate::{
+    material::Material, ChangedIterator, DeviceMaterial, FlaggedIterator, FlaggedIteratorMut,
+    FlaggedStorage, TrackedStorage,
+};
 
 use bitvec::prelude::*;
 use glam::*;
@@ -705,7 +708,7 @@ impl Texture {
                         (width * height) as usize,
                     )
                 }
-                    .to_vec(),
+                .to_vec(),
                 width,
                 height,
                 mip_levels: 1,
@@ -1245,6 +1248,30 @@ impl MaterialList {
         self.materials.trigger_changed_all();
         self.device_materials.trigger_changed_all();
         self.textures.trigger_changed_all();
+    }
+
+    // Returns an iterator that goes over all materials
+    pub fn iter(&self) -> FlaggedIterator<'_, Material> {
+        self.materials.iter()
+    }
+
+    /// Returns an iterator that goes over all materials
+    /// Note: calling this function sets the changed flag to true for all materials,
+    /// this can have a major impact on performance if there are many materials in the scene.
+    pub fn iter_mut(&mut self) -> FlaggedIteratorMut<'_, Material> {
+        self.materials.iter_mut()
+    }
+
+    pub fn tex_iter(&self) -> FlaggedIterator<'_, Texture> {
+        self.textures.iter()
+    }
+
+    /// Returns an iterator that goes over all materials
+    /// Note: calling this function sets the changed flag to true for all textures,
+    /// this can have a major impact on performance as all textures will have to be reuploaded
+    /// to the rendering device.
+    pub fn tex_iter_mut(&mut self) -> FlaggedIteratorMut<'_, Texture> {
+        self.textures.iter_mut()
     }
 }
 

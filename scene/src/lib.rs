@@ -42,6 +42,7 @@ use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 use crate::r2d::{D2Instance, D2Mesh};
 use glam::*;
 use rtbvh::{Bounds, AABB};
+use std::collections::HashSet;
 use std::sync::{PoisonError, TryLockError};
 use std::{
     collections::HashMap,
@@ -118,6 +119,7 @@ pub struct Objects {
     pub skins: TrackedStorage<graph::Skin>,
     pub instances: TrackedStorage<Instance>,
     pub d2_instances: TrackedStorage<D2Instance>,
+    pub o_to_i_mapping: HashMap<ObjectRef, HashSet<u32>>,
 }
 
 impl Default for Objects {
@@ -130,6 +132,7 @@ impl Default for Objects {
             skins: TrackedStorage::new(),
             instances: TrackedStorage::new(),
             d2_instances: TrackedStorage::new(),
+            o_to_i_mapping: HashMap::new(),
         }
     }
 }
@@ -191,6 +194,7 @@ struct SerializableScene {
     pub skins: TrackedStorage<graph::Skin>,
     pub instances: TrackedStorage<Instance>,
     pub d2_instances: TrackedStorage<D2Instance>,
+    pub o_to_i_mapping: HashMap<ObjectRef, HashSet<u32>>,
     pub lights: SceneLights,
     pub materials: MaterialList,
     pub settings: Flags,
@@ -206,6 +210,7 @@ impl From<&Scene> for SerializableScene {
             skins: scene.objects.skins.clone(),
             instances: scene.objects.instances.clone(),
             d2_instances: scene.objects.d2_instances.clone(),
+            o_to_i_mapping: scene.objects.o_to_i_mapping.clone(),
             lights: scene.lights.clone(),
             materials: scene.materials.clone(),
             settings: scene.settings.clone(),
@@ -225,6 +230,7 @@ impl Into<Scene> for SerializableScene {
                 skins: self.skins,
                 instances: self.instances,
                 d2_instances: self.d2_instances,
+                o_to_i_mapping: self.o_to_i_mapping,
             },
             lights: self.lights,
             materials: self.materials,
@@ -294,6 +300,9 @@ impl Scene {
 
     pub fn add_object(&mut self, object: Mesh) -> Result<usize, SceneError> {
         let id = self.objects.meshes.push(object);
+        self.objects
+            .o_to_i_mapping
+            .insert(ObjectRef::Static(id as u32), HashSet::new());
         Ok(id)
     }
 
@@ -304,6 +313,9 @@ impl Scene {
 
     pub fn add_animated_object(&mut self, object: AnimatedMesh) -> Result<usize, SceneError> {
         let id = self.objects.animated_meshes.push(object);
+        self.objects
+            .o_to_i_mapping
+            .insert(ObjectRef::Animated(id as u32), HashSet::new());
         Ok(id)
     }
 
@@ -342,7 +354,26 @@ impl Scene {
         // TODO: Remove instances that contained this object
         // TODO: Remove scenes that contained this object
         match self.objects.meshes.erase(index) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                for inst in self
+                    .objects
+                    .o_to_i_mapping
+                    .get(&ObjectRef::Static(index as u32))
+                    .expect("Object should exist in o_to_i_mapping")
+                    .iter()
+                {
+                    let instance: &mut Instance = self
+                        .objects
+                        .instances
+                        .get_mut(*inst as usize)
+                        .expect("Instance should exist");
+                    instance.object_id = ObjectRef::None;
+                }
+                self.objects
+                    .o_to_i_mapping
+                    .remove(&ObjectRef::Animated(index as u32));
+                Ok(())
+            }
             Err(_) => Err(SceneError::InvalidObjectIndex(index)),
         }
     }
@@ -351,7 +382,26 @@ impl Scene {
         // TODO: Remove instances that contained this object
         // TODO: Remove scenes that contained this object
         match self.objects.animated_meshes.erase(index) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                for inst in self
+                    .objects
+                    .o_to_i_mapping
+                    .get(&ObjectRef::Animated(index as u32))
+                    .expect("Object should exist in o_to_i_mapping")
+                    .iter()
+                {
+                    let instance: &mut Instance = self
+                        .objects
+                        .instances
+                        .get_mut(*inst as usize)
+                        .expect("Instance should exist");
+                    instance.object_id = ObjectRef::None;
+                }
+                self.objects
+                    .o_to_i_mapping
+                    .remove(&ObjectRef::Animated(index as u32));
+                Ok(())
+            }
             Err(_) => Err(SceneError::InvalidObjectIndex(index)),
         }
     }
@@ -380,6 +430,11 @@ impl Scene {
         };
 
         let instance_id = self.objects.instances.allocate();
+        self.objects
+            .o_to_i_mapping
+            .get_mut(&index)
+            .expect("Object should exist in o_to_i_mapping")
+            .insert(instance_id as u32);
         self.objects.instances[instance_id] = Instance::new(index, &bounds);
         Ok(instance_id)
     }
@@ -412,6 +467,19 @@ impl Scene {
         match self.objects.instances.get_mut(instance) {
             None => return Err(SceneError::InvalidInstanceIndex(instance)),
             Some(inst) => {
+                if inst.object_id != ObjectRef::None {
+                    self.objects
+                        .o_to_i_mapping
+                        .get_mut(&inst.object_id)
+                        .expect("Object should exist in o_to_i_mapping")
+                        .remove(&(instance as u32));
+                }
+                self.objects
+                    .o_to_i_mapping
+                    .get_mut(&obj_index)
+                    .expect("Object should exist in o_to_i_mapping")
+                    .insert(instance as u32);
+
                 inst.object_id = obj_index;
                 inst.set_bounds(bounds);
             }
@@ -685,8 +753,17 @@ impl Scene {
 
         Ok(bounds)
     }
+
     pub fn add_camera(&mut self, width: u32, height: u32) -> usize {
         self.cameras.push(Camera::new(width, height))
+    }
+
+    pub fn get_cameras(&self) -> FlaggedIterator<'_, Camera> {
+        self.cameras.iter()
+    }
+
+    pub fn get_cameras_mut(&mut self) -> FlaggedIteratorMut<'_, Camera> {
+        self.cameras.iter_mut()
     }
 }
 

@@ -10,7 +10,7 @@ use glam::f32::Vec3A;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ObjectRef {
     None,
     Static(u32),

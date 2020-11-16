@@ -290,6 +290,7 @@ impl<T: Default + Clone + std::fmt::Debug> From<&[T]> for TrackedStorage<T> {
         Self {
             storage: FlaggedStorage::from(data),
             changed,
+            erased: Vec::new(),
         }
     }
 }
@@ -381,6 +382,7 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
 pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
     storage: FlaggedStorage<T>,
     changed: BitVec,
+    erased: Vec<usize>,
 }
 
 impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
@@ -388,6 +390,7 @@ impl<T: Default + Clone + std::fmt::Debug> Default for TrackedStorage<T> {
         Self {
             storage: FlaggedStorage::default(),
             changed: BitVec::new(),
+            erased: Vec::new(),
         }
     }
 }
@@ -426,16 +429,28 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
         match self.storage.erase(index) {
             Ok(_) => {
                 self.changed.set(index, true);
+                self.erased.push(index);
                 Ok(())
             }
             Err(_) => Err(()),
         }
     }
 
+    /// Returns list of indices that were erased.
+    /// List gets reset when this function is called.
+    pub fn take_erased(&mut self) -> Vec<usize> {
+        let mut vec = Vec::new();
+        std::mem::swap(&mut vec, &mut self.erased);
+        vec
+    }
+
+    /// Return immutable reference to index.
     pub fn get(&self, index: usize) -> Option<&T> {
         self.storage.get(index)
     }
 
+    /// Returns mutable reference to index.
+    /// Sets changed flag to true.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         match self.storage.get_mut(index) {
             Some(v) => {
@@ -446,14 +461,25 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
         }
     }
 
+    /// Returns immutable reference to changed flags list.
     pub fn changed(&self) -> &BitVec {
         &self.changed
     }
 
+    /// Returns list of all indices that were changed.
+    /// Resets flags when this function is called.
+    pub fn take_changed(&mut self) -> BitVec {
+        let v = self.changed.clone();
+        self.changed.set_all(false);
+        v
+    }
+
+    /// Returns whether any changed flag is set.
     pub fn any_changed(&self) -> bool {
         self.changed.any()
     }
 
+    /// Returns whether flag for object at index is set.
     pub fn get_changed(&self, index: usize) -> bool {
         match self.changed.get(index) {
             None => false,
@@ -804,6 +830,7 @@ impl<T: Default + Clone + std::fmt::Debug> From<Vec<T>> for TrackedStorage<T> {
         Self {
             changed,
             storage: FlaggedStorage::from(v),
+            erased: Vec::new(),
         }
     }
 }

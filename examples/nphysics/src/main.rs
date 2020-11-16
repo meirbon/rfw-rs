@@ -117,7 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     height = window.inner_size().height as usize;
 
     use rfw_deferred::Deferred as Renderer;
-    let mut renderer: RenderSystem<Renderer> = RenderSystem::new(&window, width, height)?;
+    let mut renderer: RenderSystem<Renderer> =
+        RenderSystem::new(&window, (width, height), (width, height))?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -127,7 +128,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut force_generators = DefaultForceGeneratorSet::new();
 
     let cam_id = renderer.create_camera(width as u32, height as u32);
-    *renderer.get_camera_mut(cam_id).unwrap() = Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
+    *renderer.get_camera_mut(cam_id).unwrap() =
+        Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
     let mut fps = utils::Averager::new();
@@ -166,7 +168,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sphere = Sphere::new([0.0; 3], sphere_radius, sphere_material);
     let sphere = renderer.add_object(sphere)?;
     let sphere_inst = renderer.create_instance(sphere)?;
-    renderer.get_instance_mut(sphere_inst).unwrap().set_translation(sphere_center);
+    renderer
+        .get_instance_mut(sphere_inst)
+        .unwrap()
+        .set_translation(sphere_center);
 
     let sphere = ShapeHandle::new(Ball::new(sphere_radius));
 
@@ -364,7 +369,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
 
                 if resized {
-                    renderer.resize(&window, width, height);
+                    renderer.resize(&window, (width, height), (width, height));
                     resized = false;
                 }
 
