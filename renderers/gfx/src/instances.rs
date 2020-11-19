@@ -286,31 +286,31 @@ impl<B: hal::Backend> SceneList<B> {
 
         let mesh = mesh.clone();
         let queue = self.queue.clone();
-        let allocator = self.allocator.clone();
+        let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
+        assert_ne!(buffer_len, 0);
+
+        let buffer = self
+            .allocator
+            .allocate_buffer(
+                buffer_len as usize,
+                buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
+                memory::Properties::DEVICE_LOCAL,
+                None,
+            )
+            .unwrap();
+
+        let mut staging_buffer = self.allocator
+            .allocate_buffer(
+                buffer_len as usize,
+                buffer::Usage::TRANSFER_SRC,
+                memory::Properties::CPU_VISIBLE,
+                None,
+            )
+            .unwrap();
+
         let mut cmd_buffer = unsafe { self.cmd_pool.allocate_one(hal::command::Level::Primary) };
 
         self.task_pool.push(move |sender| {
-            let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
-            assert_ne!(buffer_len, 0);
-
-            let buffer = allocator
-                .allocate_buffer(
-                    buffer_len as usize,
-                    buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
-                    memory::Properties::DEVICE_LOCAL,
-                    None,
-                )
-                .unwrap();
-
-            let mut staging_buffer = allocator
-                .allocate_buffer(
-                    buffer_len as usize,
-                    buffer::Usage::TRANSFER_SRC,
-                    memory::Properties::CPU_VISIBLE,
-                    None,
-                )
-                .unwrap();
-
             if let Ok(mapping) = staging_buffer.map(memory::Segment {
                 offset: 0,
                 size: Some(buffer_len),

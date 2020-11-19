@@ -7,5 +7,5 @@ layout(set = 0, binding = 0) uniform texture2D Texture;
 layout(set = 0, binding = 1) uniform sampler Sampler;
 
 void main() {
-    OutColor = texture(sampler2D(Texture, Sampler), UV);
+    OutColor = textureLod(sampler2D(Texture, Sampler), UV, 0.0);
 }

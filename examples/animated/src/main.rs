@@ -113,16 +113,16 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
-        .with_inner_size(LogicalSize::new(1280 as f64, 720 as f64))
+        .with_inner_size(LogicalSize::new(1280_f64, 720_f64))
         .build(&event_loop)
         .unwrap();
 
     let mut width = window.inner_size().width as usize;
     let mut height = window.inner_size().height as usize;
 
-    let dpi_factor = window.current_monitor().scale_factor();
-    let mut render_width = (width as f64 / dpi_factor) as usize;
-    let mut render_height = (height as f64 / dpi_factor) as usize;
+    let res_scale = 1.0 / window.current_monitor().scale_factor();
+    let mut render_width = (width as f64 * res_scale) as usize;
+    let mut render_height = (height as f64 * res_scale) as usize;
 
     let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
         .unwrap() as RenderSystem<T>;
@@ -536,8 +536,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
             } if window_id == window.id() => {
                 width = size.width as usize;
                 height = size.height as usize;
-                render_width = (width as f64 / dpi_factor) as usize;
-                render_height = (height as f64 / dpi_factor) as usize;
+                render_width = (width as f64 * res_scale) as usize;
+                render_height = (height as f64 * res_scale) as usize;
                 resized = true;
             }
             Event::WindowEvent {

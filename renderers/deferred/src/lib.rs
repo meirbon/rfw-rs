@@ -328,6 +328,7 @@ pub struct Deferred {
     ssao_pass: pass::SSAOPass,
     radiance_pass: pass::RadiancePass,
     blit_pass: pass::BlitPass,
+    output_pass: pass::QuadPass,
 
     skins: TrackedStorage<DeferredSkin>,
     skin_bind_group_layout: wgpu::BindGroupLayout,
@@ -468,11 +469,12 @@ impl Deferred {
 impl Renderer for Deferred {
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        _window_size: (usize, usize),
+        window_size: (usize, usize),
         render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
+
         let adapter = match block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface),
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -483,7 +485,7 @@ impl Renderer for Deferred {
 
         println!("Picked device: {}", adapter.get_info().name);
 
-        let (width, height) = render_size;
+        let (width, height) = window_size;
         let (render_width, render_height) = render_size;
         let width = width as u32;
         let height = height as u32;
@@ -596,6 +598,7 @@ impl Renderer for Deferred {
             &lights,
         );
         let blit_pass = pass::BlitPass::new(&device, &output);
+        let output_pass = pass::QuadPass::new(&device, &output);
 
         let d2_renderer = d2::Renderer::new(&device);
 
@@ -622,6 +625,7 @@ impl Renderer for Deferred {
             ssao_pass,
             radiance_pass,
             blit_pass,
+            output_pass,
             scene_bounds: AABB::new(),
 
             skins: TrackedStorage::new(),
@@ -871,7 +875,9 @@ impl Renderer for Deferred {
             });
 
         if self.debug_view == output::DeferredView::Output {
-            self.blit_pass.render(&mut output_pass, &output.output.view);
+            // self.blit_pass.render(&mut output_pass, &output.output.view);
+            self.blit_pass
+                .render(&mut output_pass, &self.output.output_texture_view);
         } else {
             self.output
                 .blit_debug(&output.output.view, &mut output_pass, self.debug_view);
@@ -882,9 +888,12 @@ impl Renderer for Deferred {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.d2_renderer.render(
             &mut d2_encoder,
-            &output.output.view,
+            &self.output.output_texture_view,
             &self.output.depth_texture_view,
         );
+
+        self.output_pass
+            .render(&mut d2_encoder, &output.output.view);
 
         self.queue
             .submit(vec![render_pass, output_pass.finish(), d2_encoder.finish()]);
@@ -896,16 +905,17 @@ impl Renderer for Deferred {
     fn resize<T: HasRawWindowHandle>(
         &mut self,
         _window: &T,
-        _window_size: (usize, usize),
+        window_size: (usize, usize),
         render_size: (usize, usize),
     ) {
+        let (width, height) = window_size;
         let (render_width, render_height) = render_size;
 
         self.swap_chain = self.device.create_swap_chain(
             &self.surface,
             &wgpu::SwapChainDescriptor {
-                width: render_width as u32,
-                height: render_height as u32,
+                width: width as u32,
+                height: height as u32,
                 present_mode: wgpu::PresentMode::Mailbox,
                 format: Self::OUTPUT_FORMAT,
                 usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
@@ -924,6 +934,8 @@ impl Renderer for Deferred {
         self.ssao_pass
             .update_bind_groups(&self.device, &self.output);
         self.blit_pass
+            .update_bind_groups(&self.device, &self.output);
+        self.output_pass
             .update_bind_groups(&self.device, &self.output);
     }
 

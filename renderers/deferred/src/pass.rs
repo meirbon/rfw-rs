@@ -7,6 +7,138 @@ use std::borrow::Cow;
 use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 
+pub struct QuadPass {
+    bind_group_layout: wgpu::BindGroupLayout,
+    bind_group: wgpu::BindGroup,
+    pipeline: wgpu::RenderPipeline,
+    sampler: wgpu::Sampler,
+}
+
+impl QuadPass {
+    pub fn new(device: &wgpu::Device, output: &DeferredOutput) -> Self {
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("blit-bind-group-layout"),
+            entries: &[
+                output.as_sampled_entry(0, wgpu::ShaderStage::FRAGMENT, DeferredView::Output),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler { comparison: false },
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("quad-pass-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 0.0,
+            compare: None,
+            anisotropy_clamp: None,
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("quad-bind-group"),
+            layout: &bind_group_layout,
+            entries: &[
+                output.as_binding(0, DeferredView::Output),
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let vert_shader: &[u8] = include_bytes!("../shaders/quad.vert.spv");
+        let frag_shader: &[u8] = include_bytes!("../shaders/quad.frag.spv");
+
+        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            vert_shader.as_quad_bytes(),
+        )));
+        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
+            frag_shader.as_quad_bytes(),
+        )));
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("deferred-quad-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex_stage: wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &vert_module,
+            },
+            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                entry_point: "main",
+                module: &frag_module,
+            }),
+            rasterization_state: None,
+            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
+            color_states: &[wgpu::ColorStateDescriptor {
+                format: DeferredOutput::OUTPUT_FORMAT,
+                alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                color_blend: wgpu::BlendDescriptor::REPLACE,
+                write_mask: wgpu::ColorWrite::ALL,
+            }],
+            depth_stencil_state: None,
+            vertex_state: wgpu::VertexStateDescriptor {
+                index_format: wgpu::IndexFormat::Uint32,
+                vertex_buffers: &[],
+            },
+            sample_count: 1,
+            sample_mask: !0,
+            alpha_to_coverage_enabled: false,
+        });
+
+        Self {
+            bind_group_layout,
+            bind_group,
+            pipeline,
+            sampler,
+        }
+    }
+
+    pub fn update_bind_groups(&mut self, device: &wgpu::Device, output: &DeferredOutput) {
+        self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("blit-bind-group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                output.as_binding(0, DeferredView::Output),
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+    }
+
+    pub fn render(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                attachment: output,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: true,
+                },
+                resolve_target: None,
+            }],
+            depth_stencil_attachment: None,
+        });
+
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, &self.bind_group, &[]);
+        render_pass.draw(0..6, 0..1);
+    }
+}
+
 pub struct BlitPass {
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,

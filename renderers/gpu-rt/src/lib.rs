@@ -378,7 +378,7 @@ impl RayTracer {
 impl Renderer for RayTracer {
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        window_size: (usize, usize),
+        _window_size: (usize, usize),
         render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
@@ -1754,7 +1754,7 @@ impl Renderer for RayTracer {
     fn resize<T: HasRawWindowHandle>(
         &mut self,
         _window: &T,
-        window_size: (usize, usize),
+        _window_size: (usize, usize),
         render_size: (usize, usize),
     ) {
         let (width, height) = render_size;
