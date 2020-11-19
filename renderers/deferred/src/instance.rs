@@ -12,7 +12,6 @@ pub struct DeviceInstances {
 }
 
 impl DeviceInstances {
-    // std::mem::size_of::<Mat4>() * 2
     pub const INSTANCE_SIZE: usize = 256;
     pub fn new(
         capacity: usize,

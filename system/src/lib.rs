@@ -15,130 +15,14 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub enum SceneLight {
-    Point(PointLight),
-    Spot(SpotLight),
-    Directional(DirectionalLight),
+    Point,
+    Spot,
+    Directional,
 }
 
-pub type LightRef = (usize, SceneLight);
-
-// impl LightRef {
-//     fn new(id: usize, light: SceneLight, lights: Arc<RwLock<SceneLights>>) -> Self {
-//         Self { id, light, lights }
-//     }
-//
-//     pub fn get(&self) -> &SceneLight {
-//         &self.light
-//     }
-//
-//     pub fn get_mut(&mut self) -> &mut SceneLight {
-//         &mut self.light
-//     }
-//
-//     pub fn translate_x(&mut self, offset: f32) {
-//         let translation = Vec3::new(offset, 0.0, 0.0);
-//         match &mut self.light {
-//             SceneLight::Spot(l) => {
-//                 let position: Vec3 = Vec3::from(l.position) + translation;
-//                 l.position = position.into();
-//             }
-//             _ => {}
-//         }
-//     }
-//
-//     pub fn translate_y(&mut self, offset: f32) {
-//         let translation = Vec3::new(0.0, offset, 0.0);
-//         match &mut self.light {
-//             SceneLight::Spot(l) => {
-//                 let position: Vec3 = Vec3::from(l.position) + translation;
-//                 l.position = position.into();
-//             }
-//             _ => {}
-//         }
-//     }
-//
-//     pub fn translate_z(&mut self, offset: f32) {
-//         let translation = Vec3::new(0.0, 0.0, offset);
-//         match &mut self.light {
-//             SceneLight::Spot(l) => {
-//                 let position: Vec3 = Vec3::from(l.position) + translation;
-//                 l.position = position.into();
-//             }
-//             _ => {}
-//         }
-//     }
-//
-//     pub fn rotate_x(&mut self, degrees: f32) {
-//         let rotation = Mat4::from_rotation_x(degrees.to_radians());
-//         match &mut self.light {
-//             SceneLight::Spot(l) => {
-//                 let direction: Vec3 = l.direction.into();
-//                 let direction = rotation * direction.extend(0.0);
-//                 l.direction = direction.truncate().into();
-//             }
-//             SceneLight::Directional(l) => {
-//                 let direction: Vec3 = l.direction.into();
-//                 let direction = rotation * direction.extend(0.0);
-//                 l.direction = direction.truncate().into();
-//             }
-//             _ => {}
-//         }
-//     }
-//
-//     pub fn rotate_y(&mut self, degrees: f32) {
-//         let rotation = Mat4::from_rotation_y(degrees.to_radians());
-//         match &mut self.light {
-//             SceneLight::Spot(l) => {
-//                 let direction: Vec3 = l.direction.into();
-//                 let direction = rotation * direction.extend(0.0);
-//                 l.direction = direction.truncate().into();
-//             }
-//             SceneLight::Directional(l) => {
-//                 let direction: Vec3 = l.direction.into();
-//                 let direction = rotation * direction.extend(0.0);
-//                 l.direction = direction.truncate().into();
-//             }
-//             _ => {}
-//         }
-//     }
-//
-//     pub fn rotate_z(&mut self, degrees: f32) {
-//         let rotation = Mat4::from_rotation_z(degrees.to_radians());
-//         match &mut self.light {
-//             SceneLight::Spot(l) => {
-//                 let direction: Vec3 = l.direction.into();
-//                 let direction = rotation * direction.extend(0.0);
-//                 l.direction = direction.truncate().into();
-//             }
-//             SceneLight::Directional(l) => {
-//                 let direction: Vec3 = l.direction.into();
-//                 let direction = rotation * direction.extend(0.0);
-//                 l.direction = direction.truncate().into();
-//             }
-//             _ => {}
-//         }
-//     }
-//
-//     pub fn synchronize(&self) -> Result<(), ()> {
-//         if let Ok(mut lights) = self.lights.write() {
-//             match &self.light {
-//                 SceneLight::Point(l) => {
-//                     lights.point_lights[self.id] = l.clone();
-//                 }
-//                 SceneLight::Spot(l) => {
-//                     lights.spot_lights[self.id] = l.clone();
-//                 }
-//                 SceneLight::Directional(l) => {
-//                     lights.directional_lights[self.id] = l.clone();
-//                 }
-//             }
-//
-//             Ok(())
-//         } else {
-//             Err(())
-//         }
-//     }
-// }
+pub struct PointLightRef(u32);
+pub struct SpotLightRef(u32);
+pub struct DirectionalLightRef(u32);
 
 pub struct RenderSystem<T: Sized + Renderer> {
     pub scene: Scene,
@@ -339,7 +223,6 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn add_scene(&mut self, mut graph: NodeGraph) -> u32 {
-        // TODO: This should be part of the scene crate API
         graph.initialize(
             &mut self.scene.objects.instances,
             &mut self.scene.objects.skins,
@@ -348,7 +231,6 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     pub fn remove_scene(&mut self, id: u32) -> Result<(), SceneError> {
-        // TODO: This should be part of the scene crate API
         if self.scene.objects.graph.remove_graph(
             id,
             &mut self.scene.objects.instances,
@@ -385,14 +267,18 @@ impl<T: Sized + Renderer> RenderSystem<T> {
     }
 
     /// Will return a reference to the point light if the scene is not locked
-    pub fn add_point_light<B: Into<[f32; 3]>>(&mut self, position: B, radiance: B) -> LightRef {
+    pub fn add_point_light<B: Into<[f32; 3]>>(
+        &mut self,
+        position: B,
+        radiance: B,
+    ) -> PointLightRef {
         let position: Vec3 = Vec3::from(position.into());
         let radiance: Vec3 = Vec3::from(radiance.into());
 
         let light = PointLight::new(position.into(), radiance.into());
         let id = self.scene.lights.point_lights.push(light.clone());
 
-        (id, SceneLight::Point(light))
+        PointLightRef(id as u32)
     }
 
     /// Will return a reference to the spot light if the scene is not locked
@@ -403,7 +289,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         radiance: B,
         inner_degrees: f32,
         outer_degrees: f32,
-    ) -> LightRef {
+    ) -> SpotLightRef {
         let position = Vec3::from(position.into());
         let direction = Vec3::from(direction.into());
         let radiance = Vec3::from(radiance.into());
@@ -417,8 +303,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         );
 
         let id = self.scene.lights.spot_lights.push(light.clone());
-
-        (id, SceneLight::Spot(light))
+        SpotLightRef(id as u32)
     }
 
     /// Will return a reference to the directional light if the scene is not locked
@@ -426,20 +311,18 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         &mut self,
         direction: B,
         radiance: B,
-    ) -> LightRef {
+    ) -> DirectionalLightRef {
         let light =
             DirectionalLight::new(Vec3A::from(direction.into()), Vec3A::from(radiance.into()));
         let id = self.scene.lights.directional_lights.push(light.clone());
-        (id, SceneLight::Directional(light))
+        DirectionalLightRef(id as u32)
     }
 
     pub fn set_animation_time(&mut self, id: u32, time: f32) {
-        // TODO: Add a function to do this on a graph by graph basis
         self.scene.objects.graph.set_animation(id, time);
     }
 
     pub fn set_animations_time(&mut self, time: f32) {
-        // TODO: Add a function to do this on a graph by graph basis
         self.scene.objects.graph.set_animations(time);
     }
 

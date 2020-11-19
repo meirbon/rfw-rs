@@ -308,6 +308,20 @@ impl PointLight {
     }
 } // 32 Bytes
 
+impl PointLight {
+    pub fn translate_x(&mut self, offset: f32) {
+        self.position[0] += offset;
+    }
+
+    pub fn translate_y(&mut self, offset: f32) {
+        self.position[1] += offset;
+    }
+
+    pub fn translate_z(&mut self, offset: f32) {
+        self.position[2] += offset;
+    }
+}
+
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -442,6 +456,41 @@ impl Light for SpotLight {
     }
 }
 
+impl SpotLight {
+    pub fn translate_x(&mut self, offset: f32) {
+        self.position[0] += offset;
+    }
+
+    pub fn translate_y(&mut self, offset: f32) {
+        self.position[1] += offset;
+    }
+
+    pub fn translate_z(&mut self, offset: f32) {
+        self.position[2] += offset;
+    }
+
+    pub fn rotate_x(&mut self, degrees: f32) {
+        let rotation = Mat4::from_rotation_x(degrees.to_radians());
+        let direction: Vec3 = self.direction.into();
+        let direction = rotation * direction.extend(0.0);
+        self.direction = direction.truncate().into();
+    }
+
+    pub fn rotate_y(&mut self, degrees: f32) {
+        let rotation = Mat4::from_rotation_y(degrees.to_radians());
+        let direction: Vec3 = self.direction.into();
+        let direction = rotation * direction.extend(0.0);
+        self.direction = direction.truncate().into();
+    }
+
+    pub fn rotate_z(&mut self, degrees: f32) {
+        let rotation = Mat4::from_rotation_z(degrees.to_radians());
+        let direction: Vec3 = self.direction.into();
+        let direction = rotation * direction.extend(0.0);
+        self.direction = direction.truncate().into();
+    }
+}
+
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -565,5 +614,28 @@ impl Light for DirectionalLight {
 
     fn get_energy(&self) -> f32 {
         self.energy
+    }
+}
+
+impl DirectionalLight {
+    pub fn rotate_x(&mut self, degrees: f32) {
+        let rotation = Mat4::from_rotation_x(degrees.to_radians());
+        let direction: Vec3 = self.direction.into();
+        let direction = rotation * direction.extend(0.0);
+        self.direction = direction.truncate().into();
+    }
+
+    pub fn rotate_y(&mut self, degrees: f32) {
+        let rotation = Mat4::from_rotation_y(degrees.to_radians());
+        let direction: Vec3 = self.direction.into();
+        let direction = rotation * direction.extend(0.0);
+        self.direction = direction.truncate().into();
+    }
+
+    pub fn rotate_z(&mut self, degrees: f32) {
+        let rotation = Mat4::from_rotation_z(degrees.to_radians());
+        let direction: Vec3 = self.direction.into();
+        let direction = rotation * direction.extend(0.0);
+        self.direction = direction.truncate().into();
     }
 }

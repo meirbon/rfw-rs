@@ -411,7 +411,6 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     to_vertex,
                 ) {
                     Ok(BrushAction::Draw(vertices)) => {
-                        let color = vertices[0].color;
                         let mut verts = Vec::with_capacity(vertices.len() * 6);
                         let vertices: Vec<_> = vertices
                             .par_iter()

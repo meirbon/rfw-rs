@@ -314,7 +314,7 @@ impl Renderer {
         queue: &wgpu::Queue,
         instances: ChangedIterator<'_, D2Instance>,
     ) {
-        let mut instances: Vec<InstanceDescriptor> = instances
+        let instances: Vec<InstanceDescriptor> = instances
             .as_slice()
             .iter()
             .map(|i| {
@@ -354,6 +354,7 @@ impl Default for InstanceDescriptor {
     }
 }
 
+#[allow(dead_code)]
 impl InstanceDescriptor {
     pub fn tex_id(&self) -> Option<u32> {
         if self.aux[0] > 0 {
@@ -398,6 +399,7 @@ impl Default for Mesh {
     }
 }
 
+#[allow(dead_code)]
 impl Mesh {
     pub fn new(device: &wgpu::Device, mesh: &D2Mesh) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
