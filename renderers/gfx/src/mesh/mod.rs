@@ -9,7 +9,6 @@ use crate::{hal, instances::SceneList, CmdBufferPool, DeviceHandle, Queue};
 use crate::instances::RenderBuffers;
 use crate::mem::image::{Texture, TextureDescriptor, TextureView, TextureViewDescriptor};
 use crate::skinning::SkinList;
-use glam::*;
 use hal::*;
 use hal::{
     command::{self, CommandBuffer},
@@ -19,14 +18,13 @@ use hal::{
 use pass::Subpass;
 use pso::*;
 use rfw_scene::bvh::AABB;
-use rfw_scene::{
-    AnimVertexData, ChangedIterator, DeviceMaterial, FlaggedStorage, FrustrumG, VertexData,
-    VertexMesh,
-};
+use rfw_scene::{AnimVertexData, DeviceMaterial, FrustrumG, VertexData, VertexMesh};
+use rfw_utils::prelude::*;
 use shared::BytesConversion;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, rc::Rc, sync::Arc};
 use AttributeDesc;
 use VertexBufferDesc;
+
 pub mod anim;
 
 #[derive(Debug, Clone)]

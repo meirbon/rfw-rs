@@ -69,18 +69,19 @@ impl MouseButtonHandler {
 }
 
 use crate::utils::Timer;
-use glam::*;
-use nphysics3d::algebra::{Force3, ForceType};
-use nphysics3d::force_generator::DefaultForceGeneratorSet;
-use nphysics3d::joint::DefaultJointConstraintSet;
-use nphysics3d::material::{BasicMaterial, MaterialHandle};
-use nphysics3d::nalgebra::Vector3;
-use nphysics3d::ncollide3d::nalgebra::{Isometry3, Unit};
-use nphysics3d::ncollide3d::shape::{Ball, ShapeHandle};
-use nphysics3d::object::{
-    BodyPartHandle, BodyStatus, ColliderDesc, DefaultBodySet, DefaultColliderSet, RigidBodyDesc,
+use nphysics3d::{
+    algebra::{Force3, ForceType},
+    force_generator::DefaultForceGeneratorSet,
+    joint::DefaultJointConstraintSet,
+    material::{BasicMaterial, MaterialHandle},
+    nalgebra::Vector3,
+    nalgebra::{Isometry3, Unit},
+    ncollide3d::shape::{Ball, ShapeHandle},
+    object::{
+        BodyPartHandle, BodyStatus, ColliderDesc, DefaultBodySet, DefaultColliderSet, RigidBodyDesc,
+    },
+    world::{DefaultGeometricalWorld, DefaultMechanicalWorld},
 };
-use nphysics3d::world::{DefaultGeometricalWorld, DefaultMechanicalWorld};
 use rfw_system::{
     scene::Camera,
     scene::Setting,
@@ -88,6 +89,7 @@ use rfw_system::{
     scene::{renderers::RenderMode, Plane, Sphere},
     RenderSystem,
 };
+use rfw_utils::prelude::*;
 use shared::utils;
 use std::error::Error;
 use winit::window::Fullscreen;

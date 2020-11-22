@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use clap::{App, Arg};
-use glam::*;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -16,9 +15,9 @@ use winit::{
 
 use rayon::prelude::*;
 use rfw_gfx::GfxBackend;
-use rfw_system::scene::r2d::{D2Mesh, D2Vertex};
-use rfw_system::scene::Texture;
 use rfw_system::{
+    scene::r2d::{D2Mesh, D2Vertex},
+    scene::Texture,
     scene::{
         self,
         renderers::{RenderMode, Setting, SettingValue},
@@ -26,6 +25,7 @@ use rfw_system::{
     },
     RenderSystem,
 };
+use rfw_utils::prelude::*;
 use shared::utils;
 use winit::window::Fullscreen;
 
@@ -120,7 +120,11 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let mut width = window.inner_size().width as usize;
     let mut height = window.inner_size().height as usize;
 
-    let res_scale = 1.0 / window.current_monitor().scale_factor();
+    let res_scale = if let Some(m) = window.current_monitor() {
+        1.0 / m.scale_factor()
+    } else {
+        1.0
+    };
     let mut render_width = (width as f64 * res_scale) as usize;
     let mut render_height = (height as f64 * res_scale) as usize;
 

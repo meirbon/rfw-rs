@@ -3,9 +3,10 @@ use crate::instances::{RenderBuffers, SceneList};
 use crate::skinning::SkinList;
 use hal::*;
 use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool};
-use rfw_scene::{AnimVertexData, FrustrumG, Light, LightInfo, TrackedStorage, VertexData};
+use rfw_scene::{AnimVertexData, FrustrumG, Light, LightInfo, VertexData};
 use shared::BytesConversion;
 use std::{fmt::Debug, mem::ManuallyDrop, sync::Arc};
+use rfw_utils::collections::TrackedStorage;
 
 #[derive(Debug)]
 pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {

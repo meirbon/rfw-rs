@@ -27,11 +27,10 @@ pub use material::*;
 pub use objects::*;
 pub use renderers::*;
 pub use rtbvh as bvh;
-pub use utils::*;
 
-pub use bitvec::prelude::*;
 pub use instance::*;
 pub use raw_window_handle;
+pub use rfw_utils::prelude::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
@@ -40,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
 use crate::r2d::{D2Instance, D2Mesh};
-use glam::*;
+use crate::utils::Flags;
 use rtbvh::{Bounds, AABB};
 use std::collections::HashSet;
 use std::sync::{PoisonError, TryLockError};
@@ -545,7 +544,7 @@ impl Scene {
         Ok(object)
     }
 
-    pub fn add_point_light(&mut self, pos: Vec3A, radiance: Vec3A) -> usize {
+    pub fn add_point_light(&mut self, pos: Vec3, radiance: Vec3) -> usize {
         self.lights
             .point_lights
             .push(PointLight::new(pos, radiance));
@@ -554,9 +553,9 @@ impl Scene {
 
     pub fn add_spot_light(
         &mut self,
-        pos: Vec3A,
-        direction: Vec3A,
-        radiance: Vec3A,
+        pos: Vec3,
+        direction: Vec3,
+        radiance: Vec3,
         inner_angle: f32,
         outer_angle: f32,
     ) -> usize {
@@ -570,7 +569,7 @@ impl Scene {
         self.lights.spot_lights.len() - 1
     }
 
-    pub fn add_directional_light(&mut self, direction: Vec3A, radiance: Vec3A) -> usize {
+    pub fn add_directional_light(&mut self, direction: Vec3, radiance: Vec3) -> usize {
         self.lights
             .directional_lights
             .push(DirectionalLight::new(direction, radiance))
@@ -619,12 +618,12 @@ impl Scene {
                                 let v1 = &m.vertices[i1];
                                 let v2 = &m.vertices[i2];
 
-                                let vertex0: Vec3A =
-                                    instance.transform_vertex(Vec4::from(v0.vertex).truncate());
-                                let vertex1: Vec3A =
-                                    instance.transform_vertex(Vec4::from(v1.vertex).truncate());
-                                let vertex2: Vec3A =
-                                    instance.transform_vertex(Vec4::from(v2.vertex).truncate());
+                                let vertex0: Vec3 =
+                                    instance.transform_vertex(Vec3::from(Vec4::from(v0.vertex)));
+                                let vertex1: Vec3 =
+                                    instance.transform_vertex(Vec3::from(Vec4::from(v1.vertex)));
+                                let vertex2: Vec3 =
+                                    instance.transform_vertex(Vec3::from(Vec4::from(v2.vertex)));
 
                                 let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
                                 let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
@@ -640,7 +639,7 @@ impl Scene {
 
                                 area_lights.push(AreaLight::new(
                                     position,
-                                    Vec4::from(color).truncate(),
+                                    Vec3::new(color[0], color[1], color[2]),
                                     normal,
                                     inst_idx as i32,
                                     vertex0,
@@ -669,12 +668,12 @@ impl Scene {
                                 let v1 = &m.vertices[i1];
                                 let v2 = &m.vertices[i2];
 
-                                let vertex0: Vec3A =
-                                    instance.transform_vertex(Vec4::from(v0.vertex).truncate());
-                                let vertex1: Vec3A =
-                                    instance.transform_vertex(Vec4::from(v1.vertex).truncate());
-                                let vertex2: Vec3A =
-                                    instance.transform_vertex(Vec4::from(v2.vertex).truncate());
+                                let vertex0: Vec3 =
+                                    instance.transform_vertex(Vec4::from(v0.vertex).into());
+                                let vertex1: Vec3 =
+                                    instance.transform_vertex(Vec4::from(v1.vertex).into());
+                                let vertex2: Vec3 =
+                                    instance.transform_vertex(Vec4::from(v2.vertex).into());
 
                                 let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
                                 let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
@@ -690,7 +689,7 @@ impl Scene {
 
                                 area_lights.push(AreaLight::new(
                                     position,
-                                    Vec4::from(color).truncate(),
+                                    Vec4::from(color).into(),
                                     normal,
                                     inst_idx as i32,
                                     vertex0,

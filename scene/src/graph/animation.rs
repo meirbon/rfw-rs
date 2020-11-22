@@ -1,7 +1,7 @@
 use crate::graph::Node;
-use glam::*;
+use rfw_utils::prelude::*;
 
-use crate::TrackedStorage;
+use rfw_utils::collections::TrackedStorage;
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +29,7 @@ pub struct Channel {
     pub key_frames: Vec<f32>,
 
     pub sampler: Method,
-    pub vec3s: Vec<Vec3A>,
+    pub vec3s: Vec<Vec3>,
     pub rotations: Vec<Quat>,
     pub weights: Vec<f32>,
 
@@ -53,7 +53,7 @@ impl Default for Channel {
 }
 
 impl Channel {
-    pub fn sample_translation(&self, time: f32, k: usize) -> Vec3A {
+    pub fn sample_translation(&self, time: f32, k: usize) -> Vec3 {
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);
@@ -77,7 +77,7 @@ impl Channel {
         }
     }
 
-    pub fn sample_scale(&self, time: f32, k: usize) -> Vec3A {
+    pub fn sample_scale(&self, time: f32, k: usize) -> Vec3 {
         let t0 = self.key_frames[k];
         let t1 = self.key_frames[k + 1];
         let f = (time - t0) / (t1 - t0);

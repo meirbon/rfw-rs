@@ -3,7 +3,7 @@ use crate::{
     AnimatedMesh, Flip, Material, MaterialList, Mesh, ObjectLoader, ObjectRef, SceneError,
     TextureDescriptor, TextureFormat,
 };
-use glam::*;
+use rfw_utils::prelude::*;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -11,7 +11,6 @@ use std::{
 
 use crate::graph::animation::{Channel, Method, Target};
 use crate::graph::Node;
-use crate::utils::TrackedStorage;
 use crate::{material::Texture, LoadResult, TextureSource};
 use gltf::animation::util::{MorphTargetWeights, ReadOutputs, Rotations};
 use gltf::json::animation::{Interpolation, Property};
@@ -123,8 +122,8 @@ impl ObjectLoader for GltfLoader {
             .map(|mesh| {
                 let mut tmp_indices = Vec::new();
 
-                let mut vertices: Vec<Vec3A> = Vec::new();
-                let mut normals: Vec<Vec3A> = Vec::new();
+                let mut vertices: Vec<Vec3> = Vec::new();
+                let mut normals: Vec<Vec3> = Vec::new();
                 let mut indices: Vec<[u32; 3]> = Vec::new();
                 let mut joints: Vec<Vec<[u16; 4]>> = Vec::new();
                 let mut weights: Vec<Vec<Vec4>> = Vec::new();
@@ -135,13 +134,13 @@ impl ObjectLoader for GltfLoader {
                     let reader = prim.reader(|buffer| gltf_buffers.buffer(&gltf, &buffer));
                     if let Some(iter) = reader.read_positions() {
                         for pos in iter {
-                            vertices.push(Vec3A::from(pos));
+                            vertices.push(Vec3::from(pos));
                         }
                     }
 
                     if let Some(iter) = reader.read_normals() {
                         for n in iter {
-                            normals.push(Vec3A::from(n));
+                            normals.push(Vec3::from(n));
                         }
                     }
 
@@ -386,7 +385,7 @@ impl ObjectLoader for GltfLoader {
                         match outputs {
                             ReadOutputs::Translations(t) => {
                                 t.for_each(|t| {
-                                    channel.vec3s.push(Vec3A::from(t));
+                                    channel.vec3s.push(Vec3::from(t));
                                 });
                             }
                             ReadOutputs::Rotations(r) => match r {
@@ -452,7 +451,7 @@ impl ObjectLoader for GltfLoader {
                             },
                             ReadOutputs::Scales(s) => {
                                 s.for_each(|s| {
-                                    channel.vec3s.push(Vec3A::from(s));
+                                    channel.vec3s.push(Vec3::from(s));
                                 });
                             }
                             ReadOutputs::MorphTargetWeights(m) => match m {
@@ -526,7 +525,7 @@ fn load_node(
     node: &gltf::Node,
 ) -> NodeDescriptor {
     let mut new_node = Node::default();
-    let (scale, rotation, translation): (Vec3A, Quat, Vec3A) = match node.transform() {
+    let (scale, rotation, translation): (Vec3, Quat, Vec3) = match node.transform() {
         Transform::Matrix { matrix } => {
             let (scale, rotation, translation) =
                 Mat4::from_cols_array_2d(&matrix).to_scale_rotation_translation();
@@ -538,9 +537,9 @@ fn load_node(
             rotation,
             scale,
         } => {
-            let scale = Vec3A::from(scale);
+            let scale = Vec3::from(scale);
             let rotation = Quat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3]);
-            let translation = Vec3A::from(translation);
+            let translation = Vec3::from(translation);
 
             (scale, rotation, translation)
         }

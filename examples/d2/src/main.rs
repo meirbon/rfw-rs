@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use clap::{App, Arg};
-use glam::*;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -17,18 +16,17 @@ use winit::{
 use glyph_brush::ab_glyph::point;
 use rayon::prelude::*;
 use rfw_gfx::GfxBackend;
-use rfw_system::scene::r2d::{D2Mesh, D2Vertex};
-use rfw_system::scene::Texture;
 use rfw_system::{
+    scene::r2d::{D2Mesh, D2Vertex},
+    scene::Texture,
     scene::{
-        self,
         renderers::{RenderMode, Setting, SettingValue},
         Camera, Renderer,
     },
     RenderSystem,
 };
+use rfw_utils::prelude::*;
 use shared::utils;
-use std::borrow::Borrow;
 use winit::window::Fullscreen;
 
 pub struct KeyHandler {
@@ -125,9 +123,14 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    let dpi_factor = window.current_monitor().scale_factor();
-    let render_width = (width as f64 / dpi_factor) as usize;
-    let render_height = (height as f64 / dpi_factor) as usize;
+    let res_scale = if let Some(m) = window.current_monitor() {
+        1.0 / m.scale_factor()
+    } else {
+        1.0
+    };
+
+    let render_width = (width as f64 * res_scale) as usize;
+    let render_height = (height as f64 * res_scale) as usize;
 
     let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
         .unwrap() as RenderSystem<T>;
@@ -357,8 +360,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 }
 
                 if resized {
-                    let render_width = (width as f64 / dpi_factor) as usize;
-                    let render_height = (height as f64 / dpi_factor) as usize;
+                    let render_width = (width as f64 * res_scale) as usize;
+                    let render_height = (height as f64 * res_scale) as usize;
                     renderer.resize(&window, (width, height), (render_width, render_height));
                     resized = false;
 
@@ -532,7 +535,7 @@ fn to_vertex(
 ) -> BrushVertex {
     let gl_bounds = bounds;
 
-    use glyph_brush::ab_glyph::{point, Rect};
+    use glyph_brush::ab_glyph::Rect;
 
     let mut gl_rect = Rect {
         min: point(pixel_coords.min.x as f32, pixel_coords.min.y as f32),

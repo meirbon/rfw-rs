@@ -9,15 +9,15 @@ build = "build.rs"
 
 [dependencies]
 shared = { path = "../shared" }
-rayon = "1.3"
-glam = "0.9"
+rayon = "1.5"
 rand = { version = "0.7", features = ["small_rng"] }
-num = "0.2"
-crossbeam = "0.7"
+num = "0.3"
+crossbeam = "0.8"
 wgpu = "0.6"
 futures = "0.3"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 rfw-scene = { path = "../../scene" }
+rfw-utils = { path = "../../utils" }
 
 [build-dependencies]
 shared = { path = "../shared" }

@@ -9,5 +9,4 @@ edition = "2018"
 [dependencies]
 rfw-scene = { path = "../scene", features = ["object_caching"] }
 rfw-utils = { path = "../utils" }
-glam = "0.9"
 futures = "0.3"

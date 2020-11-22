@@ -1,11 +1,6 @@
-use crate::{
-    material::Material, ChangedIterator, DeviceMaterial, FlaggedIterator, FlaggedIteratorMut,
-    FlaggedStorage, TrackedStorage,
-};
-
-use bitvec::prelude::*;
-use glam::*;
+use crate::{material::Material, DeviceMaterial};
 use image::GenericImageView;
+use rfw_utils::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
@@ -595,7 +590,7 @@ impl Texture {
         let (width, height) = (img.width(), img.height());
         let mut data = vec![0 as u32; (width * height) as usize];
 
-        let bgra_image = img.to_bgra();
+        let bgra_image = img.to_bgra8();
         data.copy_from_slice(unsafe {
             std::slice::from_raw_parts(bgra_image.as_ptr() as *const u32, (width * height) as usize)
         });
@@ -1043,7 +1038,7 @@ impl MaterialList {
 
     pub fn push(&mut self, mat: Material) -> usize {
         let i = self.materials.len();
-        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any();
+        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any();
 
         if mat.diffuse_tex >= 0 {
             self.tex_material_mapping[mat.diffuse_tex as usize].insert(i as u32);
@@ -1107,7 +1102,7 @@ impl MaterialList {
         if let Some(mat) = self.materials.get_mut(index) {
             self.light_flags.set(
                 index,
-                Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any(),
+                Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any(),
             );
 
             if mat.diffuse_tex >= 0 {
@@ -1138,7 +1133,7 @@ impl MaterialList {
             index,
             Vec4::from(self.materials[index].color)
                 .truncate()
-                .cmpgt(Vec3A::one())
+                .cmpgt(Vec3::one())
                 .any(),
         );
     }

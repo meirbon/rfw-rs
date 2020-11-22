@@ -1,8 +1,9 @@
 use crate::graph::Skin;
 use crate::{
-    r2d, AnimatedMesh, AreaLight, Camera, ChangedIterator, DeviceMaterial, DirectionalLight,
+    r2d, AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight,
     Instance, Mesh, PointLight, SpotLight, Texture,
 };
+use rfw_utils::collections::ChangedIterator;
 use raw_window_handle::HasRawWindowHandle;
 use std::error::Error;
 

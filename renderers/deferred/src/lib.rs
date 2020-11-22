@@ -3,7 +3,6 @@ use crate::light::DeferredLights;
 use crate::mesh::DeferredAnimMesh;
 use crate::skin::DeferredSkin;
 use futures::executor::block_on;
-use glam::*;
 use mesh::DeferredMesh;
 use rtbvh::AABB;
 
@@ -12,10 +11,9 @@ use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
     renderers::{RenderMode, Renderer, Setting, SettingValue},
-    AnimatedMesh, Camera, ChangedIterator, DeviceMaterial, FlaggedStorage, Instance, Mesh,
-    ObjectRef, Texture, TrackedStorage, VertexMesh,
+    AnimatedMesh, Camera, DeviceMaterial, Instance, Mesh,
+    ObjectRef, Texture, VertexMesh,
 };
-use rfw_utils::*;
 use shared::BytesConversion;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -23,6 +21,7 @@ use std::num::{NonZeroU32, NonZeroU64, NonZeroU8};
 use std::ops::Deref;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
+use rfw_utils::prelude::*;
 
 mod d2;
 mod instance;

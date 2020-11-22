@@ -1,5 +1,6 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
+use rfw_utils::prelude::*;
 
 use crate::{Material, Texture};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};
@@ -21,17 +22,15 @@ pub struct Plane {
 
 impl Plane {
     pub fn new(pos: [f32; 3], up: [f32; 3], dims: [f32; 2], mat_id: u32) -> Plane {
-        use glam::*;
-
         let pos = Vec3A::from(pos);
         let up = Vec3A::from(up).normalize();
 
         let offset = (pos - (pos - up)).length();
 
         let right = if up[0].abs() >= up[1].abs() {
-            Vec3A::new(up.z(), 0.0, -up.x()) / (up.x() * up.x() + up.z() * up.z()).sqrt()
+            Vec3A::new(up.z, 0.0, -up.x) / (up.x * up.x + up.z * up.z).sqrt()
         } else {
-            Vec3A::new(0.0, -up.z(), up.y()) / (up.y() * up.y() + up.z() * up.z()).sqrt()
+            Vec3A::new(0.0, -up.z, up.y) / (up.y * up.y + up.z * up.z).sqrt()
         }
         .normalize();
 
@@ -127,8 +126,6 @@ impl Intersect for Plane {
     }
 
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
-        use glam::*;
-
         let (origin_x, origin_y, origin_z) = packet.origin_xyz::<Vec4>();
         let (dir_x, dir_y, dir_z) = packet.direction_xyz::<Vec4>();
 
@@ -182,8 +179,6 @@ impl Intersect for Plane {
 
 impl Bounds for Plane {
     fn bounds(&self) -> AABB {
-        use glam::*;
-
         let right_offset = self.dims[0] * Vec3A::from(self.right);
         let forward_offset = self.dims[1] * Vec3A::from(self.forward);
 

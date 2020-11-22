@@ -7,18 +7,17 @@ edition = "2018"
 [dependencies]
 tobj = "1.0"
 rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
-rayon = "1.3.0"
+rayon = "1.5.0"
 num_cpus = "1.13"
-glam = { version = "0.9", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"], optional = true }
-bincode = "1.2"
+bincode = "1.3"
 image = "0.23"
 futures = "0.3"
-bitvec = { version = "0.17", features = ["serde"] }
 rand = { version = "0.7", features = ["small_rng"] }
 raw-window-handle = "0.3"
 gltf = { version = "0.15", features = ["extras", "names", "utils"] }
 mimalloc = "0.1.19"
+rfw-utils = { path = "../utils", features = ["object_caching"] }
 
 [features]
 default = []

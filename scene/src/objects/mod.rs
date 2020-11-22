@@ -1,4 +1,4 @@
-use glam::*;
+use rfw_utils::prelude::*;
 
 pub mod instance;
 pub mod mesh;

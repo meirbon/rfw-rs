@@ -2,7 +2,7 @@ pub mod list;
 
 pub use list::*;
 
-use glam::*;
+use rfw_utils::prelude::*;
 use std::fmt::Display;
 
 #[cfg(feature = "object_caching")]
@@ -355,7 +355,7 @@ impl Default for Material {
 
 impl Material {
     pub fn is_emissive(&self) -> bool {
-        let color: Vec3A = Vec4::from(self.color).truncate();
+        let color: Vec3A = Vec4::from(self.color).into();
         color.cmpgt(Vec3A::one()).any()
     }
 }

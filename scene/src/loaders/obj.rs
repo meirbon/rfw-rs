@@ -1,9 +1,8 @@
-use glam::*;
+use rfw_utils::prelude::*;
 use std::path::PathBuf;
 
 use crate::material::*;
-use crate::utils::*;
-use crate::SceneError;
+use crate::{SceneError, Flags};
 use crate::{AnimatedMesh, LoadResult, Mesh, ObjectLoader, ObjectRef};
 
 enum ObjFlags {

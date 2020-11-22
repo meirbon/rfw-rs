@@ -1,5 +1,5 @@
 use crate::{hal, DeviceHandle, Queue};
-use glam::*;
+use rfw_utils::prelude::*;
 
 use crate::hal::command::CommandBuffer;
 use crate::hal::pool::CommandPool;
@@ -15,9 +15,8 @@ use hal::{
 use pso::DescriptorPool;
 use rfw_scene::{
     bvh::{Bounds, AABB},
-    AnimVertexData, FlaggedStorage, ObjectRef, TrackedStorage, VertexData, VertexMesh,
+    AnimVertexData, ObjectRef, VertexData, VertexMesh,
 };
-use rfw_utils::*;
 use shared::BytesConversion;
 use std::{collections::HashSet, mem::ManuallyDrop, ptr, sync::Arc};
 
@@ -299,7 +298,8 @@ impl<B: hal::Backend> SceneList<B> {
             )
             .unwrap();
 
-        let mut staging_buffer = self.allocator
+        let mut staging_buffer = self
+            .allocator
             .allocate_buffer(
                 buffer_len as usize,
                 buffer::Usage::TRANSFER_SRC,

@@ -3,7 +3,7 @@ use crate::instance::DeviceInstances;
 use crate::mesh::DeferredAnimMesh;
 use crate::skin::DeferredSkin;
 use rfw_scene::{
-    lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
+    lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef,
     VertexData,
 };
 use rtbvh::AABB;
@@ -13,6 +13,7 @@ use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::ops::Range;
 use wgpu::util::DeviceExt;
+use rfw_utils::collections::TrackedStorage;
 
 pub struct DeferredLights {
     // point_lights: LightShadows<PointLight>,

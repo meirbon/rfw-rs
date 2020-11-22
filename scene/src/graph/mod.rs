@@ -1,8 +1,7 @@
-use crate::utils::*;
 use crate::{Instance, ObjectRef};
 use animation::{Animation, Channel};
-use glam::*;
 use rayon::prelude::*;
+use rfw_utils::prelude::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
@@ -47,9 +46,9 @@ pub struct NodeDescriptor {
     pub name: String,
     pub child_nodes: Vec<NodeDescriptor>,
 
-    pub translation: Vec3A,
+    pub translation: Vec3,
     pub rotation: Quat,
-    pub scale: Vec3A,
+    pub scale: Vec3,
 
     pub meshes: Vec<ObjectRef>,
     pub skin: Option<SkinDescriptor>,
@@ -84,9 +83,9 @@ pub struct SceneDescriptor {
 #[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
-    translation: Vec3A,
+    translation: Vec3,
     rotation: Quat,
-    scale: Vec3A,
+    scale: Vec3,
     matrix: Mat4,
     local_matrix: Mat4,
     pub combined_matrix: Mat4,
@@ -103,9 +102,9 @@ pub struct Node {
 impl Default for Node {
     fn default() -> Self {
         Self {
-            translation: Vec3A::zero(),
+            translation: Vec3::zero(),
             rotation: Quat::identity(),
-            scale: Vec3A::splat(1.0),
+            scale: Vec3::splat(1.0),
             matrix: Mat4::identity(),
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
@@ -127,7 +126,7 @@ impl Node {
     }
 
     pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
-        self.translation = Vec3A::from(t.into());
+        self.translation = Vec3::from(t.into());
         self.changed = true;
     }
 
@@ -138,7 +137,7 @@ impl Node {
     }
 
     pub fn set_scale<T: Into<[f32; 3]>>(&mut self, s: T) {
-        self.scale = Vec3A::from(s.into());
+        self.scale = Vec3::from(s.into());
         self.changed = true;
     }
 
@@ -153,43 +152,43 @@ impl Node {
     }
 
     pub fn scale_x(&mut self, scale: f32) {
-        self.scale *= Vec3A::new(scale, 1.0, 1.0);
+        self.scale *= Vec3::new(scale, 1.0, 1.0);
         self.changed = true;
     }
 
     pub fn scale_y(&mut self, scale: f32) {
-        self.scale *= Vec3A::new(1.0, scale, 1.0);
+        self.scale *= Vec3::new(1.0, scale, 1.0);
         self.changed = true;
     }
 
     pub fn scale_z(&mut self, scale: f32) {
-        self.scale *= Vec3A::new(1.0, 1.0, scale);
+        self.scale *= Vec3::new(1.0, 1.0, scale);
         self.changed = true;
     }
 
     pub fn scale<T: Into<[f32; 3]>>(&mut self, offset: T) {
-        self.scale *= Vec3A::from(offset.into());
+        self.scale *= Vec3::from(offset.into());
         self.changed = true;
     }
 
     pub fn translate_x(&mut self, offset: f32) {
-        self.translation += Vec3A::new(offset, 0.0, 0.0);
+        self.translation += Vec3::new(offset, 0.0, 0.0);
         self.changed = true;
     }
 
     pub fn translate_y(&mut self, offset: f32) {
-        self.translation += Vec3A::new(0.0, offset, 0.0);
+        self.translation += Vec3::new(0.0, offset, 0.0);
         self.changed = true;
     }
 
     pub fn translate_z(&mut self, offset: f32) {
-        self.translation += Vec3A::new(0.0, 0.0, offset);
+        self.translation += Vec3::new(0.0, 0.0, offset);
         self.changed = true;
     }
 
     pub fn translate<T: Into<[f32; 3]>>(&mut self, offset: T) {
         let offset: [f32; 3] = offset.into();
-        self.translation += Vec3A::from(offset);
+        self.translation += Vec3::from(offset);
         self.changed = true;
     }
 

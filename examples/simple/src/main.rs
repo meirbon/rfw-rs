@@ -68,11 +68,11 @@ impl MouseButtonHandler {
     }
 }
 
-use glam::*;
 use rfw_system::{
     scene::{self, renderers::RenderMode, Camera},
     RenderSystem,
 };
+use rfw_utils::prelude::*;
 use shared::utils;
 use winit::window::Fullscreen;
 

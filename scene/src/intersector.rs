@@ -1,7 +1,7 @@
 use crate::objects::*;
 
 use crate::{InstanceID, PrimID};
-use glam::*;
+use rfw_utils::prelude::*;
 use rtbvh::{Ray, RayPacket4, ShadowPacket4, MBVH};
 
 pub struct TIntersector<'a> {

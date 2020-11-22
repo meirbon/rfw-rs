@@ -1,4 +1,3 @@
-use glam::*;
 use rayon::prelude::*;
 
 use crate::objects::mesh::*;
@@ -6,6 +5,7 @@ use crate::PrimID;
 use crate::{HitRecord, HitRecord4, Intersect, MaterialList, RTTriangle};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use std::fmt::Display;
+use rfw_utils::prelude::*;
 
 #[cfg(feature = "object_caching")]
 use serde::{Deserialize, Serialize};
@@ -70,8 +70,8 @@ impl Default for AnimatedMesh {
 impl AnimatedMesh {
     pub fn new_indexed(
         indices: Vec<[u32; 3]>,
-        original_vertices: Vec<Vec3A>,
-        original_normals: Vec<Vec3A>,
+        original_vertices: Vec<Vec3>,
+        original_normals: Vec<Vec3>,
         original_joints: Vec<Vec<[u16; 4]>>,
         original_weights: Vec<Vec<Vec4>>,
         original_uvs: Vec<Vec2>,
@@ -153,8 +153,8 @@ impl AnimatedMesh {
     }
 
     pub fn new<T: AsRef<str>>(
-        vertices: Vec<Vec3A>,
-        normals: Vec<Vec3A>,
+        vertices: Vec<Vec3>,
+        normals: Vec<Vec3>,
         joints: Vec<Vec<[u16; 4]>>,
         weights: Vec<Vec<Vec4>>,
         uvs: Vec<Vec2>,
@@ -170,8 +170,8 @@ impl AnimatedMesh {
         let mut vertex_data = vec![VertexData::zero(); vertices.len()];
         let mut anim_vertex_data = vec![AnimVertexData::zero(); vertices.len()];
 
-        let normals: Vec<Vec3A> = if normals[0].cmpeq(Vec3A::zero()).all() {
-            let mut normals = vec![Vec3A::zero(); vertices.len()];
+        let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
+            let mut normals = vec![Vec3::zero(); vertices.len()];
             for i in (0..vertices.len()).step_by(3) {
                 let v0 = vertices[i + 0];
                 let v1 = vertices[i + 1];
@@ -201,19 +201,19 @@ impl AnimatedMesh {
         };
 
         let mut tangents: Vec<Vec4> = vec![Vec4::zero(); vertices.len()];
-        let mut bitangents: Vec<Vec3A> = vec![Vec3A::zero(); vertices.len()];
+        let mut bitangents: Vec<Vec3> = vec![Vec3::zero(); vertices.len()];
 
         for i in (0..vertices.len()).step_by(3) {
-            let v0: Vec3A = vertices[i];
-            let v1: Vec3A = vertices[i + 1];
-            let v2: Vec3A = vertices[i + 2];
+            let v0: Vec3 = vertices[i];
+            let v1: Vec3 = vertices[i + 1];
+            let v2: Vec3 = vertices[i + 2];
 
             bounds.grow(v0);
             bounds.grow(v1);
             bounds.grow(v2);
 
-            let e1: Vec3A = v1 - v0;
-            let e2: Vec3A = v2 - v0;
+            let e1: Vec3 = v1 - v0;
+            let e2: Vec3 = v2 - v0;
 
             let tex0: Vec2 = uvs[i];
             let tex1: Vec2 = uvs[i + 1];
@@ -225,13 +225,13 @@ impl AnimatedMesh {
             let n = e1.cross(e2).normalize();
 
             let (t, b) = if uv1.dot(uv1) == 0.0 || uv2.dot(uv2) == 0.0 {
-                let tangent: Vec3A = e1.normalize();
-                let bitangent: Vec3A = n.cross(tangent).normalize();
+                let tangent: Vec3 = e1.normalize();
+                let bitangent: Vec3 = n.cross(tangent).normalize();
                 (tangent.extend(0.0), bitangent)
             } else {
-                let r = 1.0 / (uv1.x() * uv2.y() - uv1.y() * uv2.x());
-                let tangent: Vec3A = (e1 * uv2.y() - e2 * uv1.y()) * r;
-                let bitangent: Vec3A = (e1 * uv2.x() - e2 * uv1.x()) * r;
+                let r = 1.0 / (uv1.x * uv2.y - uv1.y * uv2.x);
+                let tangent: Vec3 = (e1 * uv2.y - e2 * uv1.y) * r;
+                let bitangent: Vec3 = (e1 * uv2.x - e2 * uv1.x) * r;
                 (tangent.extend(0.0), bitangent)
             };
 
@@ -247,12 +247,12 @@ impl AnimatedMesh {
         let bounds = bounds;
 
         for i in 0..vertices.len() {
-            let n: Vec3A = normals[i];
+            let n: Vec3 = normals[i];
             let tangent = tangents[i].truncate().normalize();
             let bitangent = bitangents[i].normalize();
 
-            let t: Vec3A = (tangent - (n * n.dot(tangent))).normalize();
-            let c: Vec3A = n.cross(t);
+            let t: Vec3 = (tangent - (n * n.dot(tangent))).normalize();
+            let c: Vec3 = n.cross(t);
 
             let w = c.dot(bitangent).signum();
             tangents[i] = tangent.normalize().extend(w);
@@ -379,25 +379,25 @@ impl AnimatedMesh {
             let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
 
             let ta = (1024 * 1024) as f32
-                * ((uv1.x() - uv0.x()) * (uv2.y() - uv0.y())
-                    - (uv2.x() - uv0.x()) * (uv1.y() - uv0.y()))
+                * ((uv1.x - uv0.x) * (uv2.y - uv0.y)
+                    - (uv2.x - uv0.x) * (uv1.y - uv0.y))
                 .abs();
             let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
             *triangle = RTTriangle {
                 vertex0: vertex0.into(),
-                u0: uv0.x(),
+                u0: uv0.x,
                 vertex1: vertex1.into(),
-                u1: uv1.x(),
+                u1: uv1.x,
                 vertex2: vertex2.into(),
-                u2: uv2.x(),
+                u2: uv2.x,
                 normal: normal.into(),
-                v0: uv0.y(),
+                v0: uv0.y,
                 n0: n0.into(),
-                v1: uv1.y(),
+                v1: uv1.y,
                 n1: n1.into(),
-                v2: uv2.y(),
+                v2: uv2.y,
                 n2: n2.into(),
                 id: i as i32,
                 tangent0: tangent0.into(),
@@ -452,7 +452,7 @@ impl AnimatedMesh {
 
     pub fn construct_bvh(&mut self) {
         let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
-        let centers: Vec<Vec3A> = self.triangles.par_iter().map(|t| t.center()).collect();
+        let centers: Vec<Vec3A> = self.triangles.par_iter().map(|t| t.center().into()).collect();
 
         self.bvh = Some(BVH::construct_spatial(
             aabbs.as_slice(),
@@ -756,7 +756,7 @@ impl AnimatedMesh {
 impl Intersect for AnimatedMesh {
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
         if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3A>();
+            let (origin, direction) = ray.get_vectors::<Vec3>();
 
             let intersection_test = |i, t_min, t_max| {
                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
@@ -777,7 +777,7 @@ impl Intersect for AnimatedMesh {
 
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
         if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3A>();
+            let (origin, direction) = ray.get_vectors::<Vec3>();
 
             let intersection_test = |i, t_min, t_max| {
                 let triangle: &RTTriangle = &self.triangles[i];
@@ -803,7 +803,7 @@ impl Intersect for AnimatedMesh {
 
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
         if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3A>();
+            let (origin, direction) = ray.get_vectors::<Vec3>();
 
             let intersection_test = |i, t_min, t_max| {
                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
@@ -827,7 +827,7 @@ impl Intersect for AnimatedMesh {
 
     fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
         if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3A>();
+            let (origin, direction) = ray.get_vectors::<Vec3>();
 
             let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)> {
                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
@@ -903,7 +903,7 @@ impl AnimatedMesh {
             let anim_data = &self.anim_vertex_data[i];
 
             let vertex = Vec4::from(original_v.vertex);
-            let normal = Vec3A::from(original_v.normal).extend(0.0);
+            let normal = Vec3::from(original_v.normal).extend(0.0);
             let tangent = Vec4::from(original_v.tangent);
 
             let skin_matrix = skin.joint_matrices[anim_data.joints[0] as usize]

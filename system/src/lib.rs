@@ -1,13 +1,12 @@
 use crate::scene::r2d::D2Instance;
-use glam::*;
 pub use rfw_scene as scene;
 use rfw_scene::graph::NodeGraph;
 use rfw_scene::r2d::D2Mesh;
-use rfw_scene::utils::{FlaggedIterator, FlaggedIteratorMut};
 use rfw_scene::{
     raw_window_handle, Camera, DirectionalLight, Flip, Instance, LoadResult, ObjectRef, PointLight,
     RenderMode, Renderer, Scene, SceneError, SceneLights, Setting, SpotLight, Texture, ToMesh,
 };
+use rfw_utils::prelude::*;
 use scene::Material;
 use std::error::Error;
 use std::path::Path;
@@ -313,7 +312,7 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         radiance: B,
     ) -> DirectionalLightRef {
         let light =
-            DirectionalLight::new(Vec3A::from(direction.into()), Vec3A::from(radiance.into()));
+            DirectionalLight::new(Vec3::from(direction.into()), Vec3::from(radiance.into()));
         let id = self.scene.lights.directional_lights.push(light.clone());
         DirectionalLightRef(id as u32)
     }
