@@ -13,13 +13,6 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
-pub enum SceneLight {
-    Point,
-    Spot,
-    Directional,
-}
-
 pub struct PointLightRef(u32);
 pub struct SpotLightRef(u32);
 pub struct DirectionalLightRef(u32);
