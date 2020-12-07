@@ -132,16 +132,15 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let render_width = (width as f64 * res_scale) as usize;
     let render_height = (height as f64 * res_scale) as usize;
 
-    let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
-        .unwrap() as RenderSystem<T>;
+    let mut renderer: RenderSystem<T> =
+        RenderSystem::new(&window, (width, height), (render_width, render_height)).unwrap();
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let cam_id = renderer.create_camera(render_width as u32, render_height as u32);
-    if let Some(camera) = renderer.get_camera_mut(cam_id) {
-        *camera = Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
-    }
+    let cam_id = renderer.create_camera(render_width as _, render_height as _);
+    *renderer.get_camera_mut(cam_id).unwrap() =
+        Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -180,7 +179,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         [1.0; 4],
     ))?;
 
-    let _d2_mesh2 = renderer.add_2d_object(D2Mesh::new(
+    let d2_mesh2 = renderer.add_2d_object(D2Mesh::new(
         vec![
             [-0.5, -0.5, 0.5],
             [0.5, -0.5, 0.5],
@@ -210,12 +209,19 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
             Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0).to_cols_array();
     }
 
-    let aspect_ratio = renderer.get_camera(cam_id).unwrap().aspect_ratio;
+    let d2_inst = renderer.create_2d_instance(d2_mesh2)?;
     if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
-        inst.transform = Mat4::from_scale(Vec3::new(1.0 / aspect_ratio, 1.0, 1.0)).to_cols_array();
+        inst.transform = Mat4::from_scale(Vec3::new(
+            1.0 / (render_width as f32 / render_height as f32),
+            1.0,
+            1.0,
+        ))
+        .to_cols_array();
     }
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
+
+    let app_time = utils::Timer::new();
 
     timer2.reset();
     renderer.synchronize();
@@ -355,6 +361,8 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     }
 
                     if resized {
+                        let render_width = (width as f64 / dpi_factor) as usize;
+                        let render_height = (height as f64 / dpi_factor) as usize;
                         camera.resize(render_width as u32, render_height as u32);
                     }
                 }
@@ -363,6 +371,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     let render_width = (width as f64 * res_scale) as usize;
                     let render_height = (height as f64 * res_scale) as usize;
                     renderer.resize(&window, (width, height), (render_width, render_height));
+
                     resized = false;
 
                     if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
@@ -414,6 +423,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     to_vertex,
                 ) {
                     Ok(BrushAction::Draw(vertices)) => {
+                        let color = vertices[0].color;
                         let mut verts = Vec::with_capacity(vertices.len() * 6);
                         let vertices: Vec<_> = vertices
                             .par_iter()
@@ -486,9 +496,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                renderer
-                    .render(cam_id, RenderMode::Reset)
-                    .expect("Rendering error");
+                renderer.render(cam_id, RenderMode::Reset).unwrap();
                 render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
