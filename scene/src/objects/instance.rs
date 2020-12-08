@@ -1,16 +1,13 @@
 use crate::objects::*;
 
-use rfw_utils::prelude::*;
-use rtbvh::aabb::Bounds;
-use rtbvh::{Ray, RayPacket4, AABB};
+use rfw_utils::prelude::rtbvh::{aabb::Bounds, Ray, RayPacket4, AABB};
 
 use std::fmt::Display;
 
-use rfw_utils::prelude::*;
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ObjectRef {
     None,
@@ -38,7 +35,7 @@ impl std::fmt::Display for ObjectRef {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InstanceUpdate {
     None,
@@ -48,7 +45,7 @@ pub enum InstanceUpdate {
 
 /// Instance
 /// Takes in a bounding box and transform and transforms to and from object local space.
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct Instance {
     original_bounds: AABB,
@@ -468,7 +465,7 @@ impl Bounds for Instance {
     }
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 impl<'a> SerializableObject<'a, Instance> for Instance {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

@@ -1,10 +1,10 @@
 use crate::graph::Skin;
 use crate::{
-    r2d, AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight,
-    Instance, Mesh, PointLight, SpotLight, Texture,
+    r2d, AnimatedMesh, AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance, Mesh,
+    PointLight, SpotLight,
 };
-use rfw_utils::collections::ChangedIterator;
 use raw_window_handle::HasRawWindowHandle;
+use rfw_utils::{collections::ChangedIterator, prelude::l3d::mat::Texture};
 use std::error::Error;
 
 #[derive(Debug, Copy, Clone)]
@@ -141,9 +141,12 @@ pub trait Renderer {
     fn render(&mut self, camera: &Camera, mode: RenderMode);
 
     /// Resizes framebuffer
-    fn resize<T: HasRawWindowHandle>(&mut self, window: &T,
-                                     window_size: (usize, usize),
-                                     render_size: (usize, usize));
+    fn resize<T: HasRawWindowHandle>(
+        &mut self,
+        window: &T,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
+    );
     /// Updates point lights, only lights with their 'changed' flag set to true have changed
     fn set_point_lights(&mut self, lights: ChangedIterator<'_, PointLight>);
 

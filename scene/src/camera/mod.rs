@@ -8,7 +8,7 @@ pub mod frustrum;
 
 pub use frustrum::*;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
@@ -26,7 +26,7 @@ pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
         }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub pos: [f32; 3],
@@ -518,7 +518,7 @@ impl Camera {
         frustrum::FrustrumG::from_matrix(self.get_rh_matrix())
     }
 
-    #[cfg(feature = "object_caching")]
+    #[cfg(feature = "serde")]
     pub fn serialize<S: AsRef<std::path::Path>>(
         &self,
         path: S,
@@ -531,7 +531,7 @@ impl Camera {
         Ok(())
     }
 
-    #[cfg(feature = "object_caching")]
+    #[cfg(feature = "serde")]
     pub fn deserialize<S: AsRef<std::path::Path>>(
         path: S,
     ) -> Result<Camera, Box<dyn std::error::Error>> {

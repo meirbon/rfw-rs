@@ -1,14 +1,14 @@
 use crate::{Instance, ObjectRef};
-use animation::{Animation, Channel};
 use rayon::prelude::*;
-use rfw_utils::prelude::*;
+use rfw_utils::prelude::{
+    l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor},
+    *,
+};
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
-
-pub mod animation;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
@@ -24,7 +24,7 @@ impl Into<u8> for NodeFlags {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NodeMesh {
     pub object_id: ObjectRef,
@@ -60,27 +60,12 @@ pub struct NodeDescriptor {
 }
 
 #[derive(Debug, Clone)]
-pub struct SkinDescriptor {
-    pub name: String,
-    pub inverse_bind_matrices: Vec<Mat4>,
-    // Joint node descriptor IDs (NodeDescriptor::id)
-    pub joint_nodes: Vec<u32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AnimationDescriptor {
-    pub name: String,
-    // (node descriptor ID, animation channel)
-    pub channels: Vec<(u32, Channel)>,
-}
-
-#[derive(Debug, Clone)]
 pub struct SceneDescriptor {
     pub nodes: Vec<NodeDescriptor>,
     pub animations: Vec<AnimationDescriptor>,
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
     translation: Vec3,
@@ -97,6 +82,41 @@ pub struct Node {
     pub changed: bool,
     pub first: bool,
     pub morphed: bool,
+}
+
+impl AnimationNode for Node {
+    fn set_translation(&mut self, translation: [f32; 3]) {
+        self.translation = Vec3::from(translation);
+        self.changed = true;
+    }
+
+    fn set_rotation(&mut self, rotation: [f32; 4]) {
+        self.rotation = Quat::from(Vec4::from(rotation));
+        self.changed = true;
+    }
+
+    fn set_scale(&mut self, scale: [f32; 3]) {
+        self.scale = Vec3::from(scale);
+        self.changed = true;
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        let num_weights = self.weights.len().min(weights.len());
+        for i in 0..num_weights {
+            self.weights[i] = weights[i];
+        }
+        self.morphed = true;
+    }
+
+    fn update_matrix(&mut self) {
+        let trs = Mat4::from_scale_rotation_translation(
+            self.scale.into(),
+            self.rotation,
+            self.translation.into(),
+        );
+        self.local_matrix = trs * self.matrix;
+        self.changed = false;
+    }
 }
 
 impl Default for Node {
@@ -214,19 +234,9 @@ impl Node {
         self.rotation *= Quat::from_rotation_z(degrees.to_radians());
         self.changed = true;
     }
-
-    pub fn update_matrix(&mut self) {
-        let trs = Mat4::from_scale_rotation_translation(
-            self.scale.into(),
-            self.rotation,
-            self.translation.into(),
-        );
-        self.local_matrix = trs * self.matrix;
-        self.changed = false;
-    }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
@@ -467,7 +477,7 @@ impl NodeGraph {
 
     pub fn update_animation(&mut self, time: f32) {
         if let Some(animation) = self.active_animation {
-            self.animations[animation].set_time(time, &mut self.nodes);
+            self.animations[animation].set_time(time, unsafe { self.nodes.as_mut_slice() });
         }
     }
 
@@ -511,7 +521,6 @@ impl NodeGraph {
                 // TODO
                 affected_roots: root_nodes.clone(),
                 channels,
-                time: 0.0,
             });
 
             self.set_active_animation(animation_id).unwrap();
@@ -552,7 +561,11 @@ impl NodeGraph {
                 self.skins.push(Skin {
                     name: s.name.clone(),
                     joint_nodes,
-                    inverse_bind_matrices: s.inverse_bind_matrices.clone(),
+                    inverse_bind_matrices: s
+                        .inverse_bind_matrices
+                        .iter()
+                        .map(|m| Mat4::from_cols_array(m))
+                        .collect(),
                     joint_matrices: vec![Mat4::identity(); s.inverse_bind_matrices.len()],
                 })
             })
@@ -666,7 +679,7 @@ impl std::ops::IndexMut<usize> for NodeGraph {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Skin {
     pub name: String,
@@ -686,7 +699,7 @@ impl Default for Skin {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SceneGraph {
     sub_graphs: TrackedStorage<NodeGraph>,

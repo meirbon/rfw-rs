@@ -3,16 +3,15 @@ use rayon::prelude::*;
 use crate::objects::mesh::*;
 use crate::PrimID;
 use crate::{HitRecord, HitRecord4, Intersect, MaterialList, RTTriangle};
-use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
+use rfw_utils::prelude::rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
 use std::fmt::Display;
-use rfw_utils::prelude::*;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use std::collections::HashMap;
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct AnimVertexData {
     pub joints: [u32; 4],
@@ -28,7 +27,7 @@ impl AnimVertexData {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct AnimatedMesh {
     pub triangles: Vec<RTTriangle>,
@@ -379,9 +378,7 @@ impl AnimatedMesh {
             let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
 
             let ta = (1024 * 1024) as f32
-                * ((uv1.x - uv0.x) * (uv2.y - uv0.y)
-                    - (uv2.x - uv0.x) * (uv1.y - uv0.y))
-                .abs();
+                * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
             let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
@@ -452,7 +449,11 @@ impl AnimatedMesh {
 
     pub fn construct_bvh(&mut self) {
         let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
-        let centers: Vec<Vec3A> = self.triangles.par_iter().map(|t| t.center().into()).collect();
+        let centers: Vec<Vec3A> = self
+            .triangles
+            .par_iter()
+            .map(|t| t.center().into())
+            .collect();
 
         self.bvh = Some(BVH::construct_spatial(
             aabbs.as_slice(),
@@ -966,14 +967,14 @@ impl AnimatedMesh {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 struct SerializedMesh {
     pub mesh: AnimatedMesh,
     pub materials: MaterialList,
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 impl<'a> crate::objects::SerializableObject<'a, AnimatedMesh> for AnimatedMesh {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
@@ -1124,5 +1125,250 @@ impl<'a> crate::objects::SerializableObject<'a, AnimatedMesh> for AnimatedMesh {
         });
 
         Ok(mesh)
+    }
+}
+
+impl From<l3d::load::MeshDescriptor> for AnimatedMesh {
+    fn from(desc: MeshDescriptor) -> Self {
+        let skeleton = desc.skeleton.clone().unwrap();
+        let (weights, joints) = (skeleton.weights, skeleton.joints);
+
+        let mut bounds = AABB::new();
+        let mut vertex_data = vec![VertexData::zero(); desc.vertices.len()];
+        let mut anim_vertex_data = vec![AnimVertexData::zero(); desc.vertices.len()];
+
+        let material_ids: Vec<u32> = desc.material_ids.chunks(3).map(|c| c[0] as u32).collect();
+
+        let normals: Vec<Vec3> = if Vec3::from(desc.normals[0]).cmpeq(Vec3::zero()).all() {
+            let mut normals = vec![Vec3::zero(); desc.vertices.len()];
+            for i in (0..desc.vertices.len()).step_by(3) {
+                let v0: Vec3 = Vec4::from(desc.vertices[i + 0]).truncate();
+                let v1: Vec3 = Vec4::from(desc.vertices[i + 1]).truncate();
+                let v2: Vec3 = Vec4::from(desc.vertices[i + 2]).truncate();
+
+                let e1 = v1 - v0;
+                let e2 = v2 - v0;
+
+                let n = e1.cross(e2).normalize();
+
+                let a = (v1 - v0).length();
+                let b = (v2 - v1).length();
+                let c = (v0 - v2).length();
+                let s = (a + b + c) * 0.5;
+                let area = (s * (s - a) * (s - b) * (s - c)).sqrt();
+                let n = n * area;
+
+                normals[i + 0] += n;
+                normals[i + 1] += n;
+                normals[i + 2] += n;
+            }
+
+            normals.par_iter_mut().for_each(|n| *n = n.normalize());
+            normals
+        } else {
+            desc.normals
+                .iter()
+                .map(|n| Vec3::from(*n))
+                .collect::<Vec<Vec3>>()
+        };
+
+        for i in (0..desc.vertices.len()).step_by(3) {
+            let v0: Vec3 = Vec4::from(desc.vertices[i]).truncate();
+            let v1: Vec3 = Vec4::from(desc.vertices[i + 1]).truncate();
+            let v2: Vec3 = Vec4::from(desc.vertices[i + 2]).truncate();
+
+            bounds.grow(v0);
+            bounds.grow(v1);
+            bounds.grow(v2);
+        }
+
+        vertex_data
+            .iter_mut()
+            .enumerate()
+            .zip(anim_vertex_data.iter_mut())
+            .par_bridge()
+            .for_each(|((i, v), anim_v)| {
+                let vertex: [f32; 3] = [
+                    desc.vertices[i][0],
+                    desc.vertices[i][1],
+                    desc.vertices[i][2],
+                ];
+                let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
+                let normal = normals[i].into();
+
+                *v = VertexData {
+                    vertex,
+                    normal,
+                    mat_id: material_ids[i / 3],
+                    uv: desc.uvs[i],
+                    tangent: desc.tangents[i],
+                };
+
+                let joints: [u32; 4] = if let Some(j) = joints.get(0) {
+                    if let Some(joints) = j.get(i) {
+                        [
+                            joints[0] as u32,
+                            joints[1] as u32,
+                            joints[2] as u32,
+                            joints[3] as u32,
+                        ]
+                    } else {
+                        [0; 4]
+                    }
+                } else {
+                    [0; 4]
+                };
+                let mut weights: [f32; 4] = if let Some(w) = weights.get(0) {
+                    if let Some(weights) = w.get(i) {
+                        *weights
+                    } else {
+                        [0.0; 4]
+                    }
+                } else {
+                    [0.25; 4]
+                };
+
+                // Ensure weights sum up to 1.0
+                let total = weights[0] + weights[1] + weights[2] + weights[3];
+                for i in 0..4 {
+                    weights[i] = weights[i] / total;
+                }
+
+                *anim_v = AnimVertexData { joints, weights };
+            });
+
+        let mut last_id = material_ids[0];
+        let mut start = 0;
+        let mut range = 0;
+        let mut meshes: Vec<VertexMesh> = Vec::new();
+        let mut v_bounds = AABB::new();
+
+        for i in 0..material_ids.len() {
+            range += 1;
+            for j in 0..3 {
+                v_bounds.grow([
+                    desc.vertices[i * 3 + j][0],
+                    desc.vertices[i * 3 + j][1],
+                    desc.vertices[i * 3 + j][2],
+                ]);
+            }
+
+            if last_id != material_ids[i] {
+                meshes.push(VertexMesh {
+                    first: start * 3,
+                    last: (start + range) * 3,
+                    mat_id: last_id,
+                    bounds: v_bounds.clone(),
+                });
+
+                v_bounds = AABB::new();
+                last_id = material_ids[i];
+                start = i as u32;
+                range = 1;
+            }
+        }
+
+        if meshes.is_empty() {
+            // There only is 1 mesh available
+            meshes.push(VertexMesh {
+                first: 0,
+                last: desc.vertices.len() as u32,
+                mat_id: material_ids[0],
+                bounds: bounds.clone(),
+            });
+        } else if (start + range) != (material_ids.len() as u32 - 1) {
+            // Add last mesh to list
+            meshes.push(VertexMesh {
+                first: start * 3,
+                last: (start + range) * 3,
+                mat_id: last_id,
+                bounds: v_bounds,
+            })
+        }
+
+        let mut triangles = vec![RTTriangle::default(); desc.vertices.len() / 3];
+        triangles.iter_mut().enumerate().for_each(|(i, triangle)| {
+            let i0 = i * 3;
+            let i1 = i0 + 1;
+            let i2 = i0 + 2;
+
+            let vertex0 = Vec3::new(
+                desc.vertices[i0][0],
+                desc.vertices[i0][1],
+                desc.vertices[i0][2],
+            );
+            let vertex1 = Vec3::new(
+                desc.vertices[i1][0],
+                desc.vertices[i1][1],
+                desc.vertices[i1][2],
+            );
+            let vertex2 = Vec3::new(
+                desc.vertices[i2][0],
+                desc.vertices[i2][1],
+                desc.vertices[i2][2],
+            );
+
+            let n0 = normals[i0];
+            let n1 = normals[i1];
+            let n2 = normals[i2];
+
+            let uv0 = Vec2::from(desc.uvs[i0]);
+            let uv1 = Vec2::from(desc.uvs[i1]);
+            let uv2 = Vec2::from(desc.uvs[i2]);
+
+            let tangent0 = Vec4::from(desc.tangents[i0]);
+            let tangent1 = Vec4::from(desc.tangents[i1]);
+            let tangent2 = Vec4::from(desc.tangents[i1]);
+
+            let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
+
+            let ta = (1024 * 1024) as f32
+                * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
+            let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
+            let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
+
+            *triangle = RTTriangle {
+                vertex0: vertex0.into(),
+                u0: uv0.x,
+                vertex1: vertex1.into(),
+                u1: uv1.x,
+                vertex2: vertex2.into(),
+                u2: uv2.x,
+                normal: normal.into(),
+                v0: uv0.y,
+                n0: n0.into(),
+                v1: uv1.y,
+                n1: n1.into(),
+                v2: uv2.y,
+                n2: n2.into(),
+                id: i as i32,
+                tangent0: tangent0.into(),
+                tangent1: tangent1.into(),
+                tangent2: tangent2.into(),
+                light_id: -1,
+                mat_id: material_ids[i] as i32,
+                lod,
+                area: RTTriangle::area(vertex0, vertex1, vertex2),
+            };
+        });
+
+        let weights: Vec<Vec<Vec4>> = weights
+            .iter()
+            .map(|v| v.iter().map(|v| Vec4::from(*v)).collect())
+            .collect();
+
+        Self {
+            triangles,
+            vertices: vertex_data,
+            anim_vertex_data,
+            joints,
+            weights,
+            materials: Vec::from(material_ids),
+            meshes,
+            bounds,
+            bvh: None,
+            mbvh: None,
+            name: desc.name,
+        }
     }
 }

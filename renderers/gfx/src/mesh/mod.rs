@@ -1092,7 +1092,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     ),
                     lod_bias: hal::image::Lod(0.0),
                     lod_range: hal::image::Lod(0.0)
-                        ..hal::image::Lod(rfw_scene::Texture::MIP_LEVELS as f32),
+                        ..hal::image::Lod(l3d::mat::Texture::MIP_LEVELS as f32),
                     comparison: None,
                     border: hal::image::PackedColor::from([0.0; 4]),
                     normalized: true,
@@ -1547,7 +1547,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         self.viewport.rect.h = height as _;
     }
 
-    pub fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+    pub fn set_textures(&mut self, textures: ChangedIterator<'_, l3d::mat::Texture>) {
         let mut texels = 0;
 
         for (i, t) in textures.clone() {

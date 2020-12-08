@@ -11,8 +11,9 @@ num_cpus = "1.13.0"
 owning_ref = "0.4"
 bitvec = { version = "0.19", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"], optional = true }
-glam = { version = "0.10", features = ["serde"] }
+glam = { version = "0.11", features = ["serde"] }
+l3d = { git = "https://github.com/MeirBon/l3d.git", rev = "db384f37170cade338e878c9ac30a4580f33eb5b", features = ["serde"] }
+rtbvh = { git = "https://github.com/MeirBon/rtbvh.git", rev = "9dda189007c32f43e030264d5134cb41a7ac2b25" }
 
 [features]
 default = []
-object_caching = ["serde"]

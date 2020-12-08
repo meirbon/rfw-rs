@@ -17,7 +17,6 @@ use rayon::prelude::*;
 use rfw_gfx::GfxBackend;
 use rfw_system::{
     scene::r2d::{D2Mesh, D2Vertex},
-    scene::Texture,
     scene::{
         self,
         renderers::{RenderMode, Setting, SettingValue},
@@ -151,7 +150,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let roboto = FontArc::try_from_slice(font)?;
     let mut glyph_brush = GlyphBrushBuilder::using_font(roboto).build();
 
-    let tex = renderer.add_texture(Texture::default())?;
+    let tex = renderer.add_texture(l3d::mat::Texture::default())?;
     let d2_mesh = renderer.add_2d_object(D2Mesh::new(
         vec![
             [-0.5, -0.5, 0.5],
@@ -497,7 +496,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     renderer
                         .set_texture(
                             tex,
-                            Texture {
+                            l3d::mat::Texture {
                                 width: tex_width as u32,
                                 height: tex_height as u32,
                                 data: tex_data.clone(),

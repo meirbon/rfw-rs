@@ -10,8 +10,9 @@ use rfw_scene::{
     raw_window_handle::HasRawWindowHandle,
     renderers::{RenderMode, Renderer},
     AnimatedMesh, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Mesh,
-    ObjectRef, PointLight, RTTriangle, SpotLight, Texture,
+    ObjectRef, PointLight, RTTriangle, SpotLight,
 };
+use rfw_utils::prelude::l3d::mat::Texture;
 use rfw_utils::prelude::*;
 use shared::*;
 use std::borrow::Cow;
@@ -1199,7 +1200,7 @@ impl Renderer for RayTracer {
         });
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+    fn set_textures(&mut self, textures: ChangedIterator<'_, l3d::mat::Texture>) {
         let textures = textures.as_slice();
         self.textures = textures
             .par_iter()

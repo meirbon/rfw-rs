@@ -15,7 +15,6 @@ num = "0.3"
 crossbeam = "0.8"
 wgpu = "0.6"
 futures = "0.3"
-rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 rfw-scene = { path = "../../scene" }
 rfw-utils = { path = "../../utils" }
 

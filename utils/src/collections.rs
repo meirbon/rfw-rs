@@ -1,7 +1,7 @@
 use bitvec::prelude::*;
 use std::ops::{Index, IndexMut};
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 impl<T: Default + Clone + std::fmt::Debug> Default for FlaggedStorage<T> {
@@ -15,7 +15,7 @@ impl<T: Default + Clone + std::fmt::Debug> Default for FlaggedStorage<T> {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FlaggedStorage<T: Default + std::fmt::Debug + Clone> {
     storage: Vec<T>,
@@ -331,7 +331,7 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct TrackedStorage<T: Default + std::fmt::Debug + Clone> {
     storage: FlaggedStorage<T>,

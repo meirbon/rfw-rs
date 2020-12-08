@@ -8,7 +8,6 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rtbvh = { git = "https://github.com/MeirBon/rtbvh.git" }
 rfw-scene = { path = "../../scene" }
 shared = { path = "../shared" }
 rayon = "1.5"

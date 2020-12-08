@@ -3,14 +3,14 @@ pub use rfw_scene as scene;
 use rfw_scene::graph::NodeGraph;
 use rfw_scene::r2d::D2Mesh;
 use rfw_scene::{
-    raw_window_handle, Camera, DirectionalLight, Flip, Instance, LoadResult, ObjectRef, PointLight,
-    RenderMode, Renderer, Scene, SceneError, SceneLights, Setting, SpotLight, Texture, ToMesh,
+    raw_window_handle, Camera, DirectionalLight, Instance, LoadResult, ObjectRef, PointLight,
+    RenderMode, Renderer, Scene, SceneError, SceneLights, Setting, SpotLight, ToMesh,
 };
 use rfw_utils::prelude::*;
-use scene::Material;
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use l3d::mat::{Texture, Material, Flip};
 
 pub struct PointLightRef(u32);
 pub struct SpotLightRef(u32);
@@ -35,19 +35,19 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         })
     }
 
-    pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
-        scene: P,
-        window: &B,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
-    ) -> Result<Self, Box<dyn Error>> {
-        let renderer = T::init(window, window_size, render_size)?;
-
-        Ok(Self {
-            scene: Scene::deserialize(scene)?,
-            renderer: Arc::new(Mutex::new(renderer)),
-        })
-    }
+    // pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
+    //     scene: P,
+    //     window: &B,
+    //     window_size: (usize, usize),
+    //     render_size: (usize, usize),
+    // ) -> Result<Self, Box<dyn Error>> {
+    //     let renderer = T::init(window, window_size, render_size)?;
+    //
+    //     Ok(Self {
+    //         scene: Scene::deserialize(scene)?,
+    //         renderer: Arc::new(Mutex::new(renderer)),
+    //     })
+    // }
 
     pub fn iter_instances<C>(&self) -> FlaggedIterator<'_, Instance> {
         self.scene.objects.instances.iter()
@@ -489,10 +489,10 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         Err(())
     }
 
-    pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
-        match self.scene.serialize(path) {
-            Ok(_) => Ok(()),
-            _ => Err(()),
-        }
-    }
+    // pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
+    //     match self.scene.serialize(path) {
+    //         Ok(_) => Ok(()),
+    //         _ => Err(()),
+    //     }
+    // }
 }

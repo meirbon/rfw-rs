@@ -32,10 +32,10 @@ pub use instance::*;
 pub use raw_window_handle;
 pub use rfw_utils::prelude::*;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
 use crate::r2d::{D2Instance, D2Mesh};
@@ -136,7 +136,7 @@ impl Default for Objects {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SceneLights {
     pub point_lights: TrackedStorage<PointLight>,
@@ -183,7 +183,7 @@ impl Default for Scene {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
     pub meshes: TrackedStorage<Mesh>,
@@ -506,29 +506,29 @@ impl Scene {
         }
     }
 
-    #[cfg(feature = "object_caching")]
+    #[cfg(feature = "serde")]
     pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
         use std::io::prelude::*;
-
+    
         let ser_object = SerializableScene::from(self);
         let encoded: Vec<u8> = bincode::serialize(&ser_object)?;
-
+    
         let mut output = OsString::from(path.as_ref().as_os_str());
         output.push(Self::FF_EXTENSION);
-
+    
         let mut file = File::create(output)?;
         file.write_all(encoded.as_ref())?;
         Ok(())
     }
-
-    #[cfg(feature = "object_caching")]
+    
+    #[cfg(feature = "serde")]
     pub fn deserialize<S: AsRef<Path>>(path: S) -> Result<Self, Box<dyn Error>> {
         let mut input = OsString::from(path.as_ref().as_os_str());
         input.push(Self::FF_EXTENSION);
         let file = File::open(input)?;
         let reader = BufReader::new(file);
         let mut object: SerializableScene = bincode::deserialize_from(reader)?;
-
+    
         object.skins.trigger_changed_all();
         object.materials.set_changed();
         object.instances.trigger_changed_all();
@@ -538,9 +538,9 @@ impl Scene {
         object.lights.spot_lights.trigger_changed_all();
         object.lights.area_lights.trigger_changed_all();
         object.lights.directional_lights.trigger_changed_all();
-
+    
         let object: Self = object.into();
-
+    
         Ok(object)
     }
 

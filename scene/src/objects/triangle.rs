@@ -2,14 +2,15 @@ use crate::constants::EPSILON;
 use crate::objects::*;
 use crate::PrimID;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use rfw_utils::prelude::*;
-use rtbvh::{builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB};
+use rfw_utils::prelude::rtbvh::{
+    builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB,
+};
 use std::ops::BitAnd;
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct RTTriangle {
@@ -80,16 +81,16 @@ impl Default for RTTriangle {
 }
 
 impl SpatialTriangle for RTTriangle {
-    fn vertex0(&self) -> Vec3A {
-        self.vertex0.into()
+    fn vertex0(&self) -> [f32; 3] {
+        self.vertex0
     }
 
-    fn vertex1(&self) -> Vec3A {
-        self.vertex1.into()
+    fn vertex1(&self) -> [f32; 3] {
+        self.vertex1
     }
 
-    fn vertex2(&self) -> Vec3A {
-        self.vertex2.into()
+    fn vertex2(&self) -> [f32; 3] {
+        self.vertex2
     }
 }
 

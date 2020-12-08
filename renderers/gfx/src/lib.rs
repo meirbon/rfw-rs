@@ -11,6 +11,7 @@ use hal::{
 use instances::SceneList;
 use mem::Allocator;
 use rfw_scene::{AnimatedMesh, Mesh, Renderer};
+use rfw_utils::prelude::*;
 use std::{iter, mem::ManuallyDrop, ptr};
 use window::Extent2D;
 
@@ -330,7 +331,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         self.mesh_renderer.set_materials(materials.as_slice());
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_utils::prelude::l3d::mat::Texture>) {
         self.mesh_renderer.set_textures(textures);
     }
 
@@ -461,7 +462,7 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
     ) {
     }
 
-    fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
+    fn set_skybox(&mut self, _skybox: rfw_utils::prelude::l3d::mat::Texture) {}
 
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         for (i, skin) in skins {

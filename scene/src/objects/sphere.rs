@@ -1,15 +1,17 @@
 use crate::objects::*;
 use crate::PrimID;
 
-use crate::{Material, Mesh, Texture, ToMesh};
-use rfw_utils::prelude::*;
-use rtbvh::{Bounds, Ray, RayPacket4, AABB};
+use crate::{Mesh, ToMesh};
+use rfw_utils::prelude::{
+    l3d::mat::{Material, Texture},
+    rtbvh::{Bounds, Ray, RayPacket4, AABB},
+};
 use std::collections::HashMap;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub enum Quality {
     /// Generates a sphere (Icosahedron) consisting out of 20 triangles,
@@ -26,7 +28,7 @@ pub enum Quality {
     Perfect = 5,
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Sphere {
     pos: [f32; 3],
@@ -287,7 +289,7 @@ impl Bounds for Sphere {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 struct SerializedSphere {
     pub sphere: Sphere,
@@ -296,7 +298,7 @@ struct SerializedSphere {
     pub n_tex: Option<Texture>,
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 impl<'a> SerializableObject<'a, Sphere> for Sphere {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

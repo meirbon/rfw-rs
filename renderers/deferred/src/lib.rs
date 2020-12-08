@@ -12,7 +12,7 @@ use rfw_scene::{
     raw_window_handle::HasRawWindowHandle,
     renderers::{RenderMode, Renderer, Setting, SettingValue},
     AnimatedMesh, Camera, DeviceMaterial, Instance, Mesh,
-    ObjectRef, Texture, VertexMesh,
+    ObjectRef, VertexMesh,
 };
 use shared::BytesConversion;
 use std::error::Error;
@@ -22,6 +22,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use rfw_utils::prelude::*;
+use rfw_utils::prelude::l3d::mat::Texture;
 
 mod d2;
 mod instance;
@@ -771,7 +772,7 @@ impl Renderer for Deferred {
         self.materials_changed = true;
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+    fn set_textures(&mut self, textures: ChangedIterator<'_, l3d::mat::Texture>) {
         for (i, tex) in textures {
             if let Some(t) = self.textures.get_mut(i) {
                 t.update(&self.device, &self.queue, tex);

@@ -1,14 +1,12 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
-use rfw_utils::prelude::*;
+use rfw_utils::prelude::l3d::mat::{Material, Texture};
+use rfw_utils::prelude::rtbvh::{Bounds, Ray, RayPacket4, AABB};
 
-use crate::{Material, Texture};
-use rtbvh::{Bounds, Ray, RayPacket4, AABB};
-
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Plane {
     pos: [f32; 3],
@@ -126,6 +124,7 @@ impl Intersect for Plane {
     }
 
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
+        use rfw_utils::prelude::*;
         let (origin_x, origin_y, origin_z) = packet.origin_xyz::<Vec4>();
         let (dir_x, dir_y, dir_z) = packet.direction_xyz::<Vec4>();
 
@@ -192,7 +191,7 @@ impl Bounds for Plane {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 struct SerializedPlane {
     pub plane: Plane,
@@ -201,7 +200,7 @@ struct SerializedPlane {
     pub n_tex: Option<Texture>,
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 impl<'a> SerializableObject<'a, Plane> for Plane {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

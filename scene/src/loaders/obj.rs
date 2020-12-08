@@ -1,9 +1,12 @@
-use rfw_utils::prelude::*;
 use std::path::PathBuf;
 
 use crate::material::*;
-use crate::{SceneError, Flags};
 use crate::{AnimatedMesh, LoadResult, Mesh, ObjectLoader, ObjectRef};
+use crate::{Flags, SceneError};
+use rfw_utils::prelude::{
+    l3d::mat::{Flip, Texture, TextureSource},
+    *,
+};
 
 enum ObjFlags {
     HasNormals = 1,

@@ -1,17 +1,17 @@
 use rayon::prelude::*;
 use rfw_utils::prelude::*;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct D2Mesh {
     pub vertices: Vec<D2Vertex>,
     pub tex_id: Option<u32>,
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct D2Vertex {
@@ -94,7 +94,7 @@ impl From<&[D2Vertex]> for D2Mesh {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct D2Instance {
     pub mesh: Option<u32>,
