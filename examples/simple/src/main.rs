@@ -68,11 +68,11 @@ impl MouseButtonHandler {
     }
 }
 
-use glam::*;
 use rfw_system::{
-    scene::{self, Camera, renderers::RenderMode},
+    scene::{self, renderers::RenderMode, Camera},
     RenderSystem,
 };
+use rfw_utils::prelude::*;
 use shared::utils;
 use winit::window::Fullscreen;
 
@@ -104,9 +104,12 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    let mut renderer = RenderSystem::<rfw_gfx::GfxBackend>::new(&window, width, height).unwrap();
+    let mut renderer =
+        RenderSystem::<rfw_gfx::GfxBackend>::new(&window, (width, height), (width, height))
+            .unwrap();
     let cam_id = renderer.create_camera(width as u32, height as u32);
-    *renderer.get_camera_mut(cam_id).unwrap() = Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
+    *renderer.get_camera_mut(cam_id).unwrap() =
+        Camera::new(width as u32, height as u32).with_direction(Vec3::new(0.0, 0.0, -1.0));
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
     let mut fps = utils::Averager::new();
@@ -116,13 +119,9 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
 
     let mut node_graph = scene::graph::NodeGraph::new();
 
-    match renderer.load("models/CesiumMan/CesiumMan.gltf")?
-    {
+    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
         rfw_system::scene::LoadResult::Scene(scene) => {
-            node_graph.load_scene_descriptor(
-                &scene,
-                &mut renderer.scene.objects.instances,
-            );
+            node_graph.load_scene_descriptor(&scene, &mut renderer.scene.objects.instances);
 
             for node in node_graph.iter_root_nodes_mut() {
                 node.set_scale(Vec3::splat(3.0));
@@ -134,10 +133,7 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
 
     match renderer.load("models/pica/scene.gltf")? {
         rfw_system::scene::LoadResult::Scene(scene) => {
-            node_graph.load_scene_descriptor(
-                &scene,
-                &mut renderer.scene.objects.instances,
-            );
+            node_graph.load_scene_descriptor(&scene, &mut renderer.scene.objects.instances);
         }
         _ => panic!("Gltf files should be loaded as scenes"),
     };
@@ -260,7 +256,7 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
                 }
 
                 if resized {
-                    renderer.resize(&window, width, height);
+                    renderer.resize(&window, (width, height), (width, height));
                     resized = false;
                 }
 

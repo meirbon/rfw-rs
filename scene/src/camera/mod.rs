@@ -1,4 +1,4 @@
-use glam::*;
+use rfw_utils::prelude::*;
 use rtbvh::{Ray, RayPacket4};
 use std::f32::consts::PI;
 
@@ -8,7 +8,7 @@ pub mod frustrum;
 
 pub use frustrum::*;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
@@ -26,7 +26,7 @@ pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
         }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub pos: [f32; 3],
@@ -186,13 +186,13 @@ impl CameraView {
         let u = (x + r0) * self.inv_width;
         let v = (y + r1) * self.inv_height;
 
-        let p_x = Vec4::from([self.p1.x(); 4]) + u * self.right.x() + v * self.up.x();
-        let p_y = Vec4::from([self.p1.y(); 4]) + u * self.right.y() + v * self.up.y();
-        let p_z = Vec4::from([self.p1.z(); 4]) + u * self.right.z() + v * self.up.z();
+        let p_x = Vec4::from([self.p1.x; 4]) + u * self.right.x + v * self.up.x;
+        let p_y = Vec4::from([self.p1.y; 4]) + u * self.right.y + v * self.up.y;
+        let p_z = Vec4::from([self.p1.z; 4]) + u * self.right.z + v * self.up.z;
 
-        let direction_x = p_x - Vec4::from([self.pos.x(); 4]);
-        let direction_y = p_y - Vec4::from([self.pos.y(); 4]);
-        let direction_z = p_z - Vec4::from([self.pos.z(); 4]);
+        let direction_x = p_x - Vec4::from([self.pos.x; 4]);
+        let direction_y = p_y - Vec4::from([self.pos.y; 4]);
+        let direction_z = p_z - Vec4::from([self.pos.z; 4]);
 
         let length_squared = direction_x * direction_x;
         let length_squared = length_squared + direction_y * direction_y;
@@ -206,17 +206,17 @@ impl CameraView {
         let direction_y = (direction_y * inv_length).into();
         let direction_z = (direction_z * inv_length).into();
 
-        let origin_x = Vec4::splat(self.pos.x());
-        let origin_y = Vec4::splat(self.pos.y());
-        let origin_z = Vec4::splat(self.pos.z());
+        let origin_x = Vec4::splat(self.pos.x);
+        let origin_y = Vec4::splat(self.pos.y);
+        let origin_z = Vec4::splat(self.pos.z);
 
         let lens_size = Vec4::splat(self.lens_size);
-        let right_x = Vec4::splat(self.right.x());
-        let right_y = Vec4::splat(self.right.y());
-        let right_z = Vec4::splat(self.right.z());
-        let up_x = Vec4::splat(self.up.x());
-        let up_y = Vec4::splat(self.up.y());
-        let up_z = Vec4::splat(self.up.z());
+        let right_x = Vec4::splat(self.right.x);
+        let right_y = Vec4::splat(self.right.y);
+        let right_z = Vec4::splat(self.right.z);
+        let up_x = Vec4::splat(self.up.x);
+        let up_y = Vec4::splat(self.up.y);
+        let up_z = Vec4::splat(self.up.z);
 
         let origin_x = origin_x + lens_size * (right_x * xr + up_x * yr);
         let origin_y = origin_y + lens_size * (right_y * xr + up_y * yr);
@@ -251,13 +251,13 @@ impl CameraView {
         let u = x * self.inv_width;
         let v = y * self.inv_height;
 
-        let p_x = Vec4::from([self.p1.x(); 4]) + u * self.right.x() + v * self.up.x();
-        let p_y = Vec4::from([self.p1.y(); 4]) + u * self.right.y() + v * self.up.y();
-        let p_z = Vec4::from([self.p1.z(); 4]) + u * self.right.z() + v * self.up.z();
+        let p_x = Vec4::from([self.p1.x; 4]) + u * self.right.x + v * self.up.x;
+        let p_y = Vec4::from([self.p1.y; 4]) + u * self.right.y + v * self.up.y;
+        let p_z = Vec4::from([self.p1.z; 4]) + u * self.right.z + v * self.up.z;
 
-        let direction_x = p_x - Vec4::from([self.pos.x(); 4]);
-        let direction_y = p_y - Vec4::from([self.pos.y(); 4]);
-        let direction_z = p_z - Vec4::from([self.pos.z(); 4]);
+        let direction_x = p_x - Vec4::from([self.pos.x; 4]);
+        let direction_y = p_y - Vec4::from([self.pos.y; 4]);
+        let direction_z = p_z - Vec4::from([self.pos.z; 4]);
 
         let length_squared = direction_x * direction_x;
         let length_squared = length_squared + direction_y * direction_y;
@@ -271,9 +271,9 @@ impl CameraView {
         let direction_y = (direction_y * inv_length).into();
         let direction_z = (direction_z * inv_length).into();
 
-        let origin_x = [self.pos.x(); 4];
-        let origin_y = [self.pos.y(); 4];
-        let origin_z = [self.pos.z(); 4];
+        let origin_x = [self.pos.x; 4];
+        let origin_y = [self.pos.y; 4];
+        let origin_z = [self.pos.z; 4];
 
         RayPacket4 {
             origin_x,
@@ -400,7 +400,7 @@ impl Camera {
         let delta = delta * self.speed;
         let (right, up, forward) = self.calculate_matrix();
         self.pos = (Vec3A::from(self.pos)
-            + (delta.x() * right + delta.y() * up + delta.z() * forward))
+            + (delta.x * right + delta.y * up + delta.z * forward))
             .into();
     }
 
@@ -518,7 +518,7 @@ impl Camera {
         frustrum::FrustrumG::from_matrix(self.get_rh_matrix())
     }
 
-    #[cfg(feature = "object_caching")]
+    #[cfg(feature = "serde")]
     pub fn serialize<S: AsRef<std::path::Path>>(
         &self,
         path: S,
@@ -531,7 +531,7 @@ impl Camera {
         Ok(())
     }
 
-    #[cfg(feature = "object_caching")]
+    #[cfg(feature = "serde")]
     pub fn deserialize<S: AsRef<std::path::Path>>(
         path: S,
     ) -> Result<Camera, Box<dyn std::error::Error>> {

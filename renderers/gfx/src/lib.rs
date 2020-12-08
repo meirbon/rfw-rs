@@ -10,7 +10,8 @@ use hal::{
 };
 use instances::SceneList;
 use mem::Allocator;
-use rfw_scene::{AnimatedMesh, ChangedIterator, Mesh, Renderer};
+use rfw_scene::{AnimatedMesh, Mesh, Renderer};
+use rfw_utils::prelude::*;
 use std::{iter, mem::ManuallyDrop, ptr};
 use window::Extent2D;
 
@@ -50,9 +51,9 @@ impl std::error::Error for GfxError {}
 
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
-use crate::mem::image::{Texture, TextureDescriptor};
 pub use cmd::*;
-use rfw_utils::TaskPool;
+use rfw_scene::r2d::{D2Instance, D2Mesh};
+use rfw_utils::{collections::ChangedIterator, task::TaskPool};
 
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
@@ -300,6 +301,14 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }))
     }
 
+    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
+        // unimplemented!()
+    }
+
+    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, D2Instance>) {
+        // unimplemented!()
+    }
+
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
         for (i, mesh) in meshes {
             self.scene_list.set_mesh(i, mesh);
@@ -322,8 +331,8 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         self.mesh_renderer.set_materials(materials.as_slice());
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
-        self.mesh_renderer.set_textures(textures.as_slice());
+    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_utils::prelude::l3d::mat::Texture>) {
+        self.mesh_renderer.set_textures(textures);
     }
 
     fn synchronize(&mut self) {
@@ -441,16 +450,19 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
             .resize(self.render_size.width, self.render_size.height);
     }
 
-    fn set_point_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::PointLight>) {}
+    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, rfw_scene::PointLight>) {}
 
-    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::SpotLight>) {}
+    fn set_spot_lights(&mut self, _lights: ChangedIterator<'_, rfw_scene::SpotLight>) {}
 
-    fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::AreaLight>) {}
+    fn set_area_lights(&mut self, _lights: ChangedIterator<'_, rfw_scene::AreaLight>) {}
 
-    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, rfw_scene::DirectionalLight>) {
+    fn set_directional_lights(
+        &mut self,
+        _lights: ChangedIterator<'_, rfw_scene::DirectionalLight>,
+    ) {
     }
 
-    fn set_skybox(&mut self, _skybox: rfw_scene::Texture) {}
+    fn set_skybox(&mut self, _skybox: rfw_utils::prelude::l3d::mat::Texture) {}
 
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         for (i, skin) in skins {

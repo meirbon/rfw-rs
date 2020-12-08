@@ -1,15 +1,14 @@
-use crate::utils::*;
 use crate::{Instance, ObjectRef};
-use animation::{Animation, Channel};
-use glam::*;
 use rayon::prelude::*;
+use rfw_utils::prelude::{
+    l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor},
+    *,
+};
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
-
-pub mod animation;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
@@ -25,7 +24,7 @@ impl Into<u8> for NodeFlags {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct NodeMesh {
     pub object_id: ObjectRef,
@@ -47,9 +46,9 @@ pub struct NodeDescriptor {
     pub name: String,
     pub child_nodes: Vec<NodeDescriptor>,
 
-    pub translation: Vec3A,
+    pub translation: Vec3,
     pub rotation: Quat,
-    pub scale: Vec3A,
+    pub scale: Vec3,
 
     pub meshes: Vec<ObjectRef>,
     pub skin: Option<SkinDescriptor>,
@@ -61,32 +60,17 @@ pub struct NodeDescriptor {
 }
 
 #[derive(Debug, Clone)]
-pub struct SkinDescriptor {
-    pub name: String,
-    pub inverse_bind_matrices: Vec<Mat4>,
-    // Joint node descriptor IDs (NodeDescriptor::id)
-    pub joint_nodes: Vec<u32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AnimationDescriptor {
-    pub name: String,
-    // (node descriptor ID, animation channel)
-    pub channels: Vec<(u32, Channel)>,
-}
-
-#[derive(Debug, Clone)]
 pub struct SceneDescriptor {
     pub nodes: Vec<NodeDescriptor>,
     pub animations: Vec<AnimationDescriptor>,
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
-    translation: Vec3A,
+    translation: Vec3,
     rotation: Quat,
-    scale: Vec3A,
+    scale: Vec3,
     matrix: Mat4,
     local_matrix: Mat4,
     pub combined_matrix: Mat4,
@@ -100,12 +84,47 @@ pub struct Node {
     pub morphed: bool,
 }
 
+impl AnimationNode for Node {
+    fn set_translation(&mut self, translation: [f32; 3]) {
+        self.translation = Vec3::from(translation);
+        self.changed = true;
+    }
+
+    fn set_rotation(&mut self, rotation: [f32; 4]) {
+        self.rotation = Quat::from(Vec4::from(rotation));
+        self.changed = true;
+    }
+
+    fn set_scale(&mut self, scale: [f32; 3]) {
+        self.scale = Vec3::from(scale);
+        self.changed = true;
+    }
+
+    fn set_weights(&mut self, weights: &[f32]) {
+        let num_weights = self.weights.len().min(weights.len());
+        for i in 0..num_weights {
+            self.weights[i] = weights[i];
+        }
+        self.morphed = true;
+    }
+
+    fn update_matrix(&mut self) {
+        let trs = Mat4::from_scale_rotation_translation(
+            self.scale.into(),
+            self.rotation,
+            self.translation.into(),
+        );
+        self.local_matrix = trs * self.matrix;
+        self.changed = false;
+    }
+}
+
 impl Default for Node {
     fn default() -> Self {
         Self {
-            translation: Vec3A::zero(),
+            translation: Vec3::zero(),
             rotation: Quat::identity(),
-            scale: Vec3A::splat(1.0),
+            scale: Vec3::splat(1.0),
             matrix: Mat4::identity(),
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
@@ -127,7 +146,7 @@ impl Node {
     }
 
     pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
-        self.translation = Vec3A::from(t.into());
+        self.translation = Vec3::from(t.into());
         self.changed = true;
     }
 
@@ -138,7 +157,7 @@ impl Node {
     }
 
     pub fn set_scale<T: Into<[f32; 3]>>(&mut self, s: T) {
-        self.scale = Vec3A::from(s.into());
+        self.scale = Vec3::from(s.into());
         self.changed = true;
     }
 
@@ -153,43 +172,43 @@ impl Node {
     }
 
     pub fn scale_x(&mut self, scale: f32) {
-        self.scale *= Vec3A::new(scale, 1.0, 1.0);
+        self.scale *= Vec3::new(scale, 1.0, 1.0);
         self.changed = true;
     }
 
     pub fn scale_y(&mut self, scale: f32) {
-        self.scale *= Vec3A::new(1.0, scale, 1.0);
+        self.scale *= Vec3::new(1.0, scale, 1.0);
         self.changed = true;
     }
 
     pub fn scale_z(&mut self, scale: f32) {
-        self.scale *= Vec3A::new(1.0, 1.0, scale);
+        self.scale *= Vec3::new(1.0, 1.0, scale);
         self.changed = true;
     }
 
     pub fn scale<T: Into<[f32; 3]>>(&mut self, offset: T) {
-        self.scale *= Vec3A::from(offset.into());
+        self.scale *= Vec3::from(offset.into());
         self.changed = true;
     }
 
     pub fn translate_x(&mut self, offset: f32) {
-        self.translation += Vec3A::new(offset, 0.0, 0.0);
+        self.translation += Vec3::new(offset, 0.0, 0.0);
         self.changed = true;
     }
 
     pub fn translate_y(&mut self, offset: f32) {
-        self.translation += Vec3A::new(0.0, offset, 0.0);
+        self.translation += Vec3::new(0.0, offset, 0.0);
         self.changed = true;
     }
 
     pub fn translate_z(&mut self, offset: f32) {
-        self.translation += Vec3A::new(0.0, 0.0, offset);
+        self.translation += Vec3::new(0.0, 0.0, offset);
         self.changed = true;
     }
 
     pub fn translate<T: Into<[f32; 3]>>(&mut self, offset: T) {
         let offset: [f32; 3] = offset.into();
-        self.translation += Vec3A::from(offset);
+        self.translation += Vec3::from(offset);
         self.changed = true;
     }
 
@@ -215,19 +234,9 @@ impl Node {
         self.rotation *= Quat::from_rotation_z(degrees.to_radians());
         self.changed = true;
     }
-
-    pub fn update_matrix(&mut self) {
-        let trs = Mat4::from_scale_rotation_translation(
-            self.scale.into(),
-            self.rotation,
-            self.translation.into(),
-        );
-        self.local_matrix = trs * self.matrix;
-        self.changed = false;
-    }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
@@ -468,7 +477,8 @@ impl NodeGraph {
 
     pub fn update_animation(&mut self, time: f32) {
         if let Some(animation) = self.active_animation {
-            self.animations[animation].set_time(time, &mut self.nodes);
+            self.animations[animation].set_time(time, unsafe { self.nodes.as_mut_slice() });
+            self.root_nodes.trigger_changed_all(); // Trigger a change
         }
     }
 
@@ -512,7 +522,6 @@ impl NodeGraph {
                 // TODO
                 affected_roots: root_nodes.clone(),
                 channels,
-                time: 0.0,
             });
 
             self.set_active_animation(animation_id).unwrap();
@@ -553,7 +562,11 @@ impl NodeGraph {
                 self.skins.push(Skin {
                     name: s.name.clone(),
                     joint_nodes,
-                    inverse_bind_matrices: s.inverse_bind_matrices.clone(),
+                    inverse_bind_matrices: s
+                        .inverse_bind_matrices
+                        .iter()
+                        .map(|m| Mat4::from_cols_array(m))
+                        .collect(),
                     joint_matrices: vec![Mat4::identity(); s.inverse_bind_matrices.len()],
                 })
             })
@@ -667,7 +680,7 @@ impl std::ops::IndexMut<usize> for NodeGraph {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Skin {
     pub name: String,
@@ -687,7 +700,7 @@ impl Default for Skin {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SceneGraph {
     sub_graphs: TrackedStorage<NodeGraph>,
@@ -718,10 +731,7 @@ impl SceneGraph {
             .iter_mut()
             .filter(|(i, _)| times.get_changed(*i))
             .par_bridge()
-            .for_each(|(i, g)| {
-                let time = times[i];
-                g.update_animation(time);
-            });
+            .for_each(|(i, g)| g.update_animation(times[i]));
 
         let (instances, skins) = (RwLock::new(instances), RwLock::new(skins));
 

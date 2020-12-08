@@ -1,14 +1,13 @@
 pub mod list;
 
 pub use list::*;
-
-use glam::*;
 use std::fmt::Display;
 
-#[cfg(feature = "object_caching")]
+use rfw_utils::prelude::{l3d::mat::Material, Vec3A, Vec4};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct MaterialFlags {
@@ -21,7 +20,7 @@ impl Into<u32> for MaterialFlags {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub enum MaterialProps {
@@ -72,74 +71,7 @@ impl MaterialFlags {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct Material {
-    pub name: String,
-    pub color: [f32; 4],
-    // 16
-    pub absorption: [f32; 4],
-    pub specular: [f32; 4],
-    // 32
-    pub metallic: f32,
-    pub subsurface: f32,
-    pub specular_f: f32,
-    pub roughness: f32,
-    pub specular_tint: f32,
-    pub anisotropic: f32,
-    pub sheen: f32,
-    pub sheen_tint: f32,
-    pub clearcoat: f32,
-    pub clearcoat_gloss: f32,
-    pub transmission: f32,
-    pub eta: f32,
-    pub custom0: f32,
-    pub custom1: f32,
-    pub custom2: f32,
-    pub custom3: f32,
-    pub diffuse_tex: i16,
-    pub normal_tex: i16,
-    pub metallic_roughness_tex: i16,
-    pub emissive_tex: i16,
-    pub sheen_tex: i16,
-}
-
-impl Display for Material {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Material {{ name: {}, color: {}, absorption: {}, specular: {}, metallic: {}, subsurface: {}, specular_f: {}, roughness: {}, specular_tint: {}, anisotropic: {}, sheen: {}, sheen_tint: {}, clearcoat: {}, clearcoat_gloss: {}, transmission: {}, eta: {}, custom0: {}, custom1: {}, custom2: {}, custom3: {}, diffuse_tex: {}, normal_tex: {}, metallic_roughness_tex: {}, emissive_tex: {}, sheen_tex: {} }}",
-            self.name,
-            Vec4::from(self.color),
-            Vec4::from(self.absorption),
-            Vec4::from(self.specular),
-            self.metallic,
-            self.subsurface,
-            self.specular_f,
-            self.roughness,
-            self.specular_tint,
-            self.anisotropic,
-            self.sheen,
-            self.sheen_tint,
-            self.clearcoat,
-            self.clearcoat_gloss,
-            self.transmission,
-            self.eta,
-            self.custom0,
-            self.custom1,
-            self.custom2,
-            self.custom3,
-            self.diffuse_tex,
-            self.normal_tex,
-            self.metallic_roughness_tex,
-            self.emissive_tex,
-            self.sheen_tex,
-        )
-    }
-}
-
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DeviceMaterial {
@@ -317,45 +249,13 @@ impl Into<DeviceMaterial> for &Material {
     }
 }
 
-impl Default for Material {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            color: [1.0; 4],
-            absorption: [0.0; 4],
-            specular: [1.0; 4],
-            metallic: 0.0,
-            subsurface: 0.0,
-            specular_f: 0.5,
-            roughness: 0.0,
-
-            specular_tint: 0.0,
-            anisotropic: 0.0,
-            sheen: 0.0,
-            sheen_tint: 0.0,
-
-            clearcoat: 0.0,
-            clearcoat_gloss: 1.0,
-            transmission: 0.0,
-            eta: 1.0,
-
-            custom0: 0.0,
-            custom1: 0.0,
-            custom2: 0.0,
-            custom3: 0.0,
-
-            diffuse_tex: -1,
-            normal_tex: -1,
-            metallic_roughness_tex: -1,
-            emissive_tex: -1,
-            sheen_tex: -1,
-        }
-    }
+pub trait Emissive {
+    fn is_emissive(&self) -> bool;
 }
 
-impl Material {
-    pub fn is_emissive(&self) -> bool {
-        let color: Vec3A = Vec4::from(self.color).truncate();
+impl Emissive for Material {
+    fn is_emissive(&self) -> bool {
+        let color: Vec3A = Vec4::from(self.color).into();
         color.cmpgt(Vec3A::one()).any()
     }
 }

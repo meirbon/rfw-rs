@@ -1,17 +1,15 @@
-use crate::{material::Material, ChangedIterator, DeviceMaterial, TrackedStorage};
-
-use bitvec::prelude::*;
-use glam::*;
-use image::GenericImageView;
-use std::collections::HashMap;
+use crate::{material::Material, DeviceMaterial};
+use rfw_utils::prelude::l3d::mat::{Flip, Texture, TextureSource};
+use rfw_utils::prelude::*;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-use std::ops::{Index, IndexMut};
+use std::ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
 use std::path::{Path, PathBuf};
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct MaterialList {
     light_flags: BitVec,
@@ -19,26 +17,7 @@ pub struct MaterialList {
     device_materials: TrackedStorage<DeviceMaterial>,
     tex_path_mapping: HashMap<PathBuf, usize>,
     textures: TrackedStorage<Texture>,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Flip {
-    None,
-    FlipU,
-    FlipV,
-    FlipUV,
-}
-
-impl Default for Flip {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum TextureSource {
-    Loaded(Texture),
-    Filesystem(PathBuf, Flip),
+    tex_material_mapping: FlaggedStorage<HashSet<u32>>,
 }
 
 impl Display for MaterialList {
@@ -67,449 +46,301 @@ pub enum TextureFormat {
     RGBA16,
 }
 
-// TODO: Support other formats than BGRA8
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct Texture {
-    pub data: Vec<u32>,
-    pub width: u32,
-    pub height: u32,
-    pub mip_levels: u32,
+#[derive(Debug, Copy, Clone)]
+pub struct Pixel {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
 }
 
-impl Default for Texture {
+impl Default for Pixel {
     fn default() -> Self {
         Self {
-            data: vec![0_u32; 64 * 64],
-            width: 64,
-            height: 64,
-            mip_levels: 1,
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
         }
     }
 }
 
-impl Display for Texture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Texture {{ data: {} bytes, width: {}, height: {}, mip_levels: {} }}",
-            self.data.len() * std::mem::size_of::<u32>(),
-            self.width,
-            self.height,
-            self.mip_levels
-        )
+impl From<[f32; 4]> for Pixel {
+    fn from(c: [f32; 4]) -> Self {
+        Self {
+            r: c[0],
+            g: c[1],
+            b: c[2],
+            a: c[3],
+        }
     }
 }
 
-impl Texture {
-    pub const MIP_LEVELS: usize = 5;
+impl Into<[f32; 4]> for Pixel {
+    fn into(self) -> [f32; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
+}
 
-    pub fn generate_mipmaps(&mut self, levels: usize) {
-        if self.mip_levels == levels as u32 {
-            return;
-        }
-
-        self.mip_levels = levels as u32;
-        self.data.resize(self.required_texel_count(levels), 0);
-
-        let mut src_offset = 0;
-        let mut dst_offset = src_offset + self.width as usize * self.height as usize;
-
-        let mut pw = self.width as usize;
-        let mut w = self.width as usize >> 1;
-        let mut h = self.height as usize >> 1;
-
-        for _ in 1..levels {
-            let max_dst_offset = dst_offset + (w * h);
-            debug_assert!(max_dst_offset <= self.data.len());
-
-            for y in 0..h {
-                for x in 0..w {
-                    let src0 = self.data[x * 2 + (y * 2) * pw + src_offset];
-                    let src1 = self.data[x * 2 + 1 + (y * 2) * pw + src_offset];
-                    let src2 = self.data[x * 2 + (y * 2 + 1) * pw + src_offset];
-                    let src3 = self.data[x * 2 + 1 + (y * 2 + 1) * pw + src_offset];
-                    let a = ((src0 >> 24) & 255)
-                        .min((src1 >> 24) & 255)
-                        .min(((src2 >> 24) & 255).min((src3 >> 24) & 255));
-                    let r = ((src0 >> 16) & 255)
-                        + ((src1 >> 16) & 255)
-                        + ((src2 >> 16) & 255)
-                        + ((src3 >> 16) & 255);
-                    let g = ((src0 >> 8) & 255)
-                        + ((src1 >> 8) & 255)
-                        + ((src2 >> 8) & 255)
-                        + ((src3 >> 8) & 255);
-                    let b = (src0 & 255) + (src1 & 255) + (src2 & 255) + (src3 & 255);
-                    self.data[dst_offset + x + y * w] =
-                        (a << 24) + ((r >> 2) << 16) + ((g >> 2) << 8) + (b >> 2);
-                }
-            }
-
-            src_offset = dst_offset;
-            dst_offset += w * h;
-            pw = w;
-            w >>= 1;
-            h >>= 1;
-        }
+impl Pixel {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn texel_count(width: u32, height: u32, levels: usize) -> usize {
-        let mut w = width;
-        let mut h = height;
-        let mut needed = 0;
-
-        for _ in 0..levels {
-            needed += w * h;
-            w >>= 1;
-            h >>= 1;
-        }
-
-        needed as usize
+    pub fn zero() -> Self {
+        Self::from([0.0; 4])
     }
 
-    fn required_texel_count(&self, levels: usize) -> usize {
-        let mut w = self.width;
-        let mut h = self.height;
-        let mut needed = 0;
-
-        for _ in 0..levels {
-            needed += w * h;
-            w >>= 1;
-            h >>= 1;
-        }
-
-        needed as usize
+    pub fn one() -> Self {
+        Self::from([1.0; 4])
     }
 
-    pub fn sample_uv_rgba(&self, uv: [f32; 2]) -> [f32; 4] {
-        let x = (self.width as f32 * uv[0]) as i32;
-        let y = (self.height as f32 * uv[1]) as i32;
+    pub fn from_bgra(pixel: u32) -> Self {
+        let r = pixel.overflowing_shr(16).0 & 255;
+        let g = pixel.overflowing_shr(8).0 & 255;
+        let b = pixel & 255;
+        let a = pixel.overflowing_shr(24).0 & 255;
 
-        let x = x.min(self.width as i32 - 1).max(0) as usize;
-        let y = y.min(self.height as i32).max(0) as usize;
+        let r = r as f32 / 255.0;
+        let g = g as f32 / 255.0;
+        let b = b as f32 / 255.0;
+        let a = a as f32 / 255.0;
 
-        // BGRA texel
-        let texel = self.data[y * self.width as usize + x];
-        let blue = (texel & 0xFF) as f32 / 255.0;
-        let green = ((texel.overflowing_shr(8).0) & 0xFF) as f32 / 255.0;
-        let red = ((texel.overflowing_shr(16).0) & 0xFF) as f32 / 255.0;
-        let alpha = ((texel.overflowing_shr(24).0) & 0xFF) as f32 / 255.0;
-
-        [red, green, blue, alpha]
+        Self { r, g, b, a }
     }
 
-    pub fn sample_uv_bgra(&self, uv: [f32; 2]) -> [f32; 4] {
-        let x = (self.width as f32 * uv[0]) as i32;
-        let y = (self.height as f32 * uv[1]) as i32;
+    pub fn from_rgba(pixel: u32) -> Self {
+        let r = pixel.overflowing_shr(0).0 & 255;
+        let g = pixel.overflowing_shr(8).0 & 255;
+        let b = pixel.overflowing_shr(16).0 & 255;
+        let a = pixel.overflowing_shr(24).0 & 255;
 
-        let x = x.min(self.width as i32 - 1).max(0) as usize;
-        let y = y.min(self.height as i32).max(0) as usize;
+        let r = r as f32 / 255.0;
+        let g = g as f32 / 255.0;
+        let b = b as f32 / 255.0;
+        let a = a as f32 / 255.0;
 
-        // BGRA texel
-        let texel = self.data[y * self.width as usize + x];
-        let blue = (texel & 0xFF) as f32 / 255.0;
-        let green = ((texel.overflowing_shr(8).0) & 0xFF) as f32 / 255.0;
-        let red = ((texel.overflowing_shr(16).0) & 0xFF) as f32 / 255.0;
-        let alpha = ((texel.overflowing_shr(24).0) & 0xFF) as f32 / 255.0;
-
-        [blue, green, red, alpha]
+        Self { r, g, b, a }
     }
 
-    pub fn sample_uv_rgb(&self, uv: [f32; 2]) -> [f32; 3] {
-        let x = (self.width as f32 * uv[0]) as i32;
-        let y = (self.height as f32 * uv[1]) as i32;
-
-        let x = x.min(self.width as i32 - 1).max(0) as usize;
-        let y = y.min(self.height as i32).max(0) as usize;
-
-        // BGRA texel
-        let texel = self.data[y * self.width as usize + x];
-        let blue = (texel & 0xFF) as f32 / 255.0;
-        let green = ((texel.overflowing_shr(8).0) & 0xFF) as f32 / 255.0;
-        let red = ((texel.overflowing_shr(16).0) & 0xFF) as f32 / 255.0;
-
-        [red, green, blue]
-    }
-
-    pub fn sample_uv_bgr(&self, uv: [f32; 2]) -> [f32; 3] {
-        let x = (self.width as f32 * uv[0]) as i32;
-        let y = (self.height as f32 * uv[1]) as i32;
-
-        let x = x.min(self.width as i32 - 1).max(0) as usize;
-        let y = y.min(self.height as i32).max(0) as usize;
-
-        // BGRA texel
-        let texel = self.data[y * self.width as usize + x];
-        let blue = (texel & 0xFF) as f32 / 255.0;
-        let green = ((texel.overflowing_shr(8).0) & 0xFF) as f32 / 255.0;
-        let red = ((texel.overflowing_shr(16).0) & 0xFF) as f32 / 255.0;
-
-        [blue, green, red]
-    }
-
-    pub fn get_texel(&self, x: usize, y: usize) -> u32 {
-        let x = (x as i32).min(self.width as i32 - 1).max(0) as usize;
-        let y = (y as i32).min(self.height as i32).max(0) as usize;
-        self.data[y * self.width as usize + x]
-    }
-
-    /// Texel count
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    pub fn offset_for_level(&self, mip_level: usize) -> usize {
-        assert!(mip_level <= self.mip_levels as usize);
-        let mut offset = 0;
-        for i in 0..mip_level {
-            let (w, h) = self.mip_level_width_height(i);
-            offset += w * h;
-        }
-        offset
-    }
-
-    pub fn mip_level_width(&self, mip_level: usize) -> usize {
-        let mut w = self.width as usize;
-        for _ in 0..mip_level {
-            w >>= 1;
-        }
-        w
-    }
-
-    pub fn mip_level_height(&self, mip_level: usize) -> usize {
-        let mut h = self.height as usize;
-        for _ in 0..mip_level {
-            h >>= 1;
-        }
-        h
-    }
-
-    pub fn mip_level_width_height(&self, mip_level: usize) -> (usize, usize) {
-        let mut w = self.width as usize;
-        let mut h = self.height as usize;
-
-        if mip_level == 0 {
-            return (w, h);
-        }
-
-        for _ in 0..mip_level {
-            w >>= 1;
-            h >>= 1
-        }
-
-        (w, h)
-    }
-
-    /// Resizes texture into given dimensions, this is an expensive operation.
-    pub fn resized(&self, width: u32, height: u32) -> Texture {
-        let mut image: image::ImageBuffer<image::Bgra<u8>, Vec<u8>> =
-            image::ImageBuffer::new(self.width, self.height);
-        image.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(
-                self.data.as_ptr() as *const u8,
-                (self.width * self.height) as usize * std::mem::size_of::<u32>(),
-            )
-        });
-        let image =
-            image::imageops::resize(&image, width, height, image::imageops::FilterType::Nearest);
-
-        let mut data = vec![0; (width * height) as usize];
-        data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(image.as_ptr() as *const u32, (width * height) as usize)
-        });
-
-        Texture {
-            data,
-            width: width as u32,
-            height: height as u32,
-            mip_levels: 1,
+    pub fn scaled(self, factor: f32) -> Self {
+        Self {
+            r: self.r * factor,
+            g: self.g * factor,
+            b: self.b * factor,
+            a: self.a * factor,
         }
     }
 
-    pub fn load<T: AsRef<Path>>(path: T, flip: Flip) -> Result<Self, ()> {
-        // See if file exists
-        if !path.as_ref().exists() {
-            return Err(());
-        }
-
-        // Attempt to load image
-        let img = match image::open(path) {
-            Ok(img) => img,
-            Err(_) => return Err(()),
-        };
-
-        // Loading was successful
-        let img = match flip {
-            Flip::None => img,
-            Flip::FlipU => img.fliph(),
-            Flip::FlipV => img.flipv(),
-            Flip::FlipUV => img.fliph().flipv(),
-        };
-
-        let (width, height) = (img.width(), img.height());
-        let mut data = vec![0 as u32; (width * height) as usize];
-
-        let bgra_image = img.to_bgra();
-        data.copy_from_slice(unsafe {
-            std::slice::from_raw_parts(bgra_image.as_ptr() as *const u32, (width * height) as usize)
-        });
-
-        Ok(Texture {
-            width,
-            height,
-            data,
-            mip_levels: 1,
-        })
-    }
-
-    pub fn merge(r: Option<&Self>, g: Option<&Self>, b: Option<&Self>, a: Option<&Self>) -> Self {
-        let mut wh = None;
-
-        let mut assert_tex_wh = |t: Option<&Self>| {
-            if let Some(t) = t {
-                if let Some((width, height)) = wh {
-                    assert_eq!(width, t.width);
-                    assert_eq!(height, t.height);
-                } else {
-                    wh = Some((t.width, t.height));
-                }
-            }
-        };
-
-        assert_tex_wh(r);
-        assert_tex_wh(g);
-        assert_tex_wh(b);
-        assert_tex_wh(a);
-
-        let (width, height) = wh.unwrap();
-
-        let sample = |t: Option<&Self>, index: usize| {
-            if let Some(t) = t {
-                t.data[index] & 255
-            } else {
-                0
-            }
-        };
-
-        let mut data = vec![0_u32; (width * height) as usize];
-        for y in 0..height {
-            for x in 0..width {
-                let index = (y * height + x) as usize;
-                let r = sample(r, index);
-                let g = sample(g, index);
-                let b = sample(b, index);
-                let a = sample(a, index);
-                data[index] = (a << 24) + (r << 16) + (g << 8) + b;
-            }
-        }
-
-        Texture {
-            data,
-            width,
-            height,
-            mip_levels: 1,
+    pub fn sqrt(self) -> Self {
+        Self {
+            r: if self.r <= 0.0 { 0.0 } else { self.r.sqrt() },
+            g: if self.g <= 0.0 { 0.0 } else { self.g.sqrt() },
+            b: if self.b <= 0.0 { 0.0 } else { self.b.sqrt() },
+            a: if self.a <= 0.0 { 0.0 } else { self.a.sqrt() },
         }
     }
 
-    /// Parses texture from bytes. Stride is size of texel in bytes
-    pub fn from_bytes(
-        bytes: &[u8],
-        width: u32,
-        height: u32,
-        format: TextureFormat,
-        stride: usize,
+    pub fn pow(self, exp: f32) -> Self {
+        Self {
+            r: if self.r <= 0.0 { 0.0 } else { self.r.powf(exp) },
+            g: if self.g <= 0.0 { 0.0 } else { self.g.powf(exp) },
+            b: if self.b <= 0.0 { 0.0 } else { self.b.powf(exp) },
+            a: if self.a <= 0.0 { 0.0 } else { self.a.powf(exp) },
+        }
+    }
+}
+
+impl Add<Pixel> for Pixel {
+    type Output = Self;
+
+    fn add(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r + rhs.r,
+            g: self.g + rhs.g,
+            b: self.b + rhs.b,
+            a: self.a + rhs.a,
+        }
+    }
+}
+
+impl Sub<Pixel> for Pixel {
+    type Output = Self;
+
+    fn sub(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r - rhs.r,
+            g: self.g - rhs.g,
+            b: self.b - rhs.b,
+            a: self.a - rhs.a,
+        }
+    }
+}
+
+impl Div<Pixel> for Pixel {
+    type Output = Self;
+
+    fn div(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r / rhs.r,
+            g: self.g / rhs.g,
+            b: self.b / rhs.b,
+            a: self.a / rhs.a,
+        }
+    }
+}
+
+impl Mul<Pixel> for Pixel {
+    type Output = Self;
+
+    fn mul(self, rhs: Pixel) -> Self::Output {
+        Self {
+            r: self.r * rhs.r,
+            g: self.g * rhs.g,
+            b: self.b * rhs.b,
+            a: self.a * rhs.a,
+        }
+    }
+}
+
+impl AddAssign<Pixel> for Pixel {
+    fn add_assign(&mut self, rhs: Pixel) {
+        self.r += rhs.r;
+        self.g += rhs.g;
+        self.b += rhs.b;
+        self.a += rhs.a;
+    }
+}
+
+impl SubAssign<Pixel> for Pixel {
+    fn sub_assign(&mut self, rhs: Pixel) {
+        self.r -= rhs.r;
+        self.g -= rhs.g;
+        self.b -= rhs.b;
+        self.a -= rhs.a;
+    }
+}
+
+impl DivAssign<Pixel> for Pixel {
+    fn div_assign(&mut self, rhs: Pixel) {
+        self.r /= rhs.r;
+        self.g /= rhs.g;
+        self.b /= rhs.b;
+        self.a /= rhs.a;
+    }
+}
+
+impl MulAssign<Pixel> for Pixel {
+    fn mul_assign(&mut self, rhs: Pixel) {
+        self.r *= rhs.r;
+        self.g *= rhs.g;
+        self.b *= rhs.b;
+        self.a *= rhs.a;
+    }
+}
+
+impl Index<usize> for Pixel {
+    type Output = f32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match index {
+            0 => &self.r,
+            1 => &self.g,
+            2 => &self.b,
+            3 => &self.a,
+            _ => panic!("invalid index {}", index),
+        }
+    }
+}
+
+impl IndexMut<usize> for Pixel {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match index {
+            0 => &mut self.r,
+            1 => &mut self.g,
+            2 => &mut self.b,
+            3 => &mut self.a,
+            _ => panic!("invalid index {}", index),
+        }
+    }
+}
+
+impl Default for MaterialList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TextureDescriptor {
+    pub albedo: Option<TextureSource>,
+    pub normal: Option<TextureSource>,
+    pub metallic_roughness_map: Option<TextureSource>,
+    pub emissive_map: Option<TextureSource>,
+    pub sheen_map: Option<TextureSource>,
+}
+
+impl TextureDescriptor {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_albedo(mut self, tex: TextureSource) -> Self {
+        self.albedo = Some(tex);
+        self
+    }
+
+    pub fn with_normal(mut self, tex: TextureSource) -> Self {
+        self.normal = Some(tex);
+        self
+    }
+
+    pub fn with_metallic_roughness(mut self, tex: TextureSource) -> Self {
+        self.metallic_roughness_map = Some(tex);
+        self
+    }
+
+    pub fn with_metallic_roughness_maps(
+        mut self,
+        metallic: TextureSource,
+        roughness: TextureSource,
     ) -> Self {
-        if format == TextureFormat::BGRA && stride == 4 {
-            // Same format as internal format
-            return Texture {
-                data: unsafe {
-                    std::slice::from_raw_parts(
-                        bytes.as_ptr() as *mut u32,
-                        (width * height) as usize,
-                    )
-                }
-                    .to_vec(),
-                width,
-                height,
-                mip_levels: 1,
-            };
-        }
+        let metallic = match metallic {
+            TextureSource::Loaded(t) => t,
+            TextureSource::Filesystem(path, flip) => Texture::load(path, flip).unwrap(),
+        };
 
-        let mut data = vec![0 as u32; (width * height) as usize];
-        for y in 0..height {
-            for x in 0..width {
-                let index = (x + y * width) as usize;
-                let orig_index = index * stride;
-                let (r, g, b, a) = match format {
-                    TextureFormat::R => (bytes[orig_index] as u32, 0, 0, 0),
-                    TextureFormat::RG => (bytes[orig_index] as u32, 0, 0, 0),
-                    TextureFormat::BGR => (
-                        bytes[orig_index + 2] as u32,
-                        bytes[orig_index + 1] as u32,
-                        bytes[orig_index] as u32,
-                        0,
-                    ),
-                    TextureFormat::RGB => (
-                        bytes[orig_index] as u32,
-                        bytes[orig_index + 1] as u32,
-                        bytes[orig_index + 2] as u32,
-                        0,
-                    ),
-                    TextureFormat::RGBA => (
-                        bytes[orig_index] as u32,
-                        bytes[orig_index + 1] as u32,
-                        bytes[orig_index + 2] as u32,
-                        bytes[orig_index + 3] as u32,
-                    ),
-                    TextureFormat::BGRA => (
-                        bytes[orig_index + 2] as u32,
-                        bytes[orig_index + 1] as u32,
-                        bytes[orig_index] as u32,
-                        bytes[orig_index + 3] as u32,
-                    ),
-                    TextureFormat::R16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        0,
-                        0,
-                        0,
-                    ),
-                    TextureFormat::RG16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
-                        0,
-                        0,
-                    ),
-                    TextureFormat::RGB16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
-                        (bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
-                        0,
-                    ),
-                    TextureFormat::RGBA16 => (
-                        (bytes[orig_index] as u32) + ((bytes[orig_index + 1] as u32) << 16),
-                        (bytes[orig_index + 2] as u32) + ((bytes[orig_index + 3] as u32) << 16),
-                        (bytes[orig_index + 4] as u32) + ((bytes[orig_index + 5] as u32) << 16),
-                        (bytes[orig_index + 6] as u32) + ((bytes[orig_index + 7] as u32) << 16),
-                    ),
-                };
+        let roughness = match roughness {
+            TextureSource::Loaded(t) => t,
+            TextureSource::Filesystem(path, flip) => Texture::load(path, flip).unwrap(),
+        };
 
-                data[index] = (a << 24) + (r << 16) + (g << 8) + b;
-            }
-        }
+        let tex = Texture::merge(Some(&metallic), Some(&roughness), None, None);
 
-        Texture {
-            data,
-            width,
-            height,
-            mip_levels: 1,
-        }
+        self.metallic_roughness_map = Some(TextureSource::Loaded(tex));
+        self
+    }
+
+    pub fn with_emissive(mut self, tex: TextureSource) -> Self {
+        self.emissive_map = Some(tex);
+        self
+    }
+
+    pub fn with_sheen(mut self, tex: TextureSource) -> Self {
+        self.sheen_map = Some(tex);
+        self
     }
 }
 
-impl<T: AsRef<Path>> From<T> for Texture {
-    fn from(path: T) -> Self {
-        Self::load(path, Flip::default()).unwrap()
+impl Default for TextureDescriptor {
+    fn default() -> Self {
+        Self {
+            albedo: None,
+            normal: None,
+            metallic_roughness_map: None,
+            emissive_map: None,
+            sheen_map: None,
+        }
     }
 }
 
@@ -523,6 +354,7 @@ impl MaterialList {
             device_materials: TrackedStorage::new(),
             tex_path_mapping: HashMap::new(),
             textures: TrackedStorage::new(),
+            tex_material_mapping: FlaggedStorage::new(),
         }
     }
 
@@ -546,6 +378,7 @@ impl MaterialList {
             device_materials: TrackedStorage::new(),
             tex_path_mapping: HashMap::new(),
             textures,
+            tex_material_mapping: FlaggedStorage::new(),
         }
     }
 
@@ -573,12 +406,14 @@ impl MaterialList {
         roughness: f32,
         specular: Vec3,
         transmission: f32,
-        albedo: Option<TextureSource>,
-        normal: Option<TextureSource>,
-        metallic_roughness_map: Option<TextureSource>,
-        emissive_map: Option<TextureSource>,
-        sheen_map: Option<TextureSource>,
+        textures: TextureDescriptor,
     ) -> usize {
+        let albedo = textures.albedo;
+        let normal = textures.normal;
+        let metallic_roughness_map = textures.metallic_roughness_map;
+        let emissive_map = textures.emissive_map;
+        let sheen_map = textures.sheen_map;
+
         let mut material = Material::default();
         material.color = color.extend(1.0).into();
         material.specular = specular.extend(1.0).into();
@@ -651,7 +486,23 @@ impl MaterialList {
 
     pub fn push(&mut self, mat: Material) -> usize {
         let i = self.materials.len();
-        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3A::one()).any();
+        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any();
+
+        if mat.diffuse_tex >= 0 {
+            self.tex_material_mapping[mat.diffuse_tex as usize].insert(i as u32);
+        }
+        if mat.normal_tex >= 0 {
+            self.tex_material_mapping[mat.normal_tex as usize].insert(i as u32);
+        }
+        if mat.metallic_roughness_tex >= 0 {
+            self.tex_material_mapping[mat.metallic_roughness_tex as usize].insert(i as u32);
+        }
+        if mat.emissive_tex >= 0 {
+            self.tex_material_mapping[mat.emissive_tex as usize].insert(i as u32);
+        }
+        if mat.sheen_tex >= 0 {
+            self.tex_material_mapping[mat.sheen_tex as usize].insert(i as u32);
+        }
 
         self.light_flags.push(is_light);
         self.materials.push(mat);
@@ -666,6 +517,7 @@ impl MaterialList {
         texture.generate_mipmaps(Texture::MIP_LEVELS);
         let i = self.textures.len();
         self.textures.push(texture);
+        self.tex_material_mapping.overwrite_val(i, HashSet::new());
         i
     }
 
@@ -674,14 +526,49 @@ impl MaterialList {
     }
 
     pub fn get_mut<T: FnMut(Option<&mut Material>)>(&mut self, index: usize, mut cb: T) {
+        if let Some(mat) = self.materials.get_mut(index) {
+            if mat.diffuse_tex >= 0 {
+                self.tex_material_mapping[mat.diffuse_tex as usize].remove(&(index as u32));
+            }
+            if mat.normal_tex >= 0 {
+                self.tex_material_mapping[mat.normal_tex as usize].remove(&(index as u32));
+            }
+            if mat.metallic_roughness_tex >= 0 {
+                self.tex_material_mapping[mat.metallic_roughness_tex as usize]
+                    .remove(&(index as u32));
+            }
+            if mat.emissive_tex >= 0 {
+                self.tex_material_mapping[mat.emissive_tex as usize].remove(&(index as u32));
+            }
+            if mat.sheen_tex >= 0 {
+                self.tex_material_mapping[mat.sheen_tex as usize].remove(&(index as u32));
+            }
+        }
+
         cb(self.materials.get_mut(index));
-        self.light_flags.set(
-            index,
-            Vec4::from(self.materials[index].color)
-                .truncate()
-                .cmpgt(Vec3A::one())
-                .any(),
-        );
+
+        if let Some(mat) = self.materials.get_mut(index) {
+            self.light_flags.set(
+                index,
+                Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any(),
+            );
+
+            if mat.diffuse_tex >= 0 {
+                self.tex_material_mapping[mat.diffuse_tex as usize].insert(index as u32);
+            }
+            if mat.normal_tex >= 0 {
+                self.tex_material_mapping[mat.normal_tex as usize].insert(index as u32);
+            }
+            if mat.metallic_roughness_tex >= 0 {
+                self.tex_material_mapping[mat.metallic_roughness_tex as usize].insert(index as u32);
+            }
+            if mat.emissive_tex >= 0 {
+                self.tex_material_mapping[mat.emissive_tex as usize].insert(index as u32);
+            }
+            if mat.sheen_tex >= 0 {
+                self.tex_material_mapping[mat.sheen_tex as usize].insert(index as u32);
+            }
+        }
     }
 
     pub unsafe fn get_unchecked(&self, index: usize) -> &Material {
@@ -694,7 +581,7 @@ impl MaterialList {
             index,
             Vec4::from(self.materials[index].color)
                 .truncate()
-                .cmpgt(Vec3A::one())
+                .cmpgt(Vec3::one())
                 .any(),
         );
     }
@@ -704,6 +591,11 @@ impl MaterialList {
     }
 
     pub fn get_texture_mut(&mut self, index: usize) -> Option<&mut Texture> {
+        for id in self.tex_material_mapping[index].iter() {
+            let id = *id as usize;
+            self.materials.trigger_changed(id);
+        }
+
         self.textures.get_mut(index)
     }
 
@@ -725,8 +617,9 @@ impl MaterialList {
 
                 tex.generate_mipmaps(Texture::MIP_LEVELS);
 
-                self.textures.push(tex);
-                let index = self.textures.len() - 1;
+                let index = self.textures.push(tex);
+                self.tex_material_mapping
+                    .overwrite_val(index, HashSet::new());
 
                 // Add to mapping to prevent loading the same image multiple times
                 self.tex_path_mapping
@@ -740,6 +633,10 @@ impl MaterialList {
 
     pub fn get_default(&self) -> usize {
         0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.materials.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -794,6 +691,30 @@ impl MaterialList {
         self.materials.trigger_changed_all();
         self.device_materials.trigger_changed_all();
         self.textures.trigger_changed_all();
+    }
+
+    // Returns an iterator that goes over all materials
+    pub fn iter(&self) -> FlaggedIterator<'_, Material> {
+        self.materials.iter()
+    }
+
+    /// Returns an iterator that goes over all materials
+    /// Note: calling this function sets the changed flag to true for all materials,
+    /// this can have a major impact on performance if there are many materials in the scene.
+    pub fn iter_mut(&mut self) -> FlaggedIteratorMut<'_, Material> {
+        self.materials.iter_mut()
+    }
+
+    pub fn tex_iter(&self) -> FlaggedIterator<'_, Texture> {
+        self.textures.iter()
+    }
+
+    /// Returns an iterator that goes over all materials
+    /// Note: calling this function sets the changed flag to true for all textures,
+    /// this can have a major impact on performance as all textures will have to be reuploaded
+    /// to the rendering device.
+    pub fn tex_iter_mut(&mut self) -> FlaggedIteratorMut<'_, Texture> {
+        self.textures.iter_mut()
     }
 }
 

@@ -1,4 +1,4 @@
-use glam::*;
+use rfw_utils::prelude::*;
 
 pub mod instance;
 pub mod mesh;
@@ -16,7 +16,7 @@ use rtbvh::{Bounds, Ray, RayPacket4};
 pub use sphere::*;
 pub use triangle::*;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug)]
@@ -198,7 +198,7 @@ pub trait Intersect: Bounds + Send + Sync {
     fn get_mat_id(&self, prim_id: PrimID) -> u32;
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 pub trait SerializableObject<'a, T: Serialize + Deserialize<'a>> {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

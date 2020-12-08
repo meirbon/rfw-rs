@@ -1,13 +1,12 @@
 use crate::constants::EPSILON;
 use crate::objects::*;
+use rfw_utils::prelude::l3d::mat::{Material, Texture};
+use rfw_utils::prelude::rtbvh::{Bounds, Ray, RayPacket4, AABB};
 
-use crate::{Material, Texture};
-use rtbvh::{Bounds, Ray, RayPacket4, AABB};
-
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Plane {
     pos: [f32; 3],
@@ -21,17 +20,15 @@ pub struct Plane {
 
 impl Plane {
     pub fn new(pos: [f32; 3], up: [f32; 3], dims: [f32; 2], mat_id: u32) -> Plane {
-        use glam::*;
-
         let pos = Vec3A::from(pos);
         let up = Vec3A::from(up).normalize();
 
         let offset = (pos - (pos - up)).length();
 
         let right = if up[0].abs() >= up[1].abs() {
-            Vec3A::new(up.z(), 0.0, -up.x()) / (up.x() * up.x() + up.z() * up.z()).sqrt()
+            Vec3A::new(up.z, 0.0, -up.x) / (up.x * up.x + up.z * up.z).sqrt()
         } else {
-            Vec3A::new(0.0, -up.z(), up.y()) / (up.y() * up.y() + up.z() * up.z()).sqrt()
+            Vec3A::new(0.0, -up.z, up.y) / (up.y * up.y + up.z * up.z).sqrt()
         }
         .normalize();
 
@@ -127,8 +124,7 @@ impl Intersect for Plane {
     }
 
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
-        use glam::*;
-
+        use rfw_utils::prelude::*;
         let (origin_x, origin_y, origin_z) = packet.origin_xyz::<Vec4>();
         let (dir_x, dir_y, dir_z) = packet.direction_xyz::<Vec4>();
 
@@ -182,8 +178,6 @@ impl Intersect for Plane {
 
 impl Bounds for Plane {
     fn bounds(&self) -> AABB {
-        use glam::*;
-
         let right_offset = self.dims[0] * Vec3A::from(self.right);
         let forward_offset = self.dims[1] * Vec3A::from(self.forward);
 
@@ -197,7 +191,7 @@ impl Bounds for Plane {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 struct SerializedPlane {
     pub plane: Plane,
@@ -206,7 +200,7 @@ struct SerializedPlane {
     pub n_tex: Option<Texture>,
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 impl<'a> SerializableObject<'a, Plane> for Plane {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,

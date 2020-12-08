@@ -1,5 +1,5 @@
 [package]
-name = "nphysics"
+name = "d2"
 version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
@@ -9,10 +9,12 @@ edition = "2018"
 [dependencies]
 winit = "0.23"
 futures = "0.3"
-clap = "2.33"
-nphysics3d = "0.18"
+clap = "2.33.1"
+glyph_brush = "0.7.0"
+rayon = "1.5"
 rfw-utils = { path = "../../utils" }
 rfw-system = { path = "../../system" }
 rfw-deferred = { path = "../../renderers/deferred" }
+rfw-gfx = { path = "../../renderers/gfx" }
 rfw-gpu-rt = { path = "../../renderers/gpu-rt" }
 shared = { path = "../../renderers/shared" }

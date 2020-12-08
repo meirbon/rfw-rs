@@ -3,10 +3,9 @@ use crate::instance::DeviceInstances;
 use crate::mesh::DeferredAnimMesh;
 use crate::skin::DeferredSkin;
 use rfw_scene::{
-    lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, TrackedStorage,
-    VertexData,
+    lights::*, AnimVertexData, BitVec, FrustrumG, FrustrumResult, ObjectRef, VertexData,
 };
-use rtbvh::AABB;
+use rfw_utils::{collections::TrackedStorage, prelude::rtbvh::AABB};
 use shared::*;
 use std::borrow::Cow;
 use std::fmt::Debug;

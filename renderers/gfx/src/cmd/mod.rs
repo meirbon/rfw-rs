@@ -67,7 +67,12 @@ impl<B: hal::Backend> Queue<B> {
         Iw: IntoIterator<Item = (&'a S, pso::PipelineStage)>,
         Is: IntoIterator<Item = &'a S>,
     {
-        unsafe { self.queue_group.lock().unwrap().queues[0].submit(submission, fence) }
+        match self.queue_group.lock() {
+            Ok(mut queue) => unsafe {
+                queue.queues[0].submit(submission, fence);
+            },
+            Err(e) => panic!("Could not get lock to queue: {}", e),
+        }
     }
 
     pub fn submit_without_semaphores<'a, T, Ic>(

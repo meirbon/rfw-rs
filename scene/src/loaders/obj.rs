@@ -1,10 +1,12 @@
-use glam::*;
 use std::path::PathBuf;
 
 use crate::material::*;
-use crate::utils::*;
-use crate::SceneError;
 use crate::{AnimatedMesh, LoadResult, Mesh, ObjectLoader, ObjectRef};
+use crate::{Flags, SceneError};
+use rfw_utils::prelude::{
+    l3d::mat::{Flip, Texture, TextureSource},
+    *,
+};
 
 enum ObjFlags {
     HasNormals = 1,
@@ -97,8 +99,7 @@ impl ObjectLoader for ObjLoader {
                         }
 
                         let mut value: Vec3A = Vec3A::from(f_values);
-                        if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all()
-                        {
+                        if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all() {
                             value = value * Vec3A::splat(10.0);
                         }
 
@@ -125,10 +126,8 @@ impl ObjectLoader for ObjLoader {
 
             let metallic_roughness = match (roughness_map, metallic_map) {
                 (Some(r), Some(m)) => {
-                    let r =
-                        Texture::load(&r, Flip::FlipV).map_err(|_| SceneError::LoadError(r))?;
-                    let m =
-                        Texture::load(&m, Flip::FlipV).map_err(|_| SceneError::LoadError(m))?;
+                    let r = Texture::load(&r, Flip::FlipV).map_err(|_| SceneError::LoadError(r))?;
+                    let m = Texture::load(&m, Flip::FlipV).map_err(|_| SceneError::LoadError(m))?;
                     let (r, m) = if r.width != m.width || r.height != m.height {
                         let width = r.width.max(m.width);
                         let height = r.height.max(m.height);
@@ -141,14 +140,12 @@ impl ObjectLoader for ObjLoader {
                     Some(TextureSource::Loaded(combined))
                 }
                 (Some(r), None) => {
-                    let r =
-                        Texture::load(&r, Flip::FlipV).map_err(|_| SceneError::LoadError(r))?;
+                    let r = Texture::load(&r, Flip::FlipV).map_err(|_| SceneError::LoadError(r))?;
                     let combined = Texture::merge(Some(&r), None, None, None);
                     Some(TextureSource::Loaded(combined))
                 }
                 (None, Some(m)) => {
-                    let m =
-                        Texture::load(&m, Flip::FlipV).map_err(|_| SceneError::LoadError(m))?;
+                    let m = Texture::load(&m, Flip::FlipV).map_err(|_| SceneError::LoadError(m))?;
                     let combined = Texture::merge(None, Some(&m), None, None);
                     Some(TextureSource::Loaded(combined))
                 }
@@ -160,26 +157,28 @@ impl ObjectLoader for ObjLoader {
                 roughness,
                 specular,
                 opacity,
-                if let Some(path) = d_path {
-                    Some(TextureSource::Filesystem(path, Flip::FlipV))
-                } else {
-                    None
-                },
-                if let Some(path) = n_path {
-                    Some(TextureSource::Filesystem(path, Flip::FlipV))
-                } else {
-                    None
-                },
-                metallic_roughness,
-                if let Some(path) = emissive_map {
-                    Some(TextureSource::Filesystem(path, Flip::FlipV))
-                } else {
-                    None
-                },
-                if let Some(path) = sheen_map {
-                    Some(TextureSource::Filesystem(path, Flip::FlipV))
-                } else {
-                    None
+                TextureDescriptor {
+                    albedo: if let Some(path) = d_path {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    normal: if let Some(path) = n_path {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    metallic_roughness_map: metallic_roughness,
+                    emissive_map: if let Some(path) = emissive_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
+                    sheen_map: if let Some(path) = sheen_map {
+                        Some(TextureSource::Filesystem(path, Flip::FlipV))
+                    } else {
+                        None
+                    },
                 },
             );
             mat_manager.get_mut(mat_index, |m| {

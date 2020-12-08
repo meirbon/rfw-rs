@@ -1,4 +1,4 @@
-use glam::*;
+use rfw_utils::prelude::*;
 use rtbvh::AABB;
 use std::convert::Into;
 use std::fmt::Display;
@@ -259,21 +259,21 @@ mod tests {
 
         let frustrum: FrustrumG = FrustrumG::from_matrix(camera.get_lh_matrix());
 
-        let point_behind = glam::Vec3::new(0.0, 0.0, -1.0);
-        let point_in_front = glam::Vec3::new(0.0, 0.0, 1.0);
+        let point_behind = Vec3::new(0.0, 0.0, -1.0);
+        let point_in_front = Vec3::new(0.0, 0.0, 1.0);
         let aabb_in_front = AABB {
-            min: glam::Vec3::new(0.2, 0.2, 5.0).into(),
-            max: glam::Vec3::new(0.2, 0.2, 5.0).into(),
+            min: Vec3::new(0.2, 0.2, 5.0).into(),
+            max: Vec3::new(0.2, 0.2, 5.0).into(),
         };
 
         let aabb_in_back = AABB {
-            min: glam::Vec3::new(-1.0, 0.0, -2.0).into(),
-            max: glam::Vec3::new(1.0, 0.0, -2.0).into(),
+            min: Vec3::new(-1.0, 0.0, -2.0).into(),
+            max: Vec3::new(1.0, 0.0, -2.0).into(),
         };
 
         let aabb_half = AABB {
-            min: glam::Vec3::new(-5.0, 0.0, 2.0).into(),
-            max: glam::Vec3::new(0.0, 0.0, 2.0).into(),
+            min: Vec3::new(-5.0, 0.0, 2.0).into(),
+            max: Vec3::new(0.0, 0.0, 2.0).into(),
         };
 
         assert_eq!(

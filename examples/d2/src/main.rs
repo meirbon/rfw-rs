@@ -13,14 +13,14 @@ use winit::{
     window::WindowBuilder,
 };
 
+use glyph_brush::ab_glyph::point;
 use rayon::prelude::*;
 use rfw_gfx::GfxBackend;
 use rfw_system::{
     scene::r2d::{D2Mesh, D2Vertex},
     scene::{
-        self,
         renderers::{RenderMode, Setting, SettingValue},
-        Renderer,
+        Camera, Renderer,
     },
     RenderSystem,
 };
@@ -109,31 +109,37 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>> {
+    let mut width = 1280;
+    let mut height = 720;
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
-        .with_inner_size(LogicalSize::new(1280_f64, 720_f64))
+        .with_inner_size(LogicalSize::new(width as f64, height as f64))
         .build(&event_loop)
         .unwrap();
 
-    let mut width = window.inner_size().width as usize;
-    let mut height = window.inner_size().height as usize;
+    width = window.inner_size().width as usize;
+    height = window.inner_size().height as usize;
 
     let res_scale = if let Some(m) = window.current_monitor() {
         1.0 / m.scale_factor()
     } else {
         1.0
     };
-    let mut render_width = (width as f64 * res_scale) as usize;
-    let mut render_height = (height as f64 * res_scale) as usize;
 
-    let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
-        .unwrap() as RenderSystem<T>;
+    let render_width = (width as f64 * res_scale) as usize;
+    let render_height = (height as f64 * res_scale) as usize;
+
+    let mut renderer: RenderSystem<T> =
+        RenderSystem::new(&window, (width, height), (render_width, render_height)).unwrap();
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let cam_id = renderer.create_camera(render_width as u32, render_height as u32);
+    let cam_id = renderer.create_camera(render_width as _, render_height as _);
+    *renderer.get_camera_mut(cam_id).unwrap() =
+        Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -172,6 +178,27 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
         [1.0; 4],
     ))?;
 
+    let d2_mesh2 = renderer.add_2d_object(D2Mesh::new(
+        vec![
+            [-0.5, -0.5, 0.5],
+            [0.5, -0.5, 0.5],
+            [0.5, 0.5, 0.5],
+            [-0.5, 0.5, 0.5],
+            [-0.5, -0.5, 0.5],
+            [0.5, 0.5, 0.5],
+        ],
+        vec![
+            [0.01, 0.01],
+            [0.99, 0.01],
+            [0.99, 0.99],
+            [0.01, 0.99],
+            [0.01, 0.01],
+            [0.99, 0.99],
+        ],
+        Some(tex),
+        [1.0; 4],
+    ))?;
+
     let (mut tex_width, mut tex_height) = glyph_brush.texture_dimensions();
     let mut tex_data = vec![0_u32; (tex_width * tex_height) as usize];
 
@@ -181,55 +208,21 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
             Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0).to_cols_array();
     }
 
-    renderer.add_spot_light(
-        Vec3::new(0.0, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 100.0, 110.0),
-        45.0,
-        60.0,
-    );
-
-    let cesium_man = renderer
-        .load("models/CesiumMan/CesiumMan.gltf")?
-        .scene()
-        .unwrap();
-
-    let mut cesium_man1 = scene::graph::NodeGraph::from_scene_descriptor(
-        &cesium_man,
-        &mut renderer.scene.objects.instances,
-    );
-    let mut cesium_man2 = scene::graph::NodeGraph::from_scene_descriptor(
-        &cesium_man,
-        &mut renderer.scene.objects.instances,
-    );
-
-    for node in cesium_man1.iter_root_nodes_mut() {
-        node.set_scale(Vec3::splat(3.0));
+    let d2_inst = renderer.create_2d_instance(d2_mesh2)?;
+    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
+        inst.transform = Mat4::from_scale(Vec3::new(
+            1.0 / (render_width as f32 / render_height as f32),
+            1.0,
+            1.0,
+        ))
+        .to_cols_array();
     }
-
-    for node in cesium_man2.iter_root_nodes_mut() {
-        node.translate(Vec3::new(-3.0, 0.0, 0.0));
-    }
-
-    let cesium_man1 = renderer.add_scene(cesium_man1);
-    let cesium_man2 = renderer.add_scene(cesium_man2);
-
-    let pica_desc = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
-    let mut pica = scene::graph::NodeGraph::new();
-    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.objects.instances);
-    renderer.add_scene(pica);
 
     let settings: Vec<Setting> = renderer.get_settings().unwrap();
 
-    let app_time = utils::Timer::new();
-
     timer2.reset();
-    renderer.set_animations_time(0.0);
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
-
-    let mut scene_timer = utils::Timer::new();
-    let mut scene_id = None;
 
     let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
@@ -288,24 +281,6 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                         setting.set(SettingValue::Int(value));
                         renderer.set_setting(setting).unwrap();
                     }
-                }
-
-                if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
-                    if let Some(id) = scene_id {
-                        renderer.remove_scene(id).unwrap();
-                        scene_id = None;
-                    } else {
-                        let mut cesium_man3 = scene::graph::NodeGraph::from_scene_descriptor(
-                            &cesium_man,
-                            &mut renderer.scene.objects.instances,
-                        );
-                        for node in cesium_man3.iter_root_nodes_mut() {
-                            node.translate(Vec3::new(-6.0, 0.0, 0.0));
-                        }
-                        scene_id = Some(renderer.add_scene(cesium_man3));
-                    }
-
-                    scene_timer.reset();
                 }
 
                 let mut view_change = Vec3::new(0.0, 0.0, 0.0);
@@ -371,23 +346,29 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
 
                 timer.reset();
 
-                let view_change = view_change * elapsed * 0.001;
-                let pos_change = pos_change * elapsed * 0.01;
-
                 if let Some(camera) = renderer.get_camera_mut(cam_id) {
+                    let view_change = view_change * elapsed * 0.001;
+                    let pos_change = pos_change * elapsed * 0.01;
+
                     if view_change != [0.0; 3].into() {
                         camera.translate_target(view_change);
                     }
                     if pos_change != [0.0; 3].into() {
                         camera.translate_relative(pos_change);
                     }
+
+                    if resized {
+                        let render_width = width;
+                        let render_height = height;
+                        camera.resize(render_width as u32, render_height as u32);
+                    }
                 }
 
                 if resized {
+                    let render_width = (width as f64 * res_scale) as usize;
+                    let render_height = (height as f64 * res_scale) as usize;
                     renderer.resize(&window, (width, height), (render_width, render_height));
-                    renderer.get_camera_mut(cam_id).map(|c| {
-                        c.resize(render_width as u32, render_height as u32);
-                    });
+
                     resized = false;
 
                     if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
@@ -506,31 +487,12 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                         .unwrap();
                 }
 
-                {
-                    let lights = renderer.get_lights_mut();
-                    lights.spot_lights.iter_mut().for_each(|(_, sl)| {
-                        let direction = Vec3::from(sl.direction);
-                        let direction = Quat::from_rotation_y((elapsed / 10.0).to_radians())
-                            .mul_vec3(direction);
-                        sl.direction = direction.into();
-                    });
-                }
-
                 timer2.reset();
-                let time = app_time.elapsed_in_millis() / 1000.0;
-                renderer.set_animation_time(cesium_man1, time);
-                renderer.set_animation_time(cesium_man2, time / 2.0);
-                if let Some(cesium_man3) = scene_id {
-                    renderer.set_animation_time(cesium_man3, time / 3.0);
-                }
                 renderer.synchronize();
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
-                    eprintln!("Error while rendering: {}", e);
-                    *control_flow = ControlFlow::Exit;
-                }
+                renderer.render(cam_id, RenderMode::Reset).unwrap();
                 render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
@@ -539,8 +501,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
             } if window_id == window.id() => {
                 width = size.width as usize;
                 height = size.height as usize;
-                render_width = (width as f64 * res_scale) as usize;
-                render_height = (height as f64 * res_scale) as usize;
+
                 resized = true;
             }
             Event::WindowEvent {
@@ -578,7 +539,7 @@ fn to_vertex(
 ) -> BrushVertex {
     let gl_bounds = bounds;
 
-    use glyph_brush::ab_glyph::{point, Rect};
+    use glyph_brush::ab_glyph::Rect;
 
     let mut gl_rect = Rect {
         min: point(pixel_coords.min.x as f32, pixel_coords.min.y as f32),

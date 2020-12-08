@@ -1,17 +1,19 @@
 use crate::mem::ManagedBuffer;
 use futures::executor::block_on;
-use glam::*;
 use rayon::prelude::*;
 use rtbvh::builders::{binned_sah::BinnedSahBuilder, Builder};
 use rtbvh::{BVHNode, Bounds, MBVHNode, AABB, BVH, MBVH};
 
+use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
     renderers::{RenderMode, Renderer},
-    AnimatedMesh, AreaLight, BitVec, CameraView, ChangedIterator, DeviceMaterial, DirectionalLight,
-    Instance, Mesh, ObjectRef, PointLight, RTTriangle, SpotLight, Texture, TrackedStorage,
+    AnimatedMesh, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Mesh,
+    ObjectRef, PointLight, RTTriangle, SpotLight,
 };
+use rfw_utils::prelude::l3d::mat::Texture;
+use rfw_utils::prelude::*;
 use shared::*;
 use std::borrow::Cow;
 use std::error::Error;
@@ -377,7 +379,7 @@ impl RayTracer {
 impl Renderer for RayTracer {
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        window_size: (usize, usize),
+        _window_size: (usize, usize),
         render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
@@ -404,7 +406,7 @@ impl Renderer for RayTracer {
             },
             None,
         ))
-            .unwrap();
+        .unwrap();
 
         let descriptor = wgpu::SwapChainDescriptor {
             width: width as u32,
@@ -912,7 +914,7 @@ impl Renderer for RayTracer {
                 },
             });
 
-        let compute_module: &[u8] = include_bytes!("../shaders/ray_extend.comp.spv", );
+        let compute_module: &[u8] = include_bytes!("../shaders/ray_extend.comp.spv",);
         let compute_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
             Cow::from(compute_module.as_quad_bytes()),
         ));
@@ -1126,6 +1128,14 @@ impl Renderer for RayTracer {
         }))
     }
 
+    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
+        unimplemented!()
+    }
+
+    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, D2Instance>) {
+        unimplemented!()
+    }
+
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
         for (id, mesh) in meshes {
             if id >= self.meshes.len() {
@@ -1190,7 +1200,7 @@ impl Renderer for RayTracer {
         });
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_scene::Texture>) {
+    fn set_textures(&mut self, textures: ChangedIterator<'_, l3d::mat::Texture>) {
         let textures = textures.as_slice();
         self.textures = textures
             .par_iter()
@@ -1321,29 +1331,29 @@ impl Renderer for RayTracer {
 
         let constructed: usize = constructed
             + anim_meshes
-            .iter_mut()
-            .enumerate()
-            .par_bridge()
-            .map(|(i, (_, mesh))| match mesh {
-                AnimMesh::None => 0,
-                AnimMesh::Skinned { skinned, .. } => {
-                    if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                        skinned.refit_bvh();
-                        1
-                    } else {
-                        0
+                .iter_mut()
+                .enumerate()
+                .par_bridge()
+                .map(|(i, (_, mesh))| match mesh {
+                    AnimMesh::None => 0,
+                    AnimMesh::Skinned { skinned, .. } => {
+                        if skinned.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                            skinned.refit_bvh();
+                            1
+                        } else {
+                            0
+                        }
                     }
-                }
-                AnimMesh::Regular(mesh) => {
-                    if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
-                        mesh.refit_bvh();
-                        1
-                    } else {
-                        0
+                    AnimMesh::Regular(mesh) => {
+                        if mesh.bvh.is_none() || *meshes_changed.get(i).unwrap() {
+                            mesh.refit_bvh();
+                            1
+                        } else {
+                            0
+                        }
                     }
-                }
-            })
-            .sum::<usize>();
+                })
+                .sum::<usize>();
 
         self.meshes_changed.set_all(false);
 
@@ -1742,9 +1752,12 @@ impl Renderer for RayTracer {
         }
     }
 
-    fn resize<T: HasRawWindowHandle>(&mut self, _window: &T,
-                                     window_size: (usize, usize),
-                                     render_size: (usize, usize)) {
+    fn resize<T: HasRawWindowHandle>(
+        &mut self,
+        _window: &T,
+        _window_size: (usize, usize),
+        render_size: (usize, usize),
+    ) {
         let (width, height) = render_size;
         if (width * height) > self.buffer_capacity {
             self.buffer_capacity = ((width * height) as f64 * 1.5).ceil() as usize;
@@ -2008,7 +2021,6 @@ impl RayTracer {
             sample_count: 1,
         })
     }
-
 
     fn read_camera_data(&mut self, camera_data: &mut CameraData) {
         {

@@ -9,7 +9,6 @@ use crate::{hal, instances::SceneList, CmdBufferPool, DeviceHandle, Queue};
 use crate::instances::RenderBuffers;
 use crate::mem::image::{Texture, TextureDescriptor, TextureView, TextureViewDescriptor};
 use crate::skinning::SkinList;
-use glam::*;
 use hal::*;
 use hal::{
     command::{self, CommandBuffer},
@@ -20,10 +19,12 @@ use pass::Subpass;
 use pso::*;
 use rfw_scene::bvh::AABB;
 use rfw_scene::{AnimVertexData, DeviceMaterial, FrustrumG, VertexData, VertexMesh};
+use rfw_utils::prelude::*;
 use shared::BytesConversion;
-use std::{borrow::Borrow, mem::ManuallyDrop, ptr, sync::Arc};
+use std::{borrow::Borrow, mem::ManuallyDrop, ptr, rc::Rc, sync::Arc};
 use AttributeDesc;
 use VertexBufferDesc;
+
 pub mod anim;
 
 #[derive(Debug, Clone)]
@@ -77,14 +78,14 @@ pub struct RenderPipeline<B: hal::Backend> {
     depth_image_view: ManuallyDrop<B::ImageView>,
     depth_memory: Memory<B>,
 
-    textures: Vec<Texture<B>>,
-    texture_views: Vec<TextureView<B>>,
+    textures: FlaggedStorage<Rc<Option<Texture<B>>>>,
+    texture_views: FlaggedStorage<Rc<Option<TextureView<B>>>>,
     cmd_pool: CmdBufferPool<B>,
     queue: Queue<B>,
 
     mat_desc_pool: ManuallyDrop<B::DescriptorPool>,
     mat_set_layout: ManuallyDrop<B::DescriptorSetLayout>,
-    mat_sets: Vec<B::DescriptorSet>,
+    mat_sets: Vec<Rc<Option<B::DescriptorSet>>>,
     material_buffer: Buffer<B>,
     tex_sampler: ManuallyDrop<B::Sampler>,
 
@@ -952,8 +953,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             load: pass::AttachmentLoadOp::DontCare,
                             store: pass::AttachmentStoreOp::DontCare,
                         },
-                        layouts: pass::AttachmentLayout::Undefined
-                            ..pass::AttachmentLayout::Present,
+                        layouts: pass::AttachmentLayout::Undefined..pass::AttachmentLayout::Present,
                     }),
                     &[pass::SubpassDesc {
                         colors: &[(0, image::Layout::ColorAttachmentOptimal)],
@@ -1092,7 +1092,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     ),
                     lod_bias: hal::image::Lod(0.0),
                     lod_range: hal::image::Lod(0.0)
-                        ..hal::image::Lod(rfw_scene::Texture::MIP_LEVELS as f32),
+                        ..hal::image::Lod(l3d::mat::Texture::MIP_LEVELS as f32),
                     comparison: None,
                     border: hal::image::PackedColor::from([0.0; 4]),
                     normalized: true,
@@ -1118,8 +1118,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
             queue,
             cmd_pool,
-            textures: Vec::new(),
-            texture_views: Vec::new(),
+            textures: FlaggedStorage::new(),
+            texture_views: FlaggedStorage::new(),
 
             mat_desc_pool,
             mat_set_layout,
@@ -1332,9 +1332,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     &self.pipeline_layout,
                     2,
                     std::iter::once(
-                        self.mat_sets
-                            .get(mesh.mat_id as usize)
-                            .expect(format!("Could not get material set {}", mesh.mat_id).as_str()),
+                        self.mat_sets[mesh.mat_id as usize]
+                            .as_ref()
+                            .as_ref()
+                            .unwrap(),
                     ),
                     &[],
                 );
@@ -1343,19 +1344,29 @@ impl<B: hal::Backend> RenderPipeline<B> {
         });
         cmd_buffer.end_render_pass();
 
-        cmd_buffer.pipeline_barrier(pso::PipelineStage::FRAGMENT_SHADER..pso::PipelineStage::BOTTOM_OF_PIPE, Dependencies::VIEW_LOCAL,
-        std::iter::once(memory::Barrier::Image {
-            states: (image::Access::COLOR_ATTACHMENT_WRITE, image::Layout::ColorAttachmentOptimal)..(image::Access::COLOR_ATTACHMENT_READ, image::Layout::ShaderReadOnlyOptimal),
-            target: &*self.output_image,
-            range: image::SubresourceRange {
-                aspects: format::Aspects::COLOR,
-                level_start: 0,
-                level_count: Some(1),
-                layer_start: 0,
-                layer_count: Some(1)
-            },
-            families: None
-        }));
+        cmd_buffer.pipeline_barrier(
+            pso::PipelineStage::FRAGMENT_SHADER..pso::PipelineStage::BOTTOM_OF_PIPE,
+            Dependencies::VIEW_LOCAL,
+            std::iter::once(memory::Barrier::Image {
+                states: (
+                    image::Access::COLOR_ATTACHMENT_WRITE,
+                    image::Layout::ColorAttachmentOptimal,
+                )
+                    ..(
+                        image::Access::COLOR_ATTACHMENT_READ,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    ),
+                target: &*self.output_image,
+                range: image::SubresourceRange {
+                    aspects: format::Aspects::COLOR,
+                    level_start: 0,
+                    level_count: Some(1),
+                    layer_start: 0,
+                    layer_count: Some(1),
+                },
+                families: None,
+            }),
+        );
 
         cmd_buffer.set_viewports(0, &[target_viewport.clone()]);
         cmd_buffer.set_scissors(0, &[target_viewport.rect]);
@@ -1536,53 +1547,41 @@ impl<B: hal::Backend> RenderPipeline<B> {
         self.viewport.rect.h = height as _;
     }
 
-    pub fn set_textures(&mut self, textures: &[rfw_scene::Texture]) {
+    pub fn set_textures(&mut self, textures: ChangedIterator<'_, l3d::mat::Texture>) {
         let mut texels = 0;
-        let textures: Vec<_> = textures
-            .iter()
-            .map(|t| {
-                let mut t = t.clone();
-                t.generate_mipmaps(5);
-                t
-            })
-            .collect();
-        self.textures = textures
-            .iter()
-            .map(|t| {
-                texels += t.data.len();
-                Texture::new(
-                    self.device.clone(),
-                    &self.allocator,
-                    TextureDescriptor {
-                        kind: image::Kind::D2(t.width, t.height, 1, 1),
-                        mip_levels: t.mip_levels as _,
-                        format: format::Format::Bgra8Unorm,
-                        tiling: image::Tiling::Optimal,
-                        usage: image::Usage::SAMPLED,
-                        capabilities: image::ViewCapabilities::empty(),
-                    },
-                )
-                .unwrap()
-            })
-            .collect();
-        self.texture_views = self
-            .textures
-            .iter()
-            .map(|t| {
-                t.create_view(TextureViewDescriptor {
+
+        for (i, t) in textures.clone() {
+            texels += t.data.len();
+            let mut tex = Texture::new(
+                self.device.clone(),
+                &self.allocator,
+                TextureDescriptor {
+                    kind: image::Kind::D2(t.width, t.height, 1, 1),
+                    mip_levels: t.mip_levels as _,
+                    format: format::Format::Bgra8Unorm,
+                    tiling: image::Tiling::Optimal,
+                    usage: image::Usage::SAMPLED,
+                    capabilities: image::ViewCapabilities::empty(),
+                },
+            )
+            .unwrap();
+            let view = tex
+                .create_view(TextureViewDescriptor {
                     view_kind: image::ViewKind::D2,
                     swizzle: Default::default(),
                     range: image::SubresourceRange {
                         aspects: format::Aspects::COLOR,
                         level_start: 0,
-                        level_count: Some(t.mip_levels() as _),
+                        level_count: Some(t.mip_levels as _),
                         layer_start: 0,
                         layer_count: Some(1),
                     },
                 })
-                .unwrap()
-            })
-            .collect();
+                .unwrap();
+
+            self.textures.overwrite_val(i, Rc::new(Some(tex)));
+            self.texture_views.overwrite_val(i, Rc::new(Some(view)));
+        }
 
         let mut staging_buffer = self
             .allocator
@@ -1603,7 +1602,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
             let mut byte_offset = 0;
-            for (_, t) in textures.iter().enumerate() {
+            for (_, t) in textures.clone() {
                 let bytes = t.data.as_bytes();
                 mapping.as_slice()[byte_offset..(byte_offset + bytes.len())].copy_from_slice(bytes);
                 byte_offset += bytes.len();
@@ -1611,8 +1610,8 @@ impl<B: hal::Backend> RenderPipeline<B> {
         }
 
         let mut byte_offset = 0;
-        for (i, t) in textures.iter().enumerate() {
-            let target = &*self.textures[i];
+        for (i, t) in textures.clone() {
+            let target = self.textures[i].as_ref().as_ref().unwrap();
             unsafe {
                 cmd_buffer.pipeline_barrier(
                     PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
@@ -1628,7 +1627,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         families: None,
                         states: (Access::empty(), Layout::Undefined)
                             ..(Access::TRANSFER_WRITE, Layout::TransferDstOptimal),
-                        target,
+                        target: target.image(),
                     }),
                 );
             }
@@ -1638,7 +1637,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 unsafe {
                     cmd_buffer.copy_buffer_to_image(
                         staging_buffer.buffer(),
-                        &*self.textures[i],
+                        self.textures[i].as_ref().as_ref().unwrap().image(),
                         hal::image::Layout::TransferDstOptimal,
                         std::iter::once(&hal::command::BufferImageCopy {
                             buffer_offset: byte_offset as hal::buffer::Offset,
@@ -1682,7 +1681,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         families: None,
                         states: (Access::TRANSFER_WRITE, Layout::TransferDstOptimal)
                             ..(Access::SHADER_READ, Layout::ShaderReadOnlyOptimal),
-                        target: &*self.textures[i],
+                        target: self.textures[i].as_ref().as_ref().unwrap().image(),
                     }),
                 );
             }
@@ -1766,104 +1765,124 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .submit_without_semaphores(std::iter::once(&cmd_buffer), None);
 
         unsafe {
-            if !self.mat_sets.is_empty() {
-                let mut sets = Vec::new();
-                std::mem::swap(&mut sets, &mut self.mat_sets);
-                self.mat_desc_pool.free(sets);
-            }
-            self.mat_sets = materials
-                .iter()
-                .enumerate()
-                .map(
-                    |(i, _)| match self.mat_desc_pool.allocate_set(&self.mat_set_layout) {
-                        Ok(set) => set,
-                        Err(e) => panic!("Could not allocate set {}, err: {}", i, e),
-                    },
-                )
-                .collect();
+            let new_length = materials.len().max(self.mat_sets.len());
+            self.mat_sets.resize(new_length * 2, Rc::new(None));
 
             let mut writes = Vec::with_capacity(self.mat_sets.len() * 7);
             let sampler = ManuallyDrop::into_inner(ptr::read(&self.tex_sampler));
-            self.mat_sets
-                .iter()
-                .zip(materials.iter().enumerate())
-                .for_each(|(set, (i, mat))| {
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 0,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Buffer(
-                            self.material_buffer.buffer(),
-                            hal::buffer::SubRange {
-                                offset: (i * aligned_size) as _,
-                                size: Some(std::mem::size_of::<DeviceMaterial>() as _),
-                            },
-                        )),
-                    });
 
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 1,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Sampler(&sampler)),
-                    });
+            for i in 0..new_length {
+                match self.mat_sets[i].as_ref() {
+                    Some(_) => continue,
+                    None => {
+                        self.mat_sets[i] = Rc::new(Some(
+                            self.mat_desc_pool
+                                .allocate_set(&self.mat_set_layout)
+                                .expect("Could not allocate material descriptor set"),
+                        ));
+                    }
+                }
+            }
 
-                    // Texture 0
-                    let view = &*self.texture_views[mat.diffuse_map.max(0) as usize];
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 2,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Image(
-                            view,
-                            image::Layout::ShaderReadOnlyOptimal,
-                        )),
-                    });
-                    // Texture 1
-                    let view = &*self.texture_views[mat.normal_map.max(0) as usize];
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 3,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Image(
-                            view,
-                            image::Layout::ShaderReadOnlyOptimal,
-                        )),
-                    });
-                    // Texture 2
-                    let view = &*self.texture_views[mat.metallic_roughness_map.max(0) as usize];
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 4,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Image(
-                            view,
-                            image::Layout::ShaderReadOnlyOptimal,
-                        )),
-                    });
-                    // Texture 3
-                    let view = &*self.texture_views[mat.emissive_map.max(0) as usize];
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 5,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Image(
-                            view,
-                            image::Layout::ShaderReadOnlyOptimal,
-                        )),
-                    });
-                    // Texture 4
-                    let view = &*self.texture_views[mat.sheen_map.max(0) as usize];
-                    writes.push(pso::DescriptorSetWrite {
-                        set,
-                        binding: 6,
-                        array_offset: 0,
-                        descriptors: Some(pso::Descriptor::Image(
-                            view,
-                            image::Layout::ShaderReadOnlyOptimal,
-                        )),
-                    });
+            for (i, _) in materials.iter().enumerate() {
+                let mat = &materials[i];
+                let set: &B::DescriptorSet = self.mat_sets[i].as_ref().as_ref().unwrap();
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Buffer(
+                        self.material_buffer.buffer(),
+                        hal::buffer::SubRange {
+                            offset: (i * aligned_size) as _,
+                            size: Some(std::mem::size_of::<DeviceMaterial>() as _),
+                        },
+                    )),
                 });
+
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 1,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Sampler(&sampler)),
+                });
+
+                // Texture 0
+                let view = self.texture_views[mat.diffuse_map.max(0) as usize]
+                    .as_ref()
+                    .as_ref()
+                    .unwrap()
+                    .view();
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 2,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Image(
+                        view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                });
+                // Texture 1
+                let view = self.texture_views[mat.normal_map.max(0) as usize]
+                    .as_ref()
+                    .as_ref()
+                    .unwrap()
+                    .view();
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 3,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Image(
+                        view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                });
+                // Texture 2
+                let view = self.texture_views[mat.metallic_roughness_map.max(0) as usize]
+                    .as_ref()
+                    .as_ref()
+                    .unwrap()
+                    .view();
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 4,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Image(
+                        view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                });
+                // Texture 3
+                let view = self.texture_views[mat.emissive_map.max(0) as usize]
+                    .as_ref()
+                    .as_ref()
+                    .unwrap()
+                    .view();
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 5,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Image(
+                        view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                });
+                // Texture 4
+                let view = self.texture_views[mat.sheen_map.max(0) as usize]
+                    .as_ref()
+                    .as_ref()
+                    .unwrap()
+                    .view();
+                writes.push(pso::DescriptorSetWrite {
+                    set,
+                    binding: 6,
+                    array_offset: 0,
+                    descriptors: Some(pso::Descriptor::Image(
+                        view,
+                        image::Layout::ShaderReadOnlyOptimal,
+                    )),
+                });
+            }
 
             self.device.write_descriptor_sets(writes);
         }

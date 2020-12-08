@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "examples/d2",
     "examples/animated",
     "examples/nphysics",
     "examples/simple",

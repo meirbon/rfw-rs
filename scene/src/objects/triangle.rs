@@ -2,14 +2,15 @@ use crate::constants::EPSILON;
 use crate::objects::*;
 use crate::PrimID;
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use glam::Vec3A;
-use rtbvh::{builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB};
+use rfw_utils::prelude::rtbvh::{
+    builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB,
+};
 use std::ops::BitAnd;
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct RTTriangle {
@@ -80,22 +81,22 @@ impl Default for RTTriangle {
 }
 
 impl SpatialTriangle for RTTriangle {
-    fn vertex0(&self) -> Vec3A {
-        self.vertex0.into()
+    fn vertex0(&self) -> [f32; 3] {
+        self.vertex0
     }
 
-    fn vertex1(&self) -> Vec3A {
-        self.vertex1.into()
+    fn vertex1(&self) -> [f32; 3] {
+        self.vertex1
     }
 
-    fn vertex2(&self) -> Vec3A {
-        self.vertex2.into()
+    fn vertex2(&self) -> [f32; 3] {
+        self.vertex2
     }
 }
 
 #[allow(dead_code)]
 impl RTTriangle {
-    pub fn vertices(&self) -> (Vec3A, Vec3A, Vec3A) {
+    pub fn vertices(&self) -> (Vec3, Vec3, Vec3) {
         (
             self.vertex0.into(),
             self.vertex1.into(),
@@ -104,14 +105,14 @@ impl RTTriangle {
     }
 
     #[inline]
-    pub fn normal(v0: glam::Vec3A, v1: glam::Vec3A, v2: glam::Vec3A) -> glam::Vec3A {
+    pub fn normal(v0: Vec3, v1: Vec3, v2: Vec3) -> Vec3 {
         let a = v1 - v0;
         let b = v2 - v0;
         a.cross(b).normalize()
     }
 
     #[inline]
-    pub fn area(v0: glam::Vec3A, v1: glam::Vec3A, v2: glam::Vec3A) -> f32 {
+    pub fn area(v0: Vec3, v1: Vec3, v2: Vec3) -> f32 {
         let a = (v1 - v0).length();
         let b = (v2 - v1).length();
         let c = (v0 - v2).length();
@@ -120,20 +121,20 @@ impl RTTriangle {
     }
 
     #[inline]
-    pub fn center(&self) -> Vec3A {
+    pub fn center(&self) -> Vec3 {
         let (v0, v1, v2) = self.vertices();
         (v0 + v1 + v2) * (1.0 / 3.0)
     }
 
     #[inline(always)]
     pub fn bary_centrics(
-        v0: glam::Vec3A,
-        v1: glam::Vec3A,
-        v2: glam::Vec3A,
-        edge1: glam::Vec3A,
-        edge2: glam::Vec3A,
-        p: glam::Vec3A,
-        n: glam::Vec3A,
+        v0: Vec3,
+        v1: Vec3,
+        v2: Vec3,
+        edge1: Vec3,
+        edge2: Vec3,
+        p: Vec3,
+        n: Vec3,
     ) -> (f32, f32) {
         let abc = n.dot((edge1).cross(edge2));
         let pbc = n.dot((v1 - p).cross(v2 - p));
@@ -142,18 +143,18 @@ impl RTTriangle {
     }
 
     // Transforms triangle using given matrix and normal_matrix (transposed of inverse of matrix)
-    pub fn transform(&self, matrix: glam::Mat4, normal_matrix: glam::Mat3) -> RTTriangle {
-        let vertex0 = glam::Vec3A::from(self.vertex0).extend(1.0);
-        let vertex1 = glam::Vec3A::from(self.vertex1).extend(1.0);
-        let vertex2 = glam::Vec3A::from(self.vertex2).extend(1.0);
+    pub fn transform(&self, matrix: Mat4, normal_matrix: Mat3) -> RTTriangle {
+        let vertex0 = Vec3::from(self.vertex0).extend(1.0);
+        let vertex1 = Vec3::from(self.vertex1).extend(1.0);
+        let vertex2 = Vec3::from(self.vertex2).extend(1.0);
 
         let vertex0 = matrix * vertex0;
         let vertex1 = matrix * vertex1;
         let vertex2 = matrix * vertex2;
 
-        let n0 = normal_matrix * glam::Vec3A::from(self.n0);
-        let n1 = normal_matrix * glam::Vec3A::from(self.n1);
-        let n2 = normal_matrix * glam::Vec3A::from(self.n2);
+        let n0 = normal_matrix * Vec3::from(self.n0);
+        let n1 = normal_matrix * Vec3::from(self.n1);
+        let n2 = normal_matrix * Vec3::from(self.n2);
 
         RTTriangle {
             vertex0: vertex0.truncate().into(),
@@ -168,12 +169,12 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        let origin = glam::Vec3A::from(ray.origin);
-        let direction = glam::Vec3A::from(ray.direction);
+        let origin = Vec3::from(ray.origin);
+        let direction = Vec3::from(ray.direction);
 
-        let vertex0 = glam::Vec3A::from(self.vertex0);
-        let vertex1 = glam::Vec3A::from(self.vertex1);
-        let vertex2 = glam::Vec3A::from(self.vertex2);
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
 
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
@@ -203,12 +204,12 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let origin = glam::Vec3A::from(ray.origin);
-        let direction = glam::Vec3A::from(ray.direction);
+        let origin = Vec3::from(ray.origin);
+        let direction = Vec3::from(ray.direction);
 
-        let vertex0 = glam::Vec3A::from(self.vertex0);
-        let vertex1 = glam::Vec3A::from(self.vertex1);
-        let vertex2 = glam::Vec3A::from(self.vertex2);
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
 
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
@@ -236,15 +237,13 @@ impl RTTriangle {
 
         let p = origin + direction * t;
 
-        let gnormal = Vec3A::from(self.normal);
+        let gnormal = Vec3::from(self.normal);
         let inv_denom = 1.0 / gnormal.dot(gnormal);
         let (u, v) = (u * inv_denom, v * inv_denom);
 
         let w = 1.0 - u - v;
-        let normal = glam::Vec3A::from(self.n0) * u
-            + glam::Vec3A::from(self.n1) * v
-            + glam::Vec3A::from(self.n2) * w;
-        let uv = glam::Vec2::new(
+        let normal = Vec3::from(self.n0) * u + Vec3::from(self.n1) * v + Vec3::from(self.n2) * w;
+        let uv = Vec2::new(
             self.u0 * u + self.u1 * v + self.u2 * w,
             self.v0 * u + self.v1 * v + self.v2 * w,
         );
@@ -261,11 +260,11 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
+        let (origin, direction) = ray.get_vectors::<Vec3>();
 
-        let vertex0 = glam::Vec3A::from(self.vertex0);
-        let vertex1 = glam::Vec3A::from(self.vertex1);
-        let vertex2 = glam::Vec3A::from(self.vertex2);
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
 
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
@@ -307,28 +306,28 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
-        let zero = glam::Vec4::zero();
-        let one = glam::Vec4::one();
+        let zero = Vec4::zero();
+        let one = Vec4::one();
 
-        let org_x = glam::Vec4::from(packet.origin_x);
-        let org_y = glam::Vec4::from(packet.origin_y);
-        let org_z = glam::Vec4::from(packet.origin_z);
+        let org_x = Vec4::from(packet.origin_x);
+        let org_y = Vec4::from(packet.origin_y);
+        let org_z = Vec4::from(packet.origin_z);
 
-        let dir_x = glam::Vec4::from(packet.direction_x);
-        let dir_y = glam::Vec4::from(packet.direction_y);
-        let dir_z = glam::Vec4::from(packet.direction_z);
+        let dir_x = Vec4::from(packet.direction_x);
+        let dir_y = Vec4::from(packet.direction_y);
+        let dir_z = Vec4::from(packet.direction_z);
 
-        let p0_x = glam::Vec4::from([self.vertex0[0]; 4]);
-        let p0_y = glam::Vec4::from([self.vertex0[1]; 4]);
-        let p0_z = glam::Vec4::from([self.vertex0[2]; 4]);
+        let p0_x = Vec4::from([self.vertex0[0]; 4]);
+        let p0_y = Vec4::from([self.vertex0[1]; 4]);
+        let p0_z = Vec4::from([self.vertex0[2]; 4]);
 
-        let p1_x = glam::Vec4::from([self.vertex1[0]; 4]);
-        let p1_y = glam::Vec4::from([self.vertex1[1]; 4]);
-        let p1_z = glam::Vec4::from([self.vertex1[2]; 4]);
+        let p1_x = Vec4::from([self.vertex1[0]; 4]);
+        let p1_y = Vec4::from([self.vertex1[1]; 4]);
+        let p1_z = Vec4::from([self.vertex1[2]; 4]);
 
-        let p2_x = glam::Vec4::from([self.vertex2[0]; 4]);
-        let p2_y = glam::Vec4::from([self.vertex2[1]; 4]);
-        let p2_z = glam::Vec4::from([self.vertex2[2]; 4]);
+        let p2_x = Vec4::from([self.vertex2[0]; 4]);
+        let p2_y = Vec4::from([self.vertex2[1]; 4]);
+        let p2_z = Vec4::from([self.vertex2[2]; 4]);
 
         let edge1_x = p1_x - p0_x;
         let edge1_y = p1_y - p0_y;
@@ -343,7 +342,7 @@ impl RTTriangle {
         let h_z = (dir_x * edge2_y) - (dir_y * edge2_x);
 
         let a = (edge1_x * h_x) + (edge1_y * h_y) + (edge1_z * h_z);
-        let epsilon = glam::Vec4::from([EPSILON; 4]);
+        let epsilon = Vec4::from([EPSILON; 4]);
         let mask = a.cmple(-epsilon) | a.cmpge(epsilon);
         if mask.bitmask() == 0 {
             return None;
@@ -370,7 +369,7 @@ impl RTTriangle {
             return None;
         }
 
-        let t_min = glam::Vec4::from(*t_min);
+        let t_min = Vec4::from(*t_min);
 
         let t = f * ((edge2_x * q_x) + (edge2_y * q_y) + (edge2_z * q_z));
         let mask = mask.bitand(t.cmpge(t_min) & t.cmplt(packet.t.into()));
@@ -389,10 +388,10 @@ impl RTTriangle {
 
     #[inline(always)]
     pub fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
-        let vertex0 = glam::Vec3A::from(self.vertex0);
-        let vertex1 = glam::Vec3A::from(self.vertex1);
-        let vertex2 = glam::Vec3A::from(self.vertex2);
+        let (origin, direction) = ray.get_vectors::<Vec3>();
+        let vertex0 = Vec3::from(self.vertex0);
+        let vertex1 = Vec3::from(self.vertex1);
+        let vertex2 = Vec3::from(self.vertex2);
         let edge1 = vertex1 - vertex0;
         let edge2 = vertex2 - vertex0;
 
@@ -404,13 +403,11 @@ impl RTTriangle {
             edge1,
             edge2,
             p,
-            glam::Vec3A::from(self.normal),
+            Vec3::from(self.normal),
         );
         let w = 1.0 - u - v;
-        let normal = glam::Vec3A::from(self.n0) * u
-            + glam::Vec3A::from(self.n1) * v
-            + glam::Vec3A::from(self.n2) * w;
-        let uv = glam::Vec2::new(
+        let normal = Vec3::from(self.n0) * u + Vec3::from(self.n1) * v + Vec3::from(self.n2) * w;
+        let uv = Vec2::new(
             self.u0 * u + self.u1 * v + self.u2 * w,
             self.v0 * u + self.v1 * v + self.v2 * w,
         );

@@ -1,9 +1,9 @@
 use super::mesh::DeferredMesh;
 use crate::mesh::DeferredAnimMesh;
-use glam::*;
-use rfw_scene::{Instance, ObjectRef, TrackedStorage, VertexMesh};
+use rfw_scene::{Instance, ObjectRef, VertexMesh};
 use rtbvh::{Bounds, AABB};
 use std::num::NonZeroU64;
+use rfw_utils::prelude::*;
 
 pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
@@ -12,7 +12,6 @@ pub struct DeviceInstances {
 }
 
 impl DeviceInstances {
-    // std::mem::size_of::<Mat4>() * 2
     pub const INSTANCE_SIZE: usize = 256;
     pub fn new(
         capacity: usize,

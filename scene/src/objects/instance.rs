@@ -1,16 +1,14 @@
 use crate::objects::*;
 
-use rtbvh::aabb::Bounds;
-use rtbvh::{Ray, RayPacket4, AABB};
+use rfw_utils::prelude::rtbvh::{aabb::Bounds, Ray, RayPacket4, AABB};
 
 use std::fmt::Display;
 
-use glam::f32::Vec3A;
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ObjectRef {
     None,
     Static(u32),
@@ -37,7 +35,7 @@ impl std::fmt::Display for ObjectRef {
     }
 }
 
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InstanceUpdate {
     None,
@@ -47,7 +45,7 @@ pub enum InstanceUpdate {
 
 /// Instance
 /// Takes in a bounding box and transform and transforms to and from object local space.
-#[cfg_attr(feature = "object_caching", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct Instance {
     original_bounds: AABB,
@@ -55,8 +53,8 @@ pub struct Instance {
     transform: [f32; 16],
     inverse: [f32; 16],
     normal_transform: [f32; 16],
-    translation: Vec3A,
-    scaling: Vec3A,
+    translation: Vec3,
+    scaling: Vec3,
     rotation: [f32; 4],
     pub object_id: ObjectRef,
     pub skin_id: Option<u32>,
@@ -79,9 +77,9 @@ impl Default for Instance {
             transform: [0.0; 16],
             inverse: [0.0; 16],
             normal_transform: [0.0; 16],
-            translation: Vec3A::zero(),
-            scaling: Vec3A::one(),
-            rotation: glam::Quat::identity().into(),
+            translation: Vec3::zero(),
+            scaling: Vec3::one(),
+            rotation: Quat::identity().into(),
             object_id: ObjectRef::None,
             skin_id: None,
             updated: InstanceUpdate::None,
@@ -92,7 +90,7 @@ impl Default for Instance {
 #[allow(dead_code)]
 impl Instance {
     pub fn new(object_id: ObjectRef, bounds: &AABB) -> Instance {
-        let transform = glam::Mat4::identity();
+        let transform = Mat4::identity();
         let inverse = transform.inverse();
 
         let normal_transform = inverse.transpose();
@@ -118,19 +116,19 @@ impl Instance {
         self.original_bounds.clone()
     }
 
-    pub fn get_transform(&self) -> glam::Mat4 {
-        glam::Mat4::from_cols_array(&self.transform)
+    pub fn get_transform(&self) -> Mat4 {
+        Mat4::from_cols_array(&self.transform)
     }
 
-    pub fn get_inverse_transform(&self) -> glam::Mat4 {
-        glam::Mat4::from_cols_array(&self.inverse)
+    pub fn get_inverse_transform(&self) -> Mat4 {
+        Mat4::from_cols_array(&self.inverse)
     }
 
-    pub fn get_normal_transform(&self) -> glam::Mat4 {
-        glam::Mat4::from_cols_array(&self.normal_transform)
+    pub fn get_normal_transform(&self) -> Mat4 {
+        Mat4::from_cols_array(&self.normal_transform)
     }
 
-    pub fn set_transform(&mut self, transform: glam::Mat4) {
+    pub fn set_transform(&mut self, transform: Mat4) {
         let inverse = transform.inverse();
         self.transform = transform.to_cols_array();
         self.inverse = inverse.to_cols_array();
@@ -140,13 +138,13 @@ impl Instance {
     }
 
     #[inline(always)]
-    pub fn transform_vertex(&self, vertex: glam::Vec3A) -> glam::Vec3A {
+    pub fn transform_vertex(&self, vertex: Vec3) -> Vec3 {
         (self.get_transform() * vertex.extend(1.0)).truncate()
     }
 
     #[inline(always)]
-    pub fn transform(&self, ray: Ray) -> (glam::Vec3A, glam::Vec3A) {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
+    pub fn transform(&self, ray: Ray) -> (Vec3, Vec3) {
+        let (origin, direction) = ray.get_vectors::<Vec3>();
         let inverse = self.get_inverse_transform();
         let new_origin = inverse * origin.extend(1.0);
         let new_direction = inverse * direction.extend(0.0);
@@ -155,35 +153,35 @@ impl Instance {
 
     #[inline(always)]
     pub fn transform4(&self, packet: &RayPacket4) -> RayPacket4 {
-        let origin_x = glam::Vec4::from(packet.origin_x);
-        let origin_y = glam::Vec4::from(packet.origin_y);
-        let origin_z = glam::Vec4::from(packet.origin_z);
+        let origin_x = Vec4::from(packet.origin_x);
+        let origin_y = Vec4::from(packet.origin_y);
+        let origin_z = Vec4::from(packet.origin_z);
 
-        let direction_x = glam::Vec4::from(packet.direction_x);
-        let direction_y = glam::Vec4::from(packet.direction_y);
-        let direction_z = glam::Vec4::from(packet.direction_z);
+        let direction_x = Vec4::from(packet.direction_x);
+        let direction_y = Vec4::from(packet.direction_y);
+        let direction_z = Vec4::from(packet.direction_z);
 
         let matrix_cols = self.inverse;
 
         // Col 0
-        let m0_0 = glam::Vec4::from([matrix_cols[0]; 4]);
-        let m0_1 = glam::Vec4::from([matrix_cols[1]; 4]);
-        let m0_2 = glam::Vec4::from([matrix_cols[2]; 4]);
+        let m0_0 = Vec4::from([matrix_cols[0]; 4]);
+        let m0_1 = Vec4::from([matrix_cols[1]; 4]);
+        let m0_2 = Vec4::from([matrix_cols[2]; 4]);
 
         // Col 1
-        let m1_0 = glam::Vec4::from([matrix_cols[4]; 4]);
-        let m1_1 = glam::Vec4::from([matrix_cols[5]; 4]);
-        let m1_2 = glam::Vec4::from([matrix_cols[6]; 4]);
+        let m1_0 = Vec4::from([matrix_cols[4]; 4]);
+        let m1_1 = Vec4::from([matrix_cols[5]; 4]);
+        let m1_2 = Vec4::from([matrix_cols[6]; 4]);
 
         // Col 2
-        let m2_0 = glam::Vec4::from([matrix_cols[8]; 4]);
-        let m2_1 = glam::Vec4::from([matrix_cols[9]; 4]);
-        let m2_2 = glam::Vec4::from([matrix_cols[10]; 4]);
+        let m2_0 = Vec4::from([matrix_cols[8]; 4]);
+        let m2_1 = Vec4::from([matrix_cols[9]; 4]);
+        let m2_2 = Vec4::from([matrix_cols[10]; 4]);
 
         // Col 3
-        let m3_0 = glam::Vec4::from([matrix_cols[12]; 4]);
-        let m3_1 = glam::Vec4::from([matrix_cols[13]; 4]);
-        let m3_2 = glam::Vec4::from([matrix_cols[14]; 4]);
+        let m3_0 = Vec4::from([matrix_cols[12]; 4]);
+        let m3_1 = Vec4::from([matrix_cols[13]; 4]);
+        let m3_2 = Vec4::from([matrix_cols[14]; 4]);
 
         let mut new_origin_x = m0_0 * origin_x;
         let mut new_origin_y = m0_1 * origin_x;
@@ -230,7 +228,7 @@ impl Instance {
     #[inline(always)]
     pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
         let normal_transform = self.get_normal_transform();
-        let normal = normal_transform * glam::Vec3A::from(hit.normal).extend(0.0);
+        let normal = normal_transform * Vec3::from(hit.normal).extend(0.0);
 
         HitRecord {
             normal: normal.truncate().normalize().into(),
@@ -247,24 +245,24 @@ impl Instance {
         let (p_x, p_y, p_z) = {
             let matrix_cols = inverse.to_cols_array();
             // Col 0
-            let m0_0 = glam::Vec4::from([matrix_cols[0]; 4]);
-            let m0_1 = glam::Vec4::from([matrix_cols[1]; 4]);
-            let m0_2 = glam::Vec4::from([matrix_cols[2]; 4]);
+            let m0_0 = Vec4::from([matrix_cols[0]; 4]);
+            let m0_1 = Vec4::from([matrix_cols[1]; 4]);
+            let m0_2 = Vec4::from([matrix_cols[2]; 4]);
 
             // Col 1
-            let m1_0 = glam::Vec4::from([matrix_cols[4]; 4]);
-            let m1_1 = glam::Vec4::from([matrix_cols[5]; 4]);
-            let m1_2 = glam::Vec4::from([matrix_cols[6]; 4]);
+            let m1_0 = Vec4::from([matrix_cols[4]; 4]);
+            let m1_1 = Vec4::from([matrix_cols[5]; 4]);
+            let m1_2 = Vec4::from([matrix_cols[6]; 4]);
 
             // Col 2
-            let m2_0 = glam::Vec4::from([matrix_cols[8]; 4]);
-            let m2_1 = glam::Vec4::from([matrix_cols[9]; 4]);
-            let m2_2 = glam::Vec4::from([matrix_cols[10]; 4]);
+            let m2_0 = Vec4::from([matrix_cols[8]; 4]);
+            let m2_1 = Vec4::from([matrix_cols[9]; 4]);
+            let m2_2 = Vec4::from([matrix_cols[10]; 4]);
 
             // Col 3
-            let m3_0 = glam::Vec4::from([matrix_cols[12]; 4]);
-            let m3_1 = glam::Vec4::from([matrix_cols[13]; 4]);
-            let m3_2 = glam::Vec4::from([matrix_cols[14]; 4]);
+            let m3_0 = Vec4::from([matrix_cols[12]; 4]);
+            let m3_1 = Vec4::from([matrix_cols[13]; 4]);
+            let m3_2 = Vec4::from([matrix_cols[14]; 4]);
 
             let p_x = Vec4::from(hit.p_x);
             let p_y = Vec4::from(hit.p_y);
@@ -292,19 +290,19 @@ impl Instance {
         let (n_x, n_y, n_z) = {
             let matrix_cols = normal_transform.to_cols_array();
             // Col 0
-            let m0_0 = glam::Vec4::from([matrix_cols[0]; 4]);
-            let m0_1 = glam::Vec4::from([matrix_cols[1]; 4]);
-            let m0_2 = glam::Vec4::from([matrix_cols[2]; 4]);
+            let m0_0 = Vec4::from([matrix_cols[0]; 4]);
+            let m0_1 = Vec4::from([matrix_cols[1]; 4]);
+            let m0_2 = Vec4::from([matrix_cols[2]; 4]);
 
             // C    ol 1
-            let m1_0 = glam::Vec4::from([matrix_cols[4]; 4]);
-            let m1_1 = glam::Vec4::from([matrix_cols[5]; 4]);
-            let m1_2 = glam::Vec4::from([matrix_cols[6]; 4]);
+            let m1_0 = Vec4::from([matrix_cols[4]; 4]);
+            let m1_1 = Vec4::from([matrix_cols[5]; 4]);
+            let m1_2 = Vec4::from([matrix_cols[6]; 4]);
 
             // Col 2
-            let m2_0 = glam::Vec4::from([matrix_cols[8]; 4]);
-            let m2_1 = glam::Vec4::from([matrix_cols[9]; 4]);
-            let m2_2 = glam::Vec4::from([matrix_cols[10]; 4]);
+            let m2_0 = Vec4::from([matrix_cols[8]; 4]);
+            let m2_1 = Vec4::from([matrix_cols[9]; 4]);
+            let m2_2 = Vec4::from([matrix_cols[10]; 4]);
 
             let n_x = Vec4::from(hit.normal_x);
             let n_y = Vec4::from(hit.normal_y);
@@ -340,29 +338,29 @@ impl Instance {
     pub fn transform_ray(&self, ray: Ray) -> Ray {
         let inverse = self.get_inverse_transform();
 
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
-        let new_origin: glam::Vec4 = inverse * origin.extend(1.0);
-        let new_direction: glam::Vec4 = inverse * direction.extend(0.0);
+        let (origin, direction) = ray.get_vectors::<Vec3>();
+        let new_origin: Vec4 = inverse * origin.extend(1.0);
+        let new_direction: Vec4 = inverse * direction.extend(0.0);
         (new_origin.truncate(), new_direction.truncate()).into()
     }
 
     pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
-        self.translation = Vec3A::from(t.into());
+        self.translation = Vec3::from(t.into());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_x(&mut self, offset: f32) {
-        self.translation += Vec3A::new(offset, 0.0, 0.0);
+        self.translation += Vec3::new(offset, 0.0, 0.0);
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_y(&mut self, offset: f32) {
-        self.translation += Vec3A::new(0.0, offset, 0.0);
+        self.translation += Vec3::new(0.0, offset, 0.0);
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn translate_z(&mut self, offset: f32) {
-        self.translation += Vec3A::new(0.0, 0.0, offset);
+        self.translation += Vec3::new(0.0, 0.0, offset);
         self.updated = InstanceUpdate::Transformed;
     }
 
@@ -374,40 +372,37 @@ impl Instance {
     pub fn set_rotation<T: Into<[f32; 3]>>(&mut self, r: T) {
         let r: [f32; 3] = r.into();
         let axis: [f32; 3] = r.into();
-        let axis = glam::Vec3::new(axis[0], axis[1], axis[2]);
-        self.rotation = glam::Quat::from_axis_angle(axis, 1.0).into();
+        let axis = Vec3::new(axis[0], axis[1], axis[2]);
+        self.rotation = Quat::from_axis_angle(axis, 1.0).into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_x(&mut self, degrees: f32) {
-        self.rotation = (glam::Quat::from(self.rotation)
-            * glam::Quat::from_rotation_x(degrees.to_radians()))
-        .into();
+        self.rotation =
+            (Quat::from(self.rotation) * Quat::from_rotation_x(degrees.to_radians())).into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_y(&mut self, degrees: f32) {
-        self.rotation = (glam::Quat::from(self.rotation)
-            * glam::Quat::from_rotation_y(degrees.to_radians()))
-        .into();
+        self.rotation =
+            (Quat::from(self.rotation) * Quat::from_rotation_y(degrees.to_radians())).into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn rotate_z(&mut self, degrees: f32) {
-        self.rotation = (glam::Quat::from(self.rotation)
-            * glam::Quat::from_rotation_z(degrees.to_radians()))
-        .into();
+        self.rotation =
+            (Quat::from(self.rotation) * Quat::from_rotation_z(degrees.to_radians())).into();
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn set_scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
-        self.scaling = Vec3A::from(scale.into());
+        self.scaling = Vec3::from(scale.into());
         self.updated = InstanceUpdate::Transformed;
     }
 
     pub fn scale<T: Into<[f32; 3]>>(&mut self, scale: T) {
         let scale: [f32; 3] = scale.into();
-        let scale: Vec3A = Vec3A::from(scale).max(Vec3A::splat(0.001));
+        let scale: Vec3 = Vec3::from(scale).max(Vec3::splat(0.001));
         self.scaling *= scale;
         self.updated = InstanceUpdate::Transformed;
     }
@@ -447,7 +442,7 @@ impl Instance {
 
     /// Returns rotation as radian euler angles in [x, y, z]
     pub fn get_euler_angles(&self) -> [f32; 3] {
-        let (rot, factor) = glam::Quat::from(self.rotation).to_axis_angle();
+        let (rot, factor) = Quat::from(self.rotation).to_axis_angle();
         (rot * factor).into()
     }
 
@@ -456,9 +451,9 @@ impl Instance {
             return;
         }
 
-        self.set_transform(glam::Mat4::from_scale_rotation_translation(
+        self.set_transform(Mat4::from_scale_rotation_translation(
             self.scaling.into(),
-            glam::Quat::from(self.rotation),
+            Quat::from(self.rotation),
             self.translation.into(),
         ));
     }
@@ -470,7 +465,7 @@ impl Bounds for Instance {
     }
 }
 
-#[cfg(feature = "object_caching")]
+#[cfg(feature = "serde")]
 impl<'a> SerializableObject<'a, Instance> for Instance {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
