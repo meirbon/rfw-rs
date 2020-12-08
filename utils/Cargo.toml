@@ -12,8 +12,8 @@ owning_ref = "0.4"
 bitvec = { version = "0.19", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"], optional = true }
 glam = { version = "0.11", features = ["serde"] }
-l3d = { git = "https://github.com/MeirBon/l3d.git", rev = "db384f37170cade338e878c9ac30a4580f33eb5b", features = ["serde"] }
-rtbvh = { git = "https://github.com/MeirBon/rtbvh.git", rev = "9dda189007c32f43e030264d5134cb41a7ac2b25" }
+l3d = { version = "0.1", features = ["serde"] }
+rtbvh = "0.1.1"
 
 [features]
 default = []
