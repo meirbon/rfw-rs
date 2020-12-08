@@ -478,6 +478,7 @@ impl NodeGraph {
     pub fn update_animation(&mut self, time: f32) {
         if let Some(animation) = self.active_animation {
             self.animations[animation].set_time(time, unsafe { self.nodes.as_mut_slice() });
+            self.root_nodes.trigger_changed_all(); // Trigger a change
         }
     }
 
@@ -730,10 +731,7 @@ impl SceneGraph {
             .iter_mut()
             .filter(|(i, _)| times.get_changed(*i))
             .par_bridge()
-            .for_each(|(i, g)| {
-                let time = times[i];
-                g.update_animation(time);
-            });
+            .for_each(|(i, g)| g.update_animation(times[i]));
 
         let (instances, skins) = (RwLock::new(instances), RwLock::new(skins));
 
