@@ -970,12 +970,12 @@ impl<B: hal::Backend> RenderPipeline<B> {
         let output_pipeline = unsafe {
             let vs_module = {
                 let spirv: &[u8] = include_bytes!("../../shaders/blit.vert.spv");
-                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
+                device.create_shader_module(spirv.as_quad_bytes()).unwrap()
             };
 
             let fs_module = {
                 let spirv: &[u8] = include_bytes!("../../shaders/blit.frag.spv");
-                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
+                device.create_shader_module(spirv.as_quad_bytes()).unwrap()
             };
 
             let (vs_entry, fs_entry) = (
@@ -1552,7 +1552,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         for (i, t) in textures.clone() {
             texels += t.data.len();
-            let mut tex = Texture::new(
+            let tex = Texture::new(
                 self.device.clone(),
                 &self.allocator,
                 TextureDescriptor {

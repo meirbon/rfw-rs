@@ -8,7 +8,7 @@ use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
-    renderers::{RenderMode, Renderer},
+    renderer::{RenderMode, Renderer},
     AnimatedMesh, AreaLight, BitVec, CameraView, DeviceMaterial, DirectionalLight, Instance, Mesh,
     ObjectRef, PointLight, RTTriangle, SpotLight,
 };
@@ -1148,6 +1148,15 @@ impl Renderer for RayTracer {
         }
     }
 
+    fn unload_meshes(&mut self, ids: Vec<usize>) {
+        for id in ids {
+            match self.meshes.erase(id) {
+                Ok(_) => {}
+                Err(_) => panic!("mesh id {} did not exist", id),
+            }
+        }
+    }
+
     fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
         for (id, mesh) in meshes {
             if id >= self.anim_meshes.len() {
@@ -1161,6 +1170,15 @@ impl Renderer for RayTracer {
         }
     }
 
+    fn unload_animated_meshes(&mut self, ids: Vec<usize>) {
+        for id in ids {
+            match self.anim_meshes.erase(id) {
+                Ok(_) => {}
+                Err(_) => panic!("animated mesh id {} did not exist", id),
+            }
+        }
+    }
+
     fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>) {
         for (id, instance) in instances {
             if id >= self.instances.len() {
@@ -1168,6 +1186,15 @@ impl Renderer for RayTracer {
             }
 
             self.instances[id] = instance.clone();
+        }
+    }
+
+    fn unload_instances(&mut self, ids: Vec<usize>) {
+        for id in ids {
+            match self.instances.erase(id) {
+                Ok(_) => {}
+                Err(_) => panic!("instance id {} did not exist", id),
+            }
         }
     }
 
@@ -1976,11 +2003,11 @@ impl Renderer for RayTracer {
         }
     }
 
-    fn get_settings(&self) -> Vec<rfw_scene::renderers::Setting> {
+    fn get_settings(&self) -> Vec<rfw_scene::Setting> {
         Vec::new()
     }
 
-    fn set_setting(&mut self, _setting: rfw_scene::renderers::Setting) {
+    fn set_setting(&mut self, _setting: rfw_scene::Setting) {
         todo!()
     }
 }

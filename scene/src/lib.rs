@@ -15,7 +15,7 @@ pub mod loaders;
 pub mod material;
 pub mod objects;
 pub mod r2d;
-pub mod renderers;
+pub mod renderer;
 
 pub mod utils;
 
@@ -25,7 +25,7 @@ pub use lights::*;
 pub use loaders::*;
 pub use material::*;
 pub use objects::*;
-pub use renderers::*;
+pub use renderer::*;
 pub use rtbvh as bvh;
 
 pub use instance::*;

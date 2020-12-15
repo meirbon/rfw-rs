@@ -12,7 +12,7 @@ pub struct ManagedBuffer<T: Sized + Default + Clone, B: hal::Backend> {
 
 #[allow(dead_code)]
 impl<T: Sized + Default + Clone, B: hal::Backend> ManagedBuffer<T, B> {
-    pub fn new(buffer: Buffer<B>, allocator: &Allocator<B>) -> Self {
+    pub fn new(buffer: Buffer<B>) -> Self {
         let size = std::mem::size_of::<T>();
         assert_eq!(buffer.size_in_bytes % size, 0);
         assert!(buffer.size_in_bytes > 0);

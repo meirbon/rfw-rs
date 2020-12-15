@@ -19,7 +19,7 @@ use rfw_system::{
     scene::r2d::{D2Mesh, D2Vertex},
     scene::{
         self,
-        renderers::{RenderMode, Setting, SettingValue},
+        renderer::{RenderMode, Setting, SettingValue},
         Renderer,
     },
     RenderSystem,

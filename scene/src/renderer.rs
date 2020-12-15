@@ -121,11 +121,17 @@ pub trait Renderer {
     /// Updates meshes
     fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>);
 
+    fn unload_meshes(&mut self, ids: Vec<usize>);
+
     /// Updates an animated mesh at the given index
     fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>);
 
+    fn unload_animated_meshes(&mut self, ids: Vec<usize>);
+
     /// Sets an instance with a 4x4 transformation matrix in column-major format
     fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>);
+
+    fn unload_instances(&mut self, ids: Vec<usize>);
 
     /// Updates materials
     fn set_materials(&mut self, materials: ChangedIterator<'_, DeviceMaterial>);

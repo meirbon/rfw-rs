@@ -10,19 +10,18 @@ use rfw_scene::r2d::{D2Instance, D2Mesh};
 use rfw_scene::{
     graph::Skin,
     raw_window_handle::HasRawWindowHandle,
-    renderers::{RenderMode, Renderer, Setting, SettingValue},
-    AnimatedMesh, Camera, DeviceMaterial, Instance, Mesh,
-    ObjectRef, VertexMesh,
+    renderer::{RenderMode, Renderer, Setting, SettingValue},
+    AnimatedMesh, Camera, DeviceMaterial, Instance, Mesh, ObjectRef, VertexMesh,
 };
+use rfw_utils::prelude::l3d::mat::Texture;
+use rfw_utils::prelude::*;
 use shared::BytesConversion;
-use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU32, NonZeroU64, NonZeroU8};
 use std::ops::Deref;
 use std::sync::Arc;
+use std::{cmp::Ordering, error::Error};
 use wgpu::util::DeviceExt;
-use rfw_utils::prelude::*;
-use rfw_utils::prelude::l3d::mat::Texture;
 
 mod d2;
 mod instance;
@@ -663,6 +662,15 @@ impl Renderer for Deferred {
         }
     }
 
+    fn unload_meshes(&mut self, ids: Vec<usize>) {
+        for id in ids {
+            match self.meshes.erase(id) {
+                Ok(_) => {}
+                Err(_) => panic!("mesh id {} did not exist", id),
+            }
+        }
+    }
+
     fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
         for (id, mesh) in meshes {
             self.anim_mesh_bounds
@@ -673,6 +681,15 @@ impl Renderer for Deferred {
                 let mesh = mesh::DeferredAnimMesh::new(&device, &mesh);
                 finish.send(TaskResult::AnimMesh(id, mesh));
             });
+        }
+    }
+
+    fn unload_animated_meshes(&mut self, ids: Vec<usize>) {
+        for id in ids {
+            match self.anim_meshes.erase(id) {
+                Ok(_) => {}
+                Err(_) => panic!("animated mesh id {} did not exist", id),
+            }
         }
     }
 
@@ -709,6 +726,17 @@ impl Renderer for Deferred {
                 &instance
                     .local_bounds()
                     .transformed(instance.get_transform().to_cols_array()),
+            );
+        }
+    }
+
+    fn unload_instances(&mut self, ids: Vec<usize>) {
+        for id in ids {
+            self.instances.set(
+                &self.device,
+                id,
+                Instance::default(),
+                &(AABB::empty(), Vec::new()),
             );
         }
     }
@@ -981,7 +1009,7 @@ impl Renderer for Deferred {
         )]
     }
 
-    fn set_setting(&mut self, setting: rfw_scene::renderers::Setting) {
+    fn set_setting(&mut self, setting: rfw_scene::Setting) {
         if setting.key() == "debug-view" {
             let debug_view = match setting.value() {
                 SettingValue::Int(i) => output::DeferredView::from(*i),
@@ -1108,15 +1136,45 @@ impl Deferred {
 
             let device_instance = &instances.device_instances;
 
-            instances
-                .iter()
-                .filter(|(_, _, bounds)| {
-                    frustrum
-                        .aabb_in_frustrum(&bounds.root_bounds)
-                        .should_render()
-                })
-                .for_each(|(i, instance, bounds)| match instance.object_id {
-                    ObjectRef::None => {}
+            let mut instance_ids = (0..instances.len())
+                .into_iter()
+                .filter(|i| instances.instances.get(*i).is_some())
+                .collect::<Vec<usize>>();
+
+            // Sort render order of instances by pipeline, switching pipelines is expensive
+            instance_ids.sort_by(|a, b| {
+                match (
+                    instances.instances[*a].object_id,
+                    instances.instances[*b].object_id,
+                ) {
+                    (ObjectRef::None, _) => Ordering::Less,
+                    (ObjectRef::Static(_), ObjectRef::None) => Ordering::Less,
+                    (ObjectRef::Static(_), ObjectRef::Static(_)) => Ordering::Equal,
+                    (ObjectRef::Static(_), ObjectRef::Animated(_)) => Ordering::Greater,
+                    (ObjectRef::Animated(_), ObjectRef::None) => Ordering::Greater,
+                    (ObjectRef::Animated(_), ObjectRef::Static(_)) => Ordering::Less,
+                    (ObjectRef::Animated(_), ObjectRef::Animated(_)) => Ordering::Equal,
+                }
+            });
+
+            // Render all instances
+            for i in instance_ids.into_iter() {
+                // Retrieve instance info
+                let (instance, bounds) = match instances.get(i) {
+                    Some((i, b)) => {
+                        // Check whether instance is valid and in frustrum
+                        if i.object_id == ObjectRef::None
+                            || !frustrum.aabb_in_frustrum(&b.root_bounds).should_render()
+                        {
+                            continue;
+                        }
+
+                        (i, b)
+                    }
+                    _ => continue,
+                };
+
+                match instance.object_id {
                     ObjectRef::Static(mesh_id) => {
                         let mesh = &meshes[mesh_id as usize];
                         if let Some(buffer) = mesh.buffer.as_ref() {
@@ -1244,7 +1302,9 @@ impl Deferred {
                             }
                         }
                     }
-                });
+                    _ => {}
+                }
+            }
         }
 
         ssao_pass.launch(

@@ -1,4 +1,5 @@
 use crate::scene::r2d::D2Instance;
+use l3d::mat::{Flip, Material, Texture};
 pub use rfw_scene as scene;
 use rfw_scene::graph::NodeGraph;
 use rfw_scene::r2d::D2Mesh;
@@ -10,7 +11,6 @@ use rfw_utils::prelude::*;
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use l3d::mat::{Texture, Material, Flip};
 
 pub struct PointLightRef(u32);
 pub struct SpotLightRef(u32);
@@ -35,19 +35,20 @@ impl<T: Sized + Renderer> RenderSystem<T> {
         })
     }
 
-    // pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
-    //     scene: P,
-    //     window: &B,
-    //     window_size: (usize, usize),
-    //     render_size: (usize, usize),
-    // ) -> Result<Self, Box<dyn Error>> {
-    //     let renderer = T::init(window, window_size, render_size)?;
-    //
-    //     Ok(Self {
-    //         scene: Scene::deserialize(scene)?,
-    //         renderer: Arc::new(Mutex::new(renderer)),
-    //     })
-    // }
+    #[cfg(feature = "serde")]
+    pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
+        scene: P,
+        window: &B,
+        window_size: (usize, usize),
+        render_size: (usize, usize),
+    ) -> Result<Self, Box<dyn Error>> {
+        let renderer = T::init(window, window_size, render_size)?;
+
+        Ok(Self {
+            scene: Scene::deserialize(scene)?,
+            renderer: Arc::new(Mutex::new(renderer)),
+        })
+    }
 
     pub fn iter_instances<C>(&self) -> FlaggedIterator<'_, Instance> {
         self.scene.objects.instances.iter()
@@ -456,6 +457,25 @@ impl<T: Sized + Renderer> RenderSystem<T> {
             changed = true;
         }
 
+        let deleted_meshes = self.scene.objects.meshes.take_erased();
+        let deleted_anim_meshes = self.scene.objects.animated_meshes.take_erased();
+        let instances = self.scene.objects.instances.take_erased();
+
+        if !deleted_meshes.is_empty() {
+            changed = true;
+            renderer.unload_meshes(deleted_meshes);
+        }
+
+        if !deleted_anim_meshes.is_empty() {
+            changed = true;
+            renderer.unload_animated_meshes(deleted_anim_meshes);
+        }
+
+        if !instances.is_empty() {
+            changed = true;
+            renderer.unload_instances(instances);
+        }
+
         if changed {
             renderer.synchronize();
         }
@@ -488,11 +508,11 @@ impl<T: Sized + Renderer> RenderSystem<T> {
 
         Err(())
     }
-
-    // pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
-    //     match self.scene.serialize(path) {
-    //         Ok(_) => Ok(()),
-    //         _ => Err(()),
-    //     }
-    // }
+    #[cfg(feature = "serde")]
+    pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
+        match self.scene.serialize(path) {
+            Ok(_) => Ok(()),
+            _ => Err(()),
+        }
+    }
 }

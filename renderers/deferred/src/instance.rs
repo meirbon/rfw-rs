@@ -1,9 +1,9 @@
 use super::mesh::DeferredMesh;
 use crate::mesh::DeferredAnimMesh;
 use rfw_scene::{Instance, ObjectRef, VertexMesh};
+use rfw_utils::prelude::*;
 use rtbvh::{Bounds, AABB};
 use std::num::NonZeroU64;
-use rfw_utils::prelude::*;
 
 pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
@@ -206,6 +206,22 @@ impl InstanceList {
 
     pub fn changed(&self) -> bool {
         self.instances.any_changed()
+    }
+
+    pub fn get(&self, index: usize) -> Option<(&Instance, &InstanceBounds)> {
+        if let Some(inst) = self.instances.get(index) {
+            Some((inst, &self.bounds[index]))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<(&mut Instance, &mut InstanceBounds)> {
+        if let Some(inst) = self.instances.get_mut(index) {
+            Some((inst, &mut self.bounds[index]))
+        } else {
+            None
+        }
     }
 
     fn get_bounds(

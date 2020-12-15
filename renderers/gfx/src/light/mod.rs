@@ -118,7 +118,7 @@ impl<B: hal::Backend> LightList<B> {
         }
     }
 
-    pub fn render(&self, cmd_buffer: &mut B::CommandBuffer, scene: &SceneList<B>) {}
+    pub fn render(&self, _cmd_buffer: &mut B::CommandBuffer, _scene: &SceneList<B>) {}
 }
 
 impl<B: hal::Backend> Drop for LightList<B> {

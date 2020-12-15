@@ -315,9 +315,23 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }
     }
 
+    fn unload_meshes(&mut self, ids: Vec<usize>) {
+        let mesh = Mesh::default();
+        for id in ids {
+            self.scene_list.set_mesh(id, &mesh);
+        }
+    }
+
     fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
         for (i, mesh) in meshes {
             self.scene_list.set_anim_mesh(i, mesh);
+        }
+    }
+
+    fn unload_animated_meshes(&mut self, ids: Vec<usize>) {
+        let mesh = AnimatedMesh::default();
+        for id in ids {
+            self.scene_list.set_anim_mesh(id, &mesh);
         }
     }
 
@@ -327,11 +341,21 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
         }
     }
 
+    fn unload_instances(&mut self, ids: Vec<usize>) {
+        let instance = rfw_scene::Instance::default();
+        for id in ids {
+            self.scene_list.set_instance(id, &instance);
+        }
+    }
+
     fn set_materials(&mut self, materials: ChangedIterator<'_, rfw_scene::DeviceMaterial>) {
         self.mesh_renderer.set_materials(materials.as_slice());
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw_utils::prelude::l3d::mat::Texture>) {
+    fn set_textures(
+        &mut self,
+        textures: ChangedIterator<'_, rfw_utils::prelude::l3d::mat::Texture>,
+    ) {
         self.mesh_renderer.set_textures(textures);
     }
 
