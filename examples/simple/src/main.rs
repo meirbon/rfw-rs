@@ -69,7 +69,7 @@ impl MouseButtonHandler {
 }
 
 use rfw_system::{
-    scene::{self, renderers::RenderMode, Camera},
+    scene::{self, renderer::RenderMode, Camera},
     RenderSystem,
 };
 use rfw_utils::prelude::*;

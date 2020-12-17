@@ -482,8 +482,6 @@ impl Renderer for Deferred {
             Some(adapter) => adapter,
         };
 
-        println!("Picked device: {}", adapter.get_info().name);
-
         let (width, height) = window_size;
         let (render_width, render_height) = render_size;
         let width = width as u32;

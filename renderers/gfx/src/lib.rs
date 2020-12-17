@@ -121,7 +121,6 @@ impl<B: hal::Backend> Renderer for GfxRenderer<B> {
 
         // Retrieve the picked adapter
         let adapter = adapters.remove(adapter_index.unwrap());
-        println!("Picked adapter: {}", adapter.info.name);
 
         // Build a new device and associated command queues
         let family = adapter

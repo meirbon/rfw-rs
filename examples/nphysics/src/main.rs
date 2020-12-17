@@ -86,7 +86,7 @@ use rfw_system::{
     scene::Camera,
     scene::Setting,
     scene::SettingValue,
-    scene::{renderers::RenderMode, Plane, Sphere},
+    scene::{renderer::RenderMode, Plane, Sphere},
     RenderSystem,
 };
 use rfw_utils::prelude::*;
