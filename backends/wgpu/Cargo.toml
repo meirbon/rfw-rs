@@ -6,6 +6,7 @@ edition = "2018"
 build = "build.rs"
 description = "A wgpu-based backend for rfw."
 license = "Apache-2.0"
+repository = "https://github.com/meirbon/rfw-rs"
 
 [dependencies]
 num_cpus = "1.13"
