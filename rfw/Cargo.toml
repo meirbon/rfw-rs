@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 description = "Rendering framework for implementing new rendering algorithms and creating graphics applications."
+license = "Apache-2.0"
 
 [dependencies]
 shaderc = "0.7"
