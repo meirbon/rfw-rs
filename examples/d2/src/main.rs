@@ -15,17 +15,17 @@ use winit::{
 
 use glyph_brush::ab_glyph::point;
 use rayon::prelude::*;
-use rfw_gfx::GfxBackend;
-use rfw_system::{
-    scene::r2d::{D2Mesh, D2Vertex},
+use rfw::{
+    backend::{RenderMode, Setting, SettingValue},
+    math::*,
+    prelude::*,
     scene::{
-        renderer::{RenderMode, Setting, SettingValue},
-        Camera, Renderer,
+        r2d::{D2Mesh, D2Vertex},
+        Camera,
     },
-    RenderSystem,
+    system::RenderSystem,
+    utils,
 };
-use rfw_utils::prelude::*;
-use shared::utils;
 use winit::window::Fullscreen;
 
 pub struct KeyHandler {
@@ -98,17 +98,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .get_matches();
 
-    use rfw_deferred::Deferred;
-    use rfw_gpu_rt::RayTracer;
+    use rfw_backend_gfx::GfxBackend;
+    use rfw_backend_wgpu::WgpuBackend;
+    // use rfw_gpu_rt::RayTracer;
 
     match matches.value_of("renderer") {
-        Some("gpu-rt") => run_application::<RayTracer>(),
+        // Some("gpu-rt") => run_application::<RayTracer>(),
         Some("gfx") => run_application::<GfxBackend>(),
-        _ => run_application::<Deferred>(),
+        _ => run_application::<WgpuBackend>(),
     }
 }
 
-fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>> {
+fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
     let mut height = 720;
 
@@ -156,7 +157,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let roboto = FontArc::try_from_slice(font)?;
     let mut glyph_brush = GlyphBrushBuilder::using_font(roboto).build();
 
-    let tex = renderer.add_texture(l3d::mat::Texture::default())?;
+    let tex = renderer.add_texture(rfw::prelude::Texture::default())?;
     let d2_mesh = renderer.add_2d_object(D2Mesh::new(
         vec![
             [-0.5, -0.5, 0.5],
@@ -477,7 +478,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     renderer
                         .set_texture(
                             tex,
-                            l3d::mat::Texture {
+                            rfw::prelude::Texture {
                                 width: tex_width as u32,
                                 height: tex_height as u32,
                                 data: tex_data.clone(),

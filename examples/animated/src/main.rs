@@ -14,18 +14,17 @@ use winit::{
 };
 
 use rayon::prelude::*;
-use rfw_gfx::GfxBackend;
-use rfw_system::{
-    scene::r2d::{D2Mesh, D2Vertex},
+use rfw::{
+    math::*,
+    backend::{Backend, RenderMode, Setting, SettingValue},
     scene::{
+        r2d::{D2Mesh, D2Vertex},
         self,
-        renderer::{RenderMode, Setting, SettingValue},
-        Renderer,
     },
-    RenderSystem,
+    system::RenderSystem,
+    utils,
 };
-use rfw_utils::prelude::*;
-use shared::utils;
+use rfw_backend_wgpu::WgpuBackend;
 use winit::window::Fullscreen;
 
 pub struct KeyHandler {
@@ -98,17 +97,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .get_matches();
 
-    use rfw_deferred::Deferred;
-    use rfw_gpu_rt::RayTracer;
-
     match matches.value_of("renderer") {
-        Some("gpu-rt") => run_application::<RayTracer>(),
-        Some("gfx") => run_application::<GfxBackend>(),
-        _ => run_application::<Deferred>(),
+        // Some("gpu-rt") => run_application::<RayTracer>(),
+        // Some("gfx") => run_application::<GfxBackend>(),
+        _ => run_application::<WgpuBackend>(),
     }
 }
 
-fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>> {
+fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
@@ -150,7 +146,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let roboto = FontArc::try_from_slice(font)?;
     let mut glyph_brush = GlyphBrushBuilder::using_font(roboto).build();
 
-    let tex = renderer.add_texture(l3d::mat::Texture::default())?;
+    let tex = renderer.add_texture(rfw::prelude::Texture::default())?;
     let d2_mesh = renderer.add_2d_object(D2Mesh::new(
         vec![
             [-0.5, -0.5, 0.5],
@@ -190,7 +186,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     );
 
     let cesium_man = renderer
-        .load("models/CesiumMan/CesiumMan.gltf")?
+        .load("assets/models/CesiumMan/CesiumMan.gltf")?
         .scene()
         .unwrap();
 
@@ -214,7 +210,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
     let cesium_man1 = renderer.add_scene(cesium_man1);
     let cesium_man2 = renderer.add_scene(cesium_man2);
 
-    let pica_desc = renderer.load("models/pica/scene.gltf")?.scene().unwrap();
+    let pica_desc = renderer.load("assets/models/pica/scene.gltf")?.scene().unwrap();
     let mut pica = scene::graph::NodeGraph::new();
     pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.objects.instances);
     renderer.add_scene(pica);
@@ -496,7 +492,7 @@ fn run_application<T: 'static + Sized + Renderer>() -> Result<(), Box<dyn Error>
                     renderer
                         .set_texture(
                             tex,
-                            l3d::mat::Texture {
+                            rfw::prelude::Texture {
                                 width: tex_width as u32,
                                 height: tex_height as u32,
                                 data: tex_data.clone(),

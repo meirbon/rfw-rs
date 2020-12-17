@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use rfw::math::*;
+use rfw::utils;
 use std::{collections::HashMap, error::Error};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -68,12 +70,11 @@ impl MouseButtonHandler {
     }
 }
 
-use rfw_system::{
-    scene::{self, renderer::RenderMode, Camera},
-    RenderSystem,
+use rfw::{
+    backend::RenderMode,
+    scene::{self, Camera},
+    system::RenderSystem,
 };
-use rfw_utils::prelude::*;
-use shared::utils;
 use winit::window::Fullscreen;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -105,7 +106,7 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
     height = window.inner_size().height as usize;
 
     let mut renderer =
-        RenderSystem::<rfw_gfx::GfxBackend>::new(&window, (width, height), (width, height))
+        RenderSystem::<rfw_backend_gfx::GfxBackend>::new(&window, (width, height), (width, height))
             .unwrap();
     let cam_id = renderer.create_camera(width as u32, height as u32);
     *renderer.get_camera_mut(cam_id).unwrap() =
@@ -119,8 +120,8 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
 
     let mut node_graph = scene::graph::NodeGraph::new();
 
-    match renderer.load("models/CesiumMan/CesiumMan.gltf")? {
-        rfw_system::scene::LoadResult::Scene(scene) => {
+    match renderer.load("assets/models/CesiumMan/CesiumMan.gltf")? {
+        rfw::scene::LoadResult::Scene(scene) => {
             node_graph.load_scene_descriptor(&scene, &mut renderer.scene.objects.instances);
 
             for node in node_graph.iter_root_nodes_mut() {
@@ -131,8 +132,8 @@ async fn run_application() -> Result<(), Box<dyn Error>> {
         _ => panic!("Gltf files should be loaded as scenes"),
     };
 
-    match renderer.load("models/pica/scene.gltf")? {
-        rfw_system::scene::LoadResult::Scene(scene) => {
+    match renderer.load("assets/models/pica/scene.gltf")? {
+        rfw::scene::LoadResult::Scene(scene) => {
             node_graph.load_scene_descriptor(&scene, &mut renderer.scene.objects.instances);
         }
         _ => panic!("Gltf files should be loaded as scenes"),

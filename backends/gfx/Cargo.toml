@@ -1,0 +1,16 @@
+[package]
+name = "rfw-backend-gfx"
+version = "0.1.0"
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+build = "build.rs"
+
+[dependencies]
+nalgebra = "0.23"
+gfx-hal = "0.6"
+futures = "0.3"
+rfw = { path = "../../rfw" }
+gfx-backend-vulkan = { version = "0.6", features = ["x11"] }
+
+[build-dependencies]
+rfw = { path = "../../rfw" }

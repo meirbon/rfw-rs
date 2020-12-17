@@ -1,5 +1,14 @@
 #![allow(dead_code)]
 
+use rfw::{
+    backend::Setting,
+    backend::SettingValue,
+    math::*,
+    prelude::*,
+    scene::Camera,
+    scene::{Plane, Sphere},
+    utils::Timer,
+};
 use std::collections::HashMap;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -68,7 +77,6 @@ impl MouseButtonHandler {
     }
 }
 
-use crate::utils::Timer;
 use nphysics3d::{
     algebra::{Force3, ForceType},
     force_generator::DefaultForceGeneratorSet,
@@ -82,15 +90,6 @@ use nphysics3d::{
     },
     world::{DefaultGeometricalWorld, DefaultMechanicalWorld},
 };
-use rfw_system::{
-    scene::Camera,
-    scene::Setting,
-    scene::SettingValue,
-    scene::{renderer::RenderMode, Plane, Sphere},
-    RenderSystem,
-};
-use rfw_utils::prelude::*;
-use shared::utils;
 use std::error::Error;
 use winit::window::Fullscreen;
 
@@ -118,7 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     width = window.inner_size().width as usize;
     height = window.inner_size().height as usize;
 
-    use rfw_deferred::Deferred as Renderer;
+    use rfw_backend_wgpu::WgpuBackend as Renderer;
+
     let mut renderer: RenderSystem<Renderer> =
         RenderSystem::new(&window, (width, height), (width, height))?;
 
@@ -134,10 +134,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
-    let mut fps = utils::Averager::new();
-    let mut synchronize = utils::Averager::new();
-    let mut physics = utils::Averager::new();
-    let mut render = utils::Averager::new();
+    let mut fps = Averager::new();
+    let mut synchronize = Averager::new();
+    let mut physics = Averager::new();
+    let mut render = Averager::new();
     let mut resized = false;
 
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));

@@ -1,20 +1,14 @@
 [workspace]
 members = [
-    "examples/d2",
+    "rfw",
     "examples/animated",
+    "examples/d2",
     "examples/nphysics",
     "examples/simple",
-    "renderers/deferred",
-    "renderers/gpu-rt",
-    "renderers/shared",
-    "renderers/gfx",
-    "scene",
-    "system",
-    "utils",
+    "backends/wgpu",
+    "backends/gfx",
+    #"renderers/gpu-rt",
 ]
 
 [profile.dev.package."*"]
 opt-level = 1
-
-[profile.release]
-debug = 2
