@@ -11,8 +11,8 @@ license = "Apache-2.0"
 num_cpus = "1.13"
 wgpu = "0.6"
 futures = "0.3"
-rfw = { path = "../../rfw" }
+rfw = "0.1"
 bitvec = "0.19"
 
 [build-dependencies]
-rfw = { path = "../../rfw" }
+rfw = "0.1"
