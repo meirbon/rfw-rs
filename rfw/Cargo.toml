@@ -3,8 +3,7 @@ name = "rfw"
 version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Rendering framework for implementing new rendering algorithms and creating graphics applications."
 
 [dependencies]
 shaderc = "0.7"

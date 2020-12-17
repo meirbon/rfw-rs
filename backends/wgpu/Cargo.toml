@@ -4,8 +4,7 @@ version = "0.1.0"
 authors = ["meir"]
 edition = "2018"
 build = "build.rs"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A wgpu-based backend for rfw."
 
 [dependencies]
 num_cpus = "1.13"
