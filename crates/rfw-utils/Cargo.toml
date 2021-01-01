@@ -1,0 +1,15 @@
+[package]
+name = "rfw-utils"
+version = "0.1.0"
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+crossbeam = "0.8"
+threadpool = "1.8"
+futures = "0.3"
+bitvec = "0.20"
+num = "0.3"
+num_cpus = "1.13"

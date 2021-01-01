@@ -1,4 +1,4 @@
-use crate::hal;
+use crate::{DeviceHandle, hal};
 use crate::instances::{RenderBuffers, SceneList};
 use crate::skinning::SkinList;
 use hal::*;
@@ -16,7 +16,7 @@ pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
 
 impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
     pub fn new(
-        device: Arc<B::Device>,
+        device: DeviceHandle<B>,
         allocator: crate::mem::Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
         pipeline_layout: &B::PipelineLayout,
@@ -48,7 +48,7 @@ pub enum DepthType {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ShadowMapArray<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
 
     pub map: ManuallyDrop<B::Image>,
     render_views: Vec<ManuallyDrop<B::ImageView>>,
@@ -79,7 +79,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
     pub const DEPTH_FORMAT: format::Format = format::Format::D32Sfloat;
 
     pub fn new(
-        device: Arc<B::Device>,
+        device: DeviceHandle<B>,
         allocator: crate::mem::Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
         pipeline_layout: &B::PipelineLayout,
@@ -712,7 +712,7 @@ impl<B: hal::Backend> Drop for ShadowMapArray<B> {
 
 #[derive(Debug)]
 pub struct FilterPipeline<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     desc_layout: ManuallyDrop<B::DescriptorSetLayout>,
     pipeline_layout: ManuallyDrop<B::PipelineLayout>,
@@ -746,7 +746,7 @@ impl<'a> FilterPushConstant {
 }
 
 impl<B: hal::Backend> FilterPipeline<B> {
-    pub fn new(device: Arc<B::Device>) -> Self {
+    pub fn new(device: DeviceHandle<B>) -> Self {
         unsafe {
             // 4 Types of lights, thus max 4 sets
             let desc_pool = device

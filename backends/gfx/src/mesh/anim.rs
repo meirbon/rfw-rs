@@ -1,8 +1,8 @@
 use crate::hal;
 use crate::mem::Buffer;
-use rfw::scene::VertexMesh;
+use rfw::prelude::mesh::VertexMesh;
+use rfw::prelude::*;
 use std::sync::Arc;
-use rfw::scene::bvh::AABB;
 
 #[derive(Debug, Clone)]
 pub struct GfxAnimMesh<B: hal::Backend> {

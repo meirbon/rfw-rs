@@ -5,18 +5,8 @@ use crate::skin::WgpuSkin;
 use futures::executor::block_on;
 use mesh::WgpuMesh;
 
-use rfw::scene::bvh::AABB;
-use rfw::{
-    backend::{RenderMode, Setting, SettingValue},
-    math::*,
-    prelude::*,
-    scene::{
-        graph::Skin,
-        r2d::{D2Instance, D2Mesh},
-        raw_window_handle::HasRawWindowHandle,
-        AnimatedMesh, Camera, DeviceMaterial, Instance, Mesh, ObjectRef, VertexMesh,
-    },
-};
+use rfw::prelude::*;
+use rfw::scene::VertexMesh;
 
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU32, NonZeroU64, NonZeroU8};
@@ -741,7 +731,7 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw::scene::DeviceMaterial>) {
+    fn set_materials(&mut self, materials: ChangedIterator<'_, DeviceMaterial>) {
         {
             let materials = materials.as_slice();
             let size =
@@ -862,15 +852,20 @@ impl Backend for WgpuBackend {
         self.anim_meshes.reset_changed();
     }
 
-    fn render(&mut self, camera: &rfw::scene::Camera, _mode: RenderMode) {
+    fn render(&mut self, camera: &Camera, _mode: RenderMode) {
         let output = match self.swap_chain.get_current_frame() {
             Ok(output) => output,
             Err(_) => return,
         };
 
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("render"),
+            });
         let light_counts = self.lights.counts();
-        let light_pass = Self::render_lights(
-            &self.device,
+        Self::render_lights(
+            &mut encoder,
             &mut self.lights,
             &self.instances,
             &self.meshes,
@@ -878,8 +873,9 @@ impl Backend for WgpuBackend {
             &self.skins,
         );
 
-        let render_pass = Self::render_scene(
+        Self::render_scene(
             &self.device,
+            &mut encoder,
             camera,
             light_counts,
             &self.pipeline,
@@ -895,7 +891,6 @@ impl Backend for WgpuBackend {
             &self.radiance_pass,
         );
 
-        self.queue.submit(std::iter::once(light_pass));
         let mut output_pass = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -923,8 +918,11 @@ impl Backend for WgpuBackend {
         self.output_pass
             .render(&mut d2_encoder, &output.output.view);
 
-        self.queue
-            .submit(vec![render_pass, output_pass.finish(), d2_encoder.finish()]);
+        self.queue.submit(vec![
+            encoder.finish(),
+            output_pass.finish(),
+            d2_encoder.finish(),
+        ]);
 
         self.instances.reset_changed();
         self.lights_changed = false;
@@ -967,26 +965,23 @@ impl Backend for WgpuBackend {
             .update_bind_groups(&self.device, &self.output);
     }
 
-    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, rfw::scene::PointLight>) {
+    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, PointLight>) {
         self.lights_changed = true;
     }
 
-    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, rfw::scene::SpotLight>) {
+    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, SpotLight>) {
         self.lights
             .set_spot_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_area_lights(&mut self, lights: ChangedIterator<'_, rfw::scene::AreaLight>) {
+    fn set_area_lights(&mut self, lights: ChangedIterator<'_, AreaLight>) {
         self.lights
             .set_area_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_directional_lights(
-        &mut self,
-        lights: ChangedIterator<'_, rfw::scene::DirectionalLight>,
-    ) {
+    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, DirectionalLight>) {
         self.lights
             .set_directional_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
         self.lights_changed = true;
@@ -1045,22 +1040,19 @@ impl WgpuBackend {
     }
 
     fn render_lights(
-        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
         lights: &mut WgpuLights,
         instances: &InstanceList,
         meshes: &TrackedStorage<WgpuMesh>,
         anim_meshes: &TrackedStorage<WgpuAnimMesh>,
         skins: &TrackedStorage<WgpuSkin>,
-    ) -> wgpu::CommandBuffer {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("render-lights"),
-        });
-        lights.render(&mut encoder, instances, meshes, anim_meshes, skins);
-        encoder.finish()
+    ) {
+        lights.render(encoder, instances, meshes, anim_meshes, skins);
     }
 
     fn render_scene(
         device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
         camera: &Camera,
         light_counts: [u32; 4],
         pipeline: &pipeline::RenderPipeline,
@@ -1074,7 +1066,7 @@ impl WgpuBackend {
         material_bind_groups: &[WgpuBindGroup],
         ssao_pass: &pass::SSAOPass,
         radiance_pass: &pass::RadiancePass,
-    ) -> wgpu::CommandBuffer {
+    ) {
         let camera_data = {
             let mut data = [0 as u8; Self::UNIFORM_CAMERA_SIZE as usize];
             let view = camera.get_rh_view_matrix();
@@ -1108,11 +1100,11 @@ impl WgpuBackend {
             usage: wgpu::BufferUsage::COPY_SRC,
         });
 
-        let mut rasterize_pass = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("render"),
-        });
+        // let mut rasterize_pass = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        // label: Some("render"),
+        // });
 
-        rasterize_pass.copy_buffer_to_buffer(
+        encoder.copy_buffer_to_buffer(
             &camera_staging_buffer,
             0,
             uniform_camera_buffer,
@@ -1123,7 +1115,7 @@ impl WgpuBackend {
         use output::*;
 
         {
-            let mut render_pass = rasterize_pass.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[
                     d_output.as_descriptor(WgpuView::Albedo),
                     d_output.as_descriptor(WgpuView::Normal),
@@ -1311,14 +1303,12 @@ impl WgpuBackend {
         }
 
         ssao_pass.launch(
-            &mut rasterize_pass,
+            encoder,
             d_output.width,
             d_output.height,
             &uniform_bind_group,
         );
 
-        radiance_pass.launch(&mut rasterize_pass, d_output.width, d_output.height);
-
-        rasterize_pass.finish()
+        radiance_pass.launch(encoder, d_output.width, d_output.height);
     }
 }

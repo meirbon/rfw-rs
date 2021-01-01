@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use rfw::utils::BytesConversion;
+use rfw::prelude::*;
 
 pub struct WgpuOutput {
     pub width: usize,

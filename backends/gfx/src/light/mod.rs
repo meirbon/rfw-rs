@@ -1,9 +1,9 @@
-use crate::hal;
 use crate::hal::device::Device;
 use crate::hal::pso::DescriptorPool;
 use crate::instances::SceneList;
 use crate::light::map::{DepthType, FilterPipeline};
 use crate::mem::Allocator;
+use crate::{cmd::DeviceHandle, hal};
 use hal::*;
 use rfw::prelude::*;
 use std::mem::ManuallyDrop;
@@ -13,7 +13,7 @@ pub mod map;
 
 #[derive(Debug)]
 pub struct LightList<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     // point: map::Array<B, PointLight>,
     area: Option<map::Array<B, AreaLight>>,
     spot: Option<map::Array<B, SpotLight>>,
@@ -26,7 +26,7 @@ pub struct LightList<B: hal::Backend> {
 #[allow(dead_code)]
 impl<B: hal::Backend> LightList<B> {
     pub fn new(
-        device: Arc<B::Device>,
+        device: DeviceHandle<B>,
         allocator: Allocator<B>,
         instances_desc_layout: &B::DescriptorSetLayout,
         skins_desc_layout: &B::DescriptorSetLayout,

@@ -1,0 +1,15 @@
+[package]
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+build = "build.rs"
+edition = "2018"
+name = "rfw-backend-rendy"
+version = "0.1.0"
+
+[dependencies]
+futures = "0.3"
+rfw = {path = "../../rfw"}
+# rendy = "0.5.1"
+
+[build-dependencies]
+rfw = {path = "../../rfw"}
+spirv-compiler = "0.1"

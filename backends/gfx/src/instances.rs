@@ -1,10 +1,8 @@
-use crate::{hal, DeviceHandle, Queue};
-use rfw::prelude::*;
-
 use crate::hal::command::CommandBuffer;
 use crate::hal::pool::CommandPool;
 use crate::hal::{buffer, memory};
 use crate::mesh::anim::GfxAnimMesh;
+use crate::{hal, DeviceHandle, Queue};
 use crate::{mem::*, mesh::GfxMesh};
 use hal::{
     buffer::{SubRange, Usage},
@@ -13,9 +11,8 @@ use hal::{
     pso,
 };
 use pso::DescriptorPool;
-use rfw::math::*;
-use rfw::scene::bvh::{Bounds, AABB};
-use rfw::scene::VertexMesh;
+use rfw::prelude::mesh::VertexMesh;
+use rfw::prelude::*;
 use std::{collections::HashSet, mem::ManuallyDrop, ptr, sync::Arc};
 
 #[derive(Debug, Clone)]

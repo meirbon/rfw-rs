@@ -17,10 +17,8 @@ use hal::{
 };
 use pass::Subpass;
 use pso::*;
-use rfw::math::*;
+use rfw::prelude::mesh::VertexMesh;
 use rfw::prelude::*;
-use rfw::scene::bvh::AABB;
-use rfw::scene::VertexMesh;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, rc::Rc, sync::Arc};
 use AttributeDesc;
 use VertexBufferDesc;

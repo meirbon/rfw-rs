@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use clap::{App, Arg};
+use rfw_backend_gfx::GfxBackend;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -15,11 +16,11 @@ use winit::{
 
 use rayon::prelude::*;
 use rfw::{
-    math::*,
     backend::{Backend, RenderMode, Setting, SettingValue},
+    math::*,
     scene::{
-        r2d::{D2Mesh, D2Vertex},
         self,
+        r2d::{D2Mesh, D2Vertex},
     },
     system::RenderSystem,
     utils,
@@ -99,7 +100,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match matches.value_of("renderer") {
         // Some("gpu-rt") => run_application::<RayTracer>(),
-        // Some("gfx") => run_application::<GfxBackend>(),
+        Some("gfx") => run_application::<GfxBackend>(),
         _ => run_application::<WgpuBackend>(),
     }
 }
@@ -210,7 +211,10 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
     let cesium_man1 = renderer.add_scene(cesium_man1);
     let cesium_man2 = renderer.add_scene(cesium_man2);
 
-    let pica_desc = renderer.load("assets/models/pica/scene.gltf")?.scene().unwrap();
+    let pica_desc = renderer
+        .load("assets/models/pica/scene.gltf")?
+        .scene()
+        .unwrap();
     let mut pica = scene::graph::NodeGraph::new();
     pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.objects.instances);
     renderer.add_scene(pica);
@@ -232,22 +236,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
         *control_flow = ControlFlow::Poll;
 
         match event {
-            Event::MainEventsCleared => window.request_redraw(),
-            Event::WindowEvent {
-                event: WindowEvent::KeyboardInput { input, .. },
-                window_id,
-            } if window_id == window.id() => {
-                if let Some(key) = input.virtual_keycode {
-                    key_handler.insert(key, input.state);
-                }
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                window_id,
-            } if window_id == window.id() => {
-                *control_flow = ControlFlow::Exit;
-            }
-            Event::RedrawRequested(_) => {
+            Event::MainEventsCleared => {
                 if key_handler.pressed(KeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
                 }
@@ -528,6 +517,20 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                     *control_flow = ControlFlow::Exit;
                 }
                 render.add_sample(timer2.elapsed_in_millis());
+            }
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { input, .. },
+                window_id,
+            } if window_id == window.id() => {
+                if let Some(key) = input.virtual_keycode {
+                    key_handler.insert(key, input.state);
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+            } if window_id == window.id() => {
+                *control_flow = ControlFlow::Exit;
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

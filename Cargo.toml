@@ -7,6 +7,11 @@ members = [
     "examples/simple",
     "backends/wgpu",
     "backends/gfx",
+    "backends/rendy",
+    "crates/rfw-backend",
+    "crates/rfw-scene",
+    "crates/rfw-math",
+    "crates/rfw-utils",
     #"renderers/gpu-rt",
 ]
 

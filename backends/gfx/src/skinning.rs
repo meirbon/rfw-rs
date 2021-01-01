@@ -3,7 +3,6 @@ use crate::hal::pso::DescriptorPool;
 use crate::mem::{Allocator, Buffer};
 use crate::{hal, DeviceHandle, Queue};
 use hal::*;
-use rfw::math::*;
 use rfw::prelude::*;
 use std::mem::ManuallyDrop;
 use std::ptr;
@@ -103,7 +102,7 @@ impl<B: hal::Backend> SkinList<B> {
         }
     }
 
-    pub fn set_skin(&mut self, id: usize, skin: &rfw::scene::graph::Skin) {
+    pub fn set_skin(&mut self, id: usize, skin: &Skin) {
         let allocator = self.allocator.clone();
 
         let skin = skin.clone();

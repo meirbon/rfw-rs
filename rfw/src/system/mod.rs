@@ -1,14 +1,11 @@
-use crate::{
-    backend::{Backend, RenderMode, Setting},
-    math::*,
-    scene::r2d::D2Instance,
-    scene::{
-        graph::NodeGraph, r2d::D2Mesh, Camera, DirectionalLight, Instance, LoadResult, ObjectRef,
-        PointLight, Scene, SceneError, SceneLights, SpotLight, ToMesh,
-    },
-    utils::collections::{FlaggedIterator, FlaggedIteratorMut},
-};
 use l3d::mat::{Flip, Material, Texture};
+use rfw_backend::{Backend, RenderMode, Setting};
+use rfw_math::*;
+use rfw_scene::{
+    r2d::D2Instance, r2d::D2Mesh, Camera, DirectionalLight, Instance, LoadResult, NodeGraph,
+    ObjectRef, PointLight, Scene, SceneError, SceneLights, SpotLight, ToMesh,
+};
+use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut};
 use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -23,7 +20,7 @@ pub struct RenderSystem<T: Sized + Backend> {
 }
 
 impl<T: Sized + Backend> RenderSystem<T> {
-    pub fn new<B: raw_window_handle::HasRawWindowHandle>(
+    pub fn new<B: rfw_backend::HasRawWindowHandle>(
         window: &B,
         window_size: (usize, usize),
         render_size: (usize, usize),
@@ -37,7 +34,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
     }
 
     #[cfg(feature = "serde")]
-    pub fn from_scene<B: raw_window_handle::HasRawWindowHandle, P: AsRef<Path>>(
+    pub fn from_scene<B: rfw_backend::HasRawWindowHandle, P: AsRef<Path>>(
         scene: P,
         window: &B,
         window_size: (usize, usize),
@@ -104,7 +101,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
         result
     }
 
-    pub fn resize<B: raw_window_handle::HasRawWindowHandle>(
+    pub fn resize<B: rfw_backend::HasRawWindowHandle>(
         &self,
         window: &B,
         window_size: (usize, usize),

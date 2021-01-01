@@ -1,19 +1,18 @@
-pub mod backend;
-pub mod scene;
 pub mod system;
-pub mod utils;
+pub use rfw_backend as backend;
+pub use rfw_math as math;
+pub use rfw_scene as scene;
+pub use rfw_utils as utils;
 
 pub mod prelude {
-    pub use crate::backend::*;
-    pub use crate::backend::*;
-    pub use crate::scene::*;
     pub use crate::system::*;
-    pub use crate::utils::collections::*;
-    pub use crate::utils::task::*;
-    pub use crate::utils::*;
     pub use l3d::prelude::*;
-}
-
-pub mod math {
-    pub use glam::*;
+    pub use rfw_backend::*;
+    pub use rfw_backend::*;
+    pub use rfw_math::*;
+    pub use rfw_scene::*;
+    pub use rfw_utils::collections::*;
+    pub use rfw_utils::task::*;
+    pub use rfw_utils::*;
+    pub use rtbvh::*;
 }

@@ -51,7 +51,7 @@ pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
 use rfw::prelude::r2d::{D2Instance, D2Mesh};
-use rfw::prelude::raw_window_handle::HasRawWindowHandle;
+use rfw::prelude::HasRawWindowHandle;
 
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
@@ -74,6 +74,9 @@ pub struct GfxRenderer<B: hal::Backend> {
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
     skins: SkinList<B>,
+
+    point_lights: light::LightList<B>,
+    spot_lights: light::LightList<B>,
 }
 
 impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
@@ -261,13 +264,35 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
-            allocator,
+            allocator.clone(),
             transfer_queue.clone(),
             format,
             render_width as u32,
             render_height as u32,
             &scene_list,
             &skins,
+        );
+
+        // device: Arc<B::Device>,
+        // allocator: Allocator<B>,
+        // instances_desc_layout: &B::DescriptorSetLayout,
+        // skins_desc_layout: &B::DescriptorSetLayout,
+        // capacity: usize,
+
+        let point_lights = light::LightList::new(
+            device.clone(),
+            allocator.clone(),
+            &*scene_list.set_layout,
+            &*skins.desc_layout,
+            32,
+        );
+
+        let spot_lights = light::LightList::new(
+            device.clone(),
+            allocator.clone(),
+            &*scene_list.set_layout,
+            &*skins.desc_layout,
+            32,
         );
 
         Ok(Box::new(Self {
@@ -295,6 +320,8 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
             scene_list,
             mesh_renderer,
             skins,
+            point_lights,
+            spot_lights,
         }))
     }
 
@@ -447,7 +474,7 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         self.frame += 1;
     }
 
-    fn resize<T: rfw::prelude::raw_window_handle::HasRawWindowHandle>(
+    fn resize<T: HasRawWindowHandle>(
         &mut self,
         _window: &T,
         window_size: (usize, usize),

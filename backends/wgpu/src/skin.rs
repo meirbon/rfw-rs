@@ -1,5 +1,4 @@
-use rfw::scene::graph::Skin;
-use rfw::utils::BytesConversion;
+use rfw::prelude::*;
 
 #[derive(Debug)]
 pub struct WgpuSkin {
