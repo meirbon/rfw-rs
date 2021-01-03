@@ -1044,34 +1044,34 @@ impl ShadowMapArray {
                         None => {}
                         Some(mesh_id) => {
                             let mesh = &meshes[mesh_id as usize];
-                            let buffer = instances.vertex_buffers[i].as_ref().unwrap();
-                            render_pass.set_pipeline(&self.pipeline);
-                            render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
+                            if let Some(buffer) = instances.vertex_buffers[i].buffer() {
+                                render_pass.set_pipeline(&self.pipeline);
+                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
 
-                            render_pass.set_bind_group(
-                                0,
-                                &self.bind_group,
-                                &[
-                                    (v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                        as wgpu::DynamicOffset,
-                                ],
-                            );
-                            render_pass.set_bind_group(
-                                1,
-                                &device_instance.bind_group,
-                                &[DeviceInstances::dynamic_offset_for(i) as u32],
-                            );
+                                render_pass.set_bind_group(
+                                    0,
+                                    &self.bind_group,
+                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
+                                        as wgpu::DynamicOffset],
+                                );
+                                render_pass.set_bind_group(
+                                    1,
+                                    &device_instance.bind_group,
+                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
+                                );
 
-                            for j in 0..mesh.desc.meshes.len() {
-                                if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                    if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside
-                                    {
-                                        continue;
+                                for j in 0..mesh.ranges.len() {
+                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
+                                        if frustrum.aabb_in_frustrum(bounds)
+                                            == FrustrumResult::Outside
+                                        {
+                                            continue;
+                                        }
                                     }
-                                }
 
-                                let sub_mesh = &mesh.desc.meshes[j];
-                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                    let sub_mesh = &mesh.ranges[j];
+                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                                }
                             }
                         }
                     };

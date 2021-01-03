@@ -236,9 +236,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
             let vert_module = device
                 .create_shader_module(vert_shader.as_quad_bytes())
                 .unwrap();
-            let anim_vert_module = device
-                .create_shader_module(anim_vert_shader.as_quad_bytes())
-                .unwrap();
             let frag_module = match depth_type {
                 DepthType::Linear => device
                     .create_shader_module(frag_linear.as_quad_bytes())
@@ -422,7 +419,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
         pipeline_layout: &B::PipelineLayout,
         desc_set: &B::DescriptorSet,
         scene: &SceneList<B>,
-        skins: &SkinList<B>,
+        _skins: &SkinList<B>,
     ) {
         for i in 0..self.light_infos.len() {
             let frustrum = FrustrumG::from_matrix(self.light_infos[i].pm);

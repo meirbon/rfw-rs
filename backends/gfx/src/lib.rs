@@ -77,9 +77,21 @@ pub struct GfxRenderer<B: hal::Backend> {
 
     point_lights: light::LightList<B>,
     spot_lights: light::LightList<B>,
+    settings: GfxSettings,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct GfxSettings {}
+
+impl Default for GfxSettings {
+    fn default() -> Self {
+        Self {}
+    }
 }
 
 impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
+    type Settings = GfxSettings;
+
     fn init<T: HasRawWindowHandle>(
         window: &T,
         window_size: (usize, usize),
@@ -322,6 +334,7 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
             skins,
             point_lights,
             spot_lights,
+            settings: Default::default()
         }))
     }
 
@@ -346,13 +359,13 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         }
     }
 
-    fn set_instances(&mut self, instances: ChangedIterator<'_, rfw::prelude::Instance3D>) {
+    fn set_3d_instances(&mut self, instances: ChangedIterator<'_, rfw::prelude::Instance3D>) {
         for (i, instance) in instances {
             self.scene_list.set_instance(i, instance);
         }
     }
 
-    fn unload_instances(&mut self, ids: Vec<usize>) {
+    fn unload_3d_instances(&mut self, ids: Vec<usize>) {
         let instance = rfw::prelude::Instance3D::default();
         for id in ids {
             self.scene_list.set_instance(id, &instance);
@@ -502,11 +515,9 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         }
     }
 
-    fn get_settings(&self) -> Vec<rfw::prelude::Setting> {
-        Vec::new()
+    fn settings(&mut self) -> &mut Self::Settings {
+        &mut self.settings
     }
-
-    fn set_setting(&mut self, _setting: rfw::prelude::Setting) {}
 }
 
 impl<B: hal::Backend> GfxRenderer<B> {

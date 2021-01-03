@@ -1,5 +1,7 @@
 use crate::instance::{DeviceInstances, InstanceList};
 use crate::light::WgpuLights;
+use crate::mesh::WgpuSkin;
+pub use crate::output::WgpuView;
 use futures::executor::block_on;
 use mesh::WgpuMesh;
 use rayon::prelude::*;
@@ -287,6 +289,21 @@ impl Clone for WgpuBindGroup {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct WgpuSettings {
+    pub view: WgpuView,
+    pub enable_skinning: bool,
+}
+
+impl Default for WgpuSettings {
+    fn default() -> Self {
+        Self {
+            view: WgpuView::Output,
+            enable_skinning: true,
+        }
+    }
+}
+
 pub struct WgpuBackend {
     device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
@@ -315,15 +332,16 @@ pub struct WgpuBackend {
     blit_pass: pass::BlitPass,
     output_pass: pass::QuadPass,
 
-    skins: TrackedStorage<Skin>,
+    skins: TrackedStorage<WgpuSkin>,
 
-    debug_view: output::WgpuView,
     lights_changed: bool,
     materials_changed: bool,
 
     mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
     task_pool: ManagedTaskPool<TaskResult>,
     d2_renderer: d2::Renderer,
+
+    settings: WgpuSettings,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -451,6 +469,8 @@ impl WgpuBackend {
 }
 
 impl Backend for WgpuBackend {
+    type Settings = WgpuSettings;
+
     fn init<T: HasRawWindowHandle>(
         window: &T,
         window_size: (usize, usize),
@@ -475,7 +495,8 @@ impl Backend for WgpuBackend {
         let (device, queue) = block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 features: wgpu::Features::PUSH_CONSTANTS
-                    | wgpu::Features::SAMPLED_TEXTURE_BINDING_ARRAY,
+                    | wgpu::Features::SAMPLED_TEXTURE_BINDING_ARRAY
+                    | wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
                 limits: wgpu::Limits::default(),
                 shader_validation: true,
             },
@@ -603,13 +624,13 @@ impl Backend for WgpuBackend {
 
             skins: TrackedStorage::new(),
 
-            debug_view: output::WgpuView::Output,
             lights_changed: true,
             materials_changed: true,
 
             mesh_bounds: FlaggedStorage::new(),
             task_pool: ManagedTaskPool::default(),
             d2_renderer,
+            settings: Default::default(),
         }))
     }
 
@@ -643,7 +664,7 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance3D>) {
+    fn set_3d_instances(&mut self, instances: ChangedIterator<'_, Instance3D>) {
         for (id, instance) in instances {
             if let Some(mesh_id) = instance.object_id {
                 self.instances.set(
@@ -669,7 +690,7 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn unload_instances(&mut self, ids: Vec<usize>) {
+    fn unload_3d_instances(&mut self, ids: Vec<usize>) {
         for id in ids {
             self.instances.set(
                 &self.device,
@@ -777,6 +798,7 @@ impl Backend for WgpuBackend {
             &mut self.instances,
             &self.meshes,
             &self.skins,
+            &self.settings,
         );
 
         self.lights_changed |= self.lights.synchronize(&self.device, &self.queue);
@@ -836,13 +858,15 @@ impl Backend for WgpuBackend {
                 label: Some("output-pass"),
             });
 
-        if self.debug_view == output::WgpuView::Output {
-            // self.blit_pass.render(&mut output_pass, &output.output.view);
+        if self.settings.view == WgpuView::Output {
             self.blit_pass
                 .render(&mut output_pass, &self.output.output_texture_view);
         } else {
-            self.output
-                .blit_debug(&output.output.view, &mut output_pass, self.debug_view);
+            self.output.blit_debug(
+                &self.output.output_texture_view,
+                &mut output_pass,
+                self.settings.view,
+            );
         }
 
         let mut d2_encoder = self
@@ -932,27 +956,19 @@ impl Backend for WgpuBackend {
 
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         for (i, skin) in skins {
-            self.skins.overwrite(i, skin.clone());
+            if let Some(s) = self.skins.get_mut(i) {
+                let update = s.update(&self.device, skin.clone());
+                self.device.poll(wgpu::Maintain::Wait);
+                futures::executor::block_on(update);
+            } else {
+                self.skins
+                    .overwrite(i, WgpuSkin::new(&self.device, skin.clone()));
+            }
         }
     }
 
-    fn get_settings(&self) -> Vec<Setting> {
-        vec![Setting::new(
-            String::from("debug-view"),
-            SettingValue::Int(0),
-            Some(0..8),
-        )]
-    }
-
-    fn set_setting(&mut self, setting: rfw::prelude::Setting) {
-        if setting.key() == "debug-view" {
-            let debug_view = match setting.value() {
-                SettingValue::Int(i) => output::WgpuView::from(*i),
-                _ => output::WgpuView::Output,
-            };
-
-            self.debug_view = debug_view;
-        }
+    fn settings(&mut self) -> &mut Self::Settings {
+        &mut self.settings
     }
 }
 
@@ -962,13 +978,10 @@ impl WgpuBackend {
         queue: &wgpu::Queue,
         instances: &mut InstanceList,
         meshes: &TrackedStorage<WgpuMesh>,
-        skins: &TrackedStorage<Skin>,
+        skins: &TrackedStorage<WgpuSkin>,
+        settings: &WgpuSettings,
     ) {
-        meshes
-            .iter_changed()
-            .par_bridge()
-            .for_each(|(_, m)| m.copy_data(queue));
-        instances.update(device, &meshes, skins, &queue);
+        instances.update(device, queue, meshes, skins, settings);
     }
 
     fn render_lights(
@@ -1055,27 +1068,19 @@ impl WgpuBackend {
 
             let device_instance = &instances.device_instances;
 
-            let instance_ids = (0..instances.len())
-                .into_iter()
-                .filter(|i| instances.instances.get(*i).is_some())
-                .collect::<Vec<usize>>();
+            render_pass.set_pipeline(&pipeline.pipeline);
+            render_pass.set_bind_group(0, uniform_bind_group, &[]);
 
             // Render all instances
-            for i in instance_ids.into_iter() {
-                // Retrieve instance info
-                let (instance, bounds) = match instances.get(i) {
-                    Some((i, b)) => {
-                        // Check whether instance is valid and in frustrum
-                        if i.object_id == ObjectRef::None
-                            || !frustrum.aabb_in_frustrum(&b.root_bounds).should_render()
-                        {
-                            continue;
-                        }
-
-                        (i, b)
-                    }
-                    _ => continue,
-                };
+            for (i, instance, bounds) in instances.iter() {
+                // Check whether instance is valid and in frustrum
+                if instance.object_id == ObjectRef::None
+                    || !frustrum
+                        .aabb_in_frustrum(&bounds.root_bounds)
+                        .should_render()
+                {
+                    continue;
+                }
 
                 let mesh_id = if let Some(id) = instance.object_id {
                     id as usize
@@ -1084,9 +1089,7 @@ impl WgpuBackend {
                 };
 
                 let mesh = &meshes[mesh_id as usize];
-                if let Some(buffer) = instances.vertex_buffers[i].as_ref() {
-                    render_pass.set_pipeline(&pipeline.pipeline);
-                    render_pass.set_bind_group(0, uniform_bind_group, &[]);
+                if let Some(buffer) = instances.vertex_buffers[i].buffer() {
                     render_pass.set_bind_group(
                         1,
                         &device_instance.bind_group,
@@ -1100,8 +1103,7 @@ impl WgpuBackend {
                     render_pass.set_vertex_buffer(3, buffer_slice);
                     render_pass.set_vertex_buffer(4, buffer_slice);
 
-                    mesh.desc
-                        .meshes
+                    mesh.ranges
                         .iter()
                         .enumerate()
                         .filter(|(j, _)| {

@@ -7,90 +7,6 @@ pub use rfw_scene::{
 pub use rfw_utils::collections::ChangedIterator;
 use std::error::Error;
 
-#[derive(Debug, Copy, Clone)]
-pub enum SettingType {
-    String,
-    Int,
-    Float,
-}
-
-#[derive(Debug, Clone)]
-pub enum SettingValue {
-    String(String),
-    Int(isize),
-    Float(f64),
-}
-
-pub type SettingRange = std::ops::Range<isize>;
-
-#[derive(Debug, Clone)]
-pub struct Setting {
-    key: String,
-    value: SettingValue,
-    value_type: SettingType,
-    pub range: SettingRange,
-}
-
-impl Setting {
-    pub fn new(key: String, value: SettingValue, range: Option<SettingRange>) -> Self {
-        let value_type = match &value {
-            SettingValue::String(_) => SettingType::String,
-            SettingValue::Int(_) => SettingType::Int,
-            SettingValue::Float(_) => SettingType::Float,
-        };
-
-        let range = if let Some(r) = range {
-            r
-        } else {
-            std::isize::MIN..std::isize::MAX
-        };
-
-        Self {
-            key,
-            value,
-            value_type,
-            range,
-        }
-    }
-
-    pub fn key(&self) -> &String {
-        &self.key
-    }
-
-    pub fn set(&mut self, value: SettingValue) {
-        match self.value_type {
-            SettingType::String => match value {
-                SettingValue::String(_) => {}
-                _ => panic!("invalid setting value type; string expected"),
-            },
-            SettingType::Int => match value {
-                SettingValue::Int(_) => {}
-                _ => panic!("invalid setting value type; int expected"),
-            },
-            SettingType::Float => match value {
-                SettingValue::Float(_) => assert!(true),
-                _ => panic!("invalid setting value type; float expected"),
-            },
-        }
-
-        match &value {
-            SettingValue::String(s) => {
-                assert!(s.len() < self.range.end as usize && s.len() >= self.range.start as usize)
-            }
-            SettingValue::Int(i) => assert!(*i < self.range.end && *i >= self.range.start),
-            SettingValue::Float(i) => {
-                assert!(*i < self.range.end as f64 && *i >= self.range.start as f64)
-            }
-        }
-
-        self.value = value;
-    }
-
-    pub fn value(&self) -> &SettingValue {
-        &self.value
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RenderMode {
     Default = 0,
@@ -103,27 +19,10 @@ impl Default for RenderMode {
         RenderMode::Default
     }
 }
-//
-// pub struct Mesh2D<'a> {
-//     pub vertices: &'a [Vec3],
-//     pub tex_id: Option<u32>,
-// }
-//
-// pub struct SubMesh {
-//     pub first: u32,
-//     pub last: u32,
-//     pub mat_id: u32,
-//     pub bounds_min: [f32; 3],
-//     pub bounds_max: [f32; 3],
-// }
-//
-// pub struct Mesh3D<'a> {
-//     pub triangles: &'a [RTTriangle],
-//     pub vertices: &'a [VertexData],
-//     pub meshes: &'a [VertexMesh],
-// }
 
 pub trait Backend {
+    type Settings;
+
     /// Initializes renderer with surface given through a raw window handle
     fn init<T: HasRawWindowHandle>(
         window: &T,
@@ -143,9 +42,9 @@ pub trait Backend {
     fn unload_3d_meshes(&mut self, ids: Vec<usize>);
 
     /// Sets an instance with a 4x4 transformation matrix in column-major format
-    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance3D>);
+    fn set_3d_instances(&mut self, instances: ChangedIterator<'_, Instance3D>);
 
-    fn unload_instances(&mut self, ids: Vec<usize>);
+    fn unload_3d_instances(&mut self, ids: Vec<usize>);
 
     /// Updates materials
     fn set_materials(&mut self, materials: ChangedIterator<'_, DeviceMaterial>);
@@ -185,7 +84,6 @@ pub trait Backend {
     // Sets skins
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>);
 
-    fn get_settings(&self) -> Vec<Setting>;
-
-    fn set_setting(&mut self, setting: Setting);
+    // Access backend settings
+    fn settings(&mut self) -> &mut Self::Settings;
 }

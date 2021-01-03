@@ -16,7 +16,7 @@ layout(set = 1, binding = 1) uniform sampler Sampler;
 layout(set = 1, binding = 2) uniform texture2D ScreenSpace;
 layout(set = 1, binding = 3) uniform texture2D Normal;
 
-#define SAMPLES 16
+#define SAMPLES 8
 #define BIAS 0.05
 #define RADIUS 0.5
 

@@ -1,5 +1,6 @@
 use super::mesh::WgpuMesh;
-use crate::mesh::SkinningPipeline;
+use crate::mesh::{SkinningPipeline, WgpuSkin};
+use crate::WgpuSettings;
 use rayon::prelude::*;
 use rfw::prelude::*;
 use rfw::scene::mesh::VertexMesh;
@@ -81,12 +82,43 @@ impl InstanceBounds {
     }
 }
 
+#[derive(Debug)]
+pub enum InstanceVertexBuffer {
+    None,
+    Owned((wgpu::Buffer, wgpu::BufferAddress)),
+    Reference(Arc<wgpu::Buffer>),
+}
+
+impl Default for InstanceVertexBuffer {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl InstanceVertexBuffer {
+    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
+        match self {
+            InstanceVertexBuffer::None => None,
+            InstanceVertexBuffer::Owned((b, _)) => Some(b),
+            InstanceVertexBuffer::Reference(b) => Some(b),
+        }
+    }
+
+    pub fn has_buffer(&self) -> bool {
+        match self {
+            InstanceVertexBuffer::None => false,
+            InstanceVertexBuffer::Owned(_) => true,
+            InstanceVertexBuffer::Reference(_) => true,
+        }
+    }
+}
+
 pub struct InstanceList {
     pub device_instances: DeviceInstances,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub instances: TrackedStorage<Instance3D>,
     pub bounds: Vec<InstanceBounds>,
-    pub vertex_buffers: Vec<Option<Arc<wgpu::Buffer>>>,
+    pub vertex_buffers: Vec<InstanceVertexBuffer>,
     skinning_pipeline: SkinningPipeline,
 }
 
@@ -143,9 +175,10 @@ impl InstanceList {
     pub fn update(
         &mut self,
         device: &wgpu::Device,
-        meshes: &TrackedStorage<WgpuMesh>,
-        skins: &TrackedStorage<Skin>,
         queue: &wgpu::Queue,
+        meshes: &TrackedStorage<WgpuMesh>,
+        skins: &TrackedStorage<WgpuSkin>,
+        settings: &WgpuSettings,
     ) {
         if self.instances.is_empty() {
             return;
@@ -190,7 +223,7 @@ impl InstanceList {
         staging_data.unmap();
 
         let vertex_buffers = &mut self.vertex_buffers;
-        vertex_buffers.resize(self.instances.len(), None);
+        vertex_buffers.resize_with(self.instances.len(), || Default::default());
         let instances = &self.instances;
 
         self.instances.iter_changed().for_each(|(i, inst)| {
@@ -207,35 +240,77 @@ impl InstanceList {
             );
         });
 
+        let copy = async move {
+            queue.submit(std::iter::once(encoder.finish()));
+        };
+
         let skinning_pipeline = &self.skinning_pipeline;
         vertex_buffers
             .iter_mut()
             .enumerate()
             .par_bridge()
             .for_each(|(i, vb)| {
-                if !instances.get_changed(i) {
+                if !instances.get_changed(i) && vb.has_buffer() {
                     return;
                 }
 
-                *vb = if let Some(object_id) = instances[i].object_id {
-                    let mesh = &meshes[object_id as usize];
-                    if let Some(skin_id) = instances[i].skin_id {
-                        Some(Arc::new(skinning_pipeline.apply_skin(
-                            device,
-                            queue,
-                            mesh,
-                            &skins[skin_id as usize],
-                        )))
+                let mut success = false;
+                if let Some(object_id) = instances[i].object_id {
+                    let mesh = if let Some(m) = meshes.get(object_id as usize) {
+                        m
+                    } else if cfg!(debug_assertions) {
+                        panic!(
+                            "Object {} is expected to have been initialized but it was not.",
+                            object_id
+                        );
                     } else {
-                        mesh.buffer.clone()
+                        // Gracefully handle error
+                        *vb = InstanceVertexBuffer::None;
+                        return;
+                    };
+
+                    if settings.enable_skinning {
+                        if let Some(skin_id) = instances[i].skin_id {
+                            if let InstanceVertexBuffer::Owned(buffer) = vb {
+                                // Attempt to use pre-existing buffer
+                                skinning_pipeline.apply_skin_buffer(
+                                    device,
+                                    queue,
+                                    buffer,
+                                    mesh,
+                                    &skins[skin_id as usize],
+                                );
+                            } else {
+                                // Create new buffer
+                                *vb = InstanceVertexBuffer::Owned(skinning_pipeline.apply_skin(
+                                    device,
+                                    queue,
+                                    mesh,
+                                    &skins[skin_id as usize],
+                                ));
+                            }
+                            success = true;
+                        } else {
+                            if let Some(b) = mesh.buffer.as_ref() {
+                                *vb = InstanceVertexBuffer::Reference(b.clone());
+                                success = true;
+                            }
+                        }
+                    } else {
+                        if let Some(b) = mesh.buffer.as_ref() {
+                            *vb = InstanceVertexBuffer::Reference(b.clone());
+                            success = true;
+                        }
                     }
-                } else {
-                    None
-                };
+                }
+
+                if !success {
+                    *vb = InstanceVertexBuffer::None;
+                }
             });
 
         self.bounds = self.get_bounds(meshes);
-        queue.submit(std::iter::once(encoder.finish()));
+        futures::executor::block_on(copy);
     }
 
     pub fn reset_changed(&mut self) {
@@ -278,7 +353,7 @@ impl InstanceList {
                     Some(mesh_id) => {
                         let mesh = &meshes[mesh_id as usize];
                         let transform = instance.get_transform();
-                        mesh.desc.meshes
+                        mesh.ranges
                             .iter()
                             .map(|m| m.bounds.transformed(transform.to_cols_array()))
                             .collect()

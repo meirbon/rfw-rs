@@ -1,4 +1,4 @@
-use rfw_backend::{Backend, RenderMode, Setting};
+use rfw_backend::{Backend, RenderMode};
 use rfw_math::*;
 use rfw_scene::{
     r2d::Instance2D, r2d::Mesh2D, Camera, DirectionalLight, Instance3D, LoadResult, NodeGraph,
@@ -370,7 +370,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.objects.instances.any_changed() {
-            renderer.set_instances(self.scene.objects.instances.iter_changed());
+            renderer.set_3d_instances(self.scene.objects.instances.iter_changed());
             changed = true;
             self.scene.objects.instances.reset_changed();
         }
@@ -430,7 +430,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
         if !instances.is_empty() {
             changed = true;
-            renderer.unload_instances(instances);
+            renderer.unload_3d_instances(instances);
         }
 
         if changed {
@@ -438,20 +438,12 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
     }
 
-    pub fn get_settings(&self) -> Result<Vec<Setting>, ()> {
-        if let Ok(renderer) = self.renderer.try_lock() {
-            Ok(renderer.get_settings())
-        } else {
-            Err(())
-        }
-    }
-
-    pub fn set_setting(&self, setting: Setting) -> Result<(), ()> {
-        if let Ok(mut renderer) = self.renderer.try_lock() {
-            renderer.set_setting(setting);
-            Ok(())
-        } else {
-            Err(())
+    pub fn get_settings<C>(&self, mut cb: C)
+    where
+        C: FnMut(&mut T::Settings),
+    {
+        if let Ok(mut renderer) = self.renderer.lock() {
+            cb(renderer.settings());
         }
     }
 

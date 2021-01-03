@@ -16,16 +16,16 @@ use winit::{
 
 use rayon::prelude::*;
 use rfw::{
-    backend::{Backend, RenderMode, Setting, SettingValue},
+    backend::{Backend, RenderMode},
     math::*,
     scene::{
         self,
-        r2d::{Mesh2D, D2Vertex},
+        r2d::{D2Vertex, Mesh2D},
     },
     system::RenderSystem,
     utils,
 };
-use rfw_backend_wgpu::WgpuBackend;
+use rfw_backend_wgpu::{WgpuBackend, WgpuView};
 use winit::window::Fullscreen;
 
 pub struct KeyHandler {
@@ -100,12 +100,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match matches.value_of("renderer") {
         // Some("gpu-rt") => run_application::<RayTracer>(),
-        Some("gfx") => run_application::<GfxBackend>(),
-        _ => run_application::<WgpuBackend>(),
+        // Some("gfx") => run_application::<GfxBackend>(),
+        _ => run_wgpu_backend(),
     }
 }
 
-fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>> {
+fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
@@ -124,8 +124,8 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
     let mut render_width = (width as f64 * res_scale) as usize;
     let mut render_height = (height as f64 * res_scale) as usize;
 
-    let mut renderer = RenderSystem::new(&window, (width, height), (render_width, render_height))
-        .unwrap() as RenderSystem<T>;
+    let mut renderer: RenderSystem<WgpuBackend> =
+        RenderSystem::new(&window, (width, height), (render_width, render_height)).unwrap();
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -219,8 +219,6 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
     pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.objects.instances);
     renderer.add_scene(pica);
 
-    let settings: Vec<Setting> = renderer.get_settings().unwrap();
-
     let app_time = utils::Timer::new();
 
     timer2.reset();
@@ -241,38 +239,45 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                     *control_flow = ControlFlow::Exit;
                 }
 
-                if !settings.is_empty() {
-                    let mut value = None;
-                    if key_handler.pressed(KeyCode::Key0) {
-                        value = Some(0);
-                    }
-                    if key_handler.pressed(KeyCode::Key1) {
-                        value = Some(1);
-                    }
-                    if key_handler.pressed(KeyCode::Key2) {
-                        value = Some(2);
-                    }
-                    if key_handler.pressed(KeyCode::Key3) {
-                        value = Some(3);
-                    }
-                    if key_handler.pressed(KeyCode::Key4) {
-                        value = Some(4);
-                    }
-                    if key_handler.pressed(KeyCode::Key5) {
-                        value = Some(5);
-                    }
-                    if key_handler.pressed(KeyCode::Key6) {
-                        value = Some(6);
-                    }
-                    if key_handler.pressed(KeyCode::Key7) {
-                        value = Some(7);
-                    }
-
-                    if let Some(value) = value {
-                        let mut setting: Setting = settings[0].clone();
-                        setting.set(SettingValue::Int(value));
-                        renderer.set_setting(setting).unwrap();
-                    }
+                if key_handler.pressed(KeyCode::Key0) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::Output;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key1) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::Albedo;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key2) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::Normal;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key3) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::WorldPos;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key4) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::Radiance;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key5) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::ScreenSpace;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key6) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::SSAO;
+                    });
+                }
+                if key_handler.pressed(KeyCode::Key7) {
+                    renderer.get_settings(|settings| {
+                        settings.view = WgpuView::FilteredSSAO;
+                    });
                 }
 
                 if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {

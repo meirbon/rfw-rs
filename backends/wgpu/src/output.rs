@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use rfw::prelude::*;
+use std::borrow::Cow;
 
 pub struct WgpuOutput {
     pub width: usize,
@@ -49,7 +49,7 @@ pub struct WgpuOutput {
     pub mat_param_view: wgpu::TextureView,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum WgpuView {
     Output = 0,
     Albedo = 1,
@@ -813,18 +813,7 @@ impl WgpuOutput {
             render_pass.set_pipeline(&self.blit_debug_pipeline);
         }
 
-        let bind_group = match view {
-            WgpuView::Output => &self.debug_bind_groups[0],
-            WgpuView::Albedo => &self.debug_bind_groups[1],
-            WgpuView::Normal => &self.debug_bind_groups[2],
-            WgpuView::WorldPos => &self.debug_bind_groups[3],
-            WgpuView::Radiance => &self.debug_bind_groups[4],
-            WgpuView::ScreenSpace => &self.debug_bind_groups[5],
-            WgpuView::SSAO => &self.debug_bind_groups[6],
-            WgpuView::FilteredSSAO => &self.debug_bind_groups[7],
-            WgpuView::MatParams => &self.debug_bind_groups[8],
-        };
-
+        let bind_group = &self.debug_bind_groups[view as usize];
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.draw(0..6, 0..1);
     }

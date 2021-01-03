@@ -989,7 +989,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         target_framebuffer: &B::Framebuffer,
         target_viewport: &pso::Viewport,
         scene: &SceneList<B>,
-        skins: &SkinList<B>,
+        _skins: &SkinList<B>,
         frustrum: &FrustrumG,
     ) {
         cmd_buffer.set_viewports(0, &[self.viewport.clone()]);
