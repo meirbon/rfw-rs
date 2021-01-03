@@ -96,7 +96,7 @@ impl WgpuMesh {
 
 pub struct SkinningPipeline {
     pipeline: wgpu::ComputePipeline,
-    pipeline_layout: wgpu::PipelineLayout,
+    _pipeline_layout: wgpu::PipelineLayout,
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
@@ -156,7 +156,7 @@ impl SkinningPipeline {
 
         Self {
             pipeline,
-            pipeline_layout,
+            _pipeline_layout: pipeline_layout,
             bind_group_layout,
         }
     }

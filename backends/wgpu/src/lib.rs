@@ -561,12 +561,20 @@ impl Backend for WgpuBackend {
             Err(_) => return,
         };
 
+        {
+            let cam = &mut self.camera_buffer.as_mut_slice()[0];
+            cam.view = camera.get_rh_view_matrix();
+            cam.proj = camera.get_rh_projection();
+            cam.light_count = self.lights.counts();
+            cam.position = Vec3::from(camera.pos).extend(1.0);
+        }
+        self.camera_buffer.copy_to_device();
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render"),
             });
-        let light_counts = self.lights.counts();
         Self::render_lights(
             &mut encoder,
             &mut self.lights,
@@ -576,9 +584,7 @@ impl Backend for WgpuBackend {
 
         Self::render_scene(
             &mut encoder,
-            camera,
-            &mut self.camera_buffer,
-            light_counts,
+            FrustrumG::from_matrix(camera.get_rh_matrix()),
             &self.pipeline,
             &self.instances,
             &self.meshes,
@@ -732,9 +738,7 @@ impl WgpuBackend {
 
     fn render_scene(
         encoder: &mut wgpu::CommandEncoder,
-        camera: &Camera,
-        camera_buffer: &mut ManagedBuffer<UniformCamera>,
-        light_counts: [u32; 4],
+        frustrum: FrustrumG,
         pipeline: &pipeline::RenderPipeline,
         instances: &InstanceList,
         meshes: &TrackedStorage<WgpuMesh>,
@@ -744,15 +748,6 @@ impl WgpuBackend {
         ssao_pass: &pass::SSAOPass,
         radiance_pass: &pass::RadiancePass,
     ) {
-        {
-            let cam = &mut camera_buffer.as_mut_slice()[0];
-            cam.view = camera.get_rh_view_matrix();
-            cam.proj = camera.get_rh_projection();
-            cam.light_count = light_counts;
-            cam.position = Vec3::from(camera.pos).extend(1.0);
-        }
-
-        camera_buffer.copy_to_device();
         use output::*;
 
         {
@@ -766,9 +761,6 @@ impl WgpuBackend {
                 ],
                 depth_stencil_attachment: Some(d_output.as_depth_descriptor()),
             });
-
-            let matrix = camera.get_rh_matrix();
-            let frustrum = rfw::scene::FrustrumG::from_matrix(matrix);
 
             let device_instance = &instances.device_instances;
 

@@ -514,10 +514,6 @@ impl ShadowMapArray {
             alpha_to_coverage_enabled: false,
         });
 
-        let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_shader.as_quad_bytes(),
-        )));
 
         let filter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
