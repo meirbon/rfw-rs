@@ -11,7 +11,6 @@ use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
 use std::ops::Deref;
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
 
 mod d2;
 mod instance;
@@ -23,6 +22,7 @@ mod output;
 mod pass;
 mod pipeline;
 
+use crate::mem::ManagedBuffer;
 use mat::*;
 
 #[derive(Debug, Clone)]
@@ -45,15 +45,23 @@ impl Default for WgpuSettings {
     }
 }
 
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct UniformCamera {
+    pub view: Mat4,
+    pub proj: Mat4,
+    pub light_count: [u32; 4],
+    pub position: Vec4,
+}
+
 pub struct WgpuBackend {
     device: Arc<wgpu::Device>,
-    queue: wgpu::Queue,
+    queue: Arc<wgpu::Queue>,
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
     meshes: TrackedStorage<mesh::WgpuMesh>,
     instances: instance::InstanceList,
-    material_buffer: wgpu::Buffer,
-    material_buffer_size: wgpu::BufferAddress,
+    material_buffer: ManagedBuffer<DeviceMaterial>,
     material_bind_groups: FlaggedStorage<WgpuBindGroup>,
     texture_sampler: wgpu::Sampler,
     textures: FlaggedStorage<WgpuTexture>,
@@ -63,7 +71,7 @@ pub struct WgpuBackend {
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group: wgpu::BindGroup,
 
-    uniform_camera_buffer: wgpu::Buffer,
+    camera_buffer: ManagedBuffer<UniformCamera>,
     output: output::WgpuOutput,
     pipeline: pipeline::RenderPipeline,
     scene_bounds: AABB,
@@ -245,6 +253,9 @@ impl Backend for WgpuBackend {
         ))
         .unwrap();
 
+        let device = Arc::new(device);
+        let queue = Arc::new(queue);
+
         let swap_chain = device.create_swap_chain(
             &surface,
             &wgpu::SwapChainDescriptor {
@@ -257,23 +268,23 @@ impl Backend for WgpuBackend {
         );
 
         let instances = instance::InstanceList::new(&device);
-        let material_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("material-mem"),
-            mapped_at_creation: false,
-            size: std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10,
-            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-        });
+        let material_buffer: ManagedBuffer<DeviceMaterial> = ManagedBuffer::new(
+            device.clone(),
+            queue.clone(),
+            wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+            10,
+        );
 
         let texture_bind_group_layout = Self::create_texture_bind_group_layout(&device);
 
         let lights = light::WgpuLights::new(10, &device, &instances.bind_group_layout);
 
-        let uniform_camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("uniform-mem"),
-            mapped_at_creation: false,
-            size: Self::UNIFORM_CAMERA_SIZE,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-        });
+        let camera_buffer = ManagedBuffer::new(
+            device.clone(),
+            queue.clone(),
+            wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            1,
+        );
 
         let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("texture-sampler"),
@@ -296,15 +307,11 @@ impl Backend for WgpuBackend {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        uniform_camera_buffer.slice(0..Self::UNIFORM_CAMERA_SIZE as _),
-                    ),
+                    resource: camera_buffer.binding_resource(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(material_buffer.slice(
-                        0..std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10,
-                    )),
+                    resource: material_buffer.binding_resource(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -322,14 +329,11 @@ impl Backend for WgpuBackend {
             &texture_bind_group_layout,
         );
 
-        let material_buffer_size =
-            std::mem::size_of::<DeviceMaterial>() as wgpu::BufferAddress * 10;
-
         let ssao_pass = pass::SSAOPass::new(&device, &uniform_bind_group_layout, &output);
         let radiance_pass = pass::RadiancePass::new(
             &device,
-            &uniform_camera_buffer,
-            &material_buffer,
+            camera_buffer.buffer(),
+            material_buffer.buffer(),
             &output,
             &lights,
         );
@@ -339,14 +343,13 @@ impl Backend for WgpuBackend {
         let d2_renderer = d2::Renderer::new(&device);
 
         Ok(Box::new(Self {
-            device: Arc::new(device),
+            device,
             queue,
             surface,
             swap_chain,
             meshes: TrackedStorage::new(),
             instances,
             material_buffer,
-            material_buffer_size,
             material_bind_groups: Default::default(),
             texture_sampler,
             textures: FlaggedStorage::new(),
@@ -354,7 +357,7 @@ impl Backend for WgpuBackend {
             lights,
             uniform_bind_group_layout,
             uniform_bind_group,
-            uniform_camera_buffer,
+            camera_buffer,
             output,
             pipeline,
             ssao_pass,
@@ -445,33 +448,32 @@ impl Backend for WgpuBackend {
     fn set_materials(&mut self, materials: ChangedIterator<'_, DeviceMaterial>) {
         {
             let materials = materials.as_slice();
-            let size =
-                (materials.len() * std::mem::size_of::<DeviceMaterial>()) as wgpu::BufferAddress;
-
-            if size > self.material_buffer_size {
-                self.material_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    mapped_at_creation: false,
-                    label: Some("material-mem"),
-                    size,
-                    usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::STORAGE,
-                });
-                self.material_buffer_size = size;
+            if materials.len() > self.material_buffer.len() {
+                self.material_buffer.resize(materials.len() * 2);
+                self.material_buffer.as_mut_slice()[0..materials.len()].clone_from_slice(materials);
+                self.material_buffer.copy_to_device();
             }
-
-            self.queue
-                .write_buffer(&self.material_buffer, 0, materials.as_bytes());
         }
 
         for (i, material) in materials {
-            self.material_bind_groups.overwrite_val(
-                i,
-                WgpuBindGroup::new(
+            if let Some(bind_group) = self.material_bind_groups.get_mut(i) {
+                bind_group.update(
                     &self.device,
                     &self.texture_bind_group_layout,
                     material,
                     &self.textures,
-                ),
-            );
+                );
+            } else {
+                self.material_bind_groups.overwrite_val(
+                    i,
+                    WgpuBindGroup::new(
+                        &self.device,
+                        &self.texture_bind_group_layout,
+                        material,
+                        &self.textures,
+                    ),
+                );
+            }
         }
 
         self.uniform_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -480,16 +482,11 @@ impl Backend for WgpuBackend {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::Buffer(
-                        self.uniform_camera_buffer
-                            .slice(0..Self::UNIFORM_CAMERA_SIZE),
-                    ),
+                    resource: self.camera_buffer.binding_resource(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        self.material_buffer.slice(0..self.material_buffer_size),
-                    ),
+                    resource: self.material_buffer.binding_resource(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -549,8 +546,8 @@ impl Backend for WgpuBackend {
                 &self.device,
                 &self.output,
                 &self.lights,
-                &self.uniform_camera_buffer,
-                &self.material_buffer,
+                self.camera_buffer.buffer(),
+                self.material_buffer.buffer(),
             );
         }
 
@@ -578,15 +575,14 @@ impl Backend for WgpuBackend {
         );
 
         Self::render_scene(
-            &self.device,
             &mut encoder,
             camera,
+            &mut self.camera_buffer,
             light_counts,
             &self.pipeline,
             &self.instances,
             &self.meshes,
             &self.output,
-            &self.uniform_camera_buffer,
             &self.uniform_bind_group,
             self.material_bind_groups.as_slice(),
             &self.ssao_pass,
@@ -658,8 +654,8 @@ impl Backend for WgpuBackend {
             &self.device,
             &self.output,
             &self.lights,
-            &self.uniform_camera_buffer,
-            &self.material_buffer,
+            self.camera_buffer.buffer(),
+            self.material_buffer.buffer(),
         );
         self.ssao_pass
             .update_bind_groups(&self.device, &self.output);
@@ -735,61 +731,28 @@ impl WgpuBackend {
     }
 
     fn render_scene(
-        device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         camera: &Camera,
+        camera_buffer: &mut ManagedBuffer<UniformCamera>,
         light_counts: [u32; 4],
         pipeline: &pipeline::RenderPipeline,
         instances: &InstanceList,
         meshes: &TrackedStorage<WgpuMesh>,
         d_output: &output::WgpuOutput,
-        uniform_camera_buffer: &wgpu::Buffer,
         uniform_bind_group: &wgpu::BindGroup,
         material_bind_groups: &[WgpuBindGroup],
         ssao_pass: &pass::SSAOPass,
         radiance_pass: &pass::RadiancePass,
     ) {
-        let camera_data = {
-            let mut data = [0 as u8; Self::UNIFORM_CAMERA_SIZE as usize];
-            let view = camera.get_rh_view_matrix();
-            let projection = camera.get_rh_projection();
+        {
+            let cam = &mut camera_buffer.as_mut_slice()[0];
+            cam.view = camera.get_rh_view_matrix();
+            cam.proj = camera.get_rh_projection();
+            cam.light_count = light_counts;
+            cam.position = Vec3::from(camera.pos).extend(1.0);
+        }
 
-            unsafe {
-                let ptr = data.as_mut_ptr();
-                // View matrix
-                ptr.copy_from(view.as_ref().as_ptr() as *const u8, 64);
-                // Projection matrix
-                ptr.add(64)
-                    .copy_from(projection.as_ref().as_ptr() as *const u8, 64);
-
-                // Light counts
-                ptr.add(128)
-                    .copy_from(light_counts.as_ptr() as *const u8, 16);
-
-                // Camera position
-                ptr.add(144).copy_from(
-                    Vec3::from(camera.pos).extend(1.0).as_ref().as_ptr() as *const u8,
-                    16,
-                );
-            }
-
-            data
-        };
-
-        let camera_staging_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: &camera_data,
-            usage: wgpu::BufferUsage::COPY_SRC,
-        });
-
-        encoder.copy_buffer_to_buffer(
-            &camera_staging_buffer,
-            0,
-            uniform_camera_buffer,
-            0,
-            Self::UNIFORM_CAMERA_SIZE,
-        );
-
+        camera_buffer.copy_to_device();
         use output::*;
 
         {

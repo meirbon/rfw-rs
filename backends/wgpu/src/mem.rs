@@ -7,6 +7,7 @@ pub struct ManagedBuffer<T: Sized> {
     queue: Arc<wgpu::Queue>,
     host_buffer: Vec<T>,
     buffer: wgpu::Buffer,
+    usage: wgpu::BufferUsage,
 }
 
 #[allow(dead_code)]
@@ -17,10 +18,11 @@ impl<T: Sized> ManagedBuffer<T> {
         usage: wgpu::BufferUsage,
         host_data: Vec<T>,
     ) -> Self {
+        let usage = usage | wgpu::BufferUsage::COPY_DST;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (std::mem::size_of::<T>() * host_data.len()) as wgpu::BufferAddress,
-            usage: usage | wgpu::BufferUsage::COPY_DST,
+            usage,
             mapped_at_creation: false,
         });
 
@@ -29,6 +31,7 @@ impl<T: Sized> ManagedBuffer<T> {
             queue,
             host_buffer: host_data,
             buffer,
+            usage,
         }
     }
 
@@ -42,11 +45,12 @@ impl<T: Sized> ManagedBuffer<T> {
     where
         T: Clone,
     {
+        let usage = usage | wgpu::BufferUsage::COPY_DST;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (std::mem::size_of::<T>() * count) as wgpu::BufferAddress,
-            usage: usage | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
+            usage,
         });
 
         Self {
@@ -54,6 +58,7 @@ impl<T: Sized> ManagedBuffer<T> {
             queue,
             host_buffer: vec![data; count],
             buffer,
+            usage,
         }
     }
 
@@ -66,10 +71,11 @@ impl<T: Sized> ManagedBuffer<T> {
     where
         T: Default + Clone,
     {
+        let usage = usage | wgpu::BufferUsage::COPY_DST;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (std::mem::size_of::<T>() * count) as wgpu::BufferAddress,
-            usage: usage | wgpu::BufferUsage::COPY_DST,
+            usage,
             mapped_at_creation: false,
         });
 
@@ -78,11 +84,19 @@ impl<T: Sized> ManagedBuffer<T> {
             queue,
             host_buffer: vec![T::default(); count],
             buffer,
+            usage,
         }
     }
 
-    pub fn binding_resource(&self, bounds: Range<wgpu::BufferAddress>) -> wgpu::BindingResource {
-        wgpu::BindingResource::Buffer(self.buffer.slice(bounds))
+    pub fn binding_resource(&self) -> wgpu::BindingResource {
+        wgpu::BindingResource::Buffer(self.buffer.slice(..))
+    }
+
+    pub fn binding_resource_ranged(
+        &self,
+        range: Range<wgpu::BufferAddress>,
+    ) -> wgpu::BindingResource {
+        wgpu::BindingResource::Buffer(self.buffer.slice(range))
     }
 
     pub fn buffer(&self) -> &wgpu::Buffer {
@@ -92,6 +106,24 @@ impl<T: Sized> ManagedBuffer<T> {
     pub fn copy_to_device(&self) {
         self.queue
             .write_buffer(&self.buffer, 0, self.host_buffer.as_bytes());
+    }
+
+    pub fn copy_using_map(&mut self) {
+        // FIXME: Currently, wgpu causes major stalls when a map is requested.
+        // To work around this issue, we create a new buffer but it would be preferable to reuse
+        // buffers instead.
+        self.buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (std::mem::size_of::<T>() * self.len()) as wgpu::BufferAddress,
+            usage: self.usage,
+            mapped_at_creation: true,
+        });
+
+        self.buffer
+            .slice(..)
+            .get_mapped_range_mut()
+            .copy_from_slice(self.host_buffer.as_bytes());
+        self.buffer.unmap();
     }
 
     pub fn len(&self) -> usize {
@@ -108,6 +140,32 @@ impl<T: Sized> ManagedBuffer<T> {
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.host_buffer.as_mut_slice()
+    }
+
+    pub fn resize(&mut self, size: usize)
+    where
+        T: Default + Clone,
+    {
+        self.host_buffer.resize(size, T::default());
+        self.buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (std::mem::size_of::<T>() * size) as wgpu::BufferAddress,
+            usage: self.usage,
+            mapped_at_creation: false,
+        });
+    }
+
+    pub fn resize_with(&mut self, size: usize, value: T)
+    where
+        T: Clone,
+    {
+        self.host_buffer.resize(size, value);
+        self.buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (std::mem::size_of::<T>() * size) as wgpu::BufferAddress,
+            usage: self.usage,
+            mapped_at_creation: false,
+        });
     }
 }
 
