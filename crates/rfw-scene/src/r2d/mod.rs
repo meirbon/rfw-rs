@@ -7,14 +7,14 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Mesh2D {
-    pub vertices: Vec<D2Vertex>,
+    pub vertices: Vec<Vertex2D>,
     pub tex_id: Option<u32>,
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
-pub struct D2Vertex {
+pub struct Vertex2D {
     pub vertex: [f32; 3],
     pub has_tex: u32,
     pub uv: [f32; 2],
@@ -48,7 +48,7 @@ impl Mesh2D {
         let vertices = vertices
             .iter()
             .zip(uvs.iter())
-            .map(|(v, t)| D2Vertex {
+            .map(|(v, t)| Vertex2D {
                 vertex: *v,
                 has_tex: tex,
                 uv: *t,
@@ -76,8 +76,8 @@ impl Mesh2D {
     }
 }
 
-impl From<Vec<D2Vertex>> for Mesh2D {
-    fn from(vec: Vec<D2Vertex>) -> Self {
+impl From<Vec<Vertex2D>> for Mesh2D {
+    fn from(vec: Vec<Vertex2D>) -> Self {
         Self {
             vertices: vec,
             tex_id: None,
@@ -85,8 +85,8 @@ impl From<Vec<D2Vertex>> for Mesh2D {
     }
 }
 
-impl From<&[D2Vertex]> for Mesh2D {
-    fn from(vec: &[D2Vertex]) -> Self {
+impl From<&[Vertex2D]> for Mesh2D {
+    fn from(vec: &[Vertex2D]) -> Self {
         Self {
             vertices: vec.to_vec(),
             tex_id: None,

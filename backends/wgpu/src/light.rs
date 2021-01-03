@@ -500,7 +500,7 @@ impl ShadowMapArray {
             vertex_state: wgpu::VertexStateDescriptor {
                 index_format: wgpu::IndexFormat::Uint32,
                 vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                    stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                    stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                     step_mode: wgpu::InputStepMode::Vertex,
                     attributes: &[wgpu::VertexAttributeDescriptor {
                         offset: 0,
@@ -513,7 +513,6 @@ impl ShadowMapArray {
             sample_mask: !0,
             alpha_to_coverage_enabled: false,
         });
-
 
         let filter_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1022,56 +1021,40 @@ impl ShadowMapArray {
 
             let device_instance = &instances.device_instances;
 
-            (0..instances.len())
-                .into_iter()
-                .filter(|i| match instances.instances.get(*i) {
-                    None => false,
-                    Some(_) => true,
-                })
-                .for_each(|i| {
-                    let instance = &instances.instances[i];
-                    let bounds = &instances.bounds[i];
+            for (i, buffer, desc) in instances.iter() {
+                if frustrum.aabb_in_frustrum(&desc.root_bounds) == FrustrumResult::Outside {
+                    continue;
+                }
 
-                    if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside {
-                        return;
+                let mesh_id = instances.mesh_ids[i];
+                if !mesh_id.is_valid() {
+                    continue;
+                }
+
+                render_pass.set_pipeline(&self.pipeline);
+                render_pass.set_vertex_buffer(0, buffer.slice(..));
+                render_pass.set_bind_group(
+                    0,
+                    &self.bind_group,
+                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                );
+                render_pass.set_bind_group(
+                    1,
+                    &device_instance.bind_group,
+                    &[DeviceInstances::offset_for(i) as u32],
+                );
+
+                for j in 0..desc.ranges.len() {
+                    if let Some(bounds) = desc.mesh_bounds.get(i) {
+                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                            continue;
+                        }
                     }
 
-                    match instance.object_id {
-                        None => {}
-                        Some(mesh_id) => {
-                            let mesh = &meshes[mesh_id as usize];
-                            if let Some(buffer) = instances.vertex_buffers[i].buffer() {
-                                render_pass.set_pipeline(&self.pipeline);
-                                render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
-
-                                render_pass.set_bind_group(
-                                    0,
-                                    &self.bind_group,
-                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                        as wgpu::DynamicOffset],
-                                );
-                                render_pass.set_bind_group(
-                                    1,
-                                    &device_instance.bind_group,
-                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                );
-
-                                for j in 0..mesh.ranges.len() {
-                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                        if frustrum.aabb_in_frustrum(bounds)
-                                            == FrustrumResult::Outside
-                                        {
-                                            continue;
-                                        }
-                                    }
-
-                                    let sub_mesh = &mesh.ranges[j];
-                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                }
-                            }
-                        }
-                    };
-                });
+                    let sub_mesh = &desc.ranges[j];
+                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                }
+            }
         }
 
         encoder.copy_buffer_to_buffer(

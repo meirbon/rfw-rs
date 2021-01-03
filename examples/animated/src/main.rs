@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use clap::{App, Arg};
-use rfw_backend_gfx::GfxBackend;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -20,7 +19,7 @@ use rfw::{
     math::*,
     scene::{
         self,
-        r2d::{D2Vertex, Mesh2D},
+        r2d::{Mesh2D, Vertex2D},
     },
     system::RenderSystem,
     utils,
@@ -191,14 +190,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .scene()
         .unwrap();
 
-    let mut cesium_man1 = scene::graph::NodeGraph::from_scene_descriptor(
-        &cesium_man,
-        &mut renderer.scene.objects.instances,
-    );
-    let mut cesium_man2 = scene::graph::NodeGraph::from_scene_descriptor(
-        &cesium_man,
-        &mut renderer.scene.objects.instances,
-    );
+    let mut cesium_man1 =
+        scene::graph::NodeGraph::from_scene_descriptor(&cesium_man, &mut renderer.scene.instances);
+    let mut cesium_man2 =
+        scene::graph::NodeGraph::from_scene_descriptor(&cesium_man, &mut renderer.scene.instances);
 
     for node in cesium_man1.iter_root_nodes_mut() {
         node.set_scale(Vec3::splat(3.0));
@@ -216,7 +211,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .scene()
         .unwrap();
     let mut pica = scene::graph::NodeGraph::new();
-    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.objects.instances);
+    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.instances);
     renderer.add_scene(pica);
 
     let app_time = utils::Timer::new();
@@ -287,7 +282,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     } else {
                         let mut cesium_man3 = scene::graph::NodeGraph::from_scene_descriptor(
                             &cesium_man,
-                            &mut renderer.scene.objects.instances,
+                            &mut renderer.scene.instances,
                         );
                         for node in cesium_man3.iter_root_nodes_mut() {
                             node.translate(Vec3::new(-6.0, 0.0, 0.0));
@@ -433,25 +428,25 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                         let vertices: Vec<_> = vertices
                             .par_iter()
                             .map(|v| {
-                                let v0 = D2Vertex {
+                                let v0 = Vertex2D {
                                     vertex: [v.min_x, v.min_y, 0.5],
                                     uv: [v.uv_min_x, v.uv_min_y],
                                     has_tex: tex,
                                     color: v.color,
                                 };
-                                let v1 = D2Vertex {
+                                let v1 = Vertex2D {
                                     vertex: [v.max_x, v.min_y, 0.5],
                                     uv: [v.uv_max_x, v.uv_min_y],
                                     has_tex: tex,
                                     color: v.color,
                                 };
-                                let v2 = D2Vertex {
+                                let v2 = Vertex2D {
                                     vertex: [v.max_x, v.max_y, 0.5],
                                     uv: [v.uv_max_x, v.uv_max_y],
                                     has_tex: tex,
                                     color: v.color,
                                 };
-                                let v3 = D2Vertex {
+                                let v3 = Vertex2D {
                                     vertex: [v.min_x, v.max_y, 0.5],
                                     uv: [v.uv_min_x, v.uv_max_y],
                                     has_tex: tex,

@@ -6,7 +6,7 @@ pub type InstanceID = i32;
 pub mod camera;
 pub mod constants;
 pub mod graph;
-// pub mod intersector;
+pub mod instances;
 pub mod lights;
 pub mod loaders;
 pub mod material;
@@ -18,6 +18,7 @@ pub mod utils;
 pub use camera::*;
 pub use graph::*;
 pub use instance::*;
+pub use instances::*;
 // pub use intersector::*;
 pub use l3d::prelude::{
     load::*, mat::Flip, mat::Material, mat::Texture, mat::TextureDescriptor, mat::TextureFormat,
@@ -39,7 +40,7 @@ use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
 use crate::utils::Flags;
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut, TrackedStorage};
-use rtbvh::{Bounds, AABB};
+use rtbvh::AABB;
 use std::collections::HashSet;
 use std::sync::{PoisonError, TryLockError};
 use std::{
@@ -114,7 +115,7 @@ pub struct Objects {
     pub d2_meshes: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
-    pub instances: TrackedStorage<Instance3D>,
+    // pub instances: TrackedStorage<Instance3D>,
     pub d2_instances: TrackedStorage<Instance2D>,
     pub o_to_i_mapping: HashMap<u32, HashSet<u32>>,
 }
@@ -126,7 +127,6 @@ impl Default for Objects {
             d2_meshes: TrackedStorage::new(),
             graph: graph::SceneGraph::new(),
             skins: TrackedStorage::new(),
-            instances: TrackedStorage::new(),
             d2_instances: TrackedStorage::new(),
             o_to_i_mapping: HashMap::new(),
         }
@@ -163,6 +163,7 @@ pub struct Scene {
     pub materials: MaterialList,
     pub settings: Flags,
     pub cameras: TrackedStorage<Camera>,
+    pub instances: InstanceList,
 }
 
 impl Default for Scene {
@@ -174,8 +175,9 @@ impl Default for Scene {
             objects: Objects::default(),
             lights: SceneLights::default(),
             materials: MaterialList::new(),
-            settings: Flags::default(),
+            settings: Flags::new(),
             cameras: TrackedStorage::new(),
+            instances: InstanceList::new(),
         }
     }
 }
@@ -183,11 +185,11 @@ impl Default for Scene {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
+    pub instances: instances::List,
     pub meshes: TrackedStorage<Mesh3D>,
     pub d2_meshes: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
-    pub instances: TrackedStorage<Instance3D>,
     pub d2_instances: TrackedStorage<Instance2D>,
     pub o_to_i_mapping: HashMap<u32, HashSet<u32>>,
     pub lights: SceneLights,
@@ -198,11 +200,11 @@ struct SerializableScene {
 impl From<&Scene> for SerializableScene {
     fn from(scene: &Scene) -> Self {
         Self {
+            instances: scene.instances.clone_inner(),
             meshes: scene.objects.meshes.clone(),
             d2_meshes: scene.objects.d2_meshes.clone(),
             graph: scene.objects.graph.clone(),
             skins: scene.objects.skins.clone(),
-            instances: scene.objects.instances.clone(),
             d2_instances: scene.objects.d2_instances.clone(),
             o_to_i_mapping: scene.objects.o_to_i_mapping.clone(),
             lights: scene.lights.clone(),
@@ -221,7 +223,6 @@ impl Into<Scene> for SerializableScene {
                 d2_meshes: self.d2_meshes,
                 graph: self.graph,
                 skins: self.skins,
-                instances: self.instances,
                 d2_instances: self.d2_instances,
                 o_to_i_mapping: self.o_to_i_mapping,
             },
@@ -229,6 +230,7 @@ impl Into<Scene> for SerializableScene {
             materials: self.materials,
             settings: self.settings,
             cameras: TrackedStorage::new(),
+            instances: self.instances.into(),
         }
     }
 }
@@ -333,12 +335,11 @@ impl Scene {
                     .expect("Object should exist in o_to_i_mapping")
                     .iter()
                 {
-                    let instance: &mut Instance3D = self
-                        .objects
+                    let mut instance = self
                         .instances
-                        .get_mut(*inst as usize)
+                        .get(*inst as usize)
                         .expect("Instance should exist");
-                    instance.object_id = ObjectRef::None;
+                    instance.set_mesh(MeshID::INVALID);
                 }
 
                 Ok(())
@@ -356,19 +357,18 @@ impl Scene {
     }
 
     pub fn add_instance(&mut self, index: u32) -> Result<usize, SceneError> {
-        let bounds = match self.objects.meshes.get(index as usize) {
+        match self.objects.meshes.get(index as usize) {
             None => return Err(SceneError::InvalidObjectIndex(index as usize)),
-            Some(m) => m.bounds.clone(),
+            _ => {}
         };
 
-        let instance_id = self.objects.instances.allocate();
+        let instance = self.instances.allocate().get_id();
         self.objects
             .o_to_i_mapping
             .get_mut(&index)
             .expect("Object should exist in o_to_i_mapping")
-            .insert(instance_id as u32);
-        self.objects.instances[instance_id] = Instance3D::new(Some(index), &bounds);
-        Ok(instance_id)
+            .insert(instance as u32);
+        Ok(instance)
     }
 
     pub fn add_2d_instance(&mut self, index: u32) -> Result<usize, SceneError> {
@@ -382,27 +382,24 @@ impl Scene {
         instance: usize,
         obj_index: ObjectRef,
     ) -> Result<(), SceneError> {
-        let (obj_index, bounds) = if let Some(index) = obj_index {
+        let obj_index = if let Some(index) = obj_index {
             match self.objects.meshes.get(index as usize) {
                 None => return Err(SceneError::InvalidObjectIndex(index as usize)),
-                Some(_) => (
-                    Some(index),
-                    self.objects.meshes[index as usize].bounds.clone(),
-                ),
+                Some(_) => Some(index),
             }
         } else {
-            (None, AABB::empty())
+            None
         };
 
-        match self.objects.instances.get_mut(instance) {
+        match self.instances.get(instance) {
             None => return Err(SceneError::InvalidInstanceIndex(instance)),
             Some(inst) => {
-                if inst.object_id != None {
+                if let Some(mesh_id) = inst.get_mesh_id().as_index() {
                     self.objects
                         .o_to_i_mapping
-                        .get_mut(inst.object_id.as_ref().unwrap())
+                        .get_mut(&(mesh_id as u32))
                         .expect("Object should exist in o_to_i_mapping")
-                        .remove(&(instance as u32));
+                        .remove(&(inst.get_id() as u32));
                 }
 
                 if let Some(id) = obj_index {
@@ -410,11 +407,8 @@ impl Scene {
                         .o_to_i_mapping
                         .get_mut(&id)
                         .expect("Object should exist in o_to_i_mapping")
-                        .insert(instance as u32);
+                        .insert(inst.get_id() as u32);
                 }
-
-                inst.object_id = obj_index;
-                inst.set_bounds(bounds);
             }
         }
 
@@ -427,10 +421,10 @@ impl Scene {
             _ => {}
         };
 
-        match self.objects.instances.erase(index) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(SceneError::UnknownError),
+        if let Some(instance) = self.instances.get(index) {
+            self.instances.make_invalid(instance);
         }
+        Ok(())
     }
 
     pub fn remove_2d_instance(&mut self, index: usize) -> Result<(), SceneError> {
@@ -529,62 +523,57 @@ impl Scene {
 
         let mut triangle_light_ids: Vec<(u32, u32, u32)> = Vec::new();
 
-        self.objects
-            .instances
-            .iter()
-            .for_each(|(inst_idx, instance)| match instance.object_id {
-                ObjectRef::None => return,
-                Some(mesh_id) => {
-                    let m = &self.objects.meshes[mesh_id as usize];
-                    for v in m.meshes.iter() {
-                        let light_flag = light_flags.get(v.mat_id as usize);
-                        if light_flag.is_none() {
-                            continue;
-                        }
+        for (inst_idx, instance) in self.instances.iter().enumerate() {
+            if let Some(mesh_id) = instance.get_mesh_id().as_index() {
+                let m = &self.objects.meshes[mesh_id];
+                for v in m.ranges.iter() {
+                    let light_flag = light_flags.get(v.mat_id as usize);
+                    if light_flag.is_none() {
+                        continue;
+                    }
 
-                        if *light_flag.unwrap() {
-                            for i in (v.first as usize / 3)..(v.last as usize / 3) {
-                                let i0 = i;
-                                let i1 = i + 1;
-                                let i2 = i + 2;
+                    if *light_flag.unwrap() {
+                        for i in (v.first as usize / 3)..(v.last as usize / 3) {
+                            let i0 = i;
+                            let i1 = i + 1;
+                            let i2 = i + 2;
 
-                                let v0 = &m.vertices[i0];
-                                let v1 = &m.vertices[i1];
-                                let v2 = &m.vertices[i2];
+                            let v0 = &m.vertices[i0];
+                            let v1 = &m.vertices[i1];
+                            let v2 = &m.vertices[i2];
 
-                                let vertex0: Vec3 =
-                                    instance.transform_vertex(Vec3::from(Vec4::from(v0.vertex)));
-                                let vertex1: Vec3 =
-                                    instance.transform_vertex(Vec3::from(Vec4::from(v1.vertex)));
-                                let vertex2: Vec3 =
-                                    instance.transform_vertex(Vec3::from(Vec4::from(v2.vertex)));
+                            let transform = instance.get_matrix();
 
-                                let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
-                                let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
-                                let color = self.materials[v.mat_id as usize].color;
+                            let vertex0: Vec3 = (transform * Vec4::from(v0.vertex)).truncate();
+                            let vertex1: Vec3 = (transform * Vec4::from(v1.vertex)).truncate();
+                            let vertex2: Vec3 = (transform * Vec4::from(v2.vertex)).truncate();
 
-                                let triangle_id = i;
-                                let id = area_lights.len();
-                                triangle_light_ids.push((
-                                    mesh_id as u32,
-                                    triangle_id as u32,
-                                    id as u32,
-                                ));
+                            let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
+                            let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
+                            let color = self.materials[v.mat_id as usize].color;
 
-                                area_lights.push(AreaLight::new(
-                                    position,
-                                    Vec3::new(color[0], color[1], color[2]),
-                                    normal,
-                                    inst_idx as i32,
-                                    vertex0,
-                                    vertex1,
-                                    vertex2,
-                                ));
-                            }
+                            let triangle_id = i;
+                            let id = area_lights.len();
+                            triangle_light_ids.push((
+                                mesh_id as u32,
+                                triangle_id as u32,
+                                id as u32,
+                            ));
+
+                            area_lights.push(AreaLight::new(
+                                position,
+                                Vec3::new(color[0], color[1], color[2]),
+                                normal,
+                                inst_idx as i32,
+                                vertex0,
+                                vertex1,
+                                vertex2,
+                            ));
                         }
                     }
                 }
-            });
+            }
+        }
 
         triangle_light_ids
             .into_iter()
@@ -637,17 +626,5 @@ impl Scene {
 
     pub fn get_cameras_mut(&mut self) -> FlaggedIteratorMut<'_, Camera> {
         self.cameras.iter_mut()
-    }
-}
-
-impl Bounds for Objects {
-    fn bounds(&self) -> AABB {
-        let mut aabb = AABB::new();
-
-        for (_, instance) in self.instances.iter() {
-            aabb.grow_bb(&instance.bounds());
-        }
-
-        aabb
     }
 }

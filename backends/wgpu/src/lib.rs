@@ -378,25 +378,29 @@ impl Backend for WgpuBackend {
         }))
     }
 
-    fn set_2d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh2D>) {
-        self.d2_renderer.update_meshes(&self.device, meshes);
+    fn set_2d_mesh(&mut self, id: usize, mesh: Mesh2dData) {
+        self.d2_renderer.update_mesh(&self.device, id, mesh);
     }
 
     fn set_2d_instances(&mut self, instances: ChangedIterator<'_, Instance2D>) {
         self.d2_renderer.update_instances(&self.queue, instances);
     }
 
-    fn set_3d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh3D>) {
-        for (id, mesh) in meshes {
-            self.mesh_bounds
-                .overwrite_val(id, (mesh.bounds.clone(), mesh.meshes.clone()));
-            let device = self.device.clone();
-            let mesh = mesh.clone();
-            self.task_pool.push(move |finish| {
-                let mesh = mesh::WgpuMesh::new(&device, &mesh);
-                finish.send(TaskResult::Mesh(id, mesh));
-            });
-        }
+    fn set_3d_mesh(&mut self, id: usize, mesh: Mesh3dData) {
+        self.mesh_bounds
+            .overwrite_val(id, (mesh.bounds.clone(), mesh.ranges.to_vec()));
+        let device = self.device.clone();
+
+        let name = mesh.name.clone();
+        let vertices = mesh.vertices.to_vec();
+        let ranges = mesh.ranges.to_vec();
+        let skin_data = mesh.skin_data.to_vec();
+        let bounds = mesh.bounds.clone();
+
+        self.task_pool.push(move |finish| {
+            let mesh = mesh::WgpuMesh::new(&device, name, vertices, ranges, skin_data, bounds);
+            finish.send(TaskResult::Mesh(id, mesh));
+        });
     }
 
     fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
@@ -408,40 +412,30 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn set_3d_instances(&mut self, instances: ChangedIterator<'_, Instance3D>) {
-        for (id, instance) in instances {
-            if let Some(mesh_id) = instance.object_id {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &self.mesh_bounds[mesh_id as usize],
-                );
-            } else {
-                self.instances.set(
-                    &self.device,
-                    id,
-                    instance.clone(),
-                    &(AABB::empty(), Vec::new()),
-                );
+    fn set_3d_instances(&mut self, instances: &rfw::prelude::InstanceList) {
+        for i in 0..instances.len() {
+            let instance: InstanceHandle = instances.get(i).unwrap();
+            let mesh_id = instance.get_mesh_id();
+            if !mesh_id.is_valid() {
+                continue;
             }
 
-            self.scene_bounds.grow_bb(
-                &instance
-                    .local_bounds()
-                    .transformed(instance.get_transform().to_cols_array()),
-            );
+            let mesh = self.meshes.get(mesh_id.into());
+            self.instances.set(&self.device, i, instance.clone(), mesh);
+
+            if let Some(mesh) = mesh {
+                self.scene_bounds.grow_bb(
+                    &mesh
+                        .bounds
+                        .transformed(instance.get_matrix().to_cols_array()),
+                );
+            }
         }
     }
 
     fn unload_3d_instances(&mut self, ids: Vec<usize>) {
         for id in ids {
-            self.instances.set(
-                &self.device,
-                id,
-                Instance3D::default(),
-                &(AABB::empty(), Vec::new()),
-            );
+            self.instances.remove(id);
         }
     }
 
@@ -583,11 +577,11 @@ impl Backend for WgpuBackend {
         );
 
         Self::render_scene(
+            camera,
             &mut encoder,
             FrustrumG::from_matrix(camera.get_rh_matrix()),
             &self.pipeline,
             &self.instances,
-            &self.meshes,
             &self.output,
             &self.uniform_bind_group,
             self.material_bind_groups.as_slice(),
@@ -737,11 +731,11 @@ impl WgpuBackend {
     }
 
     fn render_scene(
+        camera: &Camera,
         encoder: &mut wgpu::CommandEncoder,
         frustrum: FrustrumG,
         pipeline: &pipeline::RenderPipeline,
         instances: &InstanceList,
-        meshes: &TrackedStorage<WgpuMesh>,
         d_output: &output::WgpuOutput,
         uniform_bind_group: &wgpu::BindGroup,
         material_bind_groups: &[WgpuBindGroup],
@@ -768,55 +762,44 @@ impl WgpuBackend {
             render_pass.set_bind_group(0, uniform_bind_group, &[]);
 
             // Render all instances
-            for (i, instance, bounds) in instances.iter() {
+            for (i, buffer, desc) in
+                instances.iter_sorted(Vec3::from(camera.pos), camera.direction.into())
+            {
                 // Check whether instance is valid and in frustrum
-                if instance.object_id == ObjectRef::None
-                    || !frustrum
-                        .aabb_in_frustrum(&bounds.root_bounds)
-                        .should_render()
-                {
+                if !frustrum.aabb_in_frustrum(&desc.root_bounds).should_render() {
                     continue;
                 }
 
-                let mesh_id = if let Some(id) = instance.object_id {
-                    id as usize
-                } else {
-                    continue;
-                };
+                render_pass.set_bind_group(
+                    1,
+                    &device_instance.bind_group,
+                    &[DeviceInstances::offset_for(i) as u32],
+                );
 
-                let mesh = &meshes[mesh_id as usize];
-                if let Some(buffer) = instances.vertex_buffers[i].buffer() {
-                    render_pass.set_bind_group(
-                        1,
-                        &device_instance.bind_group,
-                        &[DeviceInstances::dynamic_offset_for(i) as u32],
-                    );
+                let buffer_slice = buffer.slice(..);
+                render_pass.set_vertex_buffer(0, buffer_slice);
+                render_pass.set_vertex_buffer(1, buffer_slice);
+                render_pass.set_vertex_buffer(2, buffer_slice);
+                render_pass.set_vertex_buffer(3, buffer_slice);
+                render_pass.set_vertex_buffer(4, buffer_slice);
 
-                    let buffer_slice = buffer.slice(0..mesh.buffer_size);
-                    render_pass.set_vertex_buffer(0, buffer_slice);
-                    render_pass.set_vertex_buffer(1, buffer_slice);
-                    render_pass.set_vertex_buffer(2, buffer_slice);
-                    render_pass.set_vertex_buffer(3, buffer_slice);
-                    render_pass.set_vertex_buffer(4, buffer_slice);
-
-                    mesh.ranges
-                        .iter()
-                        .enumerate()
-                        .filter(|(j, _)| {
-                            frustrum
-                                .aabb_in_frustrum(&bounds.mesh_bounds[*j])
-                                .should_render()
-                        })
-                        .for_each(|(_, sub_mesh)| {
-                            let bind_group = &material_bind_groups[sub_mesh.mat_id as usize];
-                            render_pass.set_bind_group(
-                                2,
-                                bind_group.group.deref().as_ref().unwrap(),
-                                &[],
-                            );
-                            render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                        });
-                }
+                desc.ranges
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| {
+                        frustrum
+                            .aabb_in_frustrum(&desc.mesh_bounds[*j])
+                            .should_render()
+                    })
+                    .for_each(|(_, sub_mesh)| {
+                        let bind_group = &material_bind_groups[sub_mesh.mat_id as usize];
+                        render_pass.set_bind_group(
+                            2,
+                            bind_group.group.deref().as_ref().unwrap(),
+                            &[],
+                        );
+                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                    });
             }
         }
 

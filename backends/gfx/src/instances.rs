@@ -252,15 +252,18 @@ impl<B: hal::Backend> SceneList<B> {
         );
     }
 
-    pub fn set_mesh(&mut self, id: usize, mesh: &rfw::prelude::Mesh3D) {
+    pub fn remove_mesh(&mut self, id: usize) {
+        self.meshes.overwrite_val(id, GfxMesh::default_id(id));
+    }
+
+    pub fn set_mesh(&mut self, id: usize, mesh: Mesh3dData) {
         if mesh.vertices.is_empty() {
             self.meshes.overwrite_val(id, GfxMesh::default_id(id));
             return;
         }
 
-        let mesh = mesh.clone();
         let queue = self.queue.clone();
-        let buffer_len = (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
+        let buffer_len = (mesh.vertices.len() * std::mem::size_of::<Vertex3D>()) as u64;
         assert_ne!(buffer_len, 0);
 
         let buffer = self
@@ -285,12 +288,15 @@ impl<B: hal::Backend> SceneList<B> {
 
         let mut cmd_buffer = unsafe { self.cmd_pool.allocate_one(hal::command::Level::Primary) };
 
+        let vertices = mesh.vertices.to_vec();
+        let ranges = mesh.ranges.to_vec();
+        let bounds = mesh.bounds;
         self.task_pool.push(move |sender| {
             if let Ok(mapping) = staging_buffer.map(memory::Segment {
                 offset: 0,
                 size: Some(buffer_len),
             }) {
-                mapping.as_slice().copy_from_slice(mesh.vertices.as_bytes());
+                mapping.as_slice().copy_from_slice(vertices.as_bytes());
             }
 
             unsafe {
@@ -311,10 +317,10 @@ impl<B: hal::Backend> SceneList<B> {
             sender.send(TaskResult::Mesh(
                 GfxMesh {
                     id,
-                    sub_meshes: mesh.meshes.clone(),
+                    sub_meshes: ranges,
                     buffer: Some(Arc::new(buffer)),
-                    vertices: mesh.vertices.len(),
-                    bounds: mesh.bounds,
+                    vertices: vertices.len(),
+                    bounds,
                 },
                 Some(Arc::new(staging_buffer)),
                 cmd_buffer,

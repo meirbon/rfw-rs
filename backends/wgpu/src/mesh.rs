@@ -8,6 +8,7 @@ pub struct WgpuMesh {
     pub buffer_size: wgpu::BufferAddress,
     pub joints_weights_buffer: Option<wgpu::Buffer>,
     pub ranges: Vec<VertexMesh>,
+    pub bounds: AABB,
 }
 
 impl Default for WgpuMesh {
@@ -17,6 +18,7 @@ impl Default for WgpuMesh {
             buffer_size: 0,
             joints_weights_buffer: None,
             ranges: Default::default(),
+            bounds: AABB::empty(),
         }
     }
 }
@@ -28,21 +30,28 @@ impl Clone for WgpuMesh {
             buffer_size: 0,
             joints_weights_buffer: None,
             ranges: Default::default(),
+            bounds: AABB::empty(),
         }
     }
 }
 
 #[allow(dead_code)]
 impl WgpuMesh {
-    pub fn new(device: &wgpu::Device, mesh: &Mesh3D) -> Self {
-        let buffer_size =
-            (mesh.vertices.len() * std::mem::size_of::<VertexData>()) as wgpu::BufferAddress;
+    pub fn new(
+        device: &wgpu::Device,
+        name: String,
+        vertices: Vec<Vertex3D>,
+        ranges: Vec<VertexMesh>,
+        skin_data: Vec<JointData>,
+        bounds: AABB
+    ) -> Self {
+        let buffer_size = (vertices.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress;
         assert!(buffer_size > 0);
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(mesh.name.as_str()),
+            label: Some(name.as_str()),
             size: buffer_size,
-            usage: if !mesh.joints_weights.is_empty() {
+            usage: if !skin_data.is_empty() {
                 wgpu::BufferUsage::VERTEX
                     | wgpu::BufferUsage::COPY_SRC
                     | wgpu::BufferUsage::COPY_DST
@@ -55,13 +64,13 @@ impl WgpuMesh {
         buffer
             .slice(0..buffer_size)
             .get_mapped_range_mut()
-            .copy_from_slice(mesh.vertices.as_bytes());
+            .copy_from_slice(vertices.as_bytes());
         buffer.unmap();
 
-        let joints_weights_buffer = if !mesh.joints_weights.is_empty() {
+        let joints_weights_buffer = if !skin_data.is_empty() {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(mesh.name.as_str()),
-                size: ((mesh.joints_weights.len() + (64 - mesh.joints_weights.len() % 64))
+                label: Some(name.as_str()),
+                size: ((skin_data.len() + (64 - skin_data.len() % 64))
                     * std::mem::size_of::<JointData>())
                     as wgpu::BufferAddress,
                 usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
@@ -70,11 +79,10 @@ impl WgpuMesh {
 
             buffer
                 .slice(
-                    0..(mesh.joints_weights.len() * std::mem::size_of::<JointData>())
-                        as wgpu::BufferAddress,
+                    0..(skin_data.len() * std::mem::size_of::<JointData>()) as wgpu::BufferAddress,
                 )
                 .get_mapped_range_mut()
-                .copy_from_slice(mesh.joints_weights.as_bytes());
+                .copy_from_slice(skin_data.as_bytes());
             buffer.unmap();
             Some(buffer)
         } else {
@@ -85,12 +93,13 @@ impl WgpuMesh {
             buffer: Some(Arc::new(buffer)),
             buffer_size,
             joints_weights_buffer,
-            ranges: mesh.meshes.clone(),
+            ranges,
+            bounds,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.buffer_size as usize / std::mem::size_of::<VertexData>()
+        self.buffer_size as usize / std::mem::size_of::<Vertex3D>()
     }
 }
 
@@ -171,7 +180,7 @@ impl SkinningPipeline {
         let len = mesh.len() + (64 - mesh.len() % 64);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("skinned-vertices"),
-            size: (len * std::mem::size_of::<VertexData>()) as wgpu::BufferAddress,
+            size: (len * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
             usage: wgpu::BufferUsage::VERTEX
                 | wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::COPY_DST,
@@ -185,7 +194,7 @@ impl SkinningPipeline {
             0,
             &buffer,
             0,
-            (mesh.len() * std::mem::size_of::<VertexData>()) as wgpu::BufferAddress,
+            (mesh.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
         );
 
         if mesh.buffer.is_some() && mesh.joints_weights_buffer.is_some() && skin.buffer.is_some() {
@@ -238,7 +247,7 @@ impl SkinningPipeline {
             // Recreate buffer if it is not large enough
             buffer.0 = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("skinned-vertices"),
-                size: (len * std::mem::size_of::<VertexData>()) as wgpu::BufferAddress,
+                size: (len * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
                 usage: wgpu::BufferUsage::VERTEX
                     | wgpu::BufferUsage::STORAGE
                     | wgpu::BufferUsage::COPY_DST,
@@ -254,7 +263,7 @@ impl SkinningPipeline {
             0,
             &buffer.0,
             0,
-            (mesh.len() * std::mem::size_of::<VertexData>()) as wgpu::BufferAddress,
+            (mesh.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
         );
 
         if mesh.buffer.is_some() && mesh.joints_weights_buffer.is_some() && skin.buffer.is_some() {

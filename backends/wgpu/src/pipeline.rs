@@ -95,7 +95,7 @@ impl RenderPipeline {
             vertex_state: wgpu::VertexStateDescriptor {
                 vertex_buffers: &[
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 0,
@@ -104,7 +104,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 16,
@@ -113,7 +113,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 28,
@@ -122,7 +122,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 32,
@@ -131,7 +131,7 @@ impl RenderPipeline {
                         }],
                     },
                     wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+                        stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttributeDescriptor {
                             offset: 40,

@@ -153,7 +153,7 @@ impl Renderer {
             vertex_state: wgpu::VertexStateDescriptor {
                 index_format: wgpu::IndexFormat::Uint32,
                 vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                    stride: std::mem::size_of::<D2Vertex>() as wgpu::BufferAddress,
+                    stride: std::mem::size_of::<Vertex2D>() as wgpu::BufferAddress,
                     step_mode: wgpu::InputStepMode::Vertex,
                     attributes: &[
                         wgpu::VertexAttributeDescriptor {
@@ -300,10 +300,8 @@ impl Renderer {
         }
     }
 
-    pub fn update_meshes(&mut self, device: &wgpu::Device, meshes: ChangedIterator<'_, Mesh2D>) {
-        for (i, m) in meshes {
-            self.meshes.overwrite(i, Mesh::new(device, m));
-        }
+    pub fn update_mesh(&mut self, device: &wgpu::Device, id: usize, mesh: Mesh2dData) {
+        self.meshes.overwrite(id, Mesh::new(device, &mesh));
     }
 
     pub fn update_instances(
@@ -398,7 +396,7 @@ impl Default for Mesh {
 
 #[allow(dead_code)]
 impl Mesh {
-    pub fn new(device: &wgpu::Device, mesh: &Mesh2D) -> Self {
+    pub fn new(device: &wgpu::Device, mesh: &Mesh2dData) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("2d-mesh"),
             contents: mesh.vertices.as_bytes(),

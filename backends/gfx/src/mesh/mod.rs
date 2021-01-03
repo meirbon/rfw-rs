@@ -382,7 +382,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                     primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
                         buffers: &[pso::VertexBufferDesc {
                             binding: 0 as pso::BufferIndex,
-                            stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                            stride: std::mem::size_of::<Vertex3D>() as pso::ElemStride,
                             rate: pso::VertexInputRate::Vertex,
                         }], // Vec<VertexBufferDesc>,
                         // Vertex attributes (IA)

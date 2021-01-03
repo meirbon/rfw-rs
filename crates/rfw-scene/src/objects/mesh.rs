@@ -19,7 +19,7 @@ pub trait ToMesh {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 #[repr(C)]
-pub struct VertexData {
+pub struct Vertex3D {
     pub vertex: Vec4,
     // 16
     pub normal: Vec3,
@@ -69,7 +69,7 @@ impl<T: Into<[f32; 4]>> From<([u16; 4], T)> for JointData {
     }
 }
 
-impl Display for VertexData {
+impl Display for Vertex3D {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -102,9 +102,9 @@ impl Display for VertexMesh {
     }
 }
 
-impl VertexData {
-    pub fn zero() -> VertexData {
-        VertexData {
+impl Vertex3D {
+    pub fn zero() -> Vertex3D {
+        Vertex3D {
             vertex: Vec4::new(0.0, 0.0, 0.0, 1.0),
             normal: Vec3::zero(),
             mat_id: 0,
@@ -118,10 +118,10 @@ impl VertexData {
 #[derive(Debug, Clone)]
 pub struct Mesh3D {
     pub triangles: Vec<RTTriangle>,
-    pub vertices: Vec<VertexData>,
-    pub joints_weights: Vec<JointData>,
+    pub vertices: Vec<Vertex3D>,
+    pub skin_data: Vec<JointData>,
     pub materials: Vec<u32>,
-    pub meshes: Vec<VertexMesh>,
+    pub ranges: Vec<VertexMesh>,
     pub bounds: AABB,
     pub name: String,
 }
@@ -129,14 +129,102 @@ pub struct Mesh3D {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Default)]
 pub struct SkinnedMesh3D {
-    pub vertices: Vec<VertexData>,
-    pub meshes: Vec<VertexMesh>,
+    pub vertices: Vec<Vertex3D>,
+    pub ranges: Vec<VertexMesh>,
+}
+
+impl SkinnedMesh3D {
+    pub fn apply(
+        vertices: &[Vertex3D],
+        skin_data: &[JointData],
+        ranges: &[VertexMesh],
+        skin: &Skin,
+    ) -> Self {
+        let mut vertices = vertices.to_vec();
+        let ranges = ranges.to_vec();
+        let matrices = &skin.joint_matrices;
+
+        vertices.par_iter_mut().enumerate().for_each(|(i, v)| {
+            let (joint, weight) = skin_data[i].into();
+            let matrix = weight[0] * matrices[joint[0] as usize];
+            let matrix = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix = matrix + (weight[3] * matrices[joint[3] as usize]);
+
+            v.vertex = matrix * v.vertex;
+            let matrix = matrix.inverse().transpose();
+            v.normal = (matrix * Vec3A::from(v.normal).extend(0.0))
+                .truncate()
+                .into();
+            let tangent =
+                (matrix * Vec3A::new(v.tangent[0], v.tangent[1], v.tangent[2]).extend(0.0)).xyz();
+            v.tangent = Vec4::new(tangent[0], tangent[1], tangent[2], v.tangent[3]);
+        });
+
+        SkinnedMesh3D { vertices, ranges }
+    }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Default)]
 pub struct SkinnedTriangles3D {
     pub triangles: Vec<RTTriangle>,
+}
+
+impl SkinnedTriangles3D {
+    pub fn apply(triangles: &[RTTriangle], skin_data: &[JointData], skin: &Skin) -> Self {
+        let mut triangles = triangles.to_vec();
+        let matrices = &skin.joint_matrices;
+
+        triangles.iter_mut().enumerate().for_each(|(i, t)| {
+            let i0 = i / 3;
+            let i1 = i + 1;
+            let i2 = i + 2;
+
+            let (joint, weight) = skin_data[i0].into();
+            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let n_matrix: Mat4 = matrix.inverse().transpose();
+
+            t.vertex0 = (matrix * t.vertex0.extend(1.0)).truncate();
+            t.n0 = (n_matrix * t.n0.extend(0.0)).truncate();
+            t.tangent0 = (n_matrix * t.tangent0.xyz().extend(0.0))
+                .truncate()
+                .extend(t.tangent2[3]);
+
+            let (joint, weight) = skin_data[i1].into();
+            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let n_matrix: Mat4 = matrix.inverse().transpose();
+
+            t.vertex1 = (matrix * t.vertex1.extend(1.0)).truncate();
+            t.n1 = (n_matrix * t.n1.extend(0.0)).truncate();
+            t.tangent1 = (n_matrix * t.tangent1.xyz().extend(0.0))
+                .truncate()
+                .extend(t.tangent2[3]);
+
+            let (joint, weight) = skin_data[i2].into();
+            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let n_matrix: Mat4 = matrix.inverse().transpose();
+
+            t.vertex2 = (matrix * t.vertex2.extend(1.0)).truncate();
+            t.n2 = (n_matrix * t.n2.extend(0.0)).truncate();
+            t.tangent2 = (n_matrix * t.tangent2.xyz().extend(0.0))
+                .truncate()
+                .extend(t.tangent2[3]);
+
+            t.normal = RTTriangle::normal(t.vertex0, t.vertex1, t.vertex2);
+        });
+
+        SkinnedTriangles3D { triangles }
+    }
 }
 
 impl Display for Mesh3D {
@@ -146,9 +234,9 @@ impl Display for Mesh3D {
             "Mesh {{ triangles: {}, vertices: {}, joint_weights: {}, materials: {}, meshes: {}, bounds: {}, name: {} }}",
             self.triangles.len(),
             self.vertices.len(),
-            self.joints_weights.len(),
+            self.skin_data.len(),
             self.materials.len(),
-            self.meshes.len(),
+            self.ranges.len(),
             self.bounds,
             self.name.as_str()
         )
@@ -249,7 +337,7 @@ impl Mesh3D {
         debug_assert_eq!(vertices.len() % 3, 0);
 
         let mut bounds = AABB::new();
-        let mut vertex_data = vec![VertexData::zero(); vertices.len()];
+        let mut vertex_data = vec![Vertex3D::zero(); vertices.len()];
 
         let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
             let mut normals = vec![Vec3::zero(); vertices.len()];
@@ -344,7 +432,7 @@ impl Mesh3D {
             let vertex = Vec4::new(vertex.x, vertex.y, vertex.z, 1.0);
             let normal = normals[i];
 
-            *v = VertexData {
+            *v = Vertex3D {
                 vertex,
                 normal,
                 mat_id: material_ids[i / 3],
@@ -479,8 +567,8 @@ impl Mesh3D {
             triangles,
             vertices: vertex_data,
             materials: Vec::from(material_ids),
-            joints_weights,
-            meshes,
+            skin_data: joints_weights,
+            ranges: meshes,
             bounds,
             name: if let Some(name) = name {
                 String::from(name.as_ref())
@@ -519,19 +607,19 @@ impl Mesh3D {
         Mesh3D {
             triangles: Default::default(),
             vertices: Default::default(),
-            joints_weights: Default::default(),
+            skin_data: Default::default(),
             materials: Default::default(),
-            meshes: Default::default(),
+            ranges: Default::default(),
             bounds: AABB::new(),
             name: String::new(),
         }
     }
 
     pub fn buffer_size(&self) -> usize {
-        self.vertices.len() * std::mem::size_of::<VertexData>()
+        self.vertices.len() * std::mem::size_of::<Vertex3D>()
     }
 
-    pub fn as_slice(&self) -> &[VertexData] {
+    pub fn as_slice(&self) -> &[Vertex3D] {
         self.vertices.as_slice()
     }
 
@@ -787,84 +875,20 @@ impl Mesh3D {
     }
 
     pub fn apply_skin(&self, skin: &Skin) -> SkinnedMesh3D {
-        let mut vertices = self.vertices.clone();
-        let meshes = self.meshes.clone();
-        let matrices = &skin.joint_matrices;
-        let joints_weights = &self.joints_weights;
-
-        vertices.par_iter_mut().enumerate().for_each(|(i, v)| {
-            let (joint, weight) = joints_weights[i].into();
-            let matrix = weight[0] * matrices[joint[0] as usize];
-            let matrix = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix = matrix + (weight[3] * matrices[joint[3] as usize]);
-
-            v.vertex = matrix * v.vertex;
-            let matrix = matrix.inverse().transpose();
-            v.normal = (matrix * Vec3A::from(v.normal).extend(0.0))
-                .truncate()
-                .into();
-            let tangent =
-                (matrix * Vec3A::new(v.tangent[0], v.tangent[1], v.tangent[2]).extend(0.0)).xyz();
-            v.tangent = Vec4::new(tangent[0], tangent[1], tangent[2], v.tangent[3]);
-        });
-
-        SkinnedMesh3D { vertices, meshes }
+        SkinnedMesh3D::apply(
+            self.vertices.as_slice(),
+            self.skin_data.as_slice(),
+            self.ranges.as_slice(),
+            skin,
+        )
     }
 
     pub fn apply_skin_triangles(&self, skin: &Skin) -> SkinnedTriangles3D {
-        let mut triangles = self.triangles.clone();
-        let matrices = &skin.joint_matrices;
-        let joints_weights = &self.joints_weights;
-
-        triangles.iter_mut().enumerate().for_each(|(i, t)| {
-            let i0 = i / 3;
-            let i1 = i + 1;
-            let i2 = i + 2;
-
-            let (joint, weight) = joints_weights[i0].into();
-            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
-            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
-            let n_matrix: Mat4 = matrix.inverse().transpose();
-
-            t.vertex0 = (matrix * t.vertex0.extend(1.0)).truncate();
-            t.n0 = (n_matrix * t.n0.extend(0.0)).truncate();
-            t.tangent0 = (n_matrix * t.tangent0.xyz().extend(0.0))
-                .truncate()
-                .extend(t.tangent2[3]);
-
-            let (joint, weight) = joints_weights[i1].into();
-            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
-            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
-            let n_matrix: Mat4 = matrix.inverse().transpose();
-
-            t.vertex1 = (matrix * t.vertex1.extend(1.0)).truncate();
-            t.n1 = (n_matrix * t.n1.extend(0.0)).truncate();
-            t.tangent1 = (n_matrix * t.tangent1.xyz().extend(0.0))
-                .truncate()
-                .extend(t.tangent2[3]);
-
-            let (joint, weight) = joints_weights[i2].into();
-            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
-            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
-            let n_matrix: Mat4 = matrix.inverse().transpose();
-
-            t.vertex2 = (matrix * t.vertex2.extend(1.0)).truncate();
-            t.n2 = (n_matrix * t.n2.extend(0.0)).truncate();
-            t.tangent2 = (n_matrix * t.tangent2.xyz().extend(0.0))
-                .truncate()
-                .extend(t.tangent2[3]);
-
-            t.normal = RTTriangle::normal(t.vertex0, t.vertex1, t.vertex2);
-        });
-
-        SkinnedTriangles3D { triangles }
+        SkinnedTriangles3D::apply(
+            self.triangles.as_slice(),
+            self.skin_data.as_slice(),
+            skin,
+        )
     }
 }
 
@@ -1028,7 +1052,7 @@ impl<'a> crate::SerializableObject<'a, Mesh3D> for Mesh3D {
         // Gather all material indices
         use std::collections::BTreeSet;
         let mut material_indices: BTreeSet<u32> = BTreeSet::new();
-        self.meshes.iter().for_each(|mesh| {
+        self.ranges.iter().for_each(|mesh| {
             material_indices.insert(mesh.mat_id);
         });
         let material_indices: Vec<u32> = material_indices.iter().map(|i| *i).collect();
@@ -1097,7 +1121,7 @@ impl<'a> crate::SerializableObject<'a, Mesh3D> for Mesh3D {
                 .get(id)
                 .expect(format!("Mat with id {} does not exist", id).as_str())
         });
-        mesh.meshes
+        mesh.ranges
             .par_iter_mut()
             .for_each(|m| m.mat_id = *material_mapping.get(&m.mat_id).unwrap());
 
@@ -1161,7 +1185,7 @@ impl<'a> crate::SerializableObject<'a, Mesh3D> for Mesh3D {
         mesh.materials.par_iter_mut().for_each(|m| {
             *m = *material_mapping.get(m).unwrap() as u32;
         });
-        mesh.meshes.par_iter_mut().for_each(|m| {
+        mesh.ranges.par_iter_mut().for_each(|m| {
             m.mat_id = *material_mapping.get(&m.mat_id).unwrap() as u32;
         });
 
@@ -1172,7 +1196,7 @@ impl<'a> crate::SerializableObject<'a, Mesh3D> for Mesh3D {
 impl From<l3d::load::MeshDescriptor> for Mesh3D {
     fn from(desc: MeshDescriptor) -> Self {
         let mut bounds = AABB::new();
-        let mut vertex_data = vec![VertexData::zero(); desc.vertices.len()];
+        let mut vertex_data = vec![Vertex3D::zero(); desc.vertices.len()];
 
         let material_ids: Vec<u32> = desc.material_ids.chunks(3).map(|c| c[0] as u32).collect();
 
@@ -1220,7 +1244,7 @@ impl From<l3d::load::MeshDescriptor> for Mesh3D {
         }
 
         vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
-            *v = VertexData {
+            *v = Vertex3D {
                 vertex: Vec4::from(desc.vertices[i]),
                 normal: normals[i],
                 mat_id: material_ids[i / 3],
@@ -1376,9 +1400,9 @@ impl From<l3d::load::MeshDescriptor> for Mesh3D {
         Mesh3D {
             triangles,
             vertices: vertex_data,
-            joints_weights,
+            skin_data: joints_weights,
             materials: Vec::from(material_ids),
-            meshes,
+            ranges: meshes,
             bounds,
             name: desc.name,
         }

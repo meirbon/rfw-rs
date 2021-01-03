@@ -334,11 +334,11 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
             skins,
             point_lights,
             spot_lights,
-            settings: Default::default()
+            settings: Default::default(),
         }))
     }
 
-    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, Mesh2D>) {
+    fn set_2d_mesh(&mut self, _id: usize, _mesh: Mesh2dData) {
         // unimplemented!()
     }
 
@@ -346,23 +346,20 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         // unimplemented!()
     }
 
-    fn set_3d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh3D>) {
-        for (i, mesh) in meshes {
-            self.scene_list.set_mesh(i, mesh);
-        }
+    fn set_3d_mesh(&mut self, id: usize, mesh: Mesh3dData) {
+        self.scene_list.set_mesh(id, mesh);
     }
 
     fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
-        let mesh = Mesh3D::default();
         for id in ids {
-            self.scene_list.set_mesh(id, &mesh);
+            self.scene_list.remove_mesh(id);
         }
     }
 
-    fn set_3d_instances(&mut self, instances: ChangedIterator<'_, rfw::prelude::Instance3D>) {
-        for (i, instance) in instances {
-            self.scene_list.set_instance(i, instance);
-        }
+    fn set_3d_instances(&mut self, _instances: &InstanceList) {
+        // for (i, instance) in instances {
+        //     self.scene_list.set_instance(i, instance);
+        // }
     }
 
     fn unload_3d_instances(&mut self, ids: Vec<usize>) {

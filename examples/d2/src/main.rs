@@ -20,7 +20,7 @@ use rfw::{
     math::*,
     prelude::*,
     scene::{
-        r2d::{Mesh2D, D2Vertex},
+        r2d::{Mesh2D, Vertex2D},
         Camera,
     },
     system::RenderSystem,
@@ -425,25 +425,25 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                         let vertices: Vec<_> = vertices
                             .par_iter()
                             .map(|v| {
-                                let v0 = D2Vertex {
+                                let v0 = Vertex2D {
                                     vertex: [v.min_x, v.min_y, 0.5],
                                     uv: [v.uv_min_x, v.uv_min_y],
                                     has_tex: tex,
                                     color: v.color,
                                 };
-                                let v1 = D2Vertex {
+                                let v1 = Vertex2D {
                                     vertex: [v.max_x, v.min_y, 0.5],
                                     uv: [v.uv_max_x, v.uv_min_y],
                                     has_tex: tex,
                                     color: v.color,
                                 };
-                                let v2 = D2Vertex {
+                                let v2 = Vertex2D {
                                     vertex: [v.max_x, v.max_y, 0.5],
                                     uv: [v.uv_max_x, v.uv_max_y],
                                     has_tex: tex,
                                     color: v.color,
                                 };
-                                let v3 = D2Vertex {
+                                let v3 = Vertex2D {
                                     vertex: [v.min_x, v.max_y, 0.5],
                                     uv: [v.uv_min_x, v.uv_max_y],
                                     has_tex: tex,

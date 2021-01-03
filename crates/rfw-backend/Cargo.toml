@@ -8,6 +8,7 @@ version = "0.1.0"
 
 [dependencies]
 raw-window-handle = "0.3"
-rfw-scene = {path = "../rfw-scene"}
-rfw-utils = {path = "../rfw-utils"}
+rfw-scene = { path = "../rfw-scene" }
+rfw-utils = { path = "../rfw-utils" }
+rfw-math = { path = "../rfw-math" }
 l3d = "0.1"

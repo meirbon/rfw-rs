@@ -13,7 +13,7 @@ layout(set = 0, binding = 0) uniform Locals {
     vec4 cam_pos;
 };
 
-layout(set = 1, binding = 0) uniform I {
+layout(set = 1, binding = 0) buffer readonly I {
     mat4 Transform;
     mat4 InverseTransform;
 };

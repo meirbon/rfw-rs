@@ -1,8 +1,9 @@
 use rfw_backend::{Backend, RenderMode};
 use rfw_math::*;
 use rfw_scene::{
-    r2d::Instance2D, r2d::Mesh2D, Camera, DirectionalLight, Instance3D, LoadResult, NodeGraph,
-    ObjectRef, PointLight, Scene, SceneError, SceneLights, SpotLight, ToMesh,
+    r2d::Instance2D, r2d::Mesh2D, Camera, DirectionalLight, InstanceHandle, InstanceIterator,
+    LoadResult, NodeGraph, ObjectRef, PointLight, Scene, SceneError, SceneLights, SpotLight,
+    ToMesh,
 };
 use rfw_scene::{Flip, Material, Texture};
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut};
@@ -48,20 +49,12 @@ impl<T: Sized + Backend> RenderSystem<T> {
         })
     }
 
-    pub fn iter_instances<C>(&self) -> FlaggedIterator<'_, Instance3D> {
-        self.scene.objects.instances.iter()
+    pub fn iter_instances<C>(&self) -> InstanceIterator {
+        self.scene.instances.iter()
     }
 
-    pub fn iter_instances_mut(&mut self) -> FlaggedIteratorMut<'_, Instance3D> {
-        self.scene.objects.instances.iter_mut()
-    }
-
-    pub fn get_instance(&self, index: usize) -> Option<&Instance3D> {
-        self.scene.objects.instances.get(index)
-    }
-
-    pub fn get_instance_mut(&mut self, index: usize) -> Option<&mut Instance3D> {
-        self.scene.objects.instances.get_mut(index)
+    pub fn get_instance(&self, index: usize) -> Option<InstanceHandle> {
+        self.scene.instances.get(index)
     }
 
     pub fn get_2d_instance(&self, index: usize) -> Option<&Instance2D> {
@@ -206,17 +199,14 @@ impl<T: Sized + Backend> RenderSystem<T> {
     }
 
     pub fn add_scene(&mut self, mut graph: NodeGraph) -> u32 {
-        graph.initialize(
-            &mut self.scene.objects.instances,
-            &mut self.scene.objects.skins,
-        );
+        graph.initialize(&mut self.scene.instances, &mut self.scene.objects.skins);
         self.scene.objects.graph.add_graph(graph)
     }
 
     pub fn remove_scene(&mut self, id: u32) -> Result<(), SceneError> {
         if self.scene.objects.graph.remove_graph(
             id,
-            &mut self.scene.objects.instances,
+            &mut self.scene.instances,
             &mut self.scene.objects.skins,
         ) {
             Ok(())
@@ -316,10 +306,10 @@ impl<T: Sized + Backend> RenderSystem<T> {
         let mut update_lights = false;
         let mut found_light = false;
 
-        self.scene.objects.graph.synchronize(
-            &mut self.scene.objects.instances,
-            &mut self.scene.objects.skins,
-        );
+        self.scene
+            .objects
+            .graph
+            .synchronize(&mut self.scene.instances, &mut self.scene.objects.skins);
 
         if self.scene.objects.skins.any_changed() {
             renderer.set_skins(self.scene.objects.skins.iter_changed());
@@ -327,7 +317,9 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.objects.d2_meshes.any_changed() {
-            renderer.set_2d_meshes(self.scene.objects.d2_meshes.iter_changed());
+            for (i, m) in self.scene.objects.d2_meshes.iter_changed() {
+                renderer.set_2d_mesh(i, m.into());
+            }
             self.scene.objects.d2_meshes.reset_changed();
         }
 
@@ -337,25 +329,25 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.objects.meshes.any_changed() {
-            renderer.set_3d_meshes(self.scene.objects.meshes.iter_changed());
+            for (i, m) in self.scene.objects.meshes.iter_changed() {
+                renderer.set_3d_mesh(i, m.into());
+            }
             changed = true;
             self.scene.objects.meshes.reset_changed();
         }
 
         let light_flags = self.scene.materials.light_flags();
-        changed |= self.scene.objects.instances.any_changed();
+        changed |= self.scene.instances.any_changed();
 
-        for (_, instance) in self.scene.objects.instances.iter_changed_mut() {
-            instance.update_transform();
+        for instance in self.scene.instances.iter() {
             if found_light {
                 break;
             }
 
-            if let Some(object_id) = instance.object_id {
-                let object_id = object_id as usize;
-                for j in 0..self.scene.objects.meshes[object_id].meshes.len() {
+            if let Some(mesh_id) = instance.get_mesh_id().as_index() {
+                for j in 0..self.scene.objects.meshes[mesh_id].ranges.len() {
                     match light_flags
-                        .get(self.scene.objects.meshes[object_id].meshes[j].mat_id as usize)
+                        .get(self.scene.objects.meshes[mesh_id].ranges[j].mat_id as usize)
                     {
                         None => {}
                         Some(flag) => {
@@ -369,10 +361,10 @@ impl<T: Sized + Backend> RenderSystem<T> {
             }
         }
 
-        if self.scene.objects.instances.any_changed() {
-            renderer.set_3d_instances(self.scene.objects.instances.iter_changed());
+        if self.scene.instances.any_changed() {
+            renderer.set_3d_instances(&self.scene.instances);
             changed = true;
-            self.scene.objects.instances.reset_changed();
+            self.scene.instances.reset_changed();
         }
 
         update_lights |= found_light;
@@ -421,16 +413,16 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         let deleted_meshes = self.scene.objects.meshes.take_erased();
-        let instances = self.scene.objects.instances.take_erased();
+        let deleted_instances = self.scene.instances.take_removed();
 
         if !deleted_meshes.is_empty() {
             changed = true;
             renderer.unload_3d_meshes(deleted_meshes);
         }
 
-        if !instances.is_empty() {
+        if !deleted_instances.is_empty() {
             changed = true;
-            renderer.unload_3d_instances(instances);
+            renderer.unload_3d_instances(deleted_instances);
         }
 
         if changed {

@@ -1,11 +1,14 @@
 pub use l3d::mat::Texture;
 pub use raw_window_handle::HasRawWindowHandle;
 pub use rfw_scene::{
-    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance2D, Instance3D, Mesh2D, Mesh3D,
-    PointLight, Skin, SpotLight,
+    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance2D, Instance3D, InstanceList,
+    Mesh2D, Mesh3D, PointLight, Skin, SpotLight,
 };
 pub use rfw_utils::collections::ChangedIterator;
 use std::error::Error;
+
+mod structs;
+pub use structs::*;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RenderMode {
@@ -30,19 +33,14 @@ pub trait Backend {
         render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn Error>>;
 
-    /// Updates 2d meshes
-    fn set_2d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh2D>);
-
-    /// Updates instances of 2d meshes
+    fn set_2d_mesh(&mut self, id: usize, data: Mesh2dData);
     fn set_2d_instances(&mut self, instances: ChangedIterator<'_, Instance2D>);
 
-    /// Updates meshes
-    fn set_3d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh3D>);
-
+    fn set_3d_mesh(&mut self, id: usize, data: Mesh3dData);
     fn unload_3d_meshes(&mut self, ids: Vec<usize>);
 
     /// Sets an instance with a 4x4 transformation matrix in column-major format
-    fn set_3d_instances(&mut self, instances: ChangedIterator<'_, Instance3D>);
+    fn set_3d_instances(&mut self, instances: &InstanceList);
 
     fn unload_3d_instances(&mut self, ids: Vec<usize>);
 
