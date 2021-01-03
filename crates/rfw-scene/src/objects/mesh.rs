@@ -32,7 +32,9 @@ pub struct VertexData {
     // 56
 }
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[repr(C)]
 pub struct JointData {
     pub joint: [u32; 4],
     pub weight: Vec4,

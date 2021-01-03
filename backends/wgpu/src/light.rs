@@ -60,6 +60,13 @@ impl WgpuLights {
     }
 
     pub fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+        if !self.spot_lights.needs_update()
+            && !self.area_lights.needs_update()
+            && !self.directional_lights.needs_update()
+        {
+            return false;
+        }
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("light-mem-copy"),
         });
@@ -133,6 +140,10 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }) {
             self.info[i] = self.lights[i].get_light_info(scene_bounds);
         }
+    }
+
+    pub fn needs_update(&self) -> bool {
+        self.len() != 0 && self.lights.any_changed()
     }
 
     pub fn synchronize(

@@ -137,6 +137,8 @@ impl SkinningPipeline {
         mesh: &WgpuMesh,
         skin: &Skin,
     ) -> wgpu::Buffer {
+        assert_eq!(mesh.desc.vertices.len(), mesh.desc.joints_weights.len());
+
         let len = mesh.desc.vertices.len() + (64 - mesh.desc.vertices.len() % 64);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("skinned-vertices"),
@@ -146,7 +148,8 @@ impl SkinningPipeline {
                 | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
         });
-        if true || mesh.buffer.is_none() {
+
+        if mesh.buffer.is_none() {
             // CPU-based skinning
             let skinned = mesh.desc.apply_skin(skin);
             queue.write_buffer(&buffer, 0, skinned.vertices.as_bytes());
@@ -169,8 +172,6 @@ impl SkinningPipeline {
                 mapped_at_creation: false,
             });
 
-            assert_eq!(std::mem::size_of::<JointData>(), 32);
-
             queue.write_buffer(
                 &joints_weights_buffer,
                 0,
@@ -191,7 +192,9 @@ impl SkinningPipeline {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::Buffer(joints_weights_buffer.slice(..)),
+                        resource: wgpu::BindingResource::Buffer(joints_weights_buffer.slice(
+                            0..(len * std::mem::size_of::<JointData>()) as wgpu::BufferAddress,
+                        )),
                     },
                 ],
             });
