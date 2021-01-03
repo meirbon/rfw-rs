@@ -1,4 +1,4 @@
-use crate::DeviceMaterial;
+use crate::material::DeviceMaterial;
 use l3d::mat::{Flip, Material, Texture, TextureSource};
 use rfw_math::*;
 use rfw_utils::collections::{

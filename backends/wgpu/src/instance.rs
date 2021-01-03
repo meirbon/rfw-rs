@@ -1,8 +1,10 @@
 use super::mesh::WgpuMesh;
-use crate::mesh::WgpuAnimMesh;
+use crate::mesh::SkinningPipeline;
+use rayon::prelude::*;
 use rfw::prelude::*;
+use rfw::scene::mesh::VertexMesh;
 use std::num::NonZeroU64;
-use rfw::scene::VertexMesh;
+use std::sync::Arc;
 
 pub struct DeviceInstances {
     pub device_matrices: wgpu::Buffer,
@@ -60,7 +62,7 @@ pub struct InstanceBounds {
 }
 
 impl InstanceBounds {
-    pub fn new(instance: &Instance, bounds: &(AABB, Vec<VertexMesh>)) -> Self {
+    pub fn new(instance: &Instance3D, bounds: &(AABB, Vec<VertexMesh>)) -> Self {
         let transform = instance.get_transform();
         let root_bounds = instance.bounds();
         let mesh_bounds: Vec<AABB> = bounds
@@ -82,8 +84,10 @@ impl InstanceBounds {
 pub struct InstanceList {
     pub device_instances: DeviceInstances,
     pub bind_group_layout: wgpu::BindGroupLayout,
-    pub instances: TrackedStorage<Instance>,
+    pub instances: TrackedStorage<Instance3D>,
     pub bounds: Vec<InstanceBounds>,
+    pub vertex_buffers: Vec<Option<Arc<wgpu::Buffer>>>,
+    skinning_pipeline: SkinningPipeline,
 }
 
 #[allow(dead_code)]
@@ -108,8 +112,10 @@ impl InstanceList {
         Self {
             device_instances,
             bind_group_layout,
-            instances: TrackedStorage::new(),
-            bounds: Vec::new(),
+            instances: Default::default(),
+            bounds: Default::default(),
+            vertex_buffers: Default::default(),
+            skinning_pipeline: SkinningPipeline::new(device),
         }
     }
 
@@ -117,7 +123,7 @@ impl InstanceList {
         &mut self,
         device: &wgpu::Device,
         id: usize,
-        instance: Instance,
+        instance: Instance3D,
         bounds: &(AABB, Vec<VertexMesh>),
     ) {
         self.instances.overwrite(id, instance);
@@ -138,60 +144,97 @@ impl InstanceList {
         &mut self,
         device: &wgpu::Device,
         meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
+        skins: &TrackedStorage<Skin>,
         queue: &wgpu::Queue,
     ) {
+        if self.instances.is_empty() {
+            return;
+        }
+
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let device_instances = &self.device_instances;
+        let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
+        let staging_data = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("instance-staging-mem"),
+            size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
+            usage: wgpu::BufferUsage::COPY_SRC,
+            mapped_at_creation: true,
+        });
 
-        if !self.instances.is_empty() {
-            let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
-            let staging_data = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("instance-staging-mem"),
-                size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsage::COPY_SRC,
-                mapped_at_creation: true,
-            });
-            {
-                let mut data = staging_data
-                    .slice(0..(self.instances.len() * instance_copy_size) as wgpu::BufferAddress)
-                    .get_mapped_range_mut();
-                let data_ptr = data.as_mut_ptr();
+        {
+            let mut data = staging_data
+                .slice(0..(self.instances.len() * instance_copy_size) as wgpu::BufferAddress)
+                .get_mapped_range_mut();
+            let data_ptr = data.as_mut_ptr();
 
-                let instances = &self.instances;
-                // let staging_buffer = &self.staging_buffer;
-                instances.iter_changed().for_each(|(i, instance)| unsafe {
-                    let transform = instance.get_transform();
-                    let n_transform = instance.get_normal_transform();
+            let instances = &self.instances;
+            // let staging_buffer = &self.staging_buffer;
+            instances.iter_changed().for_each(|(i, instance)| unsafe {
+                let transform = instance.get_transform();
+                let n_transform = instance.get_normal_transform();
 
-                    std::ptr::copy(
-                        transform.as_ref() as *const [f32; 16],
-                        (data_ptr as *mut [f32; 16]).add(i * 2),
-                        1,
-                    );
-                    std::ptr::copy(
-                        n_transform.as_ref() as *const [f32; 16],
-                        (data_ptr as *mut [f32; 16]).add(i * 2 + 1),
-                        1,
-                    );
-                });
-            }
-
-            staging_data.unmap();
-
-            self.instances.iter_changed().for_each(|(i, _)| {
-                encoder.copy_buffer_to_buffer(
-                    &staging_data,
-                    (i * instance_copy_size) as wgpu::BufferAddress,
-                    &device_instances.device_matrices,
-                    DeviceInstances::offset_for(i),
-                    instance_copy_size as wgpu::BufferAddress,
+                std::ptr::copy(
+                    transform.as_ref() as *const [f32; 16],
+                    (data_ptr as *mut [f32; 16]).add(i * 2),
+                    1,
+                );
+                std::ptr::copy(
+                    n_transform.as_ref() as *const [f32; 16],
+                    (data_ptr as *mut [f32; 16]).add(i * 2 + 1),
+                    1,
                 );
             });
         }
 
-        self.bounds = self.get_bounds(meshes, anim_meshes);
+        staging_data.unmap();
+
+        let vertex_buffers = &mut self.vertex_buffers;
+        vertex_buffers.resize(self.instances.len(), None);
+        let instances = &self.instances;
+
+        self.instances.iter_changed().for_each(|(i, inst)| {
+            if inst.object_id.is_none() {
+                return;
+            }
+
+            encoder.copy_buffer_to_buffer(
+                &staging_data,
+                (i * instance_copy_size) as wgpu::BufferAddress,
+                &device_instances.device_matrices,
+                DeviceInstances::offset_for(i),
+                instance_copy_size as wgpu::BufferAddress,
+            );
+        });
+
+        let skinning_pipeline = &self.skinning_pipeline;
+        vertex_buffers
+            .iter_mut()
+            .enumerate()
+            .par_bridge()
+            .for_each(|(i, vb)| {
+                if !instances.get_changed(i) {
+                    return;
+                }
+
+                *vb = if let Some(object_id) = instances[i].object_id {
+                    let mesh = &meshes[object_id as usize];
+                    if let Some(skin_id) = instances[i].skin_id {
+                        Some(Arc::new(skinning_pipeline.apply_skin(
+                            device,
+                            queue,
+                            mesh,
+                            &skins[skin_id as usize],
+                        )))
+                    } else {
+                        mesh.buffer.clone()
+                    }
+                } else {
+                    None
+                };
+            });
+
+        self.bounds = self.get_bounds(meshes);
         queue.submit(std::iter::once(encoder.finish()));
     }
 
@@ -207,7 +250,7 @@ impl InstanceList {
         self.instances.any_changed()
     }
 
-    pub fn get(&self, index: usize) -> Option<(&Instance, &InstanceBounds)> {
+    pub fn get(&self, index: usize) -> Option<(&Instance3D, &InstanceBounds)> {
         if let Some(inst) = self.instances.get(index) {
             Some((inst, &self.bounds[index]))
         } else {
@@ -215,7 +258,7 @@ impl InstanceList {
         }
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<(&mut Instance, &mut InstanceBounds)> {
+    pub fn get_mut(&mut self, index: usize) -> Option<(&mut Instance3D, &mut InstanceBounds)> {
         if let Some(inst) = self.instances.get_mut(index) {
             Some((inst, &mut self.bounds[index]))
         } else {
@@ -223,11 +266,7 @@ impl InstanceList {
         }
     }
 
-    fn get_bounds(
-        &self,
-        meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
-    ) -> Vec<InstanceBounds> {
+    fn get_bounds(&self, meshes: &TrackedStorage<WgpuMesh>) -> Vec<InstanceBounds> {
         (0..self.instances.len())
             .into_iter()
             .filter(|i| self.instances.get(*i).is_some())
@@ -235,19 +274,11 @@ impl InstanceList {
                 let instance = &self.instances[i];
                 let root_bounds = instance.bounds();
                 let mesh_bounds = match instance.object_id {
-                    ObjectRef::None => vec![AABB::empty(); 1],
-                    ObjectRef::Static(mesh_id) => {
+                    None => vec![AABB::empty(); 1],
+                    Some(mesh_id) => {
                         let mesh = &meshes[mesh_id as usize];
                         let transform = instance.get_transform();
-                        mesh.sub_meshes
-                            .iter()
-                            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-                            .collect()
-                    }
-                    ObjectRef::Animated(mesh_id) => {
-                        let mesh = &anim_meshes[mesh_id as usize];
-                        let transform = instance.get_transform();
-                        mesh.sub_meshes
+                        mesh.desc.meshes
                             .iter()
                             .map(|m| m.bounds.transformed(transform.to_cols_array()))
                             .collect()
@@ -286,14 +317,14 @@ impl InstanceList {
 }
 
 pub struct InstanceIterator<'a> {
-    instances: &'a TrackedStorage<Instance>,
+    instances: &'a TrackedStorage<Instance3D>,
     bounds: &'a [InstanceBounds],
     current: usize,
     length: usize,
 }
 
 impl<'a> Iterator for InstanceIterator<'a> {
-    type Item = (usize, &'a Instance, &'a InstanceBounds);
+    type Item = (usize, &'a Instance3D, &'a InstanceBounds);
     fn next(&mut self) -> Option<Self::Item> {
         let (instances, bounds) = unsafe { (self.instances.as_ptr(), self.bounds.as_ptr()) };
 
@@ -316,14 +347,14 @@ impl<'a> Iterator for InstanceIterator<'a> {
 }
 
 pub struct InstanceIteratorMut<'a> {
-    instances: &'a mut TrackedStorage<Instance>,
+    instances: &'a mut TrackedStorage<Instance3D>,
     bounds: &'a mut [InstanceBounds],
     current: usize,
     length: usize,
 }
 
 impl<'a> Iterator for InstanceIteratorMut<'a> {
-    type Item = (usize, &'a mut Instance, &'a mut InstanceBounds);
+    type Item = (usize, &'a mut Instance3D, &'a mut InstanceBounds);
     fn next(&mut self) -> Option<Self::Item> {
         let (instances, bounds) =
             unsafe { (self.instances.as_mut_ptr(), self.bounds.as_mut_ptr()) };

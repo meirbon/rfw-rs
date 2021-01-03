@@ -1,4 +1,4 @@
-use crate::{Instance, ObjectRef};
+use crate::{Instance3D, ObjectRef};
 use l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor};
 use rayon::prelude::*;
 use rfw_math::*;
@@ -35,7 +35,14 @@ impl std::fmt::Display for NodeMesh {
         write!(
             f,
             "NodeMesh {{ object_id: {}, instance_id: {} }}",
-            self.object_id, self.object_id
+            match self.object_id {
+                None => String::from("None"),
+                Some(id) => format!("{}", id),
+            },
+            match self.instance_id {
+                None => String::from("None"),
+                Some(id) => format!("{}", id),
+            }
         )
     }
 }
@@ -49,7 +56,7 @@ pub struct NodeDescriptor {
     pub rotation: Quat,
     pub scale: Vec3,
 
-    pub meshes: Vec<ObjectRef>,
+    pub meshes: Vec<u32>,
     pub skin: Option<SkinDescriptor>,
     pub weights: Vec<f32>,
 
@@ -264,7 +271,7 @@ impl NodeGraph {
 
     pub fn initialize(
         &mut self,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
         skins: &mut TrackedStorage<Skin>,
     ) {
         for (_, node) in self.nodes.iter_mut() {
@@ -320,7 +327,7 @@ impl NodeGraph {
 
     pub fn update(
         &mut self,
-        instances: &RwLock<&mut TrackedStorage<Instance>>,
+        instances: &RwLock<&mut TrackedStorage<Instance3D>>,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         if !self.root_nodes.any_changed() && !self.nodes.any_changed() {
@@ -379,7 +386,7 @@ impl NodeGraph {
         current_index: usize,
         accumulated_matrix: Mat4,
         nodes: &mut TrackedStorage<Node>,
-        instances: &RwLock<&mut TrackedStorage<Instance>>,
+        instances: &RwLock<&mut TrackedStorage<Instance3D>>,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         let mut changed = nodes[current_index].changed;
@@ -493,7 +500,7 @@ impl NodeGraph {
     pub fn load_scene_descriptor(
         &mut self,
         scene_descriptor: &SceneDescriptor,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
     ) {
         let mut node_map: HashMap<u32, u32> = HashMap::with_capacity(scene_descriptor.nodes.len());
 
@@ -533,7 +540,7 @@ impl NodeGraph {
         node_map: &mut HashMap<u32, u32>,
         descriptor: &NodeDescriptor,
         scene_descriptor: &SceneDescriptor,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
     ) -> u32 {
         let child_nodes: Vec<u32> = descriptor
             .child_nodes
@@ -576,10 +583,10 @@ impl NodeGraph {
             .iter()
             .map(|mesh| {
                 let instance_id = instances.allocate();
-                instances[instance_id].object_id = *mesh;
+                instances[instance_id].object_id = Some(*mesh);
                 instances[instance_id].skin_id = skin_id;
                 NodeMesh {
-                    object_id: *mesh,
+                    object_id: Some(*mesh),
                     instance_id: Some(instance_id as u32),
                 }
             })
@@ -611,7 +618,7 @@ impl NodeGraph {
 
     pub fn from_scene_descriptor(
         scene_descriptor: &SceneDescriptor,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
     ) -> Self {
         let mut graph = Self::new();
         graph.load_scene_descriptor(scene_descriptor, instances);
@@ -622,7 +629,7 @@ impl NodeGraph {
         node_map: &mut HashMap<u32, u32>,
         descriptor: &NodeDescriptor,
         scene_descriptor: &SceneDescriptor,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
     ) -> Self {
         let mut graph = Self::new();
         graph.load_node_descriptor(node_map, descriptor, scene_descriptor, instances);
@@ -722,7 +729,7 @@ impl SceneGraph {
 
     pub fn synchronize(
         &mut self,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let times = &self.times;
@@ -762,7 +769,7 @@ impl SceneGraph {
     pub fn remove_graph(
         &mut self,
         id: u32,
-        instances: &mut TrackedStorage<Instance>,
+        instances: &mut TrackedStorage<Instance3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         // Remove instances part of this sub graph

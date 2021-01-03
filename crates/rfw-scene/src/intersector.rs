@@ -4,22 +4,15 @@ use rfw_math::*;
 use rtbvh::{Ray, RayPacket4, ShadowPacket4, MBVH};
 
 pub struct TIntersector<'a> {
-    meshes: &'a [Mesh],
-    anim_meshes: &'a [AnimatedMesh],
-    instances: &'a [Instance],
+    meshes: &'a [Mesh3D],
+    instances: &'a [Instance3D],
     mbvh: &'a MBVH,
 }
 
 impl<'a> TIntersector<'a> {
-    pub fn new(
-        meshes: &'a [Mesh],
-        anim_meshes: &'a [AnimatedMesh],
-        instances: &'a [Instance],
-        mbvh: &'a MBVH,
-    ) -> Self {
+    pub fn new(meshes: &'a [Mesh3D], instances: &'a [Instance3D], mbvh: &'a MBVH) -> Self {
         Self {
             meshes,
-            anim_meshes,
             instances,
             mbvh,
         }
@@ -32,16 +25,10 @@ impl<'a> TIntersector<'a> {
             let instance = &self.instances[i as usize];
             let (origin, direction) = instance.transform(ray);
 
-            match instance.object_id {
-                ObjectRef::None => false,
-                ObjectRef::Static(hit_id) => {
-                    self.meshes[hit_id as usize].occludes((origin, direction).into(), t_min, t_max)
-                }
-                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].occludes(
-                    (origin, direction).into(),
-                    t_min,
-                    t_max,
-                ),
+            if let Some(hit_id) = instance.object_id {
+                self.meshes[hit_id as usize].occludes((origin, direction).into(), t_min, t_max)
+            } else {
+                false
             }
         };
 
@@ -64,15 +51,10 @@ impl<'a> TIntersector<'a> {
             let (origin, direction) = instance.transform(ray);
 
             if let Some(hit) = match instance.object_id {
-                ObjectRef::None => None,
-                ObjectRef::Static(hit_id) => {
+                None => None,
+                Some(hit_id) => {
                     self.meshes[hit_id as usize].intersect((origin, direction).into(), t_min, t_max)
                 }
-                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].intersect(
-                    (origin, direction).into(),
-                    t_min,
-                    t_max,
-                ),
             } {
                 instance_id = i as i32;
                 Some((hit.t, hit))
@@ -100,13 +82,8 @@ impl<'a> TIntersector<'a> {
             let (origin, direction) = instance.transform(ray);
 
             match instance.object_id {
-                ObjectRef::None => None,
-                ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].intersect_t(
-                    (origin, direction).into(),
-                    t_min,
-                    t_max,
-                ),
-                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].intersect_t(
+                None => None,
+                Some(hit_id) => self.meshes[hit_id as usize].intersect_t(
                     (origin, direction).into(),
                     t_min,
                     t_max,
@@ -131,13 +108,8 @@ impl<'a> TIntersector<'a> {
 
             let (origin, direction) = instance.transform(ray);
             match instance.object_id {
-                ObjectRef::None => None,
-                ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].depth_test(
-                    (origin, direction).into(),
-                    t_min,
-                    t_max,
-                ),
-                ObjectRef::Animated(hit_id) => self.anim_meshes[hit_id as usize].depth_test(
+                None => None,
+                Some(hit_id) => self.meshes[hit_id as usize].depth_test(
                     (origin, direction).into(),
                     t_min,
                     t_max,
@@ -171,23 +143,10 @@ impl<'a> TIntersector<'a> {
             let instance = &self.instances[instance_id];
             let mut new_packet = instance.transform4(packet);
             match instance.object_id {
-                ObjectRef::None => {}
-                ObjectRef::Static(hit_id) => {
+                None => {}
+                Some(hit_id) => {
                     if let Some(hit) =
                         self.meshes[hit_id as usize].intersect4(&mut new_packet, &t_min)
-                    {
-                        for i in 0..4 {
-                            if hit[i] >= 0 {
-                                instance_ids[i] = instance_id as i32;
-                                prim_ids[i] = hit[i];
-                                packet.t[i] = new_packet.t[i];
-                            }
-                        }
-                    }
-                }
-                ObjectRef::Animated(hit_id) => {
-                    if let Some(hit) =
-                        self.anim_meshes[hit_id as usize].intersect4(&mut new_packet, &t_min)
                     {
                         for i in 0..4 {
                             if hit[i] >= 0 {
@@ -209,11 +168,8 @@ impl<'a> TIntersector<'a> {
     pub fn get_mat_id(&self, instance_id: InstanceID, prim_id: PrimID) -> usize {
         let instance = self.instances.get(instance_id as usize).unwrap();
         match instance.object_id {
-            ObjectRef::None => std::usize::MAX,
-            ObjectRef::Static(hit_id) => self.meshes[hit_id as usize].get_mat_id(prim_id) as usize,
-            ObjectRef::Animated(hit_id) => {
-                self.anim_meshes[hit_id as usize].get_mat_id(prim_id) as usize
-            }
+            None => std::usize::MAX,
+            Some(hit_id) => self.meshes[hit_id as usize].get_mat_id(prim_id) as usize,
         }
     }
 
@@ -227,15 +183,15 @@ impl<'a> TIntersector<'a> {
         debug_assert!(instance_id >= 0);
         debug_assert!(prim_id >= 0);
 
-        let instance: &Instance = &self.instances[instance_id as usize];
+        let instance: &Instance3D = &self.instances[instance_id as usize];
         let ray = instance.transform_ray(ray);
         match instance.object_id {
-            ObjectRef::None => HitRecord::default(),
-            ObjectRef::Static(hit_id) => instance
-                .transform_hit(self.meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32)),
-            ObjectRef::Animated(hit_id) => instance.transform_hit(
-                self.anim_meshes[hit_id as usize].get_hit_record(ray, t, prim_id as u32),
-            ),
+            None => HitRecord::default(),
+            Some(hit_id) => instance.transform_hit(self.meshes[hit_id as usize].get_hit_record(
+                ray,
+                t,
+                prim_id as u32,
+            )),
         }
     }
 
@@ -279,7 +235,7 @@ impl<'a> TIntersector<'a> {
 
         let hit: HitRecord4 = [hit0, hit1, hit2, hit3].into();
 
-        let instances: [&Instance; 4] = [
+        let instances: [&Instance3D; 4] = [
             &self.instances[instance_ids[0].max(0) as usize],
             &self.instances[instance_ids[1].max(0) as usize],
             &self.instances[instance_ids[2].max(0) as usize],

@@ -13,6 +13,7 @@ futures = "0.3"
 num_cpus = "1.13"
 rfw = {path = "../../rfw"}
 wgpu = "0.6"
+rayon = "1.5"
 # rfw = "0.1"
 
 [build-dependencies]

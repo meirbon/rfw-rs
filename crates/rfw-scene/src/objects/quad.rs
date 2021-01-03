@@ -1,4 +1,4 @@
-use crate::{Mesh, ToMesh};
+use crate::{Mesh3D, ToMesh};
 use rfw_math::*;
 
 pub struct Quad {
@@ -74,10 +74,12 @@ impl Quad {
 }
 
 impl ToMesh for Quad {
-    fn into_mesh(self) -> Mesh {
-        Mesh::new(
+    fn into_mesh(self) -> Mesh3D {
+        Mesh3D::new(
             self.vertices.to_vec(),
             self.normals.to_vec(),
+            Vec::new(),
+            Vec::new(),
             self.uvs.to_vec(),
             self.material_ids.to_vec(),
             Some("quad"),

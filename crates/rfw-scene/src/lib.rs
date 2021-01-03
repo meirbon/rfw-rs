@@ -6,7 +6,7 @@ pub type InstanceID = i32;
 pub mod camera;
 pub mod constants;
 pub mod graph;
-pub mod intersector;
+// pub mod intersector;
 pub mod lights;
 pub mod loaders;
 pub mod material;
@@ -16,15 +16,20 @@ pub mod r2d;
 pub mod utils;
 
 pub use camera::*;
+pub use graph::*;
 pub use instance::*;
-pub use intersector::*;
+// pub use intersector::*;
+pub use l3d::prelude::{
+    load::*, mat::Flip, mat::Material, mat::Texture, mat::TextureDescriptor, mat::TextureFormat,
+    mat::TextureSource,
+};
 pub use lights::*;
 pub use loaders::*;
 pub use material::*;
+pub use objects::mesh::*;
 pub use objects::*;
-pub use rtbvh as bvh;
-pub use graph::*;
 pub use r2d::*;
+pub use rtbvh as bvh;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -105,14 +110,13 @@ impl std::error::Error for SceneError {}
 
 #[derive(Debug, Clone)]
 pub struct Objects {
-    pub meshes: TrackedStorage<Mesh>,
-    pub d2_meshes: TrackedStorage<D2Mesh>,
-    pub animated_meshes: TrackedStorage<AnimatedMesh>,
+    pub meshes: TrackedStorage<Mesh3D>,
+    pub d2_meshes: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
-    pub instances: TrackedStorage<Instance>,
-    pub d2_instances: TrackedStorage<D2Instance>,
-    pub o_to_i_mapping: HashMap<ObjectRef, HashSet<u32>>,
+    pub instances: TrackedStorage<Instance3D>,
+    pub d2_instances: TrackedStorage<Instance2D>,
+    pub o_to_i_mapping: HashMap<u32, HashSet<u32>>,
 }
 
 impl Default for Objects {
@@ -120,7 +124,6 @@ impl Default for Objects {
         Self {
             meshes: TrackedStorage::new(),
             d2_meshes: TrackedStorage::new(),
-            animated_meshes: TrackedStorage::new(),
             graph: graph::SceneGraph::new(),
             skins: TrackedStorage::new(),
             instances: TrackedStorage::new(),
@@ -180,14 +183,13 @@ impl Default for Scene {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
-    pub meshes: TrackedStorage<Mesh>,
-    pub d2_meshes: TrackedStorage<D2Mesh>,
-    pub animated_meshes: TrackedStorage<AnimatedMesh>,
+    pub meshes: TrackedStorage<Mesh3D>,
+    pub d2_meshes: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
-    pub instances: TrackedStorage<Instance>,
-    pub d2_instances: TrackedStorage<D2Instance>,
-    pub o_to_i_mapping: HashMap<ObjectRef, HashSet<u32>>,
+    pub instances: TrackedStorage<Instance3D>,
+    pub d2_instances: TrackedStorage<Instance2D>,
+    pub o_to_i_mapping: HashMap<u32, HashSet<u32>>,
     pub lights: SceneLights,
     pub materials: MaterialList,
     pub settings: Flags,
@@ -198,7 +200,6 @@ impl From<&Scene> for SerializableScene {
         Self {
             meshes: scene.objects.meshes.clone(),
             d2_meshes: scene.objects.d2_meshes.clone(),
-            animated_meshes: scene.objects.animated_meshes.clone(),
             graph: scene.objects.graph.clone(),
             skins: scene.objects.skins.clone(),
             instances: scene.objects.instances.clone(),
@@ -218,7 +219,6 @@ impl Into<Scene> for SerializableScene {
             objects: Objects {
                 meshes: self.meshes,
                 d2_meshes: self.d2_meshes,
-                animated_meshes: self.animated_meshes,
                 graph: self.graph,
                 skins: self.skins,
                 instances: self.instances,
@@ -284,35 +284,26 @@ impl Scene {
                 path.to_path_buf(),
                 &mut self.materials,
                 &mut self.objects.meshes,
-                &mut self.objects.animated_meshes,
             );
         }
 
         Err(SceneError::NoFileLoader(extension))
     }
 
-    pub fn add_object(&mut self, object: Mesh) -> Result<usize, SceneError> {
+    pub fn add_3d_object(&mut self, object: Mesh3D) -> Result<usize, SceneError> {
         let id = self.objects.meshes.push(object);
         self.objects
             .o_to_i_mapping
-            .insert(ObjectRef::Static(id as u32), HashSet::new());
+            .insert(id as u32, HashSet::new());
         Ok(id)
     }
 
-    pub fn add_2d_object(&mut self, object: D2Mesh) -> Result<usize, SceneError> {
+    pub fn add_2d_object(&mut self, object: Mesh2D) -> Result<usize, SceneError> {
         let id = self.objects.d2_meshes.push(object);
         Ok(id)
     }
 
-    pub fn add_animated_object(&mut self, object: AnimatedMesh) -> Result<usize, SceneError> {
-        let id = self.objects.animated_meshes.push(object);
-        self.objects
-            .o_to_i_mapping
-            .insert(ObjectRef::Animated(id as u32), HashSet::new());
-        Ok(id)
-    }
-
-    pub fn set_object(&mut self, index: usize, object: Mesh) -> Result<(), SceneError> {
+    pub fn set_3d_object(&mut self, index: usize, object: Mesh3D) -> Result<(), SceneError> {
         if self.objects.meshes.get(index).is_none() {
             return Err(SceneError::InvalidObjectIndex(index));
         }
@@ -321,20 +312,7 @@ impl Scene {
         Ok(())
     }
 
-    pub fn set_animated_object(
-        &mut self,
-        index: usize,
-        object: AnimatedMesh,
-    ) -> Result<(), SceneError> {
-        if self.objects.animated_meshes.get(index).is_none() {
-            return Err(SceneError::InvalidObjectIndex(index));
-        }
-
-        self.objects.animated_meshes[index] = object;
-        Ok(())
-    }
-
-    pub fn set_2d_object(&mut self, index: usize, object: D2Mesh) -> Result<(), SceneError> {
+    pub fn set_2d_object(&mut self, index: usize, object: Mesh2D) -> Result<(), SceneError> {
         if self.objects.d2_meshes.get(index).is_none() {
             Err(SceneError::InvalidObjectIndex(index))
         } else {
@@ -343,59 +321,29 @@ impl Scene {
         }
     }
 
-    pub fn remove_object(&mut self, index: usize) -> Result<(), SceneError> {
+    pub fn remove_3d_object(&mut self, index: u32) -> Result<(), SceneError> {
         // TODO: Remove instances that contained this object
         // TODO: Remove scenes that contained this object
-        match self.objects.meshes.erase(index) {
+        match self.objects.meshes.erase(index as usize) {
             Ok(_) => {
                 for inst in self
                     .objects
                     .o_to_i_mapping
-                    .get(&ObjectRef::Static(index as u32))
+                    .get(&index)
                     .expect("Object should exist in o_to_i_mapping")
                     .iter()
                 {
-                    let instance: &mut Instance = self
+                    let instance: &mut Instance3D = self
                         .objects
                         .instances
                         .get_mut(*inst as usize)
                         .expect("Instance should exist");
                     instance.object_id = ObjectRef::None;
                 }
-                self.objects
-                    .o_to_i_mapping
-                    .remove(&ObjectRef::Animated(index as u32));
-                Ok(())
-            }
-            Err(_) => Err(SceneError::InvalidObjectIndex(index)),
-        }
-    }
 
-    pub fn remove_animated_object(&mut self, index: usize) -> Result<(), SceneError> {
-        // TODO: Remove instances that contained this object
-        // TODO: Remove scenes that contained this object
-        match self.objects.animated_meshes.erase(index) {
-            Ok(_) => {
-                for inst in self
-                    .objects
-                    .o_to_i_mapping
-                    .get(&ObjectRef::Animated(index as u32))
-                    .expect("Object should exist in o_to_i_mapping")
-                    .iter()
-                {
-                    let instance: &mut Instance = self
-                        .objects
-                        .instances
-                        .get_mut(*inst as usize)
-                        .expect("Instance should exist");
-                    instance.object_id = ObjectRef::None;
-                }
-                self.objects
-                    .o_to_i_mapping
-                    .remove(&ObjectRef::Animated(index as u32));
                 Ok(())
             }
-            Err(_) => Err(SceneError::InvalidObjectIndex(index)),
+            Err(_) => Err(SceneError::InvalidObjectIndex(index as _)),
         }
     }
 
@@ -407,19 +355,10 @@ impl Scene {
         }
     }
 
-    pub fn add_instance(&mut self, index: ObjectRef) -> Result<usize, SceneError> {
-        let bounds = match index {
-            ObjectRef::None => {
-                return Err(SceneError::InvalidObjectRef);
-            }
-            ObjectRef::Static(id) => match self.objects.meshes.get(id as usize) {
-                None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                Some(m) => m.bounds.clone(),
-            },
-            ObjectRef::Animated(id) => match self.objects.animated_meshes.get(id as usize) {
-                None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                Some(m) => m.bounds.clone(),
-            },
+    pub fn add_instance(&mut self, index: u32) -> Result<usize, SceneError> {
+        let bounds = match self.objects.meshes.get(index as usize) {
+            None => return Err(SceneError::InvalidObjectIndex(index as usize)),
+            Some(m) => m.bounds.clone(),
         };
 
         let instance_id = self.objects.instances.allocate();
@@ -428,13 +367,13 @@ impl Scene {
             .get_mut(&index)
             .expect("Object should exist in o_to_i_mapping")
             .insert(instance_id as u32);
-        self.objects.instances[instance_id] = Instance::new(index, &bounds);
+        self.objects.instances[instance_id] = Instance3D::new(Some(index), &bounds);
         Ok(instance_id)
     }
 
     pub fn add_2d_instance(&mut self, index: u32) -> Result<usize, SceneError> {
         let instance_id = self.objects.d2_instances.allocate();
-        self.objects.d2_instances[instance_id] = D2Instance::new(index);
+        self.objects.d2_instances[instance_id] = Instance2D::new(index);
         Ok(instance_id)
     }
 
@@ -443,35 +382,36 @@ impl Scene {
         instance: usize,
         obj_index: ObjectRef,
     ) -> Result<(), SceneError> {
-        let bounds = match obj_index {
-            ObjectRef::None => {
-                return Err(SceneError::InvalidObjectRef);
+        let (obj_index, bounds) = if let Some(index) = obj_index {
+            match self.objects.meshes.get(index as usize) {
+                None => return Err(SceneError::InvalidObjectIndex(index as usize)),
+                Some(_) => (
+                    Some(index),
+                    self.objects.meshes[index as usize].bounds.clone(),
+                ),
             }
-            ObjectRef::Static(id) => match self.objects.meshes.get(id as usize) {
-                None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                Some(m) => m.bounds.clone(),
-            },
-            ObjectRef::Animated(id) => match self.objects.animated_meshes.get(id as usize) {
-                None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                Some(m) => m.bounds.clone(),
-            },
+        } else {
+            (None, AABB::empty())
         };
 
         match self.objects.instances.get_mut(instance) {
             None => return Err(SceneError::InvalidInstanceIndex(instance)),
             Some(inst) => {
-                if inst.object_id != ObjectRef::None {
+                if inst.object_id != None {
                     self.objects
                         .o_to_i_mapping
-                        .get_mut(&inst.object_id)
+                        .get_mut(inst.object_id.as_ref().unwrap())
                         .expect("Object should exist in o_to_i_mapping")
                         .remove(&(instance as u32));
                 }
-                self.objects
-                    .o_to_i_mapping
-                    .get_mut(&obj_index)
-                    .expect("Object should exist in o_to_i_mapping")
-                    .insert(instance as u32);
+
+                if let Some(id) = obj_index {
+                    self.objects
+                        .o_to_i_mapping
+                        .get_mut(&id)
+                        .expect("Object should exist in o_to_i_mapping")
+                        .insert(instance as u32);
+                }
 
                 inst.object_id = obj_index;
                 inst.set_bounds(bounds);
@@ -594,7 +534,7 @@ impl Scene {
             .iter()
             .for_each(|(inst_idx, instance)| match instance.object_id {
                 ObjectRef::None => return,
-                ObjectRef::Static(mesh_id) => {
+                Some(mesh_id) => {
                     let m = &self.objects.meshes[mesh_id as usize];
                     for v in m.meshes.iter() {
                         let light_flag = light_flags.get(v.mat_id as usize);
@@ -644,56 +584,6 @@ impl Scene {
                         }
                     }
                 }
-                ObjectRef::Animated(mesh_id) => {
-                    let m = &self.objects.animated_meshes[mesh_id as usize];
-                    for v in m.meshes.iter() {
-                        let light_flag = light_flags.get(v.mat_id as usize);
-                        if light_flag.is_none() {
-                            continue;
-                        }
-
-                        if *light_flag.unwrap() {
-                            for i in (v.first as usize / 3)..(v.last as usize / 3) {
-                                let i0 = i;
-                                let i1 = i + 1;
-                                let i2 = i + 2;
-
-                                let v0 = &m.vertices[i0];
-                                let v1 = &m.vertices[i1];
-                                let v2 = &m.vertices[i2];
-
-                                let vertex0: Vec3 =
-                                    instance.transform_vertex(Vec4::from(v0.vertex).into());
-                                let vertex1: Vec3 =
-                                    instance.transform_vertex(Vec4::from(v1.vertex).into());
-                                let vertex2: Vec3 =
-                                    instance.transform_vertex(Vec4::from(v2.vertex).into());
-
-                                let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
-                                let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
-                                let color = self.materials[v.mat_id as usize].color;
-
-                                let triangle_id = i;
-                                let id = area_lights.len();
-                                triangle_light_ids.push((
-                                    mesh_id as u32,
-                                    triangle_id as u32,
-                                    id as u32,
-                                ));
-
-                                area_lights.push(AreaLight::new(
-                                    position,
-                                    Vec4::from(color).into(),
-                                    normal,
-                                    inst_idx as i32,
-                                    vertex0,
-                                    vertex1,
-                                    vertex2,
-                                ));
-                            }
-                        }
-                    }
-                }
             });
 
         triangle_light_ids
@@ -711,15 +601,15 @@ impl Scene {
 
         loaders.insert(
             String::from("gltf"),
-            Box::new(crate::gltf::GltfLoader::default()),
+            Box::new(crate::loaders::gltf::GltfLoader::default()),
         );
         loaders.insert(
             String::from("glb"),
-            Box::new(crate::gltf::GltfLoader::default()),
+            Box::new(crate::loaders::gltf::GltfLoader::default()),
         );
         loaders.insert(
             String::from("obj"),
-            Box::new(crate::obj::ObjLoader::default()),
+            Box::new(crate::loaders::obj::ObjLoader::default()),
         );
 
         loaders
@@ -727,19 +617,9 @@ impl Scene {
 
     fn get_bounds(&self, index: ObjectRef) -> Result<AABB, SceneError> {
         let bounds = match index {
-            ObjectRef::Static(id) => match self.objects.meshes.get(id as usize) {
+            ObjectRef::Some(id) => match self.objects.meshes.get(id as usize) {
                 None => return Err(SceneError::InvalidObjectIndex(id as usize)),
                 _ => self.objects.meshes.get(id as usize).unwrap().bounds,
-            },
-            ObjectRef::Animated(id) => match self.objects.animated_meshes.get(id as usize) {
-                None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                _ => {
-                    self.objects
-                        .animated_meshes
-                        .get(id as usize)
-                        .unwrap()
-                        .bounds
-                }
             },
             ObjectRef::None => AABB::empty(),
         };

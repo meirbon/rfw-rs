@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct D2Mesh {
+pub struct Mesh2D {
     pub vertices: Vec<D2Vertex>,
     pub tex_id: Option<u32>,
 }
@@ -21,7 +21,7 @@ pub struct D2Vertex {
     pub color: [f32; 4],
 }
 
-impl Default for D2Mesh {
+impl Default for Mesh2D {
     fn default() -> Self {
         Self {
             vertices: Vec::new(),
@@ -30,7 +30,7 @@ impl Default for D2Mesh {
     }
 }
 
-impl D2Mesh {
+impl Mesh2D {
     pub fn new(
         vertices: Vec<[f32; 3]>,
         uvs: Vec<[f32; 2]>,
@@ -76,7 +76,7 @@ impl D2Mesh {
     }
 }
 
-impl From<Vec<D2Vertex>> for D2Mesh {
+impl From<Vec<D2Vertex>> for Mesh2D {
     fn from(vec: Vec<D2Vertex>) -> Self {
         Self {
             vertices: vec,
@@ -85,7 +85,7 @@ impl From<Vec<D2Vertex>> for D2Mesh {
     }
 }
 
-impl From<&[D2Vertex]> for D2Mesh {
+impl From<&[D2Vertex]> for Mesh2D {
     fn from(vec: &[D2Vertex]) -> Self {
         Self {
             vertices: vec.to_vec(),
@@ -96,12 +96,12 @@ impl From<&[D2Vertex]> for D2Mesh {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct D2Instance {
+pub struct Instance2D {
     pub mesh: Option<u32>,
     pub transform: [f32; 16],
 }
 
-impl Default for D2Instance {
+impl Default for Instance2D {
     fn default() -> Self {
         Self {
             mesh: None,
@@ -110,7 +110,7 @@ impl Default for D2Instance {
     }
 }
 
-impl D2Instance {
+impl Instance2D {
     pub fn new(mesh: u32) -> Self {
         Self {
             mesh: Some(mesh),

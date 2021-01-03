@@ -15,29 +15,30 @@ use rtbvh::{Bounds, Ray, RayPacket4};
 pub use sphere::*;
 pub use triangle::*;
 
+use crate::PrimID;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use crate::PrimID;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HitRecord {
-    pub normal: [f32; 3],
+    pub normal: Vec3,
     pub t: f32,
-    pub p: [f32; 3],
+    pub p: Vec3,
     pub mat_id: u32,
-    pub g_normal: [f32; 3],
-    pub uv: [f32; 2],
+    pub g_normal: Vec3,
+    pub uv: Vec2,
 }
 
 impl Default for HitRecord {
     fn default() -> Self {
         Self {
-            normal: [0.0; 3],
+            normal: Vec3::zero(),
             t: 0.0,
-            p: [0.0; 3],
+            p: Vec3::zero(),
             mat_id: 0,
-            g_normal: [0.0; 3],
-            uv: [0.0; 2],
+            g_normal: Vec3::zero(),
+            uv: Vec2::zero(),
         }
     }
 }

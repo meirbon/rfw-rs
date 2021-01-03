@@ -4,40 +4,40 @@ use crate::objects::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::PrimID;
 use rtbvh::{builders::spatial_sah::SpatialTriangle, Bounds, Ray, RayPacket4, AABB};
 use std::ops::BitAnd;
-use crate::PrimID;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct RTTriangle {
-    pub vertex0: [f32; 3],
+    pub vertex0: Vec3,
     pub u0: f32,
     // 16
-    pub vertex1: [f32; 3],
+    pub vertex1: Vec3,
     pub u1: f32,
     // 32
-    pub vertex2: [f32; 3],
+    pub vertex2: Vec3,
     pub u2: f32,
     // 48
-    pub normal: [f32; 3],
+    pub normal: Vec3,
     pub v0: f32,
     // 64
-    pub n0: [f32; 3],
+    pub n0: Vec3,
     pub v1: f32,
     // 80
-    pub n1: [f32; 3],
+    pub n1: Vec3,
     pub v2: f32,
     // 96
-    pub n2: [f32; 3],
+    pub n2: Vec3,
     pub id: i32,
     // 112
-    pub tangent0: [f32; 4],
+    pub tangent0: Vec4,
     // 128
-    pub tangent1: [f32; 4],
+    pub tangent1: Vec4,
     // 144
-    pub tangent2: [f32; 4],
+    pub tangent2: Vec4,
     // 160
     pub light_id: i32,
     pub mat_id: i32,
@@ -53,23 +53,23 @@ impl Default for RTTriangle {
     fn default() -> Self {
         // assert_eq!(std::mem::size_of::<RTTriangle>() % 16, 0);
         Self {
-            vertex0: [0.0; 3],
+            vertex0: Vec3::zero(),
             u0: 0.0,
-            vertex1: [0.0; 3],
+            vertex1: Vec3::zero(),
             u1: 0.0,
-            vertex2: [0.0; 3],
+            vertex2: Vec3::zero(),
             u2: 0.0,
-            normal: [0.0; 3],
+            normal: Vec3::zero(),
             v0: 0.0,
-            n0: [0.0; 3],
+            n0: Vec3::zero(),
             v1: 0.0,
-            n1: [0.0; 3],
+            n1: Vec3::zero(),
             v2: 0.0,
-            n2: [0.0; 3],
+            n2: Vec3::zero(),
             id: 0,
-            tangent0: [0.0; 4],
-            tangent1: [0.0; 4],
-            tangent2: [0.0; 4],
+            tangent0: Vec4::zero(),
+            tangent1: Vec4::zero(),
+            tangent2: Vec4::zero(),
             light_id: 0,
             mat_id: 0,
             lod: 0.0,
@@ -80,15 +80,15 @@ impl Default for RTTriangle {
 
 impl SpatialTriangle for RTTriangle {
     fn vertex0(&self) -> [f32; 3] {
-        self.vertex0
+        self.vertex0.into()
     }
 
     fn vertex1(&self) -> [f32; 3] {
-        self.vertex1
+        self.vertex1.into()
     }
 
     fn vertex2(&self) -> [f32; 3] {
-        self.vertex2
+        self.vertex2.into()
     }
 }
 
@@ -96,9 +96,9 @@ impl SpatialTriangle for RTTriangle {
 impl RTTriangle {
     pub fn vertices(&self) -> (Vec3, Vec3, Vec3) {
         (
-            self.vertex0.into(),
-            self.vertex1.into(),
-            self.vertex2.into(),
+            self.vertex0,
+            self.vertex1,
+            self.vertex2,
         )
     }
 

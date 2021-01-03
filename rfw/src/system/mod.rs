@@ -1,10 +1,10 @@
-use l3d::mat::{Flip, Material, Texture};
 use rfw_backend::{Backend, RenderMode, Setting};
 use rfw_math::*;
 use rfw_scene::{
-    r2d::D2Instance, r2d::D2Mesh, Camera, DirectionalLight, Instance, LoadResult, NodeGraph,
+    r2d::Instance2D, r2d::Mesh2D, Camera, DirectionalLight, Instance3D, LoadResult, NodeGraph,
     ObjectRef, PointLight, Scene, SceneError, SceneLights, SpotLight, ToMesh,
 };
+use rfw_scene::{Flip, Material, Texture};
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut};
 use std::error::Error;
 use std::path::Path;
@@ -48,27 +48,27 @@ impl<T: Sized + Backend> RenderSystem<T> {
         })
     }
 
-    pub fn iter_instances<C>(&self) -> FlaggedIterator<'_, Instance> {
+    pub fn iter_instances<C>(&self) -> FlaggedIterator<'_, Instance3D> {
         self.scene.objects.instances.iter()
     }
 
-    pub fn iter_instances_mut(&mut self) -> FlaggedIteratorMut<'_, Instance> {
+    pub fn iter_instances_mut(&mut self) -> FlaggedIteratorMut<'_, Instance3D> {
         self.scene.objects.instances.iter_mut()
     }
 
-    pub fn get_instance(&self, index: usize) -> Option<&Instance> {
+    pub fn get_instance(&self, index: usize) -> Option<&Instance3D> {
         self.scene.objects.instances.get(index)
     }
 
-    pub fn get_instance_mut(&mut self, index: usize) -> Option<&mut Instance> {
+    pub fn get_instance_mut(&mut self, index: usize) -> Option<&mut Instance3D> {
         self.scene.objects.instances.get_mut(index)
     }
 
-    pub fn get_2d_instance(&self, index: usize) -> Option<&D2Instance> {
+    pub fn get_2d_instance(&self, index: usize) -> Option<&Instance2D> {
         self.scene.objects.d2_instances.get(index)
     }
 
-    pub fn get_2d_instance_mut(&mut self, index: usize) -> Option<&mut D2Instance> {
+    pub fn get_2d_instance_mut(&mut self, index: usize) -> Option<&mut Instance2D> {
         self.scene.objects.d2_instances.get_mut(index)
     }
 
@@ -85,15 +85,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
         for m_id in 0..self.scene.objects.meshes.len() {
             if let Some(m) = self.scene.objects.meshes.get(m_id) {
                 if m.name == name {
-                    result.push(ObjectRef::Static(m_id as u32));
-                }
-            }
-        }
-
-        for m_id in 0..self.scene.objects.animated_meshes.len() {
-            if let Some(m) = self.scene.objects.animated_meshes.get(m_id) {
-                if m.name == name {
-                    result.push(ObjectRef::Animated(m_id as u32));
+                    result.push(Some(m_id as u32));
                 }
             }
         }
@@ -171,20 +163,20 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
     pub fn add_object<B: ToMesh>(&mut self, object: B) -> Result<ObjectRef, SceneError> {
         let m = object.into_mesh();
-        match self.scene.add_object(m) {
-            Ok(id) => Ok(ObjectRef::Static(id as u32)),
+        match self.scene.add_3d_object(m) {
+            Ok(id) => Ok(Some(id as u32)),
             Err(e) => Err(e),
         }
     }
 
-    pub fn add_2d_object(&mut self, object: D2Mesh) -> Result<u32, SceneError> {
+    pub fn add_2d_object(&mut self, object: Mesh2D) -> Result<u32, SceneError> {
         match self.scene.add_2d_object(object) {
             Ok(id) => Ok(id as u32),
             Err(e) => Err(e),
         }
     }
 
-    pub fn set_2d_object(&mut self, id: u32, object: D2Mesh) -> Result<(), SceneError> {
+    pub fn set_2d_object(&mut self, id: u32, object: Mesh2D) -> Result<(), SceneError> {
         if let Some(mesh) = self.scene.objects.d2_meshes.get_mut(id as usize) {
             *mesh = object;
             Ok(())
@@ -193,7 +185,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
     }
 
-    pub fn create_instance(&mut self, object: ObjectRef) -> Result<usize, SceneError> {
+    pub fn create_instance(&mut self, object: u32) -> Result<usize, SceneError> {
         self.scene.add_instance(object)
     }
 
@@ -345,15 +337,9 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.objects.meshes.any_changed() {
-            renderer.set_meshes(self.scene.objects.meshes.iter_changed());
+            renderer.set_3d_meshes(self.scene.objects.meshes.iter_changed());
             changed = true;
             self.scene.objects.meshes.reset_changed();
-        }
-
-        if self.scene.objects.animated_meshes.any_changed() {
-            renderer.set_animated_meshes(self.scene.objects.animated_meshes.iter_changed());
-            changed = true;
-            self.scene.objects.animated_meshes.reset_changed();
         }
 
         let light_flags = self.scene.materials.light_flags();
@@ -365,38 +351,17 @@ impl<T: Sized + Backend> RenderSystem<T> {
                 break;
             }
 
-            match instance.object_id {
-                ObjectRef::None => {
-                    break;
-                }
-                ObjectRef::Static(object_id) => {
-                    let object_id = object_id as usize;
-                    for j in 0..self.scene.objects.meshes[object_id].meshes.len() {
-                        match light_flags
-                            .get(self.scene.objects.meshes[object_id].meshes[j].mat_id as usize)
-                        {
-                            None => {}
-                            Some(flag) => {
-                                if *flag {
-                                    found_light = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                ObjectRef::Animated(object_id) => {
-                    let object_id = object_id as usize;
-                    for j in 0..self.scene.objects.animated_meshes[object_id].meshes.len() {
-                        match light_flags.get(
-                            self.scene.objects.animated_meshes[object_id].meshes[j].mat_id as usize,
-                        ) {
-                            None => {}
-                            Some(flag) => {
-                                if *flag {
-                                    found_light = true;
-                                    break;
-                                }
+            if let Some(object_id) = instance.object_id {
+                let object_id = object_id as usize;
+                for j in 0..self.scene.objects.meshes[object_id].meshes.len() {
+                    match light_flags
+                        .get(self.scene.objects.meshes[object_id].meshes[j].mat_id as usize)
+                    {
+                        None => {}
+                        Some(flag) => {
+                            if *flag {
+                                found_light = true;
+                                break;
                             }
                         }
                     }
@@ -456,17 +421,11 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         let deleted_meshes = self.scene.objects.meshes.take_erased();
-        let deleted_anim_meshes = self.scene.objects.animated_meshes.take_erased();
         let instances = self.scene.objects.instances.take_erased();
 
         if !deleted_meshes.is_empty() {
             changed = true;
-            renderer.unload_meshes(deleted_meshes);
-        }
-
-        if !deleted_anim_meshes.is_empty() {
-            changed = true;
-            renderer.unload_animated_meshes(deleted_anim_meshes);
+            renderer.unload_3d_meshes(deleted_meshes);
         }
 
         if !instances.is_empty() {

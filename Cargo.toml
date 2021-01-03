@@ -7,7 +7,7 @@ members = [
     "examples/simple",
     "backends/wgpu",
     "backends/gfx",
-    "backends/rendy",
+#    "backends/rendy",
     "crates/rfw-backend",
     "crates/rfw-scene",
     "crates/rfw-math",

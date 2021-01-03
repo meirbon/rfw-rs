@@ -6,7 +6,6 @@ pub use rfw_utils as utils;
 
 pub mod prelude {
     pub use crate::system::*;
-    pub use l3d::prelude::*;
     pub use rfw_backend::*;
     pub use rfw_backend::*;
     pub use rfw_math::*;
@@ -14,5 +13,5 @@ pub mod prelude {
     pub use rfw_utils::collections::*;
     pub use rfw_utils::task::*;
     pub use rfw_utils::*;
-    pub use rtbvh::*;
+    pub use rfw_scene::bvh::*;
 }

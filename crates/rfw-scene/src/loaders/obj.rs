@@ -1,11 +1,11 @@
-use rfw_utils::collections::TrackedStorage;
-use rfw_math::*;
 use crate::{
     material::*,
     {utils::Flags, SceneError},
-    {AnimatedMesh, LoadResult, Mesh, ObjectLoader, ObjectRef},
+    {LoadResult, Mesh3D, ObjectLoader},
 };
 use l3d::mat::{Flip, Texture, TextureSource};
+use rfw_math::*;
+use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
 
 enum ObjFlags {
@@ -39,8 +39,7 @@ impl ObjectLoader for ObjLoader {
         &self,
         path: PathBuf,
         mat_manager: &mut MaterialList,
-        mesh_storage: &mut TrackedStorage<Mesh>,
-        _animated_mesh_storage: &mut TrackedStorage<AnimatedMesh>,
+        mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
         let object = tobj::load_obj(&path);
         if let Err(_) = object {
@@ -254,13 +253,15 @@ impl ObjectLoader for ObjLoader {
         }
 
         let mesh_id = mesh_storage.allocate();
-        mesh_storage[mesh_id] = Mesh::new(
+        mesh_storage[mesh_id] = Mesh3D::new(
             vertices,
             normals,
+            Vec::new(),
+            Vec::new(),
             uvs,
             material_ids,
             Some(String::from(path.to_str().unwrap())),
         );
-        Ok(LoadResult::Object(ObjectRef::Static(mesh_id as u32)))
+        Ok(LoadResult::Object(Some(mesh_id as u32)))
     }
 }

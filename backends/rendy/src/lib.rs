@@ -1,4 +1,4 @@
-use rfw::backend::Backend;
+use rfw_backend::Backend;
 
 pub struct RendyBackend {}
 
@@ -13,23 +13,23 @@ impl Backend for RendyBackend {
 
     fn set_2d_meshes(
         &mut self,
-        meshes: rfw::prelude::ChangedIterator<'_, rfw::prelude::r2d::D2Mesh>,
+        meshes: rfw::prelude::ChangedIterator<'_, rfw_backend::Mesh2D>,
     ) {
     }
 
     fn set_2d_instances(
         &mut self,
-        instances: rfw::prelude::ChangedIterator<'_, rfw::prelude::r2d::D2Instance>,
+        instances: rfw::prelude::ChangedIterator<'_, rfw_backend::Instance2D>,
     ) {
     }
 
-    fn set_meshes(&mut self, meshes: rfw::prelude::ChangedIterator<'_, rfw::prelude::Mesh>) {}
+    fn set_3d_meshes(&mut self, meshes: rfw::prelude::ChangedIterator<'_, rfw_backend::Mesh3D>) {}
 
-    fn unload_meshes(&mut self, ids: Vec<usize>) {}
+    fn unload_3d_meshes(&mut self, ids: Vec<usize>) {}
 
     fn set_animated_meshes(
         &mut self,
-        meshes: rfw::prelude::ChangedIterator<'_, rfw::prelude::AnimatedMesh>,
+        meshes: rfw::prelude::ChangedIterator<'_, rfw_backend::AnimatedMesh>,
     ) {
     }
 
@@ -37,7 +37,7 @@ impl Backend for RendyBackend {
 
     fn set_instances(
         &mut self,
-        instances: rfw::prelude::ChangedIterator<'_, rfw::prelude::Instance>,
+        instances: rfw::prelude::ChangedIterator<'_, rfw_backend::Instance3D>,
     ) {
     }
 

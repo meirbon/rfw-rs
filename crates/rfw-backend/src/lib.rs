@@ -1,8 +1,8 @@
 pub use l3d::mat::Texture;
 pub use raw_window_handle::HasRawWindowHandle;
 pub use rfw_scene::{
-    AnimatedMesh, AreaLight, Camera, D2Instance, D2Mesh, DeviceMaterial, DirectionalLight,
-    Instance, Mesh, PointLight, Skin, SpotLight,
+    AreaLight, Camera, DeviceMaterial, DirectionalLight, Instance2D, Instance3D, Mesh2D, Mesh3D,
+    PointLight, Skin, SpotLight,
 };
 pub use rfw_utils::collections::ChangedIterator;
 use std::error::Error;
@@ -103,6 +103,25 @@ impl Default for RenderMode {
         RenderMode::Default
     }
 }
+//
+// pub struct Mesh2D<'a> {
+//     pub vertices: &'a [Vec3],
+//     pub tex_id: Option<u32>,
+// }
+//
+// pub struct SubMesh {
+//     pub first: u32,
+//     pub last: u32,
+//     pub mat_id: u32,
+//     pub bounds_min: [f32; 3],
+//     pub bounds_max: [f32; 3],
+// }
+//
+// pub struct Mesh3D<'a> {
+//     pub triangles: &'a [RTTriangle],
+//     pub vertices: &'a [VertexData],
+//     pub meshes: &'a [VertexMesh],
+// }
 
 pub trait Backend {
     /// Initializes renderer with surface given through a raw window handle
@@ -113,23 +132,18 @@ pub trait Backend {
     ) -> Result<Box<Self>, Box<dyn Error>>;
 
     /// Updates 2d meshes
-    fn set_2d_meshes(&mut self, meshes: ChangedIterator<'_, D2Mesh>);
+    fn set_2d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh2D>);
 
     /// Updates instances of 2d meshes
-    fn set_2d_instances(&mut self, instances: ChangedIterator<'_, D2Instance>);
+    fn set_2d_instances(&mut self, instances: ChangedIterator<'_, Instance2D>);
 
     /// Updates meshes
-    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>);
+    fn set_3d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh3D>);
 
-    fn unload_meshes(&mut self, ids: Vec<usize>);
-
-    /// Updates an animated mesh at the given index
-    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>);
-
-    fn unload_animated_meshes(&mut self, ids: Vec<usize>);
+    fn unload_3d_meshes(&mut self, ids: Vec<usize>);
 
     /// Sets an instance with a 4x4 transformation matrix in column-major format
-    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance>);
+    fn set_instances(&mut self, instances: ChangedIterator<'_, Instance3D>);
 
     fn unload_instances(&mut self, ids: Vec<usize>);
 

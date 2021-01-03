@@ -92,11 +92,11 @@ impl Intersect for Plane {
         let p = origin + t * direction;
 
         Some(HitRecord {
-            normal: self.up,
+            normal: self.up.into(),
             t,
             p: p.into(),
             mat_id: self.mat_id,
-            g_normal: self.up,
+            g_normal: self.up.into(),
             uv: self.get_uv(p).into(),
         })
     }
@@ -162,11 +162,11 @@ impl Intersect for Plane {
         let p = origin + direction * t;
 
         HitRecord {
-            normal: self.up,
+            normal: self.up.into(),
             t,
             p: p.into(),
             mat_id: self.mat_id,
-            g_normal: self.up,
+            g_normal: self.up.into(),
             uv: self.get_uv(p).into(),
         }
     }
@@ -267,7 +267,7 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
 }
 
 impl ToMesh for Plane {
-    fn into_mesh(self) -> Mesh {
+    fn into_mesh(self) -> Mesh3D {
         let normal: [f32; 3] = self.up;
         let position: [f32; 3] = self.pos;
         let (width, height) = (self.dims[0], self.dims[1]);

@@ -37,6 +37,12 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         }
     }
 
+    pub fn resize(&mut self, new_len: usize) {
+        self.storage.resize(new_len, T::default());
+        self.active.resize(new_len, false);
+        self.storage_ptr = self.storage_ptr.min(self.storage.len());
+    }
+
     pub fn len(&self) -> usize {
         self.storage_ptr
     }
@@ -49,7 +55,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         if index >= self.len() {
             let last_len = self.len();
             let new_len = (index + 1) * 2;
-            self.active.resize(new_len, false);
+            self.active.resize(new_len.max(self.active.len()), false);
             self.storage.resize((index + 1) * 2, T::default());
             self.storage_ptr = index + 1;
 
@@ -65,7 +71,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         if index >= self.len() {
             let last_len = self.len();
             let new_len = (index + 1) * 2;
-            self.active.resize(new_len, false);
+            self.active.resize(new_len.max(self.active.len()), false);
             self.storage.resize((index + 1) * 2, T::default());
             self.storage_ptr = index + 1;
 
@@ -92,7 +98,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         if self.storage.len() <= self.storage_ptr {
             let new_size = self.storage_ptr * 2;
             self.storage.resize(new_size, T::default());
-            self.active.resize(new_size, false);
+            self.active.resize(new_size.max(self.active.len()), false);
         }
 
         self.active.set(index, true);
@@ -454,7 +460,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     pub fn overwrite(&mut self, index: usize, val: T) {
         if index >= self.len() {
             let new_len = (index + 1) * 2;
-            self.changed.resize(new_len, false);
+            self.changed.resize(new_len.max(self.changed.len()), false);
         }
 
         self.storage.overwrite(index);

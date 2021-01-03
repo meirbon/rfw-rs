@@ -20,7 +20,7 @@ use rfw::{
     math::*,
     prelude::*,
     scene::{
-        r2d::{D2Mesh, D2Vertex},
+        r2d::{Mesh2D, D2Vertex},
         Camera,
     },
     system::RenderSystem,
@@ -158,7 +158,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
     let mut glyph_brush = GlyphBrushBuilder::using_font(roboto).build();
 
     let tex = renderer.add_texture(rfw::prelude::Texture::default())?;
-    let d2_mesh = renderer.add_2d_object(D2Mesh::new(
+    let d2_mesh = renderer.add_2d_object(Mesh2D::new(
         vec![
             [-0.5, -0.5, 0.5],
             [0.5, -0.5, 0.5],
@@ -179,7 +179,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
         [1.0; 4],
     ))?;
 
-    let d2_mesh2 = renderer.add_2d_object(D2Mesh::new(
+    let d2_mesh2 = renderer.add_2d_object(Mesh2D::new(
         vec![
             [-0.5, -0.5, 0.5],
             [0.5, -0.5, 0.5],
@@ -462,7 +462,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                             verts.push(vs.5);
                         });
 
-                        let mut mesh = D2Mesh::from(verts);
+                        let mut mesh = Mesh2D::from(verts);
                         mesh.tex_id = Some(tex);
                         renderer.set_2d_object(d2_mesh, mesh).unwrap();
                     }

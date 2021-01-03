@@ -6,6 +6,7 @@ use crate::hal::memory::{Barrier, Dependencies};
 use crate::mem::{Allocator, Buffer, Memory};
 use crate::{hal, instances::SceneList, CmdBufferPool, DeviceHandle, Queue};
 
+use crate::hal::prelude::DescriptorPool;
 use crate::instances::RenderBuffers;
 use crate::mem::image::{Texture, TextureDescriptor, TextureView, TextureViewDescriptor};
 use crate::skinning::SkinList;
@@ -16,12 +17,9 @@ use hal::{
     window::Extent2D,
 };
 use pass::Subpass;
-use pso::*;
 use rfw::prelude::mesh::VertexMesh;
 use rfw::prelude::*;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, rc::Rc, sync::Arc};
-use AttributeDesc;
-use VertexBufferDesc;
 
 pub mod anim;
 
@@ -68,7 +66,6 @@ pub struct RenderPipeline<B: hal::Backend> {
     desc_set: B::DescriptorSet,
     set_layout: ManuallyDrop<B::DescriptorSetLayout>,
     pipeline: ManuallyDrop<B::GraphicsPipeline>,
-    anim_pipeline: ManuallyDrop<B::GraphicsPipeline>,
     pipeline_layout: ManuallyDrop<B::PipelineLayout>,
     render_pass: ManuallyDrop<B::RenderPass>,
     uniform_buffer: Buffer<B>,
@@ -100,7 +97,7 @@ pub struct RenderPipeline<B: hal::Backend> {
     output_framebuffer: ManuallyDrop<B::Framebuffer>,
 
     output_format: format::Format,
-    viewport: Viewport,
+    viewport: pso::Viewport,
 }
 
 impl<B: hal::Backend> RenderPipeline<B> {
@@ -241,7 +238,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             count: 1,
                         },
                         pso::DescriptorRangeDesc {
-                            ty: DescriptorType::Image {
+                            ty: pso::DescriptorType::Image {
                                 ty: pso::ImageDescriptorType::Sampled {
                                     with_sampler: false,
                                 },
@@ -249,7 +246,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             count: 1,
                         },
                         pso::DescriptorRangeDesc {
-                            ty: DescriptorType::Sampler,
+                            ty: pso::DescriptorType::Sampler,
                             count: 1,
                         },
                     ],
@@ -383,71 +380,71 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
                 let pipeline_desc = pso::GraphicsPipelineDesc {
                     primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
-                        buffers: &[VertexBufferDesc {
-                            binding: 0 as BufferIndex,
-                            stride: std::mem::size_of::<VertexData>() as ElemStride,
-                            rate: VertexInputRate::Vertex,
+                        buffers: &[pso::VertexBufferDesc {
+                            binding: 0 as pso::BufferIndex,
+                            stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                            rate: pso::VertexInputRate::Vertex,
                         }], // Vec<VertexBufferDesc>,
                         // Vertex attributes (IA)
                         attributes: &[
-                            AttributeDesc {
+                            pso::AttributeDesc {
                                 /// Vertex array location
-                                location: 0 as Location,
+                                location: 0,
                                 /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
+                                binding: 0,
                                 /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
+                                element: pso::Element {
+                                    format: format::Format::Rgba32Sfloat,
                                     offset: 0,
                                 },
                             },
-                            AttributeDesc {
+                            pso::AttributeDesc {
                                 /// Vertex array location
-                                location: 1 as Location,
+                                location: 1,
                                 /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
+                                binding: 0,
                                 /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgb32Sfloat,
+                                element: pso::Element {
+                                    format: format::Format::Rgb32Sfloat,
                                     offset: 16,
                                 },
                             },
-                            AttributeDesc {
+                            pso::AttributeDesc {
                                 /// Vertex array location
-                                location: 2 as Location,
+                                location: 2,
                                 /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
+                                binding: 0,
                                 /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::R32Uint,
+                                element: pso::Element {
+                                    format: format::Format::R32Uint,
                                     offset: 28,
                                 },
                             },
-                            AttributeDesc {
+                            pso::AttributeDesc {
                                 /// Vertex array location
-                                location: 3 as Location,
+                                location: 3,
                                 /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
+                                binding: 0,
                                 /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rg32Sfloat,
+                                element: pso::Element {
+                                    format: format::Format::Rg32Sfloat,
                                     offset: 32,
                                 },
                             },
-                            AttributeDesc {
+                            pso::AttributeDesc {
                                 /// Vertex array location
-                                location: 4 as Location,
+                                location: 4,
                                 /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
+                                binding: 0,
                                 /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
+                                element: pso::Element {
+                                    format: format::Format::Rgba32Sfloat,
                                     offset: 40,
                                 },
                             },
                         ],
                         input_assembler: pso::InputAssemblerDesc {
-                            primitive: Primitive::TriangleList,
+                            primitive: pso::Primitive::TriangleList,
                             with_adjacency: false,
                             restart_index: None,
                         },
@@ -473,10 +470,10 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         /// Controls how triangles will be rasterized depending on their overlap with pixels.
                         conservative: false,
                         /// Controls width of rasterized line segments.
-                        line_width: State::Dynamic,
+                        line_width: pso::State::Dynamic,
                     },
                     // Description of how blend operations should be performed.
-                    blender: BlendDesc {
+                    blender: pso::BlendDesc {
                         /// The logic operation to apply to the blending equation, if any.
                         logic_op: None,
                         /// Which color targets to apply the blending operation to.
@@ -486,16 +483,16 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         }],
                     },
                     // Depth stencil (DSV)
-                    depth_stencil: DepthStencilDesc {
-                        depth: Some(DepthTest {
-                            fun: Comparison::LessEqual,
+                    depth_stencil: pso::DepthStencilDesc {
+                        depth: Some(pso::DepthTest {
+                            fun: pso::Comparison::LessEqual,
                             write: true,
                         }),
                         depth_bounds: false,
                         stencil: None,
                     },
                     // Multisampling.
-                    multisampling: Some(Multisampling {
+                    multisampling: Some(pso::Multisampling {
                         rasterization_samples: 1 as image::NumSamples,
                         sample_shading: None,
                         sample_mask: !0,
@@ -506,16 +503,16 @@ impl<B: hal::Backend> RenderPipeline<B> {
                         alpha_to_one: false,
                     }),
                     // Static pipeline states.
-                    baked_states: BakedStates::default(),
+                    baked_states: pso::BakedStates::default(),
                     // Pipeline layout.
                     layout: &*pipeline_layout,
                     // Subpass in which the pipeline can be executed.
                     subpass,
                     // Options that may be set to alter pipeline properties.
-                    flags: PipelineCreationFlags::empty(),
+                    flags: pso::PipelineCreationFlags::empty(),
                     /// The parent pipeline, which may be
                     /// `BasePipeline::None`.
-                    parent: BasePipeline::None,
+                    parent: pso::BasePipeline::None,
                 };
 
                 unsafe { device.create_graphics_pipeline(&pipeline_desc, None) }
@@ -531,218 +528,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
             match pipeline {
                 Ok(pipeline) => ManuallyDrop::new(pipeline),
                 Err(e) => panic!("Could not compile pipeline {}", e),
-            }
-        };
-
-        let anim_pipeline = {
-            let vs_module = {
-                let spirv: &[u8] = include_bytes!("../../shaders/mesh_anim.vert.spv");
-                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
-            };
-
-            let fs_module = {
-                let spirv: &[u8] = include_bytes!("../../shaders/mesh.frag.spv");
-                unsafe { device.create_shader_module(spirv.as_quad_bytes()) }.unwrap()
-            };
-
-            let pipeline = {
-                let (vs_entry, fs_entry) = (
-                    pso::EntryPoint {
-                        entry: "main",
-                        module: &vs_module,
-                        specialization: pso::Specialization::default(),
-                    },
-                    pso::EntryPoint {
-                        entry: "main",
-                        module: &fs_module,
-                        specialization: pso::Specialization::default(),
-                    },
-                );
-
-                let subpass = Subpass {
-                    index: 0,
-                    main_pass: &*render_pass,
-                };
-
-                let pipeline_desc = pso::GraphicsPipelineDesc {
-                    primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
-                        buffers: &[
-                            pso::VertexBufferDesc {
-                                binding: 0 as BufferIndex,
-                                stride: std::mem::size_of::<VertexData>() as ElemStride,
-                                rate: VertexInputRate::Vertex,
-                            },
-                            pso::VertexBufferDesc {
-                                binding: 1 as BufferIndex,
-                                stride: std::mem::size_of::<AnimVertexData>() as ElemStride,
-                                rate: VertexInputRate::Vertex,
-                            },
-                        ],
-                        /// Vertex attributes (IA)
-                        attributes: &[
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 0 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
-                                    offset: 0,
-                                },
-                            },
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 1 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgb32Sfloat,
-                                    offset: 16,
-                                },
-                            },
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 2 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::R32Uint,
-                                    offset: 28,
-                                },
-                            },
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 3 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rg32Sfloat,
-                                    offset: 32,
-                                },
-                            },
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 4 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 0 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
-                                    offset: 40,
-                                },
-                            },
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 5 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 1 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgba32Uint,
-                                    offset: 0,
-                                },
-                            },
-                            AttributeDesc {
-                                /// Vertex array location
-                                location: 6 as Location,
-                                /// Binding number of the associated vertex mem.
-                                binding: 1 as BufferIndex,
-                                /// Attribute element description.
-                                element: Element {
-                                    format: hal::format::Format::Rgba32Sfloat,
-                                    offset: 16,
-                                },
-                            },
-                        ],
-                        input_assembler: pso::InputAssemblerDesc {
-                            primitive: Primitive::TriangleList,
-                            with_adjacency: false,
-                            restart_index: None,
-                        },
-                        vertex: vs_entry,
-                        tessellation: None,
-                        geometry: None,
-                    },
-                    fragment: Some(fs_entry),
-                    // Rasterizer setup
-                    rasterizer: pso::Rasterizer {
-                        /// How to rasterize this primitive.
-                        polygon_mode: pso::PolygonMode::Fill,
-                        /// Which face should be culled.
-                        cull_face: pso::Face::BACK,
-                        /// Which vertex winding is considered to be the front face for culling.
-                        front_face: pso::FrontFace::CounterClockwise,
-                        /// Whether or not to enable depth clamping; when enabled, instead of
-                        /// fragments being omitted when they are outside the bounds of the z-plane,
-                        /// they will be clamped to the min or max z value.
-                        depth_clamping: false,
-                        /// What depth bias, if any, to use for the drawn primitives.
-                        depth_bias: None,
-                        /// Controls how triangles will be rasterized depending on their overlap with pixels.
-                        conservative: false,
-                        /// Controls width of rasterized line segments.
-                        line_width: State::Dynamic,
-                    },
-                    // Description of how blend operations should be performed.
-                    blender: BlendDesc {
-                        /// The logic operation to apply to the blending equation, if any.
-                        logic_op: None,
-                        /// Which color targets to apply the blending operation to.
-                        targets: vec![pso::ColorBlendDesc {
-                            mask: pso::ColorMask::ALL,
-                            blend: None,
-                        }],
-                    },
-                    // Depth stencil (DSV)
-                    depth_stencil: DepthStencilDesc {
-                        depth: Some(DepthTest {
-                            fun: Comparison::LessEqual,
-                            write: true,
-                        }),
-                        depth_bounds: false,
-                        stencil: None,
-                    },
-                    // Multisampling.
-                    multisampling: Some(Multisampling {
-                        rasterization_samples: 1 as image::NumSamples,
-                        sample_shading: None,
-                        sample_mask: !0,
-                        /// Toggles alpha-to-coverage multisampling, which can produce nicer edges
-                        /// when many partially-transparent polygons are overlapping.
-                        /// See [here]( https://msdn.microsoft.com/en-us/library/windows/desktop/bb205072(v=vs.85).aspx#Alpha_To_Coverage) for a full description.
-                        alpha_coverage: false,
-                        alpha_to_one: false,
-                    }),
-                    // Static pipeline states.
-                    baked_states: BakedStates::default(),
-                    // Pipeline layout.
-                    layout: &*pipeline_layout,
-                    // Subpass in which the pipeline can be executed.
-                    subpass,
-                    // Options that may be set to alter pipeline properties.
-                    flags: PipelineCreationFlags::empty(),
-                    /// The parent pipeline, which may be
-                    /// `BasePipeline::None`.
-                    parent: BasePipeline::None,
-                };
-
-                unsafe { device.create_graphics_pipeline(&pipeline_desc, None) }
-            };
-
-            unsafe {
-                device.destroy_shader_module(vs_module);
-            }
-            unsafe {
-                device.destroy_shader_module(fs_module);
-            }
-
-            match pipeline {
-                Ok(pipeline) => ManuallyDrop::new(pipeline),
-                Err(e) => panic!("Could not compile animation pipeline {}", e),
             }
         };
 
@@ -996,7 +781,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             buffers: &[],
                             attributes: &[],
                             input_assembler: pso::InputAssemblerDesc {
-                                primitive: Primitive::TriangleList,
+                                primitive: pso::Primitive::TriangleList,
                                 with_adjacency: false,
                                 restart_index: None,
                             },
@@ -1011,7 +796,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             depth_clamping: false,
                             depth_bias: None,
                             conservative: false,
-                            line_width: State::Dynamic,
+                            line_width: pso::State::Dynamic,
                         },
                         fragment: Some(fs_entry),
                         blender: pso::BlendDesc {
@@ -1022,11 +807,11 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             }],
                         },
                         depth_stencil: pso::DepthStencilDesc {
-                            depth: Some(DepthTest::PASS_TEST),
+                            depth: Some(pso::DepthTest::PASS_TEST),
                             depth_bounds: false,
                             stencil: None,
                         },
-                        multisampling: Some(Multisampling {
+                        multisampling: Some(pso::Multisampling {
                             rasterization_samples: 1 as image::NumSamples,
                             sample_shading: None,
                             sample_mask: !0,
@@ -1040,7 +825,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
                             main_pass: &output_pass,
                         },
                         flags: pso::PipelineCreationFlags::empty(),
-                        parent: BasePipeline::None,
+                        parent: pso::BasePipeline::None,
                     },
                     None,
                 )
@@ -1106,7 +891,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
             desc_set,
             set_layout,
             pipeline,
-            anim_pipeline,
             pipeline_layout,
             render_pass,
             uniform_buffer,
@@ -1138,7 +922,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             output_framebuffer: ManuallyDrop::new(output_framebuffer),
             output_format: format,
 
-            viewport: Viewport {
+            viewport: pso::Viewport {
                 rect: pso::Rect {
                     x: 0,
                     y: 0,
@@ -1203,7 +987,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
         &self,
         cmd_buffer: &mut B::CommandBuffer,
         target_framebuffer: &B::Framebuffer,
-        target_viewport: &Viewport,
+        target_viewport: &pso::Viewport,
         scene: &SceneList<B>,
         skins: &SkinList<B>,
         frustrum: &FrustrumG,
@@ -1265,62 +1049,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
                                 0,
                                 std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
                             );
-                        }
-                        RenderBuffers::Animated(buffer, anim_offset) => {
-                            if let Some(skin_id) = instance.skin_id {
-                                let skin_id = skin_id as usize;
-                                if let Some(skin_set) = skins.get_set(skin_id) {
-                                    cmd_buffer.bind_graphics_pipeline(&self.anim_pipeline);
-                                    cmd_buffer.bind_graphics_descriptor_sets(
-                                        &self.pipeline_layout,
-                                        1,
-                                        std::iter::once(&scene.desc_set),
-                                        &[],
-                                    );
-                                    cmd_buffer.bind_graphics_descriptor_sets(
-                                        &self.pipeline_layout,
-                                        3,
-                                        std::iter::once(skin_set),
-                                        &[],
-                                    );
-
-                                    cmd_buffer.bind_vertex_buffers(
-                                        0,
-                                        std::iter::once((
-                                            buffer.buffer(),
-                                            buffer::SubRange {
-                                                size: Some(*anim_offset as buffer::Offset),
-                                                offset: 0,
-                                            },
-                                        )),
-                                    );
-                                    cmd_buffer.bind_vertex_buffers(
-                                        1,
-                                        std::iter::once((
-                                            buffer.buffer(),
-                                            buffer::SubRange {
-                                                size: Some(
-                                                    (buffer.size_in_bytes - *anim_offset)
-                                                        as buffer::Offset,
-                                                ),
-                                                offset: *anim_offset as _,
-                                            },
-                                        )),
-                                    );
-                                } else {
-                                    cmd_buffer.bind_graphics_pipeline(&self.pipeline);
-                                    cmd_buffer.bind_vertex_buffers(
-                                        0,
-                                        std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
-                                    );
-                                }
-                            } else {
-                                cmd_buffer.bind_graphics_pipeline(&self.pipeline);
-                                cmd_buffer.bind_vertex_buffers(
-                                    0,
-                                    std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
-                                );
-                            }
                         }
                     }
                     first = false;
@@ -1610,7 +1338,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             let target = self.textures[i].as_ref().as_ref().unwrap();
             unsafe {
                 cmd_buffer.pipeline_barrier(
-                    PipelineStage::TOP_OF_PIPE..PipelineStage::TRANSFER,
+                    pso::PipelineStage::TOP_OF_PIPE..pso::PipelineStage::TRANSFER,
                     Dependencies::empty(),
                     std::iter::once(&Barrier::Image {
                         range: SubresourceRange {
@@ -1664,7 +1392,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
             unsafe {
                 cmd_buffer.pipeline_barrier(
-                    PipelineStage::TRANSFER..PipelineStage::FRAGMENT_SHADER,
+                    pso::PipelineStage::TRANSFER..pso::PipelineStage::FRAGMENT_SHADER,
                     Dependencies::empty(),
                     std::iter::once(&Barrier::Image {
                         range: SubresourceRange {
@@ -1934,10 +1662,6 @@ impl<B: hal::Backend> Drop for RenderPipeline<B> {
                 .destroy_render_pass(ManuallyDrop::into_inner(ptr::read(&self.render_pass)));
             self.device
                 .destroy_graphics_pipeline(ManuallyDrop::into_inner(ptr::read(&self.pipeline)));
-            self.device
-                .destroy_graphics_pipeline(ManuallyDrop::into_inner(ptr::read(
-                    &self.anim_pipeline,
-                )));
             self.device
                 .destroy_pipeline_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.pipeline_layout,

@@ -6,32 +6,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum ObjectRef {
-    None,
-    Static(u32),
-    Animated(u32),
-}
-
-impl Default for ObjectRef {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl std::fmt::Display for ObjectRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ObjectRef({})",
-            match self {
-                ObjectRef::None => String::from("None"),
-                ObjectRef::Static(hit_id) => format!("Static({})", hit_id),
-                ObjectRef::Animated(hit_id) => format!("Animated({})", hit_id),
-            }
-        )
-    }
-}
+pub type ObjectRef = Option<u32>;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -45,7 +20,7 @@ pub enum InstanceUpdate {
 /// Takes in a bounding box and transform and transforms to and from object local space.
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
-pub struct Instance {
+pub struct Instance3D {
     original_bounds: AABB,
     bounds: AABB,
     transform: [f32; 16],
@@ -59,15 +34,21 @@ pub struct Instance {
     updated: InstanceUpdate,
 }
 
-impl Display for Instance {
+impl Display for Instance3D {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Instance {{ original_bounds: {}, bounds: {}, hit_id: {}, transform: {}, inverse: {}, normal_transform: {} }}",
-               self.original_bounds, self.bounds, self.object_id, Mat4::from_cols_array(&self.transform), Mat4::from_cols_array(&self.inverse), Mat4::from_cols_array(&self.normal_transform)
+               self.original_bounds, self.bounds, match self.object_id {
+                None => String::from("None"),
+                Some(id) =>format!("{}", id) 
+            },
+           Mat4::from_cols_array(&self.transform),
+           Mat4::from_cols_array(&self.inverse),
+           Mat4::from_cols_array(&self.normal_transform)
         )
     }
 }
 
-impl Default for Instance {
+impl Default for Instance3D {
     fn default() -> Self {
         Self {
             original_bounds: AABB::empty(),
@@ -86,22 +67,22 @@ impl Default for Instance {
 }
 
 #[allow(dead_code)]
-impl Instance {
-    pub fn new(object_id: ObjectRef, bounds: &AABB) -> Instance {
+impl Instance3D {
+    pub fn new(object_id: ObjectRef, bounds: &AABB) -> Instance3D {
         let transform = Mat4::identity();
         let inverse = transform.inverse();
 
         let normal_transform = inverse.transpose();
         let transformed_bounds = bounds.transformed(transform.to_cols_array());
 
-        Instance {
+        Instance3D {
             original_bounds: bounds.clone(),
             bounds: transformed_bounds,
             transform: transform.to_cols_array(),
             inverse: inverse.to_cols_array(),
             normal_transform: normal_transform.to_cols_array(),
             object_id,
-            ..Instance::default()
+            ..Instance3D::default()
         }
     }
 
@@ -457,14 +438,14 @@ impl Instance {
     }
 }
 
-impl Bounds for Instance {
+impl Bounds for Instance3D {
     fn bounds(&self) -> AABB {
         self.original_bounds.transformed(self.transform)
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'a> SerializableObject<'a, Instance> for Instance {
+impl<'a> SerializableObject<'a, Instance3D> for Instance3D {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
         path: S,
@@ -480,7 +461,7 @@ impl<'a> SerializableObject<'a, Instance> for Instance {
     fn deserialize_object<S: AsRef<std::path::Path>>(
         path: S,
         _: &mut crate::MaterialList,
-    ) -> Result<Instance, Box<dyn std::error::Error>> {
+    ) -> Result<Instance3D, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
         let object: Self = bincode::deserialize_from(reader)?;

@@ -40,9 +40,6 @@ pub struct RenderInstance {
 #[derive(Debug, Clone)]
 pub enum RenderBuffers<'a, B: hal::Backend> {
     Static(&'a Buffer<B>),
-    /// Buffer with both vertices and animation data
-    /// the usize is the offset into the mem for animation data
-    Animated(&'a Buffer<B>, usize),
 }
 
 impl Default for RenderInstance {
@@ -204,18 +201,14 @@ impl<B: hal::Backend> SceneList<B> {
         }
     }
 
-    pub fn set_instance(&mut self, id: usize, instance: &rfw::prelude::Instance) {
+    pub fn set_instance(&mut self, id: usize, instance: &rfw::prelude::Instance3D) {
         // Remove old instance in mesh instance list
         if let Some(inst) = self.render_instances.get(id) {
             match inst.object {
-                ObjectRef::None => {}
-                ObjectRef::Static(mesh_id) => {
+                None => {}
+                Some(mesh_id) => {
                     let mesh_id = mesh_id as usize;
                     self.mesh_instances[mesh_id].remove(&(id as u32));
-                }
-                ObjectRef::Animated(mesh_id) => {
-                    let mesh_id = mesh_id as usize;
-                    self.anim_mesh_instances[mesh_id].remove(&(id as u32));
                 }
             }
         }
@@ -223,7 +216,7 @@ impl<B: hal::Backend> SceneList<B> {
         // Add instance to object list
         match instance.object_id {
             ObjectRef::None => {}
-            ObjectRef::Static(mesh_id) => match self.mesh_instances.get_mut(mesh_id as usize) {
+            Some(mesh_id) => match self.mesh_instances.get_mut(mesh_id as usize) {
                 Some(set) => {
                     set.insert(id as u32);
                 }
@@ -233,19 +226,6 @@ impl<B: hal::Backend> SceneList<B> {
                     self.mesh_instances.overwrite_val(mesh_id as usize, set);
                 }
             },
-            ObjectRef::Animated(mesh_id) => {
-                match self.anim_mesh_instances.get_mut(mesh_id as usize) {
-                    Some(set) => {
-                        set.insert(id as u32);
-                    }
-                    None => {
-                        let mut set = HashSet::new();
-                        set.insert(id as u32);
-                        self.anim_mesh_instances
-                            .overwrite_val(mesh_id as usize, set);
-                    }
-                }
-            }
         }
 
         // Update instance data
@@ -272,7 +252,7 @@ impl<B: hal::Backend> SceneList<B> {
         );
     }
 
-    pub fn set_mesh(&mut self, id: usize, mesh: &rfw::prelude::Mesh) {
+    pub fn set_mesh(&mut self, id: usize, mesh: &rfw::prelude::Mesh3D) {
         if mesh.vertices.is_empty() {
             self.meshes.overwrite_val(id, GfxMesh::default_id(id));
             return;
@@ -335,85 +315,6 @@ impl<B: hal::Backend> SceneList<B> {
                     buffer: Some(Arc::new(buffer)),
                     vertices: mesh.vertices.len(),
                     bounds: mesh.bounds,
-                },
-                Some(Arc::new(staging_buffer)),
-                cmd_buffer,
-            ))
-        });
-    }
-
-    pub fn set_anim_mesh(&mut self, id: usize, anim_mesh: &rfw::prelude::AnimatedMesh) {
-        if anim_mesh.vertices.is_empty() {
-            self.anim_meshes
-                .overwrite_val(id, GfxAnimMesh::default_id(id));
-            return;
-        }
-
-        let anim_mesh = anim_mesh.clone();
-        let queue = self.queue.clone();
-        let allocator = self.allocator.clone();
-        let mut cmd_buffer = unsafe { self.cmd_pool.allocate_one(hal::command::Level::Primary) };
-
-        self.task_pool.push(move |sender| {
-            let buffer_len = (anim_mesh.vertices.len() * std::mem::size_of::<VertexData>()) as u64;
-            let anim_buffer_len =
-                (anim_mesh.anim_vertex_data.len() * std::mem::size_of::<AnimVertexData>()) as u64;
-            assert_ne!(buffer_len, 0);
-            assert_ne!(anim_buffer_len, 0);
-
-            let buffer = allocator
-                .allocate_buffer(
-                    buffer_len as usize + anim_buffer_len as usize,
-                    buffer::Usage::VERTEX | buffer::Usage::TRANSFER_DST,
-                    memory::Properties::DEVICE_LOCAL,
-                    None,
-                )
-                .unwrap();
-
-            let mut staging_buffer = allocator
-                .allocate_buffer(
-                    (buffer_len + anim_buffer_len) as usize,
-                    buffer::Usage::TRANSFER_SRC,
-                    memory::Properties::CPU_VISIBLE,
-                    None,
-                )
-                .unwrap();
-
-            if let Ok(mapping) = staging_buffer.map(memory::Segment {
-                offset: 0,
-                size: Some(buffer_len + anim_buffer_len),
-            }) {
-                let buffer_len = buffer_len as usize;
-                let anim_buffer_len = anim_buffer_len as usize;
-
-                mapping.as_slice()[0..buffer_len].copy_from_slice(anim_mesh.vertices.as_bytes());
-                mapping.as_slice()[buffer_len..(buffer_len + anim_buffer_len)]
-                    .copy_from_slice(anim_mesh.anim_vertex_data.as_bytes());
-            }
-
-            unsafe {
-                cmd_buffer.begin_primary(hal::command::CommandBufferFlags::ONE_TIME_SUBMIT);
-                cmd_buffer.copy_buffer(
-                    staging_buffer.buffer(),
-                    buffer.buffer(),
-                    std::iter::once(&hal::command::BufferCopy {
-                        size: (buffer_len + anim_buffer_len) as _,
-                        src: 0,
-                        dst: 0,
-                    }),
-                );
-                cmd_buffer.finish();
-                queue.submit_without_semaphores(std::iter::once(&cmd_buffer), None);
-            }
-
-            sender.send(TaskResult::AnimMesh(
-                GfxAnimMesh {
-                    id,
-                    sub_meshes: anim_mesh.meshes.clone(),
-                    buffer: Some(Arc::new(buffer)),
-                    anim_offset: buffer_len as usize,
-                    vertices: anim_mesh.vertices.len(),
-                    bounds: anim_mesh.bounds,
                 },
                 Some(Arc::new(staging_buffer)),
                 cmd_buffer,
@@ -489,11 +390,11 @@ impl<B: hal::Backend> SceneList<B> {
             };
 
             let (mut aabb, meshes) = match render_instance.object {
-                ObjectRef::None => {
+                None => {
                     let vec: Vec<VertexMesh> = Vec::new();
                     (AABB::empty(), vec)
                 }
-                ObjectRef::Static(m_id) => {
+                Some(m_id) => {
                     if let Some(mesh) = self.meshes.get(m_id as usize) {
                         let sub_meshes: Vec<VertexMesh> = mesh
                             .sub_meshes
@@ -507,24 +408,6 @@ impl<B: hal::Backend> SceneList<B> {
                             .collect::<Vec<_>>();
 
                         (mesh.bounds.clone(), sub_meshes)
-                    } else {
-                        (AABB::empty(), Vec::new())
-                    }
-                }
-                ObjectRef::Animated(m_id) => {
-                    if let Some(anim_mesh) = self.anim_meshes.get(m_id as usize) {
-                        let sub_meshes: Vec<VertexMesh> = anim_mesh
-                            .sub_meshes
-                            .iter()
-                            .map(|s| VertexMesh {
-                                bounds: s.bounds.transformed(matrix),
-                                first: s.first,
-                                last: s.last,
-                                mat_id: s.mat_id,
-                            })
-                            .collect::<Vec<_>>();
-
-                        (anim_mesh.bounds.clone(), sub_meshes)
                     } else {
                         (AABB::empty(), Vec::new())
                     }
@@ -588,29 +471,6 @@ impl<B: hal::Backend> SceneList<B> {
                     match mesh.buffer.as_ref() {
                         Some(buffer) => Some(RenderBuffers::Static(buffer)),
                         None => None,
-                    }
-                } else {
-                    None
-                };
-
-                if let Some(buffer) = buffer {
-                    set.iter().for_each(|inst| {
-                        let inst = *inst as usize;
-                        if let Some(instance) = self.render_instances.get(inst) {
-                            render_instance(&buffer, instance);
-                        }
-                    });
-                }
-            });
-
-        self.anim_mesh_instances
-            .iter()
-            .filter(|(_, set)| !set.is_empty())
-            .for_each(|(i, set)| {
-                let buffer = if let Some(mesh) = self.anim_meshes.get(i) {
-                    match mesh.buffer.as_ref() {
-                        Some(buffer) => Some(RenderBuffers::Animated(buffer, mesh.anim_offset)),
-                        _ => None,
                     }
                 } else {
                     None

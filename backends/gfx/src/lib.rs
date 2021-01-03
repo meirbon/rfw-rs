@@ -50,7 +50,7 @@ impl std::error::Error for GfxError {}
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
-use rfw::prelude::r2d::{D2Instance, D2Mesh};
+use rfw::prelude::r2d::{Instance2D, Mesh2D};
 use rfw::prelude::HasRawWindowHandle;
 
 pub struct GfxRenderer<B: hal::Backend> {
@@ -325,48 +325,35 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         }))
     }
 
-    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
+    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, Mesh2D>) {
         // unimplemented!()
     }
 
-    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, D2Instance>) {
+    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, Instance2D>) {
         // unimplemented!()
     }
 
-    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
+    fn set_3d_meshes(&mut self, meshes: ChangedIterator<'_, Mesh3D>) {
         for (i, mesh) in meshes {
             self.scene_list.set_mesh(i, mesh);
         }
     }
 
-    fn unload_meshes(&mut self, ids: Vec<usize>) {
-        let mesh = Mesh::default();
+    fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
+        let mesh = Mesh3D::default();
         for id in ids {
             self.scene_list.set_mesh(id, &mesh);
         }
     }
 
-    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
-        for (i, mesh) in meshes {
-            self.scene_list.set_anim_mesh(i, mesh);
-        }
-    }
-
-    fn unload_animated_meshes(&mut self, ids: Vec<usize>) {
-        let mesh = AnimatedMesh::default();
-        for id in ids {
-            self.scene_list.set_anim_mesh(id, &mesh);
-        }
-    }
-
-    fn set_instances(&mut self, instances: ChangedIterator<'_, rfw::prelude::Instance>) {
+    fn set_instances(&mut self, instances: ChangedIterator<'_, rfw::prelude::Instance3D>) {
         for (i, instance) in instances {
             self.scene_list.set_instance(i, instance);
         }
     }
 
     fn unload_instances(&mut self, ids: Vec<usize>) {
-        let instance = rfw::prelude::Instance::default();
+        let instance = rfw::prelude::Instance3D::default();
         for id in ids {
             self.scene_list.set_instance(id, &instance);
         }

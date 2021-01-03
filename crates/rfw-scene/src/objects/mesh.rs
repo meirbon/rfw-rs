@@ -1,97 +1,179 @@
-use crate::objects::mesh::*;
-use crate::objects::RTTriangle;
-use crate::{HitRecord4, PrimID, Intersect, HitRecord};
+use crate::{HitRecord4, RTTriangle, Skin};
+use l3d::load::MeshDescriptor;
 use l3d::mat::MaterialList;
-use rtbvh::{Bounds, Ray, RayPacket4, AABB, BVH, MBVH};
+use rayon::prelude::*;
+use rfw_math::*;
+use rtbvh::{Bounds, RayPacket4, AABB};
 use std::fmt::Display;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "serde")]
 use std::collections::HashMap;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone)]
-pub struct AnimVertexData {
-    pub joints: [u32; 4],
-    pub weights: [f32; 4],
+pub trait ToMesh {
+    fn into_mesh(self) -> Mesh3D;
 }
 
-impl AnimVertexData {
-    pub fn zero() -> Self {
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[repr(C)]
+pub struct VertexData {
+    pub vertex: Vec4,
+    // 16
+    pub normal: Vec3,
+    // 28
+    pub mat_id: u32,
+    // 32
+    pub uv: Vec2,
+    // 40
+    pub tangent: Vec4,
+    // 56
+}
+
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct JointData {
+    pub joint: [u32; 4],
+    pub weight: Vec4,
+}
+
+impl Into<([u32; 4], Vec4)> for JointData {
+    fn into(self) -> ([u32; 4], Vec4) {
+        (self.joint, self.weight)
+    }
+}
+
+impl<T: Into<[f32; 4]>> From<([u32; 4], T)> for JointData {
+    fn from(data: ([u32; 4], T)) -> Self {
         Self {
-            joints: [0; 4],
-            weights: [0.0; 4],
+            joint: data.0,
+            weight: Vec4::from(data.1.into()),
+        }
+    }
+}
+
+impl<T: Into<[f32; 4]>> From<([u16; 4], T)> for JointData {
+    fn from(data: ([u16; 4], T)) -> Self {
+        Self {
+            joint: [
+                data.0[0] as u32,
+                data.0[1] as u32,
+                data.0[2] as u32,
+                data.0[3] as u32,
+            ],
+            weight: Vec4::from(data.1.into()),
+        }
+    }
+}
+
+impl Display for VertexData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VertexData {{ vertex: {}, normal: {}, mat_id: {}, uv: {}, tangent: {} }}",
+            Vec4::from(self.vertex),
+            Vec3::from(self.normal),
+            self.mat_id,
+            Vec2::from(self.uv),
+            Vec4::from(self.tangent)
+        )
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Copy, Clone)]
+pub struct VertexMesh {
+    pub first: u32,
+    pub last: u32,
+    pub mat_id: u32,
+    pub bounds: AABB,
+}
+
+impl Display for VertexMesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VertexMesh {{ first: {}, last: {}, mat_id: {}, bounds: {} }}",
+            self.first, self.last, self.mat_id, self.bounds
+        )
+    }
+}
+
+impl VertexData {
+    pub fn zero() -> VertexData {
+        VertexData {
+            vertex: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            normal: Vec3::zero(),
+            mat_id: 0,
+            uv: Vec2::zero(),
+            tangent: Vec4::zero(),
         }
     }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct AnimatedMesh {
+pub struct Mesh3D {
     pub triangles: Vec<RTTriangle>,
     pub vertices: Vec<VertexData>,
-    pub anim_vertex_data: Vec<AnimVertexData>,
-    pub joints: Vec<Vec<[u16; 4]>>,
-    pub weights: Vec<Vec<Vec4>>,
+    pub joints_weights: Vec<JointData>,
     pub materials: Vec<u32>,
     pub meshes: Vec<VertexMesh>,
     pub bounds: AABB,
-    pub bvh: Option<BVH>,
-    pub mbvh: Option<MBVH>,
     pub name: String,
 }
 
-impl Display for AnimatedMesh {
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default)]
+pub struct SkinnedMesh3D {
+    pub vertices: Vec<VertexData>,
+    pub meshes: Vec<VertexMesh>,
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default)]
+pub struct SkinnedTriangles3D {
+    pub triangles: Vec<RTTriangle>,
+}
+
+impl Display for Mesh3D {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Mesh {{ triangles: {}, vertices: {}, materials: {}, meshes: {}, bounds: {}, bvh: {}, mbvh: {}, name: {} }}",
+            "Mesh {{ triangles: {}, vertices: {}, joint_weights: {}, materials: {}, meshes: {}, bounds: {}, name: {} }}",
             self.triangles.len(),
             self.vertices.len(),
+            self.joints_weights.len(),
             self.materials.len(),
             self.meshes.len(),
             self.bounds,
-            self.bvh.is_some(),
-            self.mbvh.is_some(),
             self.name.as_str()
         )
     }
 }
 
-impl Default for AnimatedMesh {
+impl Default for Mesh3D {
     fn default() -> Self {
-        AnimatedMesh::empty()
+        Mesh3D::empty()
     }
 }
 
-impl AnimatedMesh {
+impl Mesh3D {
     pub fn new_indexed(
         indices: Vec<[u32; 3]>,
         original_vertices: Vec<Vec3>,
         original_normals: Vec<Vec3>,
         original_joints: Vec<Vec<[u16; 4]>>,
-        original_weights: Vec<Vec<Vec4>>,
+        original_weights: Vec<Vec<[f32; 4]>>,
         original_uvs: Vec<Vec2>,
         material_ids: Vec<u32>,
         name: Option<String>,
-    ) -> Self {
-        assert_eq!(original_vertices.len(), original_normals.len());
-        for vec in original_joints.iter() {
-            assert_eq!(original_normals.len(), vec.len());
-        }
-
-        for vec in original_weights.iter() {
-            assert_eq!(original_normals.len(), vec.len());
-        }
-        assert_eq!(original_normals.len(), original_uvs.len());
-        assert_eq!(material_ids.len(), indices.len());
-
+    ) -> Mesh3D {
         let mut vertices = Vec::with_capacity(indices.len() * 3);
         let mut normals = Vec::with_capacity(indices.len() * 3);
         let mut uvs = Vec::with_capacity(indices.len() * 3);
         let mut material_indices = Vec::with_capacity(indices.len());
-
         let mut joints = Vec::with_capacity(original_joints.len());
         for v in original_joints.iter() {
             joints.push(Vec::with_capacity(v.len()));
@@ -139,7 +221,7 @@ impl AnimatedMesh {
         debug_assert_eq!(uvs.len(), material_ids.len() * 3);
         debug_assert_eq!(vertices.len() % 3, 0);
 
-        Self::new(
+        Mesh3D::new(
             vertices,
             normals,
             joints,
@@ -154,11 +236,11 @@ impl AnimatedMesh {
         vertices: Vec<Vec3>,
         normals: Vec<Vec3>,
         joints: Vec<Vec<[u16; 4]>>,
-        weights: Vec<Vec<Vec4>>,
+        weights: Vec<Vec<[f32; 4]>>,
         uvs: Vec<Vec2>,
         material_ids: Vec<u32>,
         name: Option<T>,
-    ) -> Self {
+    ) -> Mesh3D {
         debug_assert_eq!(vertices.len(), normals.len());
         debug_assert_eq!(vertices.len(), uvs.len());
         debug_assert_eq!(uvs.len(), material_ids.len() * 3);
@@ -166,7 +248,6 @@ impl AnimatedMesh {
 
         let mut bounds = AABB::new();
         let mut vertex_data = vec![VertexData::zero(); vertices.len()];
-        let mut anim_vertex_data = vec![AnimVertexData::zero(); vertices.len()];
 
         let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
             let mut normals = vec![Vec3::zero(); vertices.len()];
@@ -256,56 +337,19 @@ impl AnimatedMesh {
             tangents[i] = tangent.normalize().extend(w);
         }
 
-        vertex_data
-            .iter_mut()
-            .enumerate()
-            .zip(anim_vertex_data.iter_mut())
-            .par_bridge()
-            .for_each(|((i, v), anim_v)| {
-                let vertex: [f32; 3] = vertices[i].into();
-                let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
-                let normal = normals[i].into();
+        vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
+            let vertex = vertices[i];
+            let vertex = Vec4::new(vertex.x, vertex.y, vertex.z, 1.0);
+            let normal = normals[i];
 
-                *v = VertexData {
-                    vertex,
-                    normal,
-                    mat_id: material_ids[i / 3],
-                    uv: uvs[i].into(),
-                    tangent: tangents[i].into(),
-                };
-
-                let joints: [u32; 4] = if let Some(j) = joints.get(0) {
-                    if let Some(joints) = j.get(i) {
-                        [
-                            joints[0] as u32,
-                            joints[1] as u32,
-                            joints[2] as u32,
-                            joints[3] as u32,
-                        ]
-                    } else {
-                        [0; 4]
-                    }
-                } else {
-                    [0; 4]
-                };
-                let mut weights: [f32; 4] = if let Some(w) = weights.get(0) {
-                    if let Some(weights) = w.get(i) {
-                        *weights.as_ref()
-                    } else {
-                        [0.0; 4]
-                    }
-                } else {
-                    [0.25; 4]
-                };
-
-                // Ensure weights sum up to 1.0
-                let total = weights[0] + weights[1] + weights[2] + weights[3];
-                for i in 0..4 {
-                    weights[i] = weights[i] / total;
-                }
-
-                *anim_v = AnimVertexData { joints, weights };
-            });
+            *v = VertexData {
+                vertex,
+                normal,
+                mat_id: material_ids[i / 3],
+                uv: uvs[i].into(),
+                tangent: tangents[i].into(),
+            };
+        });
 
         let mut last_id = material_ids[0];
         let mut start = 0;
@@ -370,25 +414,25 @@ impl AnimatedMesh {
             let uv1 = uvs[i1];
             let uv2 = uvs[i2];
 
-            let tangent0: Vec4 = tangents[i0];
-            let tangent1: Vec4 = tangents[i1];
-            let tangent2: Vec4 = tangents[i1];
+            let tangent0 = tangents[i0];
+            let tangent1 = tangents[i1];
+            let tangent2 = tangents[i1];
 
             let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
-            let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
+            let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
             *triangle = RTTriangle {
-                vertex0: vertex0.into(),
+                vertex0,
                 u0: uv0.x,
-                vertex1: vertex1.into(),
+                vertex1,
                 u1: uv1.x,
-                vertex2: vertex2.into(),
+                vertex2,
                 u2: uv2.x,
-                normal: normal.into(),
+                normal,
                 v0: uv0.y,
                 n0: n0.into(),
                 v1: uv1.y,
@@ -406,17 +450,36 @@ impl AnimatedMesh {
             };
         });
 
-        Self {
+        let mut joints_weights = vec![JointData::default(); vertices.len()];
+        joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
+            let joints = if let Some(j) = joints.get(0) {
+                *j.get(i).unwrap_or(&[0; 4])
+            } else {
+                [0; 4]
+            };
+
+            let mut weights = if let Some(w) = weights.get(0) {
+                *w.get(i).unwrap_or(&[0.0; 4])
+            } else {
+                [0.25; 4]
+            };
+
+            // Ensure weights sum up to 1.0
+            let total = weights[0] + weights[1] + weights[2] + weights[3];
+            for i in 0..4 {
+                weights[i] = weights[i] / total;
+            }
+
+            *v = JointData::from((joints, weights));
+        });
+
+        Mesh3D {
             triangles,
             vertices: vertex_data,
-            anim_vertex_data,
-            joints,
-            weights,
             materials: Vec::from(material_ids),
+            joints_weights,
             meshes,
             bounds,
-            bvh: None,
-            mbvh: None,
             name: if let Some(name) = name {
                 String::from(name.as_ref())
             } else {
@@ -446,55 +509,24 @@ impl AnimatedMesh {
         new_self
     }
 
-    pub fn construct_bvh(&mut self) {
-        let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
-        let centers: Vec<Vec3A> = self
-            .triangles
-            .par_iter()
-            .map(|t| t.center().into())
-            .collect();
-
-        self.bvh = Some(BVH::construct_spatial(
-            aabbs.as_slice(),
-            centers.as_slice(),
-            self.triangles.as_slice(),
-        ));
-        self.mbvh = Some(MBVH::construct(self.bvh.as_ref().unwrap()));
-    }
-
-    pub fn refit_bvh(&mut self) {
-        if let Some(bvh) = self.bvh.as_mut() {
-            let aabbs: Vec<AABB> = self.triangles.par_iter().map(|t| t.bounds()).collect();
-            bvh.refit(aabbs.as_slice());
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.vertices.len()
     }
 
-    pub fn empty() -> Self {
-        AnimatedMesh {
-            triangles: Vec::new(),
-            vertices: Vec::new(),
-            anim_vertex_data: Vec::new(),
-            joints: Vec::new(),
-            weights: Vec::new(),
-            materials: Vec::new(),
-            meshes: Vec::new(),
+    pub fn empty() -> Mesh3D {
+        Mesh3D {
+            triangles: Default::default(),
+            vertices: Default::default(),
+            joints_weights: Default::default(),
+            materials: Default::default(),
+            meshes: Default::default(),
             bounds: AABB::new(),
-            bvh: None,
-            mbvh: None,
             name: String::new(),
         }
     }
 
     pub fn buffer_size(&self) -> usize {
         self.vertices.len() * std::mem::size_of::<VertexData>()
-    }
-
-    pub fn anim_buffer_size(&self) -> usize {
-        self.anim_vertex_data.len() * std::mem::size_of::<AnimVertexData>()
     }
 
     pub fn as_slice(&self) -> &[VertexData] {
@@ -751,230 +783,238 @@ impl AnimatedMesh {
             v: t_v.into(),
         }
     }
-}
 
-impl Intersect for AnimatedMesh {
-    fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3>();
+    pub fn apply_skin(&self, skin: &Skin) -> SkinnedMesh3D {
+        let mut vertices = self.vertices.clone();
+        let meshes = self.meshes.clone();
+        let matrices = &skin.joint_matrices;
+        let joints_weights = &self.joints_weights;
 
-            let intersection_test = |i, t_min, t_max| {
-                let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
-                triangle.occludes(ray, t_min, t_max)
-            };
+        vertices.par_iter_mut().enumerate().for_each(|(i, v)| {
+            let (joint, weight) = joints_weights[i].into();
+            let matrix = weight[0] * matrices[joint[0] as usize];
+            let matrix = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix = matrix + (weight[3] * matrices[joint[3] as usize]);
 
-            mbvh.occludes(
-                origin.as_ref(),
-                direction.as_ref(),
-                t_min,
-                t_max,
-                intersection_test,
-            )
-        } else {
-            false
-        }
-    }
-
-    fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3>();
-
-            let intersection_test = |i, t_min, t_max| {
-                let triangle: &RTTriangle = &self.triangles[i];
-                if let Some(mut hit) = triangle.intersect(ray, t_min, t_max) {
-                    hit.mat_id = self.materials[i];
-                    Some((hit.t, hit))
-                } else {
-                    None
-                }
-            };
-
-            mbvh.traverse(
-                origin.as_ref(),
-                direction.as_ref(),
-                t_min,
-                t_max,
-                intersection_test,
-            )
-        } else {
-            None
-        }
-    }
-
-    fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3>();
-
-            let intersection_test = |i, t_min, t_max| {
-                let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
-                if let Some(t) = triangle.intersect_t(ray, t_min, t_max) {
-                    return Some(t);
-                }
-                None
-            };
-
-            mbvh.traverse_t(
-                origin.as_ref(),
-                direction.as_ref(),
-                t_min,
-                t_max,
-                intersection_test,
-            )
-        } else {
-            None
-        }
-    }
-
-    fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
-        if let Some(mbvh) = self.mbvh.as_ref() {
-            let (origin, direction) = ray.get_vectors::<Vec3>();
-
-            let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)> {
-                let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
-                triangle.depth_test(ray, t_min, t_max)
-            };
-
-            let hit = mbvh.depth_test(
-                origin.as_ref(),
-                direction.as_ref(),
-                t_min,
-                t_max,
-                intersection_test,
-            );
-
-            Some(hit)
-        } else {
-            None
-        }
-    }
-
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
-        if let Some(mbvh) = self.mbvh.as_ref() {
-            let mut prim_id = [-1 as PrimID; 4];
-            let mut valid = false;
-            let intersection_test = |i: usize, packet: &mut RayPacket4| {
-                let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
-                if let Some(hit) = triangle.intersect4(packet, t_min) {
-                    valid = true;
-                    for i in 0..4 {
-                        if hit[i] >= 0 {
-                            prim_id[i] = hit[i];
-                        }
-                    }
-                }
-            };
-
-            mbvh.traverse4(packet, intersection_test);
-
-            if valid {
-                Some(prim_id)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn get_hit_record(&self, ray: Ray, t: f32, hit_data: u32) -> HitRecord {
-        let mut hit_record = self.triangles[hit_data as usize].get_hit_record(ray, t, hit_data);
-        hit_record.mat_id = self.materials[hit_data as usize];
-        hit_record
-    }
-
-    fn get_mat_id(&self, prim_id: PrimID) -> u32 {
-        self.materials[prim_id as usize]
-    }
-}
-
-impl Bounds for AnimatedMesh {
-    fn bounds(&self) -> AABB {
-        self.bounds.clone()
-    }
-}
-
-impl AnimatedMesh {
-    pub fn to_static_mesh(&self, skin: &crate::graph::Skin) -> Mesh {
-        let mut vertices = vec![VertexData::zero(); self.vertices.len()];
-        let mut triangles = vec![RTTriangle::default(); self.triangles.len()];
-
-        vertices.iter_mut().enumerate().for_each(|(i, v)| {
-            let original_v = &self.vertices[i];
-            let anim_data = &self.anim_vertex_data[i];
-
-            let vertex = Vec4::from(original_v.vertex);
-            let normal = Vec3::from(original_v.normal).extend(0.0);
-            let tangent = Vec4::from(original_v.tangent);
-
-            let skin_matrix = skin.joint_matrices[anim_data.joints[0] as usize]
-                * anim_data.weights[0]
-                + skin.joint_matrices[anim_data.joints[1] as usize] * anim_data.weights[1]
-                + skin.joint_matrices[anim_data.joints[2] as usize] * anim_data.weights[2]
-                + skin.joint_matrices[anim_data.joints[3] as usize] * anim_data.weights[3];
-
-            let normal_matrix: Mat4 = skin_matrix.inverse().transpose();
-
-            *v = VertexData {
-                vertex: (skin_matrix * vertex).into(),
-                normal: (normal_matrix * normal).truncate().into(),
-                tangent: (normal_matrix * tangent).into(),
-                ..original_v.clone()
-            }
+            v.vertex = matrix * v.vertex;
+            let matrix = matrix.inverse().transpose();
+            v.normal = (matrix * Vec3A::from(v.normal).extend(0.0))
+                .truncate()
+                .into();
+            let tangent =
+                (matrix * Vec3A::new(v.tangent[0], v.tangent[1], v.tangent[2]).extend(0.0)).xyz();
+            v.tangent = Vec4::new(tangent[0], tangent[1], tangent[2], v.tangent[3]);
         });
+
+        SkinnedMesh3D { vertices, meshes }
+    }
+
+    pub fn apply_skin_triangles(&self, skin: &Skin) -> SkinnedTriangles3D {
+        let mut triangles = self.triangles.clone();
+        let matrices = &skin.joint_matrices;
+        let joints_weights = &self.joints_weights;
 
         triangles.iter_mut().enumerate().for_each(|(i, t)| {
-            let original_t = &self.triangles[i];
+            let i0 = i / 3;
+            let i1 = i + 1;
+            let i2 = i + 2;
 
-            let v0 = i * 3;
-            let v1 = v0 + 1;
-            let v2 = v0 + 2;
+            let (joint, weight) = joints_weights[i0].into();
+            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let n_matrix: Mat4 = matrix.inverse().transpose();
 
-            let v0 = &vertices[v0];
-            let v1 = &vertices[v1];
-            let v2 = &vertices[v2];
+            t.vertex0 = (matrix * t.vertex0.extend(1.0)).truncate();
+            t.n0 = (n_matrix * t.n0.extend(0.0)).truncate();
+            t.tangent0 = (n_matrix * t.tangent0.xyz().extend(0.0))
+                .truncate()
+                .extend(t.tangent2[3]);
 
-            *t = RTTriangle {
-                normal: RTTriangle::normal(
-                    Vec4::from(v0.vertex).truncate(),
-                    Vec4::from(v1.vertex).truncate(),
-                    Vec4::from(v2.vertex).truncate(),
-                )
-                .into(),
-                n0: v0.normal,
-                n1: v1.normal,
-                n2: v2.normal,
-                tangent0: v0.tangent,
-                tangent1: v1.tangent,
-                tangent2: v2.tangent,
-                vertex0: [v0.vertex[0], v0.vertex[1], v0.vertex[2]],
-                vertex1: [v1.vertex[0], v1.vertex[1], v1.vertex[2]],
-                vertex2: [v2.vertex[0], v2.vertex[1], v2.vertex[2]],
-                ..original_t.clone()
-            }
+            let (joint, weight) = joints_weights[i1].into();
+            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let n_matrix: Mat4 = matrix.inverse().transpose();
+
+            t.vertex1 = (matrix * t.vertex1.extend(1.0)).truncate();
+            t.n1 = (n_matrix * t.n1.extend(0.0)).truncate();
+            t.tangent1 = (n_matrix * t.tangent1.xyz().extend(0.0))
+                .truncate()
+                .extend(t.tangent2[3]);
+
+            let (joint, weight) = joints_weights[i2].into();
+            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let n_matrix: Mat4 = matrix.inverse().transpose();
+
+            t.vertex2 = (matrix * t.vertex2.extend(1.0)).truncate();
+            t.n2 = (n_matrix * t.n2.extend(0.0)).truncate();
+            t.tangent2 = (n_matrix * t.tangent2.xyz().extend(0.0))
+                .truncate()
+                .extend(t.tangent2[3]);
+
+            t.normal = RTTriangle::normal(t.vertex0, t.vertex1, t.vertex2);
         });
 
-        Mesh {
-            vertices,
-            triangles,
-            name: self.name.clone(),
-            meshes: self.meshes.clone(),
-            bounds: self.bounds,
-            materials: self.materials.clone(),
-            bvh: None,
-            mbvh: None,
-        }
+        SkinnedTriangles3D { triangles }
+    }
+}
+
+// impl Intersect for Mesh3D {
+//     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
+//         if let Some(mbvh) = self.mbvh.as_ref() {
+//             let (origin, direction) = ray.get_vectors::<Vec3>();
+//
+//             let intersection_test = |i, t_min, t_max| {
+//                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
+//                 triangle.occludes(ray, t_min, t_max)
+//             };
+//
+//             mbvh.occludes(
+//                 origin.as_ref(),
+//                 direction.as_ref(),
+//                 t_min,
+//                 t_max,
+//                 intersection_test,
+//             )
+//         } else {
+//             false
+//         }
+//     }
+//
+//     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
+//         if let Some(mbvh) = self.mbvh.as_ref() {
+//             let (origin, direction) = ray.get_vectors::<Vec3>();
+//
+//             let intersection_test = |i, t_min, t_max| {
+//                 let triangle: &RTTriangle = &self.triangles[i];
+//                 if let Some(mut hit) = triangle.intersect(ray, t_min, t_max) {
+//                     hit.mat_id = self.materials[i];
+//                     Some((hit.t, hit))
+//                 } else {
+//                     None
+//                 }
+//             };
+//
+//             mbvh.traverse(
+//                 origin.as_ref(),
+//                 direction.as_ref(),
+//                 t_min,
+//                 t_max,
+//                 intersection_test,
+//             )
+//         } else {
+//             None
+//         }
+//     }
+//
+//     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
+//         if let Some(mbvh) = self.mbvh.as_ref() {
+//             let (origin, direction) = ray.get_vectors::<Vec3>();
+//
+//             let intersection_test = |i, t_min, t_max| {
+//                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
+//                 if let Some(t) = triangle.intersect_t(ray, t_min, t_max) {
+//                     return Some(t);
+//                 }
+//                 None
+//             };
+//
+//             mbvh.traverse_t(
+//                 origin.as_ref(),
+//                 direction.as_ref(),
+//                 t_min,
+//                 t_max,
+//                 intersection_test,
+//             )
+//         } else {
+//             None
+//         }
+//     }
+//
+//     fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
+//         if let Some(mbvh) = self.mbvh.as_ref() {
+//             let (origin, direction) = ray.get_vectors::<Vec3>();
+//
+//             let intersection_test = |i, t_min, t_max| -> Option<(f32, u32)> {
+//                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
+//                 triangle.depth_test(ray, t_min, t_max)
+//             };
+//
+//             let hit = mbvh.depth_test(
+//                 origin.as_ref(),
+//                 direction.as_ref(),
+//                 t_min,
+//                 t_max,
+//                 intersection_test,
+//             );
+//
+//             Some(hit)
+//         } else {
+//             None
+//         }
+//     }
+//
+//     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
+//         if let Some(mbvh) = self.mbvh.as_ref() {
+//             let mut prim_id = [-1 as PrimID; 4];
+//             let mut valid = false;
+//             let intersection_test = |i: usize, packet: &mut RayPacket4| {
+//                 let triangle: &RTTriangle = unsafe { self.triangles.get_unchecked(i) };
+//                 if let Some(hit) = triangle.intersect4(packet, t_min) {
+//                     valid = true;
+//                     for i in 0..4 {
+//                         if hit[i] >= 0 {
+//                             prim_id[i] = hit[i];
+//                         }
+//                     }
+//                 }
+//             };
+//
+//             mbvh.traverse4(packet, intersection_test);
+//
+//             if valid {
+//                 Some(prim_id)
+//             } else {
+//                 None
+//             }
+//         } else {
+//             None
+//         }
+//     }
+//
+//     fn get_hit_record(&self, ray: Ray, t: f32, hit_data: u32) -> HitRecord {
+//         let mut hit_record = self.triangles[hit_data as usize].get_hit_record(ray, t, hit_data);
+//         hit_record.mat_id = self.materials[hit_data as usize];
+//         hit_record
+//     }
+//
+//     fn get_mat_id(&self, prim_id: PrimID) -> u32 {
+//         self.materials[prim_id as usize]
+//     }
+// }
+
+impl Bounds for Mesh3D {
+    fn bounds(&self) -> AABB {
+        self.bounds.clone()
     }
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 struct SerializedMesh {
-    pub mesh: AnimatedMesh,
+    pub mesh: Mesh3D,
     pub materials: MaterialList,
 }
 
 #[cfg(feature = "serde")]
-impl<'a> crate::objects::SerializableObject<'a, AnimatedMesh> for AnimatedMesh {
+impl<'a> crate::SerializableObject<'a, Mesh3D> for Mesh3D {
     fn serialize_object<S: AsRef<std::path::Path>>(
         &self,
         path: S,
@@ -1074,7 +1114,7 @@ impl<'a> crate::objects::SerializableObject<'a, AnimatedMesh> for AnimatedMesh {
     fn deserialize_object<S: AsRef<std::path::Path>>(
         path: S,
         materials: &mut MaterialList,
-    ) -> Result<AnimatedMesh, Box<dyn std::error::Error>> {
+    ) -> Result<Mesh3D, Box<dyn std::error::Error>> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
         let object: SerializedMesh = bincode::deserialize_from(reader)?;
@@ -1127,14 +1167,10 @@ impl<'a> crate::objects::SerializableObject<'a, AnimatedMesh> for AnimatedMesh {
     }
 }
 
-impl From<l3d::load::MeshDescriptor> for AnimatedMesh {
+impl From<l3d::load::MeshDescriptor> for Mesh3D {
     fn from(desc: MeshDescriptor) -> Self {
-        let skeleton = desc.skeleton.clone().unwrap();
-        let (weights, joints) = (skeleton.weights, skeleton.joints);
-
         let mut bounds = AABB::new();
         let mut vertex_data = vec![VertexData::zero(); desc.vertices.len()];
-        let mut anim_vertex_data = vec![AnimVertexData::zero(); desc.vertices.len()];
 
         let material_ids: Vec<u32> = desc.material_ids.chunks(3).map(|c| c[0] as u32).collect();
 
@@ -1181,60 +1217,15 @@ impl From<l3d::load::MeshDescriptor> for AnimatedMesh {
             bounds.grow(v2);
         }
 
-        vertex_data
-            .iter_mut()
-            .enumerate()
-            .zip(anim_vertex_data.iter_mut())
-            .par_bridge()
-            .for_each(|((i, v), anim_v)| {
-                let vertex: [f32; 3] = [
-                    desc.vertices[i][0],
-                    desc.vertices[i][1],
-                    desc.vertices[i][2],
-                ];
-                let vertex = [vertex[0], vertex[1], vertex[2], 1.0];
-                let normal = normals[i].into();
-
-                *v = VertexData {
-                    vertex,
-                    normal,
-                    mat_id: material_ids[i / 3],
-                    uv: desc.uvs[i],
-                    tangent: desc.tangents[i],
-                };
-
-                let joints: [u32; 4] = if let Some(j) = joints.get(0) {
-                    if let Some(joints) = j.get(i) {
-                        [
-                            joints[0] as u32,
-                            joints[1] as u32,
-                            joints[2] as u32,
-                            joints[3] as u32,
-                        ]
-                    } else {
-                        [0; 4]
-                    }
-                } else {
-                    [0; 4]
-                };
-                let mut weights: [f32; 4] = if let Some(w) = weights.get(0) {
-                    if let Some(weights) = w.get(i) {
-                        *weights
-                    } else {
-                        [0.0; 4]
-                    }
-                } else {
-                    [0.25; 4]
-                };
-
-                // Ensure weights sum up to 1.0
-                let total = weights[0] + weights[1] + weights[2] + weights[3];
-                for i in 0..4 {
-                    weights[i] = weights[i] / total;
-                }
-
-                *anim_v = AnimVertexData { joints, weights };
-            });
+        vertex_data.par_iter_mut().enumerate().for_each(|(i, v)| {
+            *v = VertexData {
+                vertex: Vec4::from(desc.vertices[i]),
+                normal: normals[i],
+                mat_id: material_ids[i / 3],
+                uv: Vec2::from(desc.uvs[i]),
+                tangent: Vec4::from(desc.tangents[i]),
+            };
+        });
 
         let mut last_id = material_ids[0];
         let mut start = 0;
@@ -1323,7 +1314,7 @@ impl From<l3d::load::MeshDescriptor> for AnimatedMesh {
 
             let ta = (1024 * 1024) as f32
                 * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
-            let pa: f32 = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
+            let pa = (vertex1 - vertex0).cross(vertex2 - vertex0).length();
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
             *triangle = RTTriangle {
@@ -1351,22 +1342,42 @@ impl From<l3d::load::MeshDescriptor> for AnimatedMesh {
             };
         });
 
-        let weights: Vec<Vec<Vec4>> = weights
-            .iter()
-            .map(|v| v.iter().map(|v| Vec4::from(*v)).collect())
-            .collect();
+        let (joints, weights) = if let Some(s) = desc.skeleton {
+            (s.joints, s.weights)
+        } else {
+            (Vec::new(), Vec::new())
+        };
 
-        Self {
+        let mut joints_weights = vec![JointData::default(); vertex_data.len()];
+        joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
+            let joints = if let Some(j) = joints.get(0) {
+                *j.get(i).unwrap_or(&[0; 4])
+            } else {
+                [0; 4]
+            };
+
+            let mut weights = if let Some(w) = weights.get(0) {
+                *w.get(i).unwrap_or(&[0.0; 4])
+            } else {
+                [0.25; 4]
+            };
+
+            // Ensure weights sum up to 1.0
+            let total = weights[0] + weights[1] + weights[2] + weights[3];
+            for i in 0..4 {
+                weights[i] = weights[i] / total;
+            }
+
+            *v = JointData::from((joints, weights));
+        });
+
+        Mesh3D {
             triangles,
             vertices: vertex_data,
-            anim_vertex_data,
-            joints,
-            weights,
+            joints_weights,
             materials: Vec::from(material_ids),
             meshes,
             bounds,
-            bvh: None,
-            mbvh: None,
             name: desc.name,
         }
     }

@@ -1,11 +1,11 @@
-use rfw_math::*;
 use crate::{
     graph::{NodeDescriptor, SceneDescriptor},
-    {AnimatedMesh, LoadResult, MaterialList, Mesh, ObjectLoader, ObjectRef, SceneError},
+    {LoadResult, MaterialList, Mesh3D, ObjectLoader, SceneError},
 };
+use rfw_math::*;
+use rfw_utils::collections::TrackedStorage;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use rfw_utils::collections::TrackedStorage;
 
 #[derive(Debug, Copy, Clone)]
 pub struct GltfLoader {}
@@ -22,19 +22,12 @@ impl Default for GltfLoader {
     }
 }
 
-#[derive(Debug, Clone)]
-enum LoadedMesh {
-    Static(Mesh),
-    Animated(AnimatedMesh),
-}
-
 impl ObjectLoader for GltfLoader {
     fn load(
         &self,
         path: PathBuf,
         mat_manager: &mut MaterialList,
-        mesh_storage: &mut TrackedStorage<Mesh>,
-        animated_mesh_storage: &mut TrackedStorage<AnimatedMesh>,
+        mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
         let loader = l3d::LoadInstance::new().with_default();
         let scene: l3d::load::SceneDescriptor = match loader.load(l3d::load::LoadOptions {
@@ -80,26 +73,9 @@ impl ObjectLoader for GltfLoader {
             mesh.material_ids.iter_mut().for_each(|i| {
                 *i = mat_indices[&(*i as u32)] as i32;
             });
-            if mesh.skeleton.is_some() {
-                meshes.push(LoadedMesh::Animated(AnimatedMesh::from(mesh)));
-            } else {
-                meshes.push(LoadedMesh::Static(Mesh::from(mesh)));
-            }
-        }
 
-        let meshes: Vec<ObjectRef> = meshes
-            .into_iter()
-            .map(|m| match m {
-                LoadedMesh::Static(m) => {
-                    let mesh_id = mesh_storage.push(m);
-                    ObjectRef::Static(mesh_id as u32)
-                }
-                LoadedMesh::Animated(m) => {
-                    let mesh_id = animated_mesh_storage.push(m);
-                    ObjectRef::Animated(mesh_id as u32)
-                }
-            })
-            .collect();
+            meshes.push(mesh_storage.push(Mesh3D::from(mesh)) as u32);
+        }
 
         let mut node_descriptors = Vec::with_capacity(scene.nodes.len());
         node_descriptors.push(load_node(&meshes, &scene.nodes[0]));
@@ -111,7 +87,7 @@ impl ObjectLoader for GltfLoader {
     }
 }
 
-fn load_node(meshes: &Vec<ObjectRef>, node: &l3d::load::NodeDescriptor) -> NodeDescriptor {
+fn load_node(meshes: &Vec<u32>, node: &l3d::load::NodeDescriptor) -> NodeDescriptor {
     let mut node_meshes = vec![];
     for mesh in node.meshes.iter() {
         node_meshes.push(meshes[*mesh as usize]);

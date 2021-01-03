@@ -300,7 +300,7 @@ impl Renderer {
         }
     }
 
-    pub fn update_meshes(&mut self, device: &wgpu::Device, meshes: ChangedIterator<'_, D2Mesh>) {
+    pub fn update_meshes(&mut self, device: &wgpu::Device, meshes: ChangedIterator<'_, Mesh2D>) {
         for (i, m) in meshes {
             self.meshes.overwrite(i, Mesh::new(device, m));
         }
@@ -309,7 +309,7 @@ impl Renderer {
     pub fn update_instances(
         &mut self,
         queue: &wgpu::Queue,
-        instances: ChangedIterator<'_, D2Instance>,
+        instances: ChangedIterator<'_, Instance2D>,
     ) {
         let instances: Vec<InstanceDescriptor> = instances
             .as_slice()
@@ -398,7 +398,7 @@ impl Default for Mesh {
 
 #[allow(dead_code)]
 impl Mesh {
-    pub fn new(device: &wgpu::Device, mesh: &D2Mesh) -> Self {
+    pub fn new(device: &wgpu::Device, mesh: &Mesh2D) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("2d-mesh"),
             contents: mesh.vertices.as_bytes(),

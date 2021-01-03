@@ -1,5 +1,5 @@
 use crate::graph::SceneDescriptor;
-use crate::{AnimatedMesh, MaterialList, Mesh, ObjectRef, SceneError};
+use crate::{MaterialList, Mesh3D, ObjectRef, SceneError};
 use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
 
@@ -35,7 +35,6 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
         &self,
         path: PathBuf,
         mat_manager: &mut MaterialList,
-        mesh_storage: &mut TrackedStorage<Mesh>,
-        animated_mesh_storage: &mut TrackedStorage<AnimatedMesh>,
+        mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError>;
 }
