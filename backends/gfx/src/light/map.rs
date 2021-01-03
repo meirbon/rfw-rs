@@ -229,7 +229,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 .unwrap();
 
             let vert_shader: &[u8] = include_bytes!("../../shaders/shadow_mesh.vert");
-            let anim_vert_shader: &[u8] = include_bytes!("../../shaders/shadow_mesh_anim.vert");
             let frag_linear: &[u8] = include_bytes!("../../shaders/shadow_linear.frag");
             let frag_perspective: &[u8] = include_bytes!("../../shaders/shadow_perspective.frag");
 

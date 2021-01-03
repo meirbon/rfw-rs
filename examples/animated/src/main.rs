@@ -16,7 +16,7 @@ use winit::{
 
 use rayon::prelude::*;
 use rfw::{
-    backend::{Backend, RenderMode},
+    backend::RenderMode,
     math::*,
     scene::{
         self,
