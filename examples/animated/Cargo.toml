@@ -11,5 +11,6 @@ clap = "2.33"
 glyph_brush = "0.7.0"
 rayon = "1.5"
 rfw = { path = "../../rfw" }
-rfw-backend-wgpu = { path = "../../backends/wgpu" }
+rfw-backend-wgpu = { path = "../../backends/wgpu", features = ["imgui-winit"] }
 rfw-backend-gfx = { path = "../../backends/gfx" }
+rfw-font = { path = "../../crates/rfw-font" }

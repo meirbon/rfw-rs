@@ -60,8 +60,15 @@ impl<T: num::Float + num::FromPrimitive> Averager<T> {
     }
 
     pub fn add_sample(&mut self, sample: T) {
-        if self.index >= self.capacity {
-            self.index = 0;
+        if self.has_looped {
+            for i in 0..(self.capacity - 1) {
+                self.values[i] = self.values[i + 1];
+            }
+            self.values[self.capacity - 1] = sample;
+            return;
+        }
+
+        if self.index >= (self.capacity - 1) {
             self.has_looped = true;
         }
 
@@ -80,6 +87,10 @@ impl<T: num::Float + num::FromPrimitive> Averager<T> {
             avg = avg + self.values[i];
         }
         avg * (T::from_f32(1.0).unwrap() / T::from_usize(range).unwrap())
+    }
+
+    pub fn data(&self) -> &[T] {
+        &self.values[0..self.index.min(self.capacity)]
     }
 }
 

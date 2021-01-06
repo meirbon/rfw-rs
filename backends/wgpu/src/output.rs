@@ -3,8 +3,8 @@ use std::borrow::Cow;
 
 #[derive(Debug)]
 pub struct WgpuOutput {
-    pub width: usize,
-    pub height: usize,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 
     blit_output_layout: wgpu::BindGroupLayout,
     blit_debug_layout: wgpu::BindGroupLayout,
@@ -108,7 +108,7 @@ impl WgpuOutput {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
     pub const MAT_PARAM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-    pub fn new(device: &wgpu::Device, width: usize, height: usize) -> Self {
+    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -480,14 +480,14 @@ impl WgpuOutput {
     fn create_texture(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-        width: usize,
-        height: usize,
+        width: u32,
+        height: u32,
     ) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: width as u32,
-                height: height as u32,
+                width,
+                height,
                 depth: 1,
             },
             mip_level_count: 1,
@@ -500,7 +500,7 @@ impl WgpuOutput {
         })
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, width: usize, height: usize) {
+    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         self.width = width;
         self.height = height;
 

@@ -9,7 +9,6 @@ use rfw_scene::{Flip, Material, Texture};
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut};
 use std::error::Error;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 pub struct PointLightRef(u32);
 pub struct SpotLightRef(u32);
@@ -17,20 +16,26 @@ pub struct DirectionalLightRef(u32);
 
 pub struct RenderSystem<T: Sized + Backend> {
     pub scene: Scene,
-    renderer: Arc<Mutex<Box<T>>>,
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+    renderer: Box<T>,
 }
 
 impl<T: Sized + Backend> RenderSystem<T> {
     pub fn new<B: rfw_backend::HasRawWindowHandle>(
         window: &B,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: Option<f64>,
     ) -> Result<Self, Box<dyn Error>> {
-        let renderer = T::init(window, window_size, render_size)?;
+        let renderer = T::init(window, window_size, scale_factor.unwrap_or(1.0))?;
 
         Ok(Self {
             scene: Scene::new(),
-            renderer: Arc::new(Mutex::new(renderer)),
+            width: window_size.0,
+            height: window_size.1,
+            scale_factor: scale_factor.unwrap_or(1.0),
+            renderer,
         })
     }
 
@@ -38,14 +43,17 @@ impl<T: Sized + Backend> RenderSystem<T> {
     pub fn from_scene<B: rfw_backend::HasRawWindowHandle, P: AsRef<Path>>(
         scene: P,
         window: &B,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: Option<f64>,
     ) -> Result<Self, Box<dyn Error>> {
         let renderer = T::init(window, window_size, render_size)?;
 
         Ok(Self {
             scene: Scene::deserialize(scene)?,
-            renderer: Arc::new(Mutex::new(renderer)),
+            width: window_size.0,
+            height: window_size.1,
+            scale_factor: scale_factor.unwrap_or(1.0),
+            renderer,
         })
     }
 
@@ -87,21 +95,21 @@ impl<T: Sized + Backend> RenderSystem<T> {
     }
 
     pub fn resize<B: rfw_backend::HasRawWindowHandle>(
-        &self,
+        &mut self,
         window: &B,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: Option<f64>,
     ) {
-        self.renderer
-            .lock()
-            .unwrap()
-            .resize(window, window_size, render_size);
+        let scale_factor = scale_factor.unwrap_or(self.scale_factor);
+        self.renderer.resize(window, window_size, scale_factor);
+        self.width = window_size.0;
+        self.height = window_size.1;
+        self.scale_factor = scale_factor;
     }
 
-    pub fn render(&self, camera_id: usize, mode: RenderMode) -> Result<(), SceneError> {
-        let mut renderer = self.renderer.try_lock()?;
+    pub fn render(&mut self, camera_id: usize, mode: RenderMode) -> Result<(), SceneError> {
         if let Some(camera) = self.scene.cameras.get(camera_id as usize) {
-            renderer.render(camera, mode);
+            self.renderer.render(camera, mode);
             Ok(())
         } else {
             Err(SceneError::InvalidCameraID(camera_id as u32))
@@ -300,8 +308,6 @@ impl<T: Sized + Backend> RenderSystem<T> {
     }
 
     pub fn synchronize(&mut self) {
-        let mut renderer = self.renderer.try_lock().unwrap();
-
         let mut changed = false;
         let mut update_lights = false;
         let mut found_light = false;
@@ -312,25 +318,27 @@ impl<T: Sized + Backend> RenderSystem<T> {
             .synchronize(&mut self.scene.instances, &mut self.scene.objects.skins);
 
         if self.scene.objects.skins.any_changed() {
-            renderer.set_skins(self.scene.objects.skins.iter_changed());
+            self.renderer
+                .set_skins(self.scene.objects.skins.iter_changed());
             self.scene.objects.skins.reset_changed();
         }
 
         if self.scene.objects.d2_meshes.any_changed() {
             for (i, m) in self.scene.objects.d2_meshes.iter_changed() {
-                renderer.set_2d_mesh(i, m.into());
+                self.renderer.set_2d_mesh(i, m.into());
             }
             self.scene.objects.d2_meshes.reset_changed();
         }
 
         if self.scene.objects.d2_instances.any_changed() {
-            renderer.set_2d_instances(self.scene.objects.d2_instances.iter_changed());
+            self.renderer
+                .set_2d_instances(self.scene.objects.d2_instances.iter_changed());
             self.scene.objects.d2_instances.reset_changed();
         }
 
         if self.scene.objects.meshes.any_changed() {
             for (i, m) in self.scene.objects.meshes.iter_changed() {
-                renderer.set_3d_mesh(i, m.into());
+                self.renderer.set_3d_mesh(i, m.into());
             }
             changed = true;
             self.scene.objects.meshes.reset_changed();
@@ -362,7 +370,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.instances.any_changed() {
-            renderer.set_3d_instances(&self.scene.instances);
+            self.renderer.set_3d_instances(&self.scene.instances);
             changed = true;
             self.scene.instances.reset_changed();
         }
@@ -371,13 +379,15 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
         let mut mat_changed = false;
         if self.scene.materials.textures_changed() {
-            renderer.set_textures(self.scene.materials.iter_changed_textures());
+            self.renderer
+                .set_textures(self.scene.materials.iter_changed_textures());
             changed = true;
             mat_changed = true;
         }
 
         if self.scene.materials.changed() {
-            renderer.set_materials(self.scene.materials.get_device_materials());
+            self.renderer
+                .set_materials(self.scene.materials.get_device_materials());
             changed = true;
             mat_changed = true;
         }
@@ -390,24 +400,28 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.lights.point_lights.any_changed() {
-            renderer.set_point_lights(self.scene.lights.point_lights.iter_changed());
+            self.renderer
+                .set_point_lights(self.scene.lights.point_lights.iter_changed());
             self.scene.lights.point_lights.reset_changed();
             changed = true;
         }
 
         if self.scene.lights.spot_lights.any_changed() {
-            renderer.set_spot_lights(self.scene.lights.spot_lights.iter_changed());
+            self.renderer
+                .set_spot_lights(self.scene.lights.spot_lights.iter_changed());
             self.scene.lights.spot_lights.reset_changed();
             changed = true;
         }
 
         if self.scene.lights.area_lights.any_changed() {
-            renderer.set_area_lights(self.scene.lights.area_lights.iter_changed());
+            self.renderer
+                .set_area_lights(self.scene.lights.area_lights.iter_changed());
             changed = true;
         }
 
         if self.scene.lights.directional_lights.any_changed() {
-            renderer.set_directional_lights(self.scene.lights.directional_lights.iter_changed());
+            self.renderer
+                .set_directional_lights(self.scene.lights.directional_lights.iter_changed());
             self.scene.lights.directional_lights.reset_changed();
             changed = true;
         }
@@ -417,43 +431,57 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
         if !deleted_meshes.is_empty() {
             changed = true;
-            renderer.unload_3d_meshes(deleted_meshes);
+            self.renderer.unload_3d_meshes(deleted_meshes);
         }
 
         if !deleted_instances.is_empty() {
             changed = true;
-            renderer.unload_3d_instances(deleted_instances);
+            self.renderer.unload_3d_instances(deleted_instances);
         }
 
         if changed {
-            renderer.synchronize();
+            self.renderer.synchronize();
         }
     }
 
-    pub fn get_settings<C>(&self, mut cb: C)
-    where
-        C: FnMut(&mut T::Settings),
-    {
-        if let Ok(mut renderer) = self.renderer.lock() {
-            cb(renderer.settings());
-        }
+    pub fn get_settings(&mut self) -> &mut T::Settings {
+        self.renderer.settings()
     }
 
-    pub fn set_skybox<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
+    pub fn set_skybox<B: AsRef<Path>>(&mut self, path: B) -> Result<(), ()> {
         if let Ok(texture) = Texture::load(path, Flip::FlipV) {
-            if let Ok(mut renderer) = self.renderer.try_lock() {
-                renderer.set_skybox(texture);
-                return Ok(());
-            }
+            self.renderer.set_skybox(texture);
+            Ok(())
+        } else {
+            Err(())
         }
-
-        Err(())
     }
+
     #[cfg(feature = "serde")]
     pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
         match self.scene.serialize(path) {
             Ok(_) => Ok(()),
             _ => Err(()),
         }
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn render_width(&self) -> u32 {
+        (self.width as f64 * self.scale_factor) as u32
+    }
+
+    pub fn render_height(&self) -> u32 {
+        (self.height as f64 * self.scale_factor) as u32
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.scale_factor
     }
 }

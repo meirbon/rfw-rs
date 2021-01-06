@@ -1,7 +1,6 @@
 use super::mesh::WgpuMesh;
 use crate::mesh::{SkinningPipeline, WgpuSkin};
 use crate::WgpuSettings;
-use rayon::prelude::*;
 use rfw::prelude::*;
 use rfw::scene::mesh::VertexMesh;
 use std::num::NonZeroU64;

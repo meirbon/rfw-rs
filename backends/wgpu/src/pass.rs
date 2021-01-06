@@ -484,8 +484,8 @@ impl SSAOPass {
     pub fn launch(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        width: usize,
-        height: usize,
+        width: u32,
+        height: u32,
         uniform_bind_group: &wgpu::BindGroup,
     ) {
         encoder.copy_buffer_to_buffer(
@@ -846,7 +846,7 @@ impl RadiancePass {
         });
     }
 
-    pub fn launch(&self, encoder: &mut wgpu::CommandEncoder, width: usize, height: usize) {
+    pub fn launch(&self, encoder: &mut wgpu::CommandEncoder, width: u32, height: u32) {
         let mut compute_pass = encoder.begin_compute_pass();
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &self.uniform_bind_group, &[]);

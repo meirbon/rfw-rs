@@ -29,8 +29,8 @@ pub trait Backend {
     /// Initializes renderer with surface given through a raw window handle
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: f64,
     ) -> Result<Box<Self>, Box<dyn Error>>;
 
     fn set_2d_mesh(&mut self, id: usize, data: Mesh2dData);
@@ -57,13 +57,14 @@ pub trait Backend {
     /// Renders an image to the window surface
     fn render(&mut self, camera: &Camera, mode: RenderMode);
 
-    /// Resizes framebuffer
+    /// Resizes framebuffer, uses scale factor provided in init function.
     fn resize<T: HasRawWindowHandle>(
         &mut self,
         window: &T,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: f64,
     );
+
     /// Updates point lights, only lights with their 'changed' flag set to true have changed
     fn set_point_lights(&mut self, lights: ChangedIterator<'_, PointLight>);
 

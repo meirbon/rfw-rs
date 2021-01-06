@@ -12,6 +12,7 @@ members = [
     "crates/rfw-scene",
     "crates/rfw-math",
     "crates/rfw-utils",
+    "crates/rfw-font",
     #"renderers/gpu-rt",
 ]
 

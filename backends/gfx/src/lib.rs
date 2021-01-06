@@ -16,6 +16,7 @@ use window::Extent2D;
 
 mod cmd;
 mod instances;
+#[allow(dead_code)]
 mod light;
 mod mem;
 mod mesh;
@@ -50,9 +51,10 @@ impl std::error::Error for GfxError {}
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
-use rfw::prelude::r2d::{Instance2D, Mesh2D};
+use rfw::prelude::r2d::{Instance2D};
 use rfw::prelude::HasRawWindowHandle;
 
+#[allow(dead_code)]
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
     queue: Queue<B>,
@@ -81,11 +83,13 @@ pub struct GfxRenderer<B: hal::Backend> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct GfxSettings {}
+pub struct GfxSettings {
+    scale_factor: f64,
+}
 
 impl Default for GfxSettings {
     fn default() -> Self {
-        Self {}
+        Self { scale_factor: 1.0 }
     }
 }
 
@@ -94,15 +98,18 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
 
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: f64,
     ) -> Result<Box<Self>, Box<dyn std::error::Error>> {
         let instance: B::Instance = match hal::Instance::create("RFW", 1) {
             Ok(instance) => instance,
             Err(_) => return Err(Box::new(GfxError::UnsupportedBackend)),
         };
 
-        let (render_width, render_height) = render_size;
+        let (render_width, render_height) = (
+            (window_size.0 as f64 * scale_factor) as u32,
+            (window_size.1 as f64 * scale_factor) as u32,
+        );
 
         let mut surface: B::Surface = match unsafe { instance.create_surface(window) } {
             Ok(surface) => surface,
@@ -326,15 +333,15 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
                 height: window_size.1 as u32,
             },
             render_size: Extent2D {
-                width: render_size.0 as u32,
-                height: render_size.1 as u32,
+                width: render_width,
+                height: render_height,
             },
             scene_list,
             mesh_renderer,
             skins,
             point_lights,
             spot_lights,
-            settings: Default::default(),
+            settings: GfxSettings { scale_factor },
         }))
     }
 
@@ -474,17 +481,18 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
     fn resize<T: HasRawWindowHandle>(
         &mut self,
         _window: &T,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: f64,
     ) {
+        self.settings.scale_factor = scale_factor;
         self.device.wait_idle().unwrap();
         self.window_size = Extent2D {
             width: window_size.0 as u32,
             height: window_size.1 as u32,
         };
         self.render_size = Extent2D {
-            width: render_size.0 as u32,
-            height: render_size.1 as u32,
+            width: (window_size.0 as f64 * scale_factor) as u32,
+            height: (window_size.1 as f64 * scale_factor) as u32,
         };
 
         self.recreate_swapchain();

@@ -1,4 +1,4 @@
-use super::{instance::InstanceList, mesh::WgpuMesh};
+use super::instance::InstanceList;
 use crate::instance::DeviceInstances;
 use rfw::prelude::{AABB, *};
 use std::borrow::Cow;

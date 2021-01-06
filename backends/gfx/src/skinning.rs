@@ -173,16 +173,6 @@ impl<B: hal::Backend> SkinList<B> {
         });
     }
 
-    pub fn get_set(&self, id: usize) -> Option<&B::DescriptorSet> {
-        if let Some(set) = self.desc_sets.get(id) {
-            return match set.as_ref() {
-                Some(set) => Some(set),
-                None => None,
-            };
-        }
-        None
-    }
-
     pub fn synchronize(&mut self) {
         for result in self.task_pool.sync() {
             if let Some((id, result)) = result {

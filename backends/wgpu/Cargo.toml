@@ -14,14 +14,17 @@ num_cpus = "1.13"
 rfw = { path = "../../rfw" }
 wgpu = "0.6"
 rayon = "1.5"
-# ImGui support
-imgui = "0.6"
-imgui-wgpu = "0.12"
-imgui-winit-support = "0.6.1"
-winit = "0.23"
+imgui = { version = "0.6", optional = true }
+imgui-wgpu = { version = "0.12", optional = true }
+imgui-winit-support = { version = "0.6", optional = true }
+winit = { version = "0.23", optional = true }
 # rfw = "0.1"
 
 [build-dependencies]
 rfw = { path = "../../rfw" }
 # rfw = "0.1"
 spirv-compiler = "0.1"
+
+[features]
+default = []
+imgui-winit = ["imgui", "imgui-wgpu", "imgui-winit-support", "winit"]

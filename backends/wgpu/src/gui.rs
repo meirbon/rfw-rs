@@ -1,9 +1,9 @@
-use imgui::FontSource;
+use imgui::{DrawData, FontSource};
 use imgui_wgpu::RendererConfig;
 use std::time::Instant;
 use winit::window::Window;
 
-pub use imgui::Ui;
+pub use imgui;
 
 pub struct WgpuImGuiContext {
     pub(crate) context: imgui::Context,
@@ -11,7 +11,7 @@ pub struct WgpuImGuiContext {
     pub(crate) last_cursor: Option<Option<imgui::MouseCursor>>,
     pub(crate) renderer: imgui_wgpu::Renderer,
     pub(crate) last_frame: Instant,
-    pub(crate) render: Option<wgpu::CommandBuffer>,
+    pub(crate) draw_data: Option<*const imgui::DrawData>,
 }
 
 impl std::fmt::Debug for WgpuImGuiContext {
@@ -29,7 +29,7 @@ impl WgpuImGuiContext {
     pub(crate) fn from_winit(window: &Window, device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let mut context = imgui::Context::create();
         let mut platform = imgui_winit_support::WinitPlatform::init(&mut context);
-
+        let scale_factor = window.scale_factor();
         platform.attach_window(
             context.io_mut(),
             window,
@@ -37,8 +37,8 @@ impl WgpuImGuiContext {
         );
         context.set_ini_filename(None);
 
-        let font_size = (13.0 * window.scale_factor()) as f32;
-        context.io_mut().font_global_scale = (1.0 / window.scale_factor()) as f32;
+        let font_size = (13.0 * scale_factor) as f32;
+        context.io_mut().font_global_scale = (1.0 / scale_factor) as f32;
 
         context.fonts().add_font(&[FontSource::DefaultFontData {
             config: Some(imgui::FontConfig {
@@ -63,7 +63,7 @@ impl WgpuImGuiContext {
             last_cursor: None,
             renderer,
             last_frame: Instant::now(),
-            render: None,
+            draw_data: None,
         }
     }
 
@@ -72,16 +72,20 @@ impl WgpuImGuiContext {
             .handle_event(self.context.io_mut(), window, event);
     }
 
-    pub fn draw_ui<CB>(
-        &mut self,
-        window: &Window,
-        mut draw: CB,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        attachment: wgpu::RenderPassColorAttachmentDescriptor,
-    ) where
-        CB: FnMut(&mut Ui<'_>),
+    pub fn draw_ui<CB>(&mut self, window: &Window, mut draw: CB)
+    where
+        CB: FnMut(&mut imgui::Ui<'_>),
     {
+        let now = Instant::now();
+        self.context
+            .io_mut()
+            .update_delta_time(now - self.last_frame);
+        self.last_frame = now;
+
+        self.platform
+            .prepare_frame(self.context.io_mut(), window)
+            .expect("Could not prepare imgui frame.");
+
         let mut frame = self.context.frame();
         draw(&mut frame);
 
@@ -90,17 +94,6 @@ impl WgpuImGuiContext {
             self.platform.prepare_render(&frame, window);
         }
 
-        let mut encoder = device.create_command_encoder(&Default::default());
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[attachment],
-                depth_stencil_attachment: None,
-            });
-            self.renderer
-                .render(frame.render(), queue, device, &mut render_pass)
-                .expect("Could not render imgui.");
-        }
-
-        self.render = Some(encoder.finish());
+        self.draw_data = Some(frame.render() as *const DrawData);
     }
 }

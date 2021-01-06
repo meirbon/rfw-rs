@@ -13,18 +13,15 @@ use winit::{
     window::WindowBuilder,
 };
 
-use rayon::prelude::*;
 use rfw::{
     backend::RenderMode,
     math::*,
-    scene::{
-        self,
-        r2d::{Mesh2D, Vertex2D},
-    },
+    scene::{self},
     system::RenderSystem,
     utils,
 };
 use rfw_backend_wgpu::{WgpuBackend, WgpuView};
+use rfw_font::*;
 use winit::window::Fullscreen;
 
 pub struct KeyHandler {
@@ -112,70 +109,33 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .build(&event_loop)
         .unwrap();
 
-    let mut width = window.inner_size().width as usize;
-    let mut height = window.inner_size().height as usize;
+    let mut width = window.inner_size().width;
+    let mut height = window.inner_size().height;
 
-    let res_scale = if let Some(m) = window.current_monitor() {
-        1.0 / m.scale_factor()
-    } else {
-        1.0
-    };
-    let mut render_width = (width as f64 * res_scale) as usize;
-    let mut render_height = (height as f64 * res_scale) as usize;
+    let scale_factor: f64 = window
+        .current_monitor()
+        .and_then(|m| Some(1.0 / m.scale_factor()))
+        .unwrap_or(1.0);
 
     let mut renderer: RenderSystem<WgpuBackend> =
-        RenderSystem::new(&window, (width, height), (render_width, render_height)).unwrap();
+        RenderSystem::new(&window, (width, height), Some(scale_factor)).unwrap();
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let cam_id = renderer.create_camera(render_width as u32, render_height as u32);
+    let cam_id = renderer.create_camera(width as u32, height as u32);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
-    let mut fps = utils::Averager::new();
+    let mut fps = utils::Averager::with_capacity(250);
     let mut render = utils::Averager::new();
     let mut synchronize = utils::Averager::new();
 
     let mut resized = false;
 
-    use glyph_brush::{
-        ab_glyph::FontArc, BrushAction, BrushError, GlyphBrushBuilder, Section, Text,
-    };
     let font = include_bytes!("../../../assets/good-times-rg.ttf");
-    let roboto = FontArc::try_from_slice(font)?;
-    let mut glyph_brush = GlyphBrushBuilder::using_font(roboto).build();
-
-    let tex = renderer.add_texture(rfw::prelude::Texture::default())?;
-    let d2_mesh = renderer.add_2d_object(Mesh2D::new(
-        vec![
-            [-0.5, -0.5, 0.5],
-            [0.5, -0.5, 0.5],
-            [0.5, 0.5, 0.5],
-            [-0.5, 0.5, 0.5],
-            [-0.5, -0.5, 0.5],
-            [0.5, 0.5, 0.5],
-        ],
-        vec![
-            [0.01, 0.01],
-            [0.99, 0.01],
-            [0.99, 0.99],
-            [0.01, 0.99],
-            [0.01, 0.01],
-            [0.99, 0.99],
-        ],
-        Some(tex),
-        [1.0; 4],
-    ))?;
-
-    let (mut tex_width, mut tex_height) = glyph_brush.texture_dimensions();
-    let mut tex_data = vec![0_u32; (tex_width * tex_height) as usize];
-
-    let d2_inst = renderer.create_2d_instance(d2_mesh)?;
-    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
-        inst.transform =
-            Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0).to_cols_array();
-    }
+    let mut font =
+        Font::from_bytes(&mut renderer, &font[0..font.len()]).expect("Could not initialize font.");
 
     renderer.add_spot_light(
         Vec3::new(0.0, 15.0, 0.0),
@@ -224,13 +184,13 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut scene_timer = utils::Timer::new();
     let mut scene_id = None;
 
-    renderer.get_settings(|settings| {
-        settings.setup_imgui(&window);
-    });
+    renderer.get_settings().setup_imgui(&window);
 
     let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
+
+        renderer.get_settings().update_ui(&window, &event);
 
         match &event {
             Event::MainEventsCleared => {
@@ -238,45 +198,32 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     *control_flow = ControlFlow::Exit;
                 }
 
-                if key_handler.pressed(KeyCode::Key0) {
-                    renderer.get_settings(|settings| {
+                {
+                    let settings = renderer.get_settings();
+                    if key_handler.pressed(KeyCode::Key0) {
                         settings.view = WgpuView::Output;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key1) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key1) {
                         settings.view = WgpuView::Albedo;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key2) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key2) {
                         settings.view = WgpuView::Normal;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key3) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key3) {
                         settings.view = WgpuView::WorldPos;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key4) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key4) {
                         settings.view = WgpuView::Radiance;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key5) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key5) {
                         settings.view = WgpuView::ScreenSpace;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key6) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key6) {
                         settings.view = WgpuView::SSAO;
-                    });
-                }
-                if key_handler.pressed(KeyCode::Key7) {
-                    renderer.get_settings(|settings| {
+                    }
+                    if key_handler.pressed(KeyCode::Key7) {
                         settings.view = WgpuView::FilteredSSAO;
-                    });
+                    }
                 }
 
                 if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
@@ -373,20 +320,15 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 if resized {
-                    renderer.resize(&window, (width, height), (render_width, render_height));
+                    font.resize(&mut renderer);
+                    renderer.resize(&window, (width, height), None);
                     renderer.get_camera_mut(cam_id).map(|c| {
-                        c.resize(render_width as u32, render_height as u32);
+                        c.resize(width as u32, height as u32);
                     });
                     resized = false;
-
-                    if let Some(inst) = renderer.get_2d_instance_mut(d2_inst) {
-                        inst.transform =
-                            Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0)
-                                .to_cols_array();
-                    }
                 }
 
-                glyph_brush.queue(
+                font.draw(
                     Section::default()
                         .with_screen_position((0.0, 0.0))
                         .add_text(
@@ -401,99 +343,6 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                             .with_color([1.0; 4]),
                         ),
                 );
-
-                let mut tex_changed = false;
-                match glyph_brush.process_queued(
-                    |rect, t_data| {
-                        let offset: [u32; 2] = [rect.min[0], rect.min[1]];
-                        let size: [u32; 2] = [rect.width(), rect.height()];
-
-                        let width = size[0] as usize;
-                        let height = size[1] as usize;
-
-                        for y in 0..height {
-                            for x in 0..width {
-                                let index = x + y * width;
-                                let alpha = t_data[index] as u32;
-
-                                let index = (x + offset[0] as usize)
-                                    + (offset[1] as usize + y) * tex_width as usize;
-
-                                tex_data[index] = (alpha << 24) | 0xFFFFFF;
-                            }
-                        }
-
-                        tex_changed = true;
-                    },
-                    to_vertex,
-                ) {
-                    Ok(BrushAction::Draw(vertices)) => {
-                        let mut verts = Vec::with_capacity(vertices.len() * 6);
-                        let vertices: Vec<_> = vertices
-                            .par_iter()
-                            .map(|v| {
-                                let v0 = Vertex2D {
-                                    vertex: [v.min_x, v.min_y, 0.5],
-                                    uv: [v.uv_min_x, v.uv_min_y],
-                                    has_tex: tex,
-                                    color: v.color,
-                                };
-                                let v1 = Vertex2D {
-                                    vertex: [v.max_x, v.min_y, 0.5],
-                                    uv: [v.uv_max_x, v.uv_min_y],
-                                    has_tex: tex,
-                                    color: v.color,
-                                };
-                                let v2 = Vertex2D {
-                                    vertex: [v.max_x, v.max_y, 0.5],
-                                    uv: [v.uv_max_x, v.uv_max_y],
-                                    has_tex: tex,
-                                    color: v.color,
-                                };
-                                let v3 = Vertex2D {
-                                    vertex: [v.min_x, v.max_y, 0.5],
-                                    uv: [v.uv_min_x, v.uv_max_y],
-                                    has_tex: tex,
-                                    color: v.color,
-                                };
-
-                                (v0, v1, v2, v3, v0, v2)
-                            })
-                            .collect();
-                        vertices.into_iter().for_each(|vs| {
-                            verts.push(vs.0);
-                            verts.push(vs.1);
-                            verts.push(vs.2);
-                            verts.push(vs.3);
-                            verts.push(vs.4);
-                            verts.push(vs.5);
-                        });
-
-                        let mut mesh = Mesh2D::from(verts);
-                        mesh.tex_id = Some(tex);
-                        renderer.set_2d_object(d2_mesh, mesh).unwrap();
-                    }
-                    Ok(BrushAction::ReDraw) => {}
-                    Err(BrushError::TextureTooSmall { suggested }) => {
-                        tex_data.resize((suggested.0 * suggested.1) as usize, 0);
-                        tex_width = suggested.0;
-                        tex_height = suggested.1;
-                    }
-                }
-
-                if tex_changed {
-                    renderer
-                        .set_texture(
-                            tex,
-                            rfw::prelude::Texture {
-                                width: tex_width as u32,
-                                height: tex_height as u32,
-                                data: tex_data.clone(),
-                                mip_levels: 1,
-                            },
-                        )
-                        .unwrap();
-                }
 
                 {
                     let lights = renderer.get_lights_mut();
@@ -512,17 +361,39 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(cesium_man3) = scene_id {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
                 }
+
+                font.synchronize(&mut renderer);
                 renderer.synchronize();
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
 
-                renderer.get_settings(|settings| {
+                {
+                    let instances = renderer.scene.instances.len();
+                    let meshes = renderer.scene.objects.meshes.len();
+                    let settings = renderer.get_settings();
+
                     settings.draw_ui(&window, |ui| {
-                        let mut opened = true;
-                        ui.show_demo_window(&mut opened);
+                        use rfw_backend_wgpu::imgui;
+                        let window = imgui::Window::new(imgui::im_str!("RFW"));
+                        window
+                            .size([350.0, 250.0], imgui::Condition::FirstUseEver)
+                            .position([900.0, 25.0], imgui::Condition::FirstUseEver)
+                            .build(&ui, || {
+                                ui.plot_histogram(
+                                    &*imgui::im_str!("FPS {:.2} ms", fps_avg),
+                                    fps.data(),
+                                )
+                                .graph_size([0.0, 50.0])
+                                .build();
+                                ui.text(imgui::im_str!("Synchronize: {:.2} ms", sync_avg));
+                                ui.text(imgui::im_str!("Render: {:.2} ms", render_avg));
+                                ui.separator();
+                                ui.text(imgui::im_str!("Instance count: {}", instances));
+                                ui.text(imgui::im_str!("Mesh count: {}", meshes));
+                            });
                     });
-                });
+                }
 
                 if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
@@ -548,10 +419,8 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::Resized(size),
                 window_id,
             } if *window_id == window.id() => {
-                width = size.width as usize;
-                height = size.height as usize;
-                render_width = (width as f64 * res_scale) as usize;
-                render_height = (height as f64 * res_scale) as usize;
+                width = size.width;
+                height = size.height;
                 resized = true;
             }
             Event::WindowEvent {
@@ -562,78 +431,5 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             }
             _ => (),
         }
-
-        renderer.get_settings(|settings| {
-            settings.update_ui(&window, &event);
-        });
     });
-}
-
-#[derive(Debug, Copy, Clone)]
-struct BrushVertex {
-    pub min_x: f32,
-    pub min_y: f32,
-    pub max_x: f32,
-    pub max_y: f32,
-    pub uv_min_x: f32,
-    pub uv_min_y: f32,
-    pub uv_max_x: f32,
-    pub uv_max_y: f32,
-    pub color: [f32; 4],
-}
-
-#[inline]
-fn to_vertex(
-    glyph_brush::GlyphVertex {
-        mut tex_coords,
-        pixel_coords,
-        bounds,
-        extra,
-    }: glyph_brush::GlyphVertex,
-) -> BrushVertex {
-    let gl_bounds = bounds;
-
-    use glyph_brush::ab_glyph::{point, Rect};
-
-    let mut gl_rect = Rect {
-        min: point(pixel_coords.min.x as f32, pixel_coords.min.y as f32),
-        max: point(pixel_coords.max.x as f32, pixel_coords.max.y as f32),
-    };
-    //
-    // // handle overlapping bounds, modify uv_rect to preserve texture aspect
-    if gl_rect.max.x > gl_bounds.max.x {
-        let old_width = gl_rect.width();
-        gl_rect.max.x = gl_bounds.max.x;
-        tex_coords.max.x = tex_coords.min.x + tex_coords.width() * gl_rect.width() / old_width;
-    }
-    //
-    if gl_rect.min.x < gl_bounds.min.x {
-        let old_width = gl_rect.width();
-        gl_rect.min.x = gl_bounds.min.x;
-        tex_coords.min.x = tex_coords.max.x - tex_coords.width() * gl_rect.width() / old_width;
-    }
-
-    if gl_rect.max.y > gl_bounds.max.y {
-        let old_height = gl_rect.height();
-        gl_rect.max.y = gl_bounds.max.y;
-        tex_coords.max.y = tex_coords.min.y + tex_coords.height() * gl_rect.height() / old_height;
-    }
-
-    if gl_rect.min.y < gl_bounds.min.y {
-        let old_height = gl_rect.height();
-        gl_rect.min.y = gl_bounds.min.y;
-        tex_coords.min.y = tex_coords.max.y - tex_coords.height() * gl_rect.height() / old_height;
-    }
-
-    BrushVertex {
-        min_x: gl_rect.min.x,
-        min_y: gl_rect.min.y,
-        max_x: gl_rect.max.x,
-        max_y: gl_rect.max.y,
-        uv_min_x: tex_coords.min.x,
-        uv_min_y: tex_coords.min.y,
-        uv_max_x: tex_coords.max.x,
-        uv_max_y: tex_coords.max.y,
-        color: extra.color,
-    }
 }
