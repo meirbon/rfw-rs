@@ -43,7 +43,7 @@ impl WgpuMesh {
         vertices: Vec<Vertex3D>,
         ranges: Vec<VertexMesh>,
         skin_data: Vec<JointData>,
-        bounds: AABB
+        bounds: AABB,
     ) -> Self {
         let buffer_size = (vertices.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress;
         assert!(buffer_size > 0);
@@ -78,9 +78,7 @@ impl WgpuMesh {
             });
 
             buffer
-                .slice(
-                    0..(skin_data.len() * std::mem::size_of::<JointData>()) as wgpu::BufferAddress,
-                )
+                .slice(0..(skin_data.as_bytes().len()) as wgpu::BufferAddress)
                 .get_mapped_range_mut()
                 .copy_from_slice(skin_data.as_bytes());
             buffer.unmap();
@@ -245,7 +243,7 @@ impl SkinningPipeline {
         let len = mesh.len() + (64 - mesh.len() % 64);
         if (buffer.1 as usize) < len {
             // Recreate buffer if it is not large enough
-            buffer.0 = device.create_buffer(&wgpu::BufferDescriptor {
+            let b = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("skinned-vertices"),
                 size: (len * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
                 usage: wgpu::BufferUsage::VERTEX
@@ -253,11 +251,13 @@ impl SkinningPipeline {
                     | wgpu::BufferUsage::COPY_DST,
                 mapped_at_creation: false,
             });
+            buffer.0 = b;
             buffer.1 = len as wgpu::BufferAddress;
         }
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("apply-skin"),
+        });
         encoder.copy_buffer_to_buffer(
             mesh.buffer.as_ref().unwrap(),
             0,
@@ -266,35 +266,37 @@ impl SkinningPipeline {
             (mesh.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
         );
 
-        if mesh.buffer.is_some() && mesh.joints_weights_buffer.is_some() && skin.buffer.is_some() {
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("skinning-bind-group"),
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(buffer.0.slice(..)),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(
-                            skin.buffer.as_ref().unwrap().slice(..),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer(
-                            mesh.joints_weights_buffer.as_ref().unwrap().slice(..),
-                        ),
-                    },
-                ],
-            });
+        assert!(mesh.buffer.is_some());
+        assert!(mesh.joints_weights_buffer.is_some());
+        assert!(skin.buffer.is_some());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("skinning-bind-group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(buffer.0.slice(..)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(
+                        skin.buffer.as_ref().unwrap().slice(..),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(
+                        mesh.joints_weights_buffer.as_ref().unwrap().slice(..),
+                    ),
+                },
+            ],
+        });
 
-            let mut compute_pass = encoder.begin_compute_pass();
-            compute_pass.set_pipeline(&self.pipeline);
-            compute_pass.set_bind_group(0, &bind_group, &[]);
-            compute_pass.dispatch(len as u32 / 64, 1, 1);
-        }
+        let mut compute_pass = encoder.begin_compute_pass();
+        compute_pass.set_pipeline(&self.pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+        compute_pass.dispatch(len as u32 / 64, 1, 1);
+        drop(compute_pass);
 
         queue.submit(std::iter::once(encoder.finish()));
     }
@@ -336,7 +338,7 @@ impl WgpuSkin {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("skin-matrices"),
             size,
-            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::MAP_WRITE,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: true,
         });
 
@@ -353,26 +355,34 @@ impl WgpuSkin {
         }
     }
 
-    pub async fn update(&mut self, device: &wgpu::Device, skin: Skin) {
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, skin: Skin) {
         // Make sure number of matrices does not exceed shader maximum
         assert!(skin.joint_matrices.len() < 1024);
         self.desc = skin;
 
         let size =
             (std::mem::size_of::<Mat4>() * self.desc.joint_matrices.len()) as wgpu::BufferAddress;
-        self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("skin-matrices"),
-            size,
-            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::MAP_WRITE,
-            mapped_at_creation: true,
-        }));
+        if size > self.buffer_size {
+            self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("skin-matrices"),
+                size,
+                usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+                mapped_at_creation: true,
+            }));
 
-        self.buffer
-            .as_ref()
-            .unwrap()
-            .slice(0..size)
-            .get_mapped_range_mut()
-            .copy_from_slice(self.desc.joint_matrices.as_bytes());
-        self.buffer.as_ref().unwrap().unmap();
+            self.buffer
+                .as_ref()
+                .unwrap()
+                .slice(0..size)
+                .get_mapped_range_mut()
+                .copy_from_slice(self.desc.joint_matrices.as_bytes());
+            self.buffer.as_ref().unwrap().unmap();
+        } else {
+            queue.write_buffer(
+                self.buffer.as_ref().unwrap(),
+                0,
+                self.desc.joint_matrices.as_bytes(),
+            );
+        }
     }
 }

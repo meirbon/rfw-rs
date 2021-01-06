@@ -80,15 +80,10 @@ impl WgpuLights {
         changed1 || changed2 || changed3
     }
 
-    pub fn render(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        instances: &InstanceList,
-        meshes: &TrackedStorage<WgpuMesh>,
-    ) {
-        self.area_lights.render(encoder, instances, meshes);
-        self.spot_lights.render(encoder, instances, meshes);
-        self.directional_lights.render(encoder, instances, meshes);
+    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, instances: &InstanceList) {
+        self.area_lights.render(encoder, instances);
+        self.spot_lights.render(encoder, instances);
+        self.directional_lights.render(encoder, instances);
     }
 }
 
@@ -228,15 +223,10 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub fn render(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        instances: &InstanceList,
-        meshes: &TrackedStorage<WgpuMesh>,
-    ) {
+    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, instances: &InstanceList) {
         if instances.changed() {
             self.shadow_maps
-                .render(0..self.lights.len() as u32, encoder, instances, meshes);
+                .render(0..self.lights.len() as u32, encoder, instances);
         } else {
             if !self.lights.any_changed() {
                 return;
@@ -244,8 +234,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
 
             for (i, _) in self.lights.iter_changed() {
                 let i = i as u32;
-                self.shadow_maps
-                    .render(i..(i + 1), encoder, instances, meshes);
+                self.shadow_maps.render(i..(i + 1), encoder, instances);
             }
         };
 
@@ -991,7 +980,6 @@ impl ShadowMapArray {
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
         instances: &super::instance::InstanceList,
-        meshes: &TrackedStorage<WgpuMesh>,
     ) {
         let start = range.start;
         let end = range.end;

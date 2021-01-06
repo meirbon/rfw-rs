@@ -1,6 +1,7 @@
 use rfw::prelude::*;
 use std::borrow::Cow;
 
+#[derive(Debug)]
 pub struct WgpuOutput {
     pub width: usize,
     pub height: usize,

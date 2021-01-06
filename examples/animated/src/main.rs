@@ -224,11 +224,15 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut scene_timer = utils::Timer::new();
     let mut scene_id = None;
 
+    renderer.get_settings(|settings| {
+        settings.setup_imgui(&window);
+    });
+
     let mut fullscreen_timer = 0.0;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
-        match event {
+        match &event {
             Event::MainEventsCleared => {
                 if key_handler.pressed(KeyCode::Escape) {
                     *control_flow = ControlFlow::Exit;
@@ -512,6 +516,14 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
+
+                renderer.get_settings(|settings| {
+                    settings.draw_ui(&window, |ui| {
+                        let mut opened = true;
+                        ui.show_demo_window(&mut opened);
+                    });
+                });
+
                 if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
                     *control_flow = ControlFlow::Exit;
@@ -521,7 +533,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             Event::WindowEvent {
                 event: WindowEvent::KeyboardInput { input, .. },
                 window_id,
-            } if window_id == window.id() => {
+            } if *window_id == window.id() => {
                 if let Some(key) = input.virtual_keycode {
                     key_handler.insert(key, input.state);
                 }
@@ -529,13 +541,13 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 window_id,
-            } if window_id == window.id() => {
+            } if *window_id == window.id() => {
                 *control_flow = ControlFlow::Exit;
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
                 window_id,
-            } if window_id == window.id() => {
+            } if *window_id == window.id() => {
                 width = size.width as usize;
                 height = size.height as usize;
                 render_width = (width as f64 * res_scale) as usize;
@@ -545,11 +557,15 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             Event::WindowEvent {
                 event: WindowEvent::MouseInput { state, button, .. },
                 window_id,
-            } if window_id == window.id() => {
-                mouse_button_handler.insert(button, state);
+            } if *window_id == window.id() => {
+                mouse_button_handler.insert(*button, *state);
             }
             _ => (),
         }
+
+        renderer.get_settings(|settings| {
+            settings.update_ui(&window, &event);
+        });
     });
 }
 

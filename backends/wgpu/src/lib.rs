@@ -6,13 +6,14 @@ use futures::executor::block_on;
 use mesh::WgpuMesh;
 use rfw::prelude::*;
 use rfw::scene::mesh::VertexMesh;
-use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
 use std::ops::Deref;
 use std::sync::Arc;
+use std::{error::Error, sync::Mutex};
 
 mod d2;
+mod imgui;
 mod instance;
 mod light;
 mod mat;
@@ -25,22 +26,56 @@ mod pipeline;
 use crate::mem::ManagedBuffer;
 use mat::*;
 
+pub use crate::imgui::*;
+pub use output::WgpuOutput;
+
 #[derive(Debug, Clone)]
 pub enum TaskResult {
     Mesh(usize, WgpuMesh),
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct WgpuSettings {
     pub view: WgpuView,
     pub enable_skinning: bool,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+    output: Arc<Mutex<output::WgpuOutput>>,
+    pub imgui: Option<WgpuImGuiContext>,
 }
 
-impl Default for WgpuSettings {
-    fn default() -> Self {
-        Self {
-            view: WgpuView::Output,
-            enable_skinning: true,
+impl WgpuSettings {
+    pub fn setup_imgui(&mut self, window: &winit::window::Window) {
+        self.imgui = Some(imgui::WgpuImGuiContext::from_winit(
+            window,
+            &self.device,
+            &self.queue,
+        ));
+    }
+
+    pub fn update_ui<T: 'static>(
+        &mut self,
+        window: &winit::window::Window,
+        event: &winit::event::Event<T>,
+    ) {
+        if let Some(gui) = self.imgui.as_mut() {
+            gui.update_ui(window, event);
+        }
+    }
+
+    pub fn draw_ui<CB>(&mut self, window: &winit::window::Window, draw: CB)
+    where
+        CB: FnMut(&mut imgui::Ui<'_>),
+    {
+        if let Some(gui) = self.imgui.as_mut() {
+            let output = self.output.lock().unwrap();
+            gui.draw_ui(
+                window,
+                draw,
+                &self.device,
+                &self.queue,
+                output.as_descriptor(WgpuView::Output),
+            );
         }
     }
 }
@@ -72,7 +107,7 @@ pub struct WgpuBackend {
     uniform_bind_group: wgpu::BindGroup,
 
     camera_buffer: ManagedBuffer<UniformCamera>,
-    output: output::WgpuOutput,
+    output: Arc<Mutex<output::WgpuOutput>>,
     pipeline: pipeline::RenderPipeline,
     scene_bounds: AABB,
 
@@ -320,7 +355,11 @@ impl Backend for WgpuBackend {
             ],
         });
 
-        let output = output::WgpuOutput::new(&device, render_width, render_height);
+        let output = Arc::new(Mutex::new(output::WgpuOutput::new(
+            &device,
+            render_width,
+            render_height,
+        )));
 
         let pipeline = pipeline::RenderPipeline::new(
             &device,
@@ -329,18 +368,30 @@ impl Backend for WgpuBackend {
             &texture_bind_group_layout,
         );
 
-        let ssao_pass = pass::SSAOPass::new(&device, &uniform_bind_group_layout, &output);
+        let wgpu_output = output.lock().unwrap();
+        let ssao_pass = pass::SSAOPass::new(&device, &uniform_bind_group_layout, &wgpu_output);
         let radiance_pass = pass::RadiancePass::new(
             &device,
             camera_buffer.buffer(),
             material_buffer.buffer(),
-            &output,
+            &wgpu_output,
             &lights,
         );
-        let blit_pass = pass::BlitPass::new(&device, &output);
-        let output_pass = pass::QuadPass::new(&device, &output);
+        let blit_pass = pass::BlitPass::new(&device, &wgpu_output);
+        let output_pass = pass::QuadPass::new(&device, &wgpu_output);
 
         let d2_renderer = d2::Renderer::new(&device);
+
+        let settings = WgpuSettings {
+            view: WgpuView::Output,
+            enable_skinning: false,
+            device: device.clone(),
+            queue: queue.clone(),
+            output: output.clone(),
+            imgui: None,
+        };
+
+        drop(wgpu_output);
 
         Ok(Box::new(Self {
             device,
@@ -374,7 +425,7 @@ impl Backend for WgpuBackend {
             mesh_bounds: FlaggedStorage::new(),
             task_pool: ManagedTaskPool::default(),
             d2_renderer,
-            settings: Default::default(),
+            settings,
         }))
     }
 
@@ -538,7 +589,7 @@ impl Backend for WgpuBackend {
         if self.lights_changed {
             self.radiance_pass.update_bind_groups(
                 &self.device,
-                &self.output,
+                &self.output.lock().unwrap(),
                 &self.lights,
                 self.camera_buffer.buffer(),
                 self.material_buffer.buffer(),
@@ -555,6 +606,8 @@ impl Backend for WgpuBackend {
             Err(_) => return,
         };
 
+        let wgpu_output = self.output.lock().unwrap();
+
         {
             let cam = &mut self.camera_buffer.as_mut_slice()[0];
             cam.view = camera.get_rh_view_matrix();
@@ -569,12 +622,7 @@ impl Backend for WgpuBackend {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render"),
             });
-        Self::render_lights(
-            &mut encoder,
-            &mut self.lights,
-            &self.instances,
-            &self.meshes,
-        );
+        Self::render_lights(&mut encoder, &mut self.lights, &self.instances);
 
         Self::render_scene(
             camera,
@@ -582,7 +630,7 @@ impl Backend for WgpuBackend {
             FrustrumG::from_matrix(camera.get_rh_matrix()),
             &self.pipeline,
             &self.instances,
-            &self.output,
+            &wgpu_output,
             &self.uniform_bind_group,
             self.material_bind_groups.as_slice(),
             &self.ssao_pass,
@@ -597,10 +645,10 @@ impl Backend for WgpuBackend {
 
         if self.settings.view == WgpuView::Output {
             self.blit_pass
-                .render(&mut output_pass, &self.output.output_texture_view);
+                .render(&mut output_pass, &wgpu_output.output_texture_view);
         } else {
-            self.output.blit_debug(
-                &self.output.output_texture_view,
+            wgpu_output.blit_debug(
+                &wgpu_output.output_texture_view,
                 &mut output_pass,
                 self.settings.view,
             );
@@ -611,18 +659,26 @@ impl Backend for WgpuBackend {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.d2_renderer.render(
             &mut d2_encoder,
-            &self.output.output_texture_view,
-            &self.output.depth_texture_view,
+            &wgpu_output.output_texture_view,
+            &wgpu_output.depth_texture_view,
         );
 
         self.output_pass
             .render(&mut d2_encoder, &output.output.view);
 
-        self.queue.submit(vec![
-            encoder.finish(),
-            output_pass.finish(),
-            d2_encoder.finish(),
-        ]);
+        let mut commands = Vec::with_capacity(4);
+        commands.push(encoder.finish());
+        //
+        // if let Some(imgui) = self.settings.imgui.as_mut() {
+        //     if let Some(cmd_buffer) = imgui.render.take() {
+        //         commands.push(cmd_buffer);
+        //     }
+        // }
+
+        commands.push(output_pass.finish());
+        commands.push(d2_encoder.finish());
+
+        self.queue.submit(commands);
 
         self.instances.reset_changed();
         self.lights_changed = false;
@@ -648,21 +704,21 @@ impl Backend for WgpuBackend {
             },
         );
 
-        self.output
-            .resize(&self.device, render_width, render_height);
+        let mut wgpu_output = self.output.lock().unwrap();
+        wgpu_output.resize(&self.device, render_width, render_height);
         self.radiance_pass.update_bind_groups(
             &self.device,
-            &self.output,
+            &wgpu_output,
             &self.lights,
             self.camera_buffer.buffer(),
             self.material_buffer.buffer(),
         );
         self.ssao_pass
-            .update_bind_groups(&self.device, &self.output);
+            .update_bind_groups(&self.device, &wgpu_output);
         self.blit_pass
-            .update_bind_groups(&self.device, &self.output);
+            .update_bind_groups(&self.device, &wgpu_output);
         self.output_pass
-            .update_bind_groups(&self.device, &self.output);
+            .update_bind_groups(&self.device, &wgpu_output);
     }
 
     fn set_point_lights(&mut self, _lights: ChangedIterator<'_, PointLight>) {
@@ -694,9 +750,7 @@ impl Backend for WgpuBackend {
     fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
         for (i, skin) in skins {
             if let Some(s) = self.skins.get_mut(i) {
-                let update = s.update(&self.device, skin.clone());
-                self.device.poll(wgpu::Maintain::Wait);
-                futures::executor::block_on(update);
+                s.update(&self.device, &self.queue, skin.clone());
             } else {
                 self.skins
                     .overwrite(i, WgpuSkin::new(&self.device, skin.clone()));
@@ -725,9 +779,8 @@ impl WgpuBackend {
         encoder: &mut wgpu::CommandEncoder,
         lights: &mut WgpuLights,
         instances: &InstanceList,
-        meshes: &TrackedStorage<WgpuMesh>,
     ) {
-        lights.render(encoder, instances, meshes);
+        lights.render(encoder, instances);
     }
 
     fn render_scene(

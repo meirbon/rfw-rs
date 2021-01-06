@@ -258,52 +258,43 @@ impl InstanceList {
         let changed = &self.changed;
         let mesh_ids = &self.mesh_ids;
         let skin_ids = &self.skin_ids;
+        let enable_skinning = settings.enable_skinning;
 
-        vertex_buffers
-            .iter_mut()
-            .enumerate()
-            .par_bridge()
-            .for_each(|(i, vb)| {
-                if !*changed.get(i).unwrap() && vb.has_buffer() {
+        vertex_buffers.iter_mut().enumerate().for_each(|(i, vb)| {
+            if !*changed.get(i).unwrap() && vb.has_buffer() {
+                return;
+            }
+
+            let mut success = false;
+            let mesh_id = mesh_ids[i];
+            if mesh_id.is_valid() {
+                let mesh = if let Some(m) = meshes.get(mesh_id.into()) {
+                    m
+                } else if cfg!(debug_assertions) {
+                    panic!(
+                        "Object {} is expected to have been initialized but it was not.",
+                        mesh_id
+                    );
+                } else {
+                    // Gracefully handle error
+                    *vb = InstanceVertexBuffer::None;
                     return;
-                }
+                };
 
-                let mut success = false;
-                let mesh_id = mesh_ids[i];
-                if mesh_id.is_valid() {
-                    let mesh = if let Some(m) = meshes.get(mesh_id.into()) {
-                        m
-                    } else if cfg!(debug_assertions) {
-                        panic!(
-                            "Object {} is expected to have been initialized but it was not.",
-                            mesh_id
-                        );
-                    } else {
-                        // Gracefully handle error
-                        *vb = InstanceVertexBuffer::None;
-                        return;
-                    };
-
-                    if settings.enable_skinning {
-                        if let Some(skin_id) = skin_ids[i].as_index() {
-                            if let Some(skin) = skins.get(skin_id) {
-                                if let InstanceVertexBuffer::Owned(buffer) = vb {
-                                    // Attempt to use pre-existing buffer
-                                    skinning_pipeline
-                                        .apply_skin_buffer(device, queue, buffer, mesh, skin);
-                                } else {
-                                    // Create new buffer
-                                    *vb = InstanceVertexBuffer::Owned(
-                                        skinning_pipeline.apply_skin(device, queue, mesh, skin),
-                                    );
-                                }
-                                success = true;
+                if enable_skinning {
+                    if let Some(skin_id) = skin_ids[i].as_index() {
+                        if let Some(skin) = skins.get(skin_id) {
+                            if let InstanceVertexBuffer::Owned(buffer) = vb {
+                                // Attempt to use pre-existing buffer
+                                skinning_pipeline
+                                    .apply_skin_buffer(device, queue, buffer, mesh, skin);
+                            } else {
+                                // Create new buffer
+                                *vb = InstanceVertexBuffer::Owned(
+                                    skinning_pipeline.apply_skin(device, queue, mesh, skin),
+                                );
                             }
-                        } else {
-                            if let Some(b) = mesh.buffer.as_ref() {
-                                *vb = InstanceVertexBuffer::Reference(b.clone());
-                                success = true;
-                            }
+                            success = true;
                         }
                     } else {
                         if let Some(b) = mesh.buffer.as_ref() {
@@ -311,12 +302,18 @@ impl InstanceList {
                             success = true;
                         }
                     }
+                } else {
+                    if let Some(b) = mesh.buffer.as_ref() {
+                        *vb = InstanceVertexBuffer::Reference(b.clone());
+                        success = true;
+                    }
                 }
+            }
 
-                if !success {
-                    *vb = InstanceVertexBuffer::None;
-                }
-            });
+            if !success {
+                *vb = InstanceVertexBuffer::None;
+            }
+        });
 
         self.bounds = self.get_bounds(meshes);
     }
