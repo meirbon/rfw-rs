@@ -1,5 +1,4 @@
 use rfw::prelude::*;
-use rfw::scene::mesh::VertexMesh;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -304,7 +303,7 @@ impl SkinningPipeline {
 
 #[derive(Debug)]
 pub struct WgpuSkin {
-    pub desc: Skin,
+    pub joint_matrices: Vec<Mat4>,
     pub buffer: Option<wgpu::Buffer>,
     pub buffer_size: wgpu::BufferAddress,
 }
@@ -312,7 +311,7 @@ pub struct WgpuSkin {
 impl Clone for WgpuSkin {
     fn clone(&self) -> Self {
         Self {
-            desc: self.desc.clone(),
+            joint_matrices: self.joint_matrices.clone(),
             buffer: None,
             buffer_size: 0,
         }
@@ -322,7 +321,7 @@ impl Clone for WgpuSkin {
 impl Default for WgpuSkin {
     fn default() -> Self {
         Self {
-            desc: Skin::default(),
+            joint_matrices: Default::default(),
             buffer: None,
             buffer_size: 0,
         }
@@ -330,7 +329,7 @@ impl Default for WgpuSkin {
 }
 
 impl WgpuSkin {
-    pub fn new(device: &wgpu::Device, skin: Skin) -> Self {
+    pub fn new(device: &wgpu::Device, skin: SkinData) -> Self {
         // Make sure number of matrices does not exceed shader maximum
         assert!(skin.joint_matrices.len() < 1024);
 
@@ -349,19 +348,18 @@ impl WgpuSkin {
         buffer.unmap();
 
         Self {
-            desc: skin,
+            joint_matrices: skin.joint_matrices.to_vec(),
             buffer: Some(buffer),
             buffer_size: size,
         }
     }
 
-    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, skin: Skin) {
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, skin: SkinData) {
         // Make sure number of matrices does not exceed shader maximum
         assert!(skin.joint_matrices.len() < 1024);
-        self.desc = skin;
+        self.joint_matrices = skin.joint_matrices.to_vec();
 
-        let size =
-            (std::mem::size_of::<Mat4>() * self.desc.joint_matrices.len()) as wgpu::BufferAddress;
+        let size = (std::mem::size_of::<Mat4>() * self.joint_matrices.len()) as wgpu::BufferAddress;
         if size > self.buffer_size {
             self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("skin-matrices"),
@@ -375,13 +373,13 @@ impl WgpuSkin {
                 .unwrap()
                 .slice(0..size)
                 .get_mapped_range_mut()
-                .copy_from_slice(self.desc.joint_matrices.as_bytes());
+                .copy_from_slice(self.joint_matrices.as_bytes());
             self.buffer.as_ref().unwrap().unmap();
         } else {
             queue.write_buffer(
                 self.buffer.as_ref().unwrap(),
                 0,
-                self.desc.joint_matrices.as_bytes(),
+                self.joint_matrices.as_bytes(),
             );
         }
     }

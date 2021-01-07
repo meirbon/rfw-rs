@@ -7,8 +7,10 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-raw-window-handle = "0.3"
-rfw-scene = { path = "../rfw-scene" }
-rfw-utils = { path = "../rfw-utils" }
-rfw-math = { path = "../rfw-math" }
 l3d = "0.1"
+raw-window-handle = "0.3"
+rfw-math = {path = "../rfw-math"}
+bitvec = "0.20"
+rtbvh = "0.1"
+serde = {version = "1.0", optional = true}
+rayon = "1.5"

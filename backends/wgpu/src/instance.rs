@@ -2,7 +2,6 @@ use super::mesh::WgpuMesh;
 use crate::mesh::{SkinningPipeline, WgpuSkin};
 use crate::WgpuSettings;
 use rfw::prelude::*;
-use rfw::scene::mesh::VertexMesh;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
@@ -187,34 +186,36 @@ impl InstanceList {
         &mut self,
         device: &wgpu::Device,
         id: usize,
-        instance: InstanceHandle,
+        matrix: Mat4,
+        mesh_id: MeshID,
+        skin_id: SkinID,
         mesh: Option<&WgpuMesh>,
     ) {
+        let n_matrix = matrix.inverse().transpose();
         if id >= self.bounds.len() {
             if let Some(mesh) = mesh {
-                self.bounds
-                    .push(InstanceDescriptor::new(instance.get_matrix(), mesh));
+                self.bounds.push(InstanceDescriptor::new(matrix, mesh));
             } else {
                 self.bounds.push(InstanceDescriptor::default());
             }
 
             self.changed.push(true);
-            self.matrices.push(instance.get_matrix());
-            self.normal_matrices.push(instance.get_normal_matrix());
-            self.mesh_ids.push(instance.get_mesh_id());
-            self.skin_ids.push(instance.get_skin_id());
+            self.matrices.push(matrix);
+            self.normal_matrices.push(n_matrix);
+            self.mesh_ids.push(mesh_id);
+            self.skin_ids.push(skin_id);
         } else {
             if let Some(mesh) = mesh {
-                self.bounds[id] = InstanceDescriptor::new(instance.get_matrix(), mesh);
+                self.bounds[id] = InstanceDescriptor::new(matrix, mesh);
             } else {
                 self.bounds[id] = InstanceDescriptor::default();
             }
 
             self.changed.set(id, true);
-            self.matrices[id] = instance.get_matrix();
-            self.normal_matrices[id] = instance.get_normal_matrix();
-            self.mesh_ids[id] = instance.get_mesh_id();
-            self.skin_ids[id] = instance.get_skin_id();
+            self.matrices[id] = matrix;
+            self.normal_matrices[id] = n_matrix;
+            self.mesh_ids[id] = mesh_id;
+            self.skin_ids[id] = skin_id;
         }
 
         if self.device_instances.len() <= self.matrices.len() {

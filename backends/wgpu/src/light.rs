@@ -42,17 +42,27 @@ impl WgpuLights {
         ]
     }
 
-    pub fn set_spot_lights(&mut self, changed: &BitVec, lights: &[SpotLight], scene_bounds: &AABB) {
+    pub fn set_spot_lights(
+        &mut self,
+        changed: &BitSlice,
+        lights: &[SpotLight],
+        scene_bounds: &AABB,
+    ) {
         self.spot_lights.set(changed, lights, scene_bounds);
     }
 
-    pub fn set_area_lights(&mut self, changed: &BitVec, lights: &[AreaLight], scene_bounds: &AABB) {
+    pub fn set_area_lights(
+        &mut self,
+        changed: &BitSlice,
+        lights: &[AreaLight],
+        scene_bounds: &AABB,
+    ) {
         self.area_lights.set(changed, lights, scene_bounds);
     }
 
     pub fn set_directional_lights(
         &mut self,
-        changed: &BitVec,
+        changed: &BitSlice,
         lights: &[DirectionalLight],
         scene_bounds: &AABB,
     ) {
@@ -119,7 +129,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub fn set(&mut self, changed: &BitVec, lights: &[T], scene_bounds: &AABB) {
+    pub fn set(&mut self, changed: &BitSlice, lights: &[T], scene_bounds: &AABB) {
         self.lights = TrackedStorage::from(lights);
         self.lights.reset_changed();
         (0..lights.len())

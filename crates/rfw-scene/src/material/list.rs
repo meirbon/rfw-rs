@@ -1,4 +1,5 @@
-use crate::material::DeviceMaterial;
+use crate::{material::DeviceMaterial, MaterialFlags, MaterialProps};
+use bitvec::prelude::*;
 use l3d::mat::{Flip, Material, Texture, TextureSource};
 use rfw_math::*;
 use rfw_utils::collections::{
@@ -674,11 +675,26 @@ impl MaterialList {
         self.textures.iter_changed()
     }
 
-    pub fn get_device_materials(&mut self) -> ChangedIterator<'_, DeviceMaterial> {
+    pub fn get_materials_changed(&self) -> &BitSlice {
+        self.materials.changed()
+    }
+
+    pub fn update_device_materials(&mut self) {
         for (i, m) in self.materials.iter_changed() {
-            self.device_materials.overwrite(i, m.into());
+            self.device_materials.overwrite(i, into_device_material(m));
         }
-        self.device_materials.iter_changed()
+    }
+
+    pub fn get_device_materials(&self) -> &[DeviceMaterial] {
+        self.device_materials.as_slice()
+    }
+
+    pub fn get_textures(&self) -> &[Texture] {
+        self.textures.as_slice()
+    }
+
+    pub fn get_textures_changed(&self) -> &BitSlice {
+        self.textures.changed()
     }
 
     pub fn textures_changed(&self) -> bool {
@@ -732,5 +748,66 @@ impl Index<usize> for MaterialList {
 impl IndexMut<usize> for MaterialList {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.materials[index]
+    }
+}
+
+pub(crate) fn into_device_material(mat: &Material) -> DeviceMaterial {
+    let to_char = |f: f32| -> u8 { (f * 255.0).min(255.0) as u8 };
+    let to_u32 = |a: f32, b: f32, c: f32, d: f32| -> u32 {
+        let a = to_char(a) as u32;
+        let b = to_char(b) as u32;
+        let c = to_char(c) as u32;
+        let d = to_char(d) as u32;
+
+        a | (b << 8) | (c << 16) | (d << 24)
+    };
+
+    let parameters: [u32; 4] = [
+        to_u32(mat.metallic, mat.subsurface, mat.specular_f, mat.roughness),
+        to_u32(
+            mat.specular_tint,
+            mat.anisotropic,
+            mat.sheen,
+            mat.sheen_tint,
+        ),
+        to_u32(
+            mat.clearcoat,
+            mat.clearcoat_gloss,
+            mat.transmission,
+            mat.eta,
+        ),
+        to_u32(mat.custom0, mat.custom1, mat.custom2, mat.custom3),
+    ];
+
+    let mut flags = MaterialFlags::default();
+    if mat.diffuse_tex >= 0 {
+        flags.set(MaterialProps::HasDiffuseMap, true);
+    }
+    if mat.normal_tex >= 0 {
+        flags.set(MaterialProps::HasNormalMap, true);
+    }
+    if mat.metallic_roughness_tex >= 0 {
+        flags.set(MaterialProps::HasRoughnessMap, true);
+        flags.set(MaterialProps::HasMetallicMap, true);
+    }
+    if mat.emissive_tex >= 0 {
+        flags.set(MaterialProps::HasEmissiveMap, true);
+    }
+    if mat.sheen_tex >= 0 {
+        flags.set(MaterialProps::HasSheenMap, true);
+    }
+
+    DeviceMaterial {
+        color: mat.color,
+        absorption: mat.absorption,
+        specular: mat.specular,
+        parameters,
+        flags: flags.into(),
+        diffuse_map: mat.diffuse_tex as i32,
+        normal_map: mat.normal_tex as i32,
+        metallic_roughness_map: mat.metallic_roughness_tex as i32,
+        emissive_map: mat.emissive_tex as i32,
+        sheen_map: mat.sheen_tex as i32,
+        ..Default::default()
     }
 }

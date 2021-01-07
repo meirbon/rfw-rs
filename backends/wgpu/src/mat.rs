@@ -1,6 +1,7 @@
-use rfw::scene::{DeviceMaterial, Texture};
-use rfw::utils::collections::FlaggedStorage;
-use rfw::utils::BytesConversion;
+use rfw::{
+    prelude::{DeviceMaterial, TextureData},
+    utils::collections::FlaggedStorage,
+};
 use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -23,13 +24,13 @@ impl Default for WgpuTexture {
 }
 
 impl WgpuTexture {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, tex: &Texture) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, tex: TextureData) -> Self {
         let mut texture = Self::default();
         texture.init(device, queue, tex);
         texture
     }
 
-    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tex: &Texture) {
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tex: TextureData) {
         if self.texture.is_none() || tex.width != self.dims.0 || tex.height != self.dims.1 {
             self.init(device, queue, tex);
             return;
@@ -52,7 +53,7 @@ impl WgpuTexture {
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                     texture: &texture,
                 },
-                &tex.data.as_bytes()[(offset as usize)..(offset + end) as usize],
+                &tex.bytes[(offset as usize)..(offset + end) as usize],
                 wgpu::TextureDataLayout {
                     offset: 0,
                     bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
@@ -71,7 +72,7 @@ impl WgpuTexture {
         }
     }
 
-    fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tex: &Texture) {
+    fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, tex: TextureData) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -100,7 +101,7 @@ impl WgpuTexture {
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                     texture: &texture,
                 },
-                &tex.data.as_bytes()[(offset as usize)..(offset + end) as usize],
+                &tex.bytes[(offset as usize)..(offset + end) as usize],
                 wgpu::TextureDataLayout {
                     offset: 0,
                     bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),

@@ -1,5 +1,4 @@
 use crate::objects::*;
-use crate::PrimID;
 use l3d::mat::{Material, Texture};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};
 use std::collections::HashMap;
@@ -63,6 +62,7 @@ impl Sphere {
 }
 
 impl Intersect for Sphere {
+    #[allow(clippy::clippy::many_single_char_names)]
     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
         let (origin, direction) = ray.get_vectors::<Vec3>();
 
@@ -89,6 +89,7 @@ impl Intersect for Sphere {
         t < t_max
     }
 
+    #[allow(clippy::clippy::many_single_char_names)]
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
         let (origin, direction) = ray.get_vectors::<Vec3>();
 
@@ -131,6 +132,7 @@ impl Intersect for Sphere {
         })
     }
 
+    #[allow(clippy::clippy::many_single_char_names)]
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
         let (origin, direction) = ray.get_vectors::<Vec3>();
 
@@ -170,7 +172,8 @@ impl Intersect for Sphere {
         None
     }
 
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]> {
+    #[allow(clippy::clippy::many_single_char_names)]
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
         let origin_x = Vec4::from(packet.origin_x);
         let origin_y = Vec4::from(packet.origin_y);
         let origin_z = Vec4::from(packet.origin_z);
@@ -263,7 +266,7 @@ impl Intersect for Sphere {
         }
     }
 
-    fn get_mat_id(&self, _prim_id: PrimID) -> u32 {
+    fn get_mat_id(&self, _prim_id: i32) -> u32 {
         self.mat_id
     }
 }
@@ -479,14 +482,14 @@ impl ToMesh for Sphere {
                 let i2 = face[2] as usize;
 
                 // replace triangle by 4 triangles
-                let a = get_middle_point(i0, i1, &mut vertices, &mut normals, &mut uvs) as u32;
-                let b = get_middle_point(i1, i2, &mut vertices, &mut normals, &mut uvs) as u32;
-                let c = get_middle_point(i2, i0, &mut vertices, &mut normals, &mut uvs) as u32;
+                let v0 = get_middle_point(i0, i1, &mut vertices, &mut normals, &mut uvs) as u32;
+                let v1 = get_middle_point(i1, i2, &mut vertices, &mut normals, &mut uvs) as u32;
+                let v2 = get_middle_point(i2, i0, &mut vertices, &mut normals, &mut uvs) as u32;
 
-                new_faces.push([i0 as u32, a, c]);
-                new_faces.push([i1 as u32, b, a]);
-                new_faces.push([i2 as u32, c, b]);
-                new_faces.push([a, b, c]);
+                new_faces.push([i0 as u32, v0, v2]);
+                new_faces.push([i1 as u32, v1, v0]);
+                new_faces.push([i2 as u32, v2, v1]);
+                new_faces.push([v0, v1, v2]);
             }
             faces = new_faces;
         }

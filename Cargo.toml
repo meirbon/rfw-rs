@@ -2,9 +2,9 @@
 members = [
     "rfw",
     "examples/animated",
-    "examples/d2",
-    "examples/nphysics",
-    "examples/simple",
+    # "examples/d2",
+    # "examples/nphysics",
+    # "examples/simple",
     "backends/wgpu",
     "backends/gfx",
 #    "backends/rendy",

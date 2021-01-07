@@ -40,6 +40,12 @@ pub struct Averager<T: num::Float + num::FromPrimitive> {
     has_looped: bool,
 }
 
+impl<T: num::Float + num::FromPrimitive> Default for Averager<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: num::Float + num::FromPrimitive> Averager<T> {
     pub fn new() -> Averager<T> {
         Self {

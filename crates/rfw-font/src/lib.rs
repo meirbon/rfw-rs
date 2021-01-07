@@ -10,9 +10,9 @@ pub struct Font {
     tex_data: Vec<u32>,
     tex_width: u32,
     tex_height: u32,
-    tex_id: u32,
-    mesh_id: u32,
-    inst_id: u32,
+    tex_id: usize,
+    mesh_id: usize,
+    instance: InstanceHandle2D,
 }
 
 impl Font {
@@ -37,7 +37,7 @@ impl Font {
             std::mem::size_of::<u32>(),
         );
 
-        let tex_id = system.add_texture(texture).unwrap();
+        let tex_id = system.add_texture(texture);
         let mesh = system
             .add_2d_object(Mesh2D::new(
                 vec![
@@ -61,13 +61,11 @@ impl Font {
             ))
             .unwrap();
 
-        let inst = system.create_2d_instance(mesh).unwrap();
+        let mut instance = system.create_2d_instance(mesh).unwrap();
         let width = system.render_width() as f32;
         let height = system.render_height() as f32;
-        if let Some(inst) = system.get_2d_instance_mut(inst) {
-            inst.transform =
-                Mat4::orthographic_lh(0.0, width, height, 0.0, 1.0, -1.0).to_cols_array();
-        }
+
+        instance.set_matrix(Mat4::orthographic_lh(0.0, width, height, 0.0, 1.0, -1.0));
 
         Ok(Self {
             brush,
@@ -76,7 +74,7 @@ impl Font {
             tex_height,
             tex_id,
             mesh_id: mesh,
-            inst_id: inst as u32,
+            instance,
         })
     }
 
@@ -90,11 +88,14 @@ impl Font {
     pub fn resize<T: Backend>(&mut self, system: &mut RenderSystem<T>) {
         let width = system.render_width();
         let height = system.render_height();
-        if let Some(inst) = system.get_2d_instance_mut(self.inst_id as usize) {
-            inst.transform =
-                Mat4::orthographic_lh(0.0, width as f32, height as f32, 0.0, 1.0, -1.0)
-                    .to_cols_array();
-        }
+        self.instance.set_matrix(Mat4::orthographic_lh(
+            0.0,
+            width as f32,
+            height as f32,
+            0.0,
+            1.0,
+            -1.0,
+        ));
     }
 
     pub fn draw(&mut self, section: Section) {
@@ -131,6 +132,7 @@ impl Font {
             to_vertex,
         ) {
             Ok(BrushAction::Draw(vertices)) => {
+                let has_tex = self.tex_id as u32;
                 let mut verts = Vec::with_capacity(vertices.len() * 6);
                 let vertices: Vec<_> = vertices
                     .iter()
@@ -138,25 +140,25 @@ impl Font {
                         let v0 = Vertex2D {
                             vertex: [v.min_x, v.min_y, 0.5],
                             uv: [v.uv_min_x, v.uv_min_y],
-                            has_tex: self.tex_id,
+                            has_tex,
                             color: v.color,
                         };
                         let v1 = Vertex2D {
                             vertex: [v.max_x, v.min_y, 0.5],
                             uv: [v.uv_max_x, v.uv_min_y],
-                            has_tex: self.tex_id,
+                            has_tex,
                             color: v.color,
                         };
                         let v2 = Vertex2D {
                             vertex: [v.max_x, v.max_y, 0.5],
                             uv: [v.uv_max_x, v.uv_max_y],
-                            has_tex: self.tex_id,
+                            has_tex,
                             color: v.color,
                         };
                         let v3 = Vertex2D {
                             vertex: [v.min_x, v.max_y, 0.5],
                             uv: [v.uv_min_x, v.uv_max_y],
-                            has_tex: self.tex_id,
+                            has_tex,
                             color: v.color,
                         };
 

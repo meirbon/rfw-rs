@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
 use rfw::{
-    backend::Setting,
-    backend::SettingValue,
     math::*,
     prelude::*,
     scene::Camera,
@@ -114,13 +112,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build(&event_loop)
         .unwrap();
 
-    width = window.inner_size().width as usize;
-    height = window.inner_size().height as usize;
+    width = window.inner_size().width as u32;
+    height = window.inner_size().height as u32;
 
     use rfw_backend_wgpu::WgpuBackend as Renderer;
 
-    let mut renderer: RenderSystem<Renderer> =
-        RenderSystem::new(&window, (width, height), (width, height))?;
+    let mut renderer: RenderSystem<Renderer> = RenderSystem::new(&window, (width, height), None)?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -146,7 +143,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0);
     let plane = Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
     let plane = renderer.add_object(plane)?;
-    let _plane_inst = renderer.create_instance(plane)?;
+    let _plane_inst = renderer.create_instance(plane.unwrap())?;
 
     let ground_shape = ShapeHandle::new(nphysics3d::ncollide3d::shape::Plane::new(
         Unit::new_normalize(Vector3::new(0.0_f32, 1.0, 0.0)),
@@ -199,8 +196,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     geometrical_world.maintain(&mut bodies, &mut colliders);
 
-    let settings: Vec<Setting> = renderer.get_settings().unwrap();
-
     timer2.reset();
     renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
@@ -235,40 +230,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut view_change = Vec3::zero();
                 let mut pos_change = Vec3::zero();
                 let mut sphere_forces = Vec3::zero();
-
-                if !settings.is_empty() {
-                    let mut value = None;
-                    if key_handler.pressed(KeyCode::Key0) {
-                        value = Some(0);
-                    }
-                    if key_handler.pressed(KeyCode::Key1) {
-                        value = Some(1);
-                    }
-                    if key_handler.pressed(KeyCode::Key2) {
-                        value = Some(2);
-                    }
-                    if key_handler.pressed(KeyCode::Key3) {
-                        value = Some(3);
-                    }
-                    if key_handler.pressed(KeyCode::Key4) {
-                        value = Some(4);
-                    }
-                    if key_handler.pressed(KeyCode::Key5) {
-                        value = Some(5);
-                    }
-                    if key_handler.pressed(KeyCode::Key6) {
-                        value = Some(6);
-                    }
-                    if key_handler.pressed(KeyCode::Key7) {
-                        value = Some(7);
-                    }
-
-                    if let Some(value) = value {
-                        let mut setting: Setting = settings[0].clone();
-                        setting.set(SettingValue::Int(value));
-                        renderer.set_setting(setting).unwrap();
-                    }
-                }
 
                 if key_handler.pressed(KeyCode::Up) {
                     view_change += (0.0, 1.0, 0.0).into();
@@ -411,17 +372,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 physics.add_sample(timer2.elapsed_in_millis());
 
-                if let Some(instance) = renderer.get_instance_mut(sphere_inst) {
+                if let Some(instance) = renderer.get_instance(sphere_inst) {
                     let translation =
                         Vec3::new(data.translation.x, data.translation.y, data.translation.z);
-                    instance.set_translation(translation);
-                    let rotation = Quat::from(Vec4::new(
-                        data.rotation.i,
-                        data.rotation.j,
-                        data.rotation.k,
-                        data.rotation.w,
-                    ));
-                    instance.set_rotation_quat(rotation);
+
+                    // instance.set_translation(translation);
+                    // let rotation = Quat::from(Vec4::new(
+                    //     data.rotation.i,
+                    //     data.rotation.j,
+                    //     data.rotation.k,
+                    //     data.rotation.w,
+                    // ));
+                    // instance.set_rotation_quat(rotation);
                 }
 
                 timer2.reset();

@@ -1,5 +1,6 @@
-use rfw_math::*;
 use rayon::prelude::*;
+use rfw_backend::*;
+use rfw_math::*;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -8,17 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone)]
 pub struct Mesh2D {
     pub vertices: Vec<Vertex2D>,
-    pub tex_id: Option<u32>,
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct Vertex2D {
-    pub vertex: [f32; 3],
-    pub has_tex: u32,
-    pub uv: [f32; 2],
-    pub color: [f32; 4],
+    pub tex_id: Option<usize>,
 }
 
 impl Default for Mesh2D {
@@ -34,7 +25,7 @@ impl Mesh2D {
     pub fn new(
         vertices: Vec<[f32; 3]>,
         uvs: Vec<[f32; 2]>,
-        tex_id: Option<u32>,
+        tex_id: Option<usize>,
         color: [f32; 4],
     ) -> Self {
         let uvs = if !uvs.is_empty() {
@@ -44,7 +35,7 @@ impl Mesh2D {
             vec![[0.0; 2]; vertices.len()]
         };
 
-        let tex = if let Some(id) = tex_id { id } else { 0 };
+        let tex = if let Some(id) = tex_id { id as u32 } else { 0 };
         let vertices = vertices
             .iter()
             .zip(uvs.iter())

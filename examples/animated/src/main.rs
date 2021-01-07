@@ -150,10 +150,14 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .scene()
         .unwrap();
 
-    let mut cesium_man1 =
-        scene::graph::NodeGraph::from_scene_descriptor(&cesium_man, &mut renderer.scene.instances);
-    let mut cesium_man2 =
-        scene::graph::NodeGraph::from_scene_descriptor(&cesium_man, &mut renderer.scene.instances);
+    let mut cesium_man1 = scene::graph::NodeGraph::from_scene_descriptor(
+        &cesium_man,
+        &mut renderer.scene.instances_3d,
+    );
+    let mut cesium_man2 = scene::graph::NodeGraph::from_scene_descriptor(
+        &cesium_man,
+        &mut renderer.scene.instances_3d,
+    );
 
     for node in cesium_man1.iter_root_nodes_mut() {
         node.set_scale(Vec3::splat(3.0));
@@ -171,7 +175,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .scene()
         .unwrap();
     let mut pica = scene::graph::NodeGraph::new();
-    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.instances);
+    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.instances_3d);
     renderer.add_scene(pica);
 
     let app_time = utils::Timer::new();
@@ -233,7 +237,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     } else {
                         let mut cesium_man3 = scene::graph::NodeGraph::from_scene_descriptor(
                             &cesium_man,
-                            &mut renderer.scene.instances,
+                            &mut renderer.scene.instances_3d,
                         );
                         for node in cesium_man3.iter_root_nodes_mut() {
                             node.translate(Vec3::new(-6.0, 0.0, 0.0));
@@ -323,7 +327,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     font.resize(&mut renderer);
                     renderer.resize(&window, (width, height), None);
                     renderer.get_camera_mut(cam_id).map(|c| {
-                        c.resize(width as u32, height as u32);
+                        c.set_aspect_ratio(width as f32 / height as f32);
                     });
                     resized = false;
                 }
@@ -369,8 +373,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 timer2.reset();
 
                 {
-                    let instances = renderer.scene.instances.len();
-                    let meshes = renderer.scene.objects.meshes.len();
+                    let instances_3d = renderer.scene.instances_3d.len();
+                    let meshes_3d = renderer.scene.objects.meshes_3d.len();
+                    let instances_2d = renderer.scene.instances_2d.len();
+                    let meshes_2d = renderer.scene.objects.meshes_2d.len();
                     let settings = renderer.get_settings();
 
                     settings.draw_ui(&window, |ui| {
@@ -389,8 +395,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                                 ui.text(imgui::im_str!("Synchronize: {:.2} ms", sync_avg));
                                 ui.text(imgui::im_str!("Render: {:.2} ms", render_avg));
                                 ui.separator();
-                                ui.text(imgui::im_str!("Instance count: {}", instances));
-                                ui.text(imgui::im_str!("Mesh count: {}", meshes));
+                                ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
+                                ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
+                                ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
+                                ui.text(imgui::im_str!("2D Mesh count: {}", meshes_2d));
                             });
                     });
                 }

@@ -11,7 +11,6 @@ use hal::{
     pso,
 };
 use pso::DescriptorPool;
-use rfw::prelude::mesh::VertexMesh;
 use rfw::prelude::*;
 use std::{collections::HashSet, mem::ManuallyDrop, ptr, sync::Arc};
 
@@ -256,7 +255,7 @@ impl<B: hal::Backend> SceneList<B> {
         self.meshes.overwrite_val(id, GfxMesh::default_id(id));
     }
 
-    pub fn set_mesh(&mut self, id: usize, mesh: Mesh3dData) {
+    pub fn set_mesh(&mut self, id: usize, mesh: MeshData3D) {
         if mesh.vertices.is_empty() {
             self.meshes.overwrite_val(id, GfxMesh::default_id(id));
             return;
@@ -455,7 +454,7 @@ impl<B: hal::Backend> SceneList<B> {
         }
 
         if let Ok(mapping) = self.instance_buffer.map(Segment::ALL) {
-            let instances = unsafe { self.instances.as_slice() };
+            let instances = self.instances.as_slice();
             let src = instances.as_bytes();
             let length = src.len();
             let slice = mapping.as_slice();

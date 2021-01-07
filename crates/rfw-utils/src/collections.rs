@@ -200,11 +200,11 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         &mut self.storage[0..self.storage_ptr]
     }
 
-    pub unsafe fn as_ptr(&self) -> *const T {
+    pub fn as_ptr(&self) -> *const T {
         self.storage.as_ptr()
     }
 
-    pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
+    pub fn as_mut_ptr(&mut self) -> *mut T {
         self.storage.as_mut_ptr()
     }
 
@@ -423,8 +423,8 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     /// Returns immutable reference to changed flags list.
-    pub fn changed(&self) -> &BitVec {
-        &self.changed
+    pub fn changed(&self) -> &BitSlice {
+        &self.changed[0..self.storage.storage_ptr]
     }
 
     /// Returns list of all indices that were changed.
@@ -525,19 +525,19 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
         self.changed.set_all(false);
     }
 
-    pub unsafe fn as_ptr(&self) -> *const T {
+    pub fn as_ptr(&self) -> *const T {
         self.storage.as_ptr()
     }
 
-    pub unsafe fn as_mut_ptr(&mut self) -> *mut T {
+    pub fn as_mut_ptr(&mut self) -> *mut T {
         self.storage.as_mut_ptr()
     }
 
-    pub unsafe fn as_slice(&self) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
         self.storage.as_slice()
     }
 
-    pub unsafe fn as_mut_slice(&mut self) -> &mut [T] {
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.storage.as_mut_slice()
     }
 

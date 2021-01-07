@@ -5,12 +5,11 @@ pub use crate::output::WgpuView;
 use futures::executor::block_on;
 use mesh::WgpuMesh;
 use rfw::prelude::*;
-use rfw::scene::mesh::VertexMesh;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::num::{NonZeroU64, NonZeroU8};
 use std::ops::Deref;
 use std::sync::Arc;
-use std::{error::Error};
 
 mod d2;
 mod instance;
@@ -428,20 +427,20 @@ impl Backend for WgpuBackend {
         }))
     }
 
-    fn set_2d_mesh(&mut self, id: usize, mesh: Mesh2dData) {
+    fn set_2d_mesh(&mut self, id: usize, mesh: MeshData2D) {
         self.d2_renderer.update_mesh(&self.device, id, mesh);
     }
 
-    fn set_2d_instances(&mut self, instances: ChangedIterator<'_, Instance2D>) {
+    fn set_2d_instances(&mut self, instances: InstancesData2D<'_>) {
         self.d2_renderer.update_instances(&self.queue, instances);
     }
 
-    fn set_3d_mesh(&mut self, id: usize, mesh: Mesh3dData) {
+    fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
         self.mesh_bounds
             .overwrite_val(id, (mesh.bounds.clone(), mesh.ranges.to_vec()));
         let device = self.device.clone();
 
-        let name = mesh.name.clone();
+        let name = mesh.name.to_string();
         let vertices = mesh.vertices.to_vec();
         let ranges = mesh.ranges.to_vec();
         let skin_data = mesh.skin_data.to_vec();
@@ -462,22 +461,28 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn set_3d_instances(&mut self, instances: &rfw::prelude::InstanceList) {
+    fn set_3d_instances(&mut self, instances: InstancesData3D<'_>) {
         for i in 0..instances.len() {
-            let instance: InstanceHandle = instances.get(i).unwrap();
-            let mesh_id = instance.get_mesh_id();
+            let mesh_id = instances.mesh_ids[i];
             if !mesh_id.is_valid() {
                 continue;
             }
 
             let mesh = self.meshes.get(mesh_id.into());
-            self.instances.set(&self.device, i, instance.clone(), mesh);
+            self.instances.set(
+                &self.device,
+                i,
+                instances.matrices[i],
+                instances.mesh_ids[i],
+                instances.skin_ids[i],
+                mesh,
+            );
 
             if let Some(mesh) = mesh {
                 self.scene_bounds.grow_bb(
                     &mesh
                         .bounds
-                        .transformed(instance.get_matrix().to_cols_array()),
+                        .transformed(instances.matrices[i].to_cols_array()),
                 );
             }
         }
@@ -489,9 +494,8 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn set_materials(&mut self, materials: ChangedIterator<'_, DeviceMaterial>) {
+    fn set_materials(&mut self, materials: &[DeviceMaterial], changed: &BitSlice) {
         {
-            let materials = materials.as_slice();
             if materials.len() > self.material_buffer.len() {
                 self.material_buffer.resize(materials.len() * 2);
                 self.material_buffer.as_mut_slice()[0..materials.len()].clone_from_slice(materials);
@@ -499,7 +503,12 @@ impl Backend for WgpuBackend {
             }
         }
 
-        for (i, material) in materials {
+        for i in 0..materials.len() {
+            if !changed[i] {
+                continue;
+            }
+
+            let material = &materials[i];
             if let Some(bind_group) = self.material_bind_groups.get_mut(i) {
                 bind_group.update(
                     &self.device,
@@ -542,8 +551,14 @@ impl Backend for WgpuBackend {
         self.materials_changed = true;
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw::prelude::Texture>) {
-        for (i, tex) in textures {
+    fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
+        for i in 0..textures.len() {
+            if !changed[i] {
+                continue;
+            }
+
+            let tex = textures[i];
+
             if let Some(t) = self.textures.get_mut(i) {
                 t.update(&self.device, &self.queue, tex);
             } else {
@@ -599,7 +614,7 @@ impl Backend for WgpuBackend {
         self.meshes.reset_changed();
     }
 
-    fn render(&mut self, camera: &Camera, _mode: RenderMode) {
+    fn render(&mut self, camera: CameraView, _mode: RenderMode) {
         let output = match self.swap_chain.get_current_frame() {
             Ok(output) => output,
             Err(_) => return,
@@ -622,7 +637,7 @@ impl Backend for WgpuBackend {
         Self::render_lights(&mut encoder, &mut self.lights, &self.instances);
 
         Self::render_scene(
-            camera,
+            &camera,
             &mut encoder,
             FrustrumG::from_matrix(camera.get_rh_matrix()),
             &self.pipeline,
@@ -737,39 +752,43 @@ impl Backend for WgpuBackend {
             .update_bind_groups(&self.device, &self.output);
     }
 
-    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, PointLight>) {
+    fn set_point_lights(&mut self, _lights: &[PointLight], _changed: &BitSlice) {
         self.lights_changed = true;
     }
 
-    fn set_spot_lights(&mut self, lights: ChangedIterator<'_, SpotLight>) {
+    fn set_spot_lights(&mut self, lights: &[SpotLight], changed: &BitSlice) {
         self.lights
-            .set_spot_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
+            .set_spot_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_area_lights(&mut self, lights: ChangedIterator<'_, AreaLight>) {
+    fn set_area_lights(&mut self, lights: &[AreaLight], changed: &BitSlice) {
         self.lights
-            .set_area_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
+            .set_area_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_directional_lights(&mut self, lights: ChangedIterator<'_, DirectionalLight>) {
+    fn set_directional_lights(&mut self, lights: &[DirectionalLight], changed: &BitSlice) {
         self.lights
-            .set_directional_lights(lights.changed(), lights.as_slice(), &self.scene_bounds);
+            .set_directional_lights(changed, lights, &self.scene_bounds);
         self.lights_changed = true;
     }
 
-    fn set_skybox(&mut self, _skybox: Texture) {
+    fn set_skybox(&mut self, _skybox: TextureData) {
         unimplemented!()
     }
 
-    fn set_skins(&mut self, skins: ChangedIterator<'_, Skin>) {
-        for (i, skin) in skins {
+    fn set_skins(&mut self, skins: &[SkinData], changed: &BitSlice) {
+        for i in 0..skins.len() {
+            if !changed[i] {
+                continue;
+            }
+
             if let Some(s) = self.skins.get_mut(i) {
-                s.update(&self.device, &self.queue, skin.clone());
+                s.update(&self.device, &self.queue, skins[i]);
             } else {
                 self.skins
-                    .overwrite(i, WgpuSkin::new(&self.device, skin.clone()));
+                    .overwrite(i, WgpuSkin::new(&self.device, skins[i]));
             }
         }
     }
@@ -800,7 +819,7 @@ impl WgpuBackend {
     }
 
     fn render_scene(
-        camera: &Camera,
+        camera: &CameraView,
         encoder: &mut wgpu::CommandEncoder,
         frustrum: FrustrumG,
         pipeline: &pipeline::RenderPipeline,

@@ -5,7 +5,6 @@ pub mod mesh;
 pub mod plane;
 pub mod quad;
 pub mod sphere;
-pub mod triangle;
 
 pub use instance::*;
 pub use mesh::*;
@@ -13,9 +12,6 @@ pub use plane::*;
 pub use quad::*;
 use rtbvh::{Bounds, Ray, RayPacket4};
 pub use sphere::*;
-pub use triangle::*;
-
-use crate::PrimID;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -194,9 +190,9 @@ pub trait Intersect: Bounds + Send + Sync {
     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord>;
     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32>;
     fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)>;
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[PrimID; 4]>;
+    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]>;
     fn get_hit_record(&self, ray: Ray, t: f32, hit_data: u32) -> HitRecord;
-    fn get_mat_id(&self, prim_id: PrimID) -> u32;
+    fn get_mat_id(&self, prim_id: i32) -> u32;
 }
 
 #[cfg(feature = "serde")]

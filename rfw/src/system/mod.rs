@@ -1,12 +1,17 @@
-use rfw_backend::{Backend, RenderMode};
+use rfw_backend::{
+    Backend, DataFormat, DirectionalLight, InstancesData2D, InstancesData3D, MeshData2D,
+    MeshData3D, PointLight, RenderMode, SkinData, SpotLight, TextureData,
+};
 use rfw_math::*;
 use rfw_scene::{
-    r2d::Instance2D, r2d::Mesh2D, Camera, DirectionalLight, InstanceHandle, InstanceIterator,
-    LoadResult, NodeGraph, ObjectRef, PointLight, Scene, SceneError, SceneLights, SpotLight,
-    ToMesh,
+    r2d::Mesh2D, Camera, InstanceHandle2D, InstanceHandle3D, InstanceIterator2D,
+    InstanceIterator3D, LoadResult, NodeGraph, ObjectRef, Scene, SceneError, SceneLights, ToMesh,
 };
 use rfw_scene::{Flip, Material, Texture};
-use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut};
+use rfw_utils::{
+    collections::{FlaggedIterator, FlaggedIteratorMut},
+    BytesConversion,
+};
 use std::error::Error;
 use std::path::Path;
 
@@ -57,20 +62,20 @@ impl<T: Sized + Backend> RenderSystem<T> {
         })
     }
 
-    pub fn iter_instances<C>(&self) -> InstanceIterator {
-        self.scene.instances.iter()
+    pub fn iter_3d_instances<C>(&self) -> InstanceIterator3D {
+        self.scene.instances_3d.iter()
     }
 
-    pub fn get_instance(&self, index: usize) -> Option<InstanceHandle> {
-        self.scene.instances.get(index)
+    pub fn iter_2d_instances<C>(&self) -> InstanceIterator2D {
+        self.scene.instances_2d.iter()
     }
 
-    pub fn get_2d_instance(&self, index: usize) -> Option<&Instance2D> {
-        self.scene.objects.d2_instances.get(index)
+    pub fn get_3d_instance(&self, index: usize) -> Option<InstanceHandle3D> {
+        self.scene.instances_3d.get(index)
     }
 
-    pub fn get_2d_instance_mut(&mut self, index: usize) -> Option<&mut Instance2D> {
-        self.scene.objects.d2_instances.get_mut(index)
+    pub fn get_2d_instance(&self, index: usize) -> Option<InstanceHandle2D> {
+        self.scene.instances_2d.get(index)
     }
 
     pub fn get_lights(&self) -> &SceneLights {
@@ -83,8 +88,8 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
     pub fn find_mesh_by_name(&self, name: String) -> Vec<ObjectRef> {
         let mut result = Vec::new();
-        for m_id in 0..self.scene.objects.meshes.len() {
-            if let Some(m) = self.scene.objects.meshes.get(m_id) {
+        for m_id in 0..self.scene.objects.meshes_3d.len() {
+            if let Some(m) = self.scene.objects.meshes_3d.get(m_id) {
                 if m.name == name {
                     result.push(Some(m_id as u32));
                 }
@@ -109,10 +114,11 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
     pub fn render(&mut self, camera_id: usize, mode: RenderMode) -> Result<(), SceneError> {
         if let Some(camera) = self.scene.cameras.get(camera_id as usize) {
-            self.renderer.render(camera, mode);
+            let view = camera.get_view(self.width, self.height);
+            self.renderer.render(view, mode);
             Ok(())
         } else {
-            Err(SceneError::InvalidCameraID(camera_id as u32))
+            Err(SceneError::InvalidCameraID(camera_id))
         }
     }
 
@@ -162,23 +168,20 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.scene.materials.tex_iter_mut()
     }
 
-    pub fn add_object<B: ToMesh>(&mut self, object: B) -> Result<ObjectRef, SceneError> {
+    pub fn add_object<B: ToMesh>(&mut self, object: B) -> Result<usize, SceneError> {
         let m = object.into_mesh();
-        match self.scene.add_3d_object(m) {
-            Ok(id) => Ok(Some(id as u32)),
-            Err(e) => Err(e),
-        }
+        self.scene.add_3d_object(m)
     }
 
-    pub fn add_2d_object(&mut self, object: Mesh2D) -> Result<u32, SceneError> {
+    pub fn add_2d_object(&mut self, object: Mesh2D) -> Result<usize, SceneError> {
         match self.scene.add_2d_object(object) {
-            Ok(id) => Ok(id as u32),
+            Ok(id) => Ok(id),
             Err(e) => Err(e),
         }
     }
 
-    pub fn set_2d_object(&mut self, id: u32, object: Mesh2D) -> Result<(), SceneError> {
-        if let Some(mesh) = self.scene.objects.d2_meshes.get_mut(id as usize) {
+    pub fn set_2d_object(&mut self, id: usize, object: Mesh2D) -> Result<(), SceneError> {
+        if let Some(mesh) = self.scene.objects.meshes_2d.get_mut(id as usize) {
             *mesh = object;
             Ok(())
         } else {
@@ -186,11 +189,11 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
     }
 
-    pub fn create_instance(&mut self, object: u32) -> Result<usize, SceneError> {
+    pub fn create_3d_instance(&mut self, object: usize) -> Result<InstanceHandle3D, SceneError> {
         self.scene.add_instance(object)
     }
 
-    pub fn create_2d_instance(&mut self, object: u32) -> Result<usize, SceneError> {
+    pub fn create_2d_instance(&mut self, object: usize) -> Result<InstanceHandle2D, SceneError> {
         self.scene.add_2d_instance(object)
     }
 
@@ -206,15 +209,15 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.scene.cameras.get_mut(id)
     }
 
-    pub fn add_scene(&mut self, mut graph: NodeGraph) -> u32 {
-        graph.initialize(&mut self.scene.instances, &mut self.scene.objects.skins);
+    pub fn add_scene(&mut self, mut graph: NodeGraph) -> usize {
+        graph.initialize(&mut self.scene.instances_3d, &mut self.scene.objects.skins);
         self.scene.objects.graph.add_graph(graph)
     }
 
-    pub fn remove_scene(&mut self, id: u32) -> Result<(), SceneError> {
+    pub fn remove_scene(&mut self, id: usize) -> Result<(), SceneError> {
         if self.scene.objects.graph.remove_graph(
             id,
-            &mut self.scene.instances,
+            &mut self.scene.instances_3d,
             &mut self.scene.objects.skins,
         ) {
             Ok(())
@@ -223,20 +226,20 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
     }
 
-    pub fn remove_instance(&mut self, id: u32) -> Result<(), SceneError> {
-        self.scene.remove_instance(id as usize)
+    pub fn remove_3d_instance(&mut self, id: usize) {
+        self.scene.remove_3d_instance(id);
     }
 
-    pub fn remove_2d_instance(&mut self, id: u32) -> Result<(), SceneError> {
-        self.scene.remove_2d_instance(id as usize)
+    pub fn remove_2d_instance(&mut self, id: usize) {
+        self.scene.remove_2d_instance(id);
     }
 
-    pub fn add_texture(&mut self, mut texture: Texture) -> Result<u32, SceneError> {
+    pub fn add_texture(&mut self, mut texture: Texture) -> usize {
         texture.generate_mipmaps(Texture::MIP_LEVELS);
-        Ok(self.scene.materials.push_texture(texture) as u32)
+        self.scene.materials.push_texture(texture)
     }
 
-    pub fn set_texture(&mut self, id: u32, mut texture: Texture) -> Result<(), SceneError> {
+    pub fn set_texture(&mut self, id: usize, mut texture: Texture) -> Result<(), SceneError> {
         let tex = self.scene.materials.get_texture_mut(id as usize);
         if tex.is_none() {
             return Err(SceneError::InvalidID(id));
@@ -299,7 +302,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
         DirectionalLightRef(id as u32)
     }
 
-    pub fn set_animation_time(&mut self, id: u32, time: f32) {
+    pub fn set_animation_time(&mut self, id: usize, time: f32) {
         self.scene.objects.graph.set_animation(id, time);
     }
 
@@ -315,47 +318,76 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.scene
             .objects
             .graph
-            .synchronize(&mut self.scene.instances, &mut self.scene.objects.skins);
+            .synchronize(&mut self.scene.instances_3d, &mut self.scene.objects.skins);
 
         if self.scene.objects.skins.any_changed() {
+            let skins: Vec<SkinData> = self
+                .scene
+                .objects
+                .skins
+                .iter()
+                .map(|(_, s)| SkinData {
+                    name: s.name.as_str(),
+                    inverse_bind_matrices: s.inverse_bind_matrices.as_slice(),
+                    joint_matrices: s.joint_matrices.as_slice(),
+                })
+                .collect();
             self.renderer
-                .set_skins(self.scene.objects.skins.iter_changed());
+                .set_skins(skins.as_slice(), self.scene.objects.skins.changed());
             self.scene.objects.skins.reset_changed();
         }
 
-        if self.scene.objects.d2_meshes.any_changed() {
-            for (i, m) in self.scene.objects.d2_meshes.iter_changed() {
-                self.renderer.set_2d_mesh(i, m.into());
+        if self.scene.objects.meshes_2d.any_changed() {
+            for (i, m) in self.scene.objects.meshes_2d.iter_changed() {
+                self.renderer.set_2d_mesh(
+                    i,
+                    MeshData2D {
+                        vertices: m.vertices.as_slice(),
+                        tex_id: m.tex_id,
+                    },
+                );
             }
-            self.scene.objects.d2_meshes.reset_changed();
+            self.scene.objects.meshes_2d.reset_changed();
         }
 
-        if self.scene.objects.d2_instances.any_changed() {
-            self.renderer
-                .set_2d_instances(self.scene.objects.d2_instances.iter_changed());
-            self.scene.objects.d2_instances.reset_changed();
+        if self.scene.instances_2d.any_changed() {
+            self.renderer.set_2d_instances(InstancesData2D {
+                matrices: self.scene.instances_2d.matrices(),
+                mesh_ids: self.scene.instances_2d.mesh_ids(),
+            });
+            self.scene.instances_2d.reset_changed();
         }
 
-        if self.scene.objects.meshes.any_changed() {
-            for (i, m) in self.scene.objects.meshes.iter_changed() {
-                self.renderer.set_3d_mesh(i, m.into());
+        if self.scene.objects.meshes_3d.any_changed() {
+            for (i, m) in self.scene.objects.meshes_3d.iter_changed() {
+                self.renderer.set_3d_mesh(
+                    i,
+                    MeshData3D {
+                        name: m.name.as_str(),
+                        bounds: m.bounds,
+                        vertices: m.vertices.as_slice(),
+                        triangles: m.triangles.as_slice(),
+                        ranges: m.ranges.as_slice(),
+                        skin_data: m.skin_data.as_slice(),
+                    },
+                );
             }
             changed = true;
-            self.scene.objects.meshes.reset_changed();
+            self.scene.objects.meshes_3d.reset_changed();
         }
 
         let light_flags = self.scene.materials.light_flags();
-        changed |= self.scene.instances.any_changed();
+        changed |= self.scene.instances_3d.any_changed();
 
-        for instance in self.scene.instances.iter() {
+        for instance in self.scene.instances_3d.iter() {
             if found_light {
                 break;
             }
 
             if let Some(mesh_id) = instance.get_mesh_id().as_index() {
-                for j in 0..self.scene.objects.meshes[mesh_id].ranges.len() {
+                for j in 0..self.scene.objects.meshes_3d[mesh_id].ranges.len() {
                     match light_flags
-                        .get(self.scene.objects.meshes[mesh_id].ranges[j].mat_id as usize)
+                        .get(self.scene.objects.meshes_3d[mesh_id].ranges[j].mat_id as usize)
                     {
                         None => {}
                         Some(flag) => {
@@ -369,25 +401,46 @@ impl<T: Sized + Backend> RenderSystem<T> {
             }
         }
 
-        if self.scene.instances.any_changed() {
-            self.renderer.set_3d_instances(&self.scene.instances);
+        if self.scene.instances_3d.any_changed() {
+            self.renderer.set_3d_instances(InstancesData3D {
+                matrices: self.scene.instances_3d.matrices(),
+                mesh_ids: self.scene.instances_3d.mesh_ids(),
+                skin_ids: self.scene.instances_3d.skin_ids(),
+            });
             changed = true;
-            self.scene.instances.reset_changed();
+            self.scene.instances_3d.reset_changed();
         }
 
         update_lights |= found_light;
 
         let mut mat_changed = false;
         if self.scene.materials.textures_changed() {
-            self.renderer
-                .set_textures(self.scene.materials.iter_changed_textures());
+            let textures = self.scene.materials.get_textures();
+            let tex_data: Vec<TextureData> = textures
+                .iter()
+                .map(|t| TextureData {
+                    width: t.width,
+                    height: t.height,
+                    mip_levels: t.mip_levels,
+                    bytes: t.data.as_bytes(),
+                    format: DataFormat::BGRA8,
+                })
+                .collect();
+
+            self.renderer.set_textures(
+                tex_data.as_slice(),
+                self.scene.materials.get_textures_changed(),
+            );
             changed = true;
             mat_changed = true;
         }
 
         if self.scene.materials.changed() {
-            self.renderer
-                .set_materials(self.scene.materials.get_device_materials());
+            self.scene.materials.update_device_materials();
+            self.renderer.set_materials(
+                self.scene.materials.get_device_materials(),
+                self.scene.materials.get_materials_changed(),
+            );
             changed = true;
             mat_changed = true;
         }
@@ -400,34 +453,42 @@ impl<T: Sized + Backend> RenderSystem<T> {
         }
 
         if self.scene.lights.point_lights.any_changed() {
-            self.renderer
-                .set_point_lights(self.scene.lights.point_lights.iter_changed());
+            self.renderer.set_point_lights(
+                self.scene.lights.point_lights.as_slice(),
+                self.scene.lights.point_lights.changed(),
+            );
             self.scene.lights.point_lights.reset_changed();
             changed = true;
         }
 
         if self.scene.lights.spot_lights.any_changed() {
-            self.renderer
-                .set_spot_lights(self.scene.lights.spot_lights.iter_changed());
+            self.renderer.set_spot_lights(
+                self.scene.lights.spot_lights.as_slice(),
+                self.scene.lights.spot_lights.changed(),
+            );
             self.scene.lights.spot_lights.reset_changed();
             changed = true;
         }
 
         if self.scene.lights.area_lights.any_changed() {
-            self.renderer
-                .set_area_lights(self.scene.lights.area_lights.iter_changed());
+            self.renderer.set_area_lights(
+                self.scene.lights.area_lights.as_slice(),
+                self.scene.lights.area_lights.changed(),
+            );
             changed = true;
         }
 
         if self.scene.lights.directional_lights.any_changed() {
-            self.renderer
-                .set_directional_lights(self.scene.lights.directional_lights.iter_changed());
+            self.renderer.set_directional_lights(
+                self.scene.lights.directional_lights.as_slice(),
+                self.scene.lights.directional_lights.changed(),
+            );
             self.scene.lights.directional_lights.reset_changed();
             changed = true;
         }
 
-        let deleted_meshes = self.scene.objects.meshes.take_erased();
-        let deleted_instances = self.scene.instances.take_removed();
+        let deleted_meshes = self.scene.objects.meshes_3d.take_erased();
+        let deleted_instances = self.scene.instances_3d.take_removed();
 
         if !deleted_meshes.is_empty() {
             changed = true;
@@ -450,7 +511,13 @@ impl<T: Sized + Backend> RenderSystem<T> {
 
     pub fn set_skybox<B: AsRef<Path>>(&mut self, path: B) -> Result<(), ()> {
         if let Ok(texture) = Texture::load(path, Flip::FlipV) {
-            self.renderer.set_skybox(texture);
+            self.renderer.set_skybox(TextureData {
+                width: texture.width,
+                height: texture.height,
+                mip_levels: texture.mip_levels,
+                bytes: texture.data.as_bytes(),
+                format: rfw_backend::DataFormat::BGRA8,
+            });
             Ok(())
         } else {
             Err(())

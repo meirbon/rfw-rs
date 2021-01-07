@@ -1,6 +1,5 @@
 use crate::hal;
 use crate::mem::Buffer;
-use rfw::prelude::mesh::VertexMesh;
 use rfw::prelude::*;
 use std::sync::Arc;
 

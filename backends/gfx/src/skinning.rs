@@ -102,20 +102,18 @@ impl<B: hal::Backend> SkinList<B> {
         }
     }
 
-    pub fn set_skin(&mut self, id: usize, skin: &Skin) {
+    pub fn set_skin(&mut self, id: usize, skin: SkinData) {
         let allocator = self.allocator.clone();
 
-        let skin = skin.clone();
+        let joint_matrices = skin.joint_matrices.to_vec();
         let gfx_skin = self.skins.take(id);
         self.task_pool.push(move |finish| {
             let gfx_skin = if let Some(gfx_skin) = gfx_skin {
                 let mut buffer = if let Some(buffer) = gfx_skin.buffer {
-                    if buffer.size_in_bytes
-                        < skin.joint_matrices.len() * std::mem::size_of::<Mat4>()
-                    {
+                    if buffer.size_in_bytes < joint_matrices.len() * std::mem::size_of::<Mat4>() {
                         allocator
                             .allocate_buffer(
-                                skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
+                                joint_matrices.len() * std::mem::size_of::<Mat4>(),
                                 buffer::Usage::UNIFORM,
                                 memory::Properties::CPU_VISIBLE,
                                 Some(
@@ -130,7 +128,7 @@ impl<B: hal::Backend> SkinList<B> {
                 } else {
                     allocator
                         .allocate_buffer(
-                            skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
+                            joint_matrices.len() * std::mem::size_of::<Mat4>(),
                             buffer::Usage::UNIFORM,
                             memory::Properties::CPU_VISIBLE,
                             Some(
@@ -141,8 +139,7 @@ impl<B: hal::Backend> SkinList<B> {
                 };
 
                 if let Ok(mapping) = buffer.map(memory::Segment::ALL) {
-                    let slice = skin.joint_matrices.as_slice();
-                    let bytes = slice.as_bytes();
+                    let bytes = joint_matrices.as_bytes();
                     mapping.as_slice()[0..bytes.len()].copy_from_slice(bytes);
                 }
 
@@ -152,7 +149,7 @@ impl<B: hal::Backend> SkinList<B> {
             } else {
                 let mut buffer = allocator
                     .allocate_buffer(
-                        skin.joint_matrices.len() * std::mem::size_of::<Mat4>(),
+                        joint_matrices.len() * std::mem::size_of::<Mat4>(),
                         buffer::Usage::UNIFORM,
                         memory::Properties::CPU_VISIBLE,
                         None,
@@ -160,8 +157,7 @@ impl<B: hal::Backend> SkinList<B> {
                     .unwrap();
 
                 if let Ok(mapping) = buffer.map(memory::Segment::ALL) {
-                    let slice = skin.joint_matrices.as_slice();
-                    let bytes = slice.as_bytes();
+                    let bytes = joint_matrices.as_bytes();
                     mapping.as_slice()[0..bytes.len()].copy_from_slice(bytes);
                 }
 

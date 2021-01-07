@@ -11,7 +11,7 @@ use hal::{
 use instances::SceneList;
 use mem::Allocator;
 use rfw::prelude::*;
-use std::{iter, mem::ManuallyDrop, ptr};
+use std::{iter, mem::ManuallyDrop, ptr, unimplemented};
 use window::Extent2D;
 
 mod cmd;
@@ -51,7 +51,6 @@ impl std::error::Error for GfxError {}
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
-use rfw::prelude::r2d::{Instance2D};
 use rfw::prelude::HasRawWindowHandle;
 
 #[allow(dead_code)]
@@ -345,15 +344,15 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         }))
     }
 
-    fn set_2d_mesh(&mut self, _id: usize, _mesh: Mesh2dData) {
+    fn set_2d_mesh(&mut self, _id: usize, _mesh: MeshData2D) {
         // unimplemented!()
     }
 
-    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, Instance2D>) {
-        // unimplemented!()
+    fn set_2d_instances(&mut self, _instances: InstancesData2D<'_>) {
+        unimplemented!()
     }
 
-    fn set_3d_mesh(&mut self, id: usize, mesh: Mesh3dData) {
+    fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
         self.scene_list.set_mesh(id, mesh);
     }
 
@@ -363,7 +362,8 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         }
     }
 
-    fn set_3d_instances(&mut self, _instances: &InstanceList) {
+    fn set_3d_instances(&mut self, _instances: InstancesData3D<'_>) {
+        unimplemented!()
         // for (i, instance) in instances {
         //     self.scene_list.set_instance(i, instance);
         // }
@@ -376,12 +376,12 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         }
     }
 
-    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw::prelude::DeviceMaterial>) {
-        self.mesh_renderer.set_materials(materials.as_slice());
+    fn set_materials(&mut self, materials: &[DeviceMaterial], _changed: &BitSlice) {
+        self.mesh_renderer.set_materials(materials);
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw::prelude::Texture>) {
-        self.mesh_renderer.set_textures(textures);
+    fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
+        self.mesh_renderer.set_textures(textures, changed);
     }
 
     fn synchronize(&mut self) {
@@ -389,8 +389,8 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         self.scene_list.synchronize();
     }
 
-    fn render(&mut self, camera: &rfw::prelude::Camera, _mode: rfw::prelude::RenderMode) {
-        self.mesh_renderer.update_camera(camera);
+    fn render(&mut self, camera: CameraView, _mode: rfw::prelude::RenderMode) {
+        self.mesh_renderer.update_camera(&camera);
 
         let surface_image = unsafe {
             match self.surface.acquire_image(!0) {
@@ -444,7 +444,7 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
                 &self.viewport,
                 &self.scene_list,
                 &self.skins,
-                &camera.calculate_frustrum(),
+                &FrustrumG::from(&camera),
             );
 
             cmd_buffer.finish();
@@ -500,23 +500,20 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
             .resize(self.render_size.width, self.render_size.height);
     }
 
-    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, rfw::prelude::PointLight>) {}
+    fn set_point_lights(&mut self, _lights: &[PointLight], _changed: &BitSlice) {}
+    fn set_spot_lights(&mut self, _lights: &[SpotLight], _changed: &BitSlice) {}
+    fn set_area_lights(&mut self, _lights: &[AreaLight], _changed: &BitSlice) {}
+    fn set_directional_lights(&mut self, _lights: &[DirectionalLight], _changed: &BitSlice) {}
 
-    fn set_spot_lights(&mut self, _lights: ChangedIterator<'_, rfw::prelude::SpotLight>) {}
+    fn set_skybox(&mut self, _skybox: TextureData) {}
 
-    fn set_area_lights(&mut self, _lights: ChangedIterator<'_, rfw::prelude::AreaLight>) {}
+    fn set_skins(&mut self, skins: &[SkinData], changed: &BitSlice) {
+        for i in 0..skins.len() {
+            if !changed[i] {
+                continue;
+            }
 
-    fn set_directional_lights(
-        &mut self,
-        _lights: ChangedIterator<'_, rfw::prelude::DirectionalLight>,
-    ) {
-    }
-
-    fn set_skybox(&mut self, _skybox: rfw::prelude::Texture) {}
-
-    fn set_skins(&mut self, skins: ChangedIterator<'_, rfw::prelude::graph::Skin>) {
-        for (i, skin) in skins {
-            self.skins.set_skin(i, skin);
+            self.skins.set_skin(i, skins[i]);
         }
     }
 

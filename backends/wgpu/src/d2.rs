@@ -300,35 +300,30 @@ impl Renderer {
         }
     }
 
-    pub fn update_mesh(&mut self, device: &wgpu::Device, id: usize, mesh: Mesh2dData) {
-        self.meshes.overwrite(id, Mesh::new(device, &mesh));
+    pub fn update_mesh(&mut self, device: &wgpu::Device, id: usize, mesh: MeshData2D) {
+        self.meshes.overwrite(id, Mesh::new(device, mesh));
     }
 
-    pub fn update_instances(
-        &mut self,
-        queue: &wgpu::Queue,
-        instances: ChangedIterator<'_, Instance2D>,
-    ) {
-        let instances: Vec<InstanceDescriptor> = instances
-            .as_slice()
-            .iter()
-            .map(|i| {
-                if let Some(mesh_id) = i.mesh {
-                    if let Some(mesh) = self.meshes.get(mesh_id as usize) {
-                        InstanceDescriptor {
-                            matrix: Mat4::from_cols_array(&i.transform),
-                            aux: [mesh.tex_id.unwrap_or(0), mesh_id, 0, 0],
-                        }
-                    } else {
-                        InstanceDescriptor::default()
+    pub fn update_instances(&mut self, queue: &wgpu::Queue, instances: InstancesData2D) {
+        let mut data = Vec::with_capacity(instances.len());
+        for i in 0..instances.len() {
+            let desc = if let Some(mesh_id) = instances.mesh_ids[i].as_index() {
+                if let Some(mesh) = self.meshes.get(mesh_id) {
+                    InstanceDescriptor {
+                        matrix: instances.matrices[i],
+                        aux: [mesh.tex_id.unwrap_or(0) as u32, mesh_id as u32, 0, 0],
                     }
                 } else {
                     InstanceDescriptor::default()
                 }
-            })
-            .collect();
+            } else {
+                InstanceDescriptor::default()
+            };
 
-        self.descriptors = instances;
+            data.push(desc);
+        }
+
+        self.descriptors = data;
         queue.write_buffer(&self.matrices_buffer, 0, self.descriptors.as_bytes());
     }
 }
@@ -369,7 +364,7 @@ pub struct Mesh {
     pub buffer: Option<Arc<wgpu::Buffer>>,
     pub buffer_size: wgpu::BufferAddress,
     pub vertex_count: u32,
-    pub tex_id: Option<u32>,
+    pub tex_id: Option<usize>,
 }
 
 impl Clone for Mesh {
@@ -396,7 +391,7 @@ impl Default for Mesh {
 
 #[allow(dead_code)]
 impl Mesh {
-    pub fn new(device: &wgpu::Device, mesh: &Mesh2dData) -> Self {
+    pub fn new(device: &wgpu::Device, mesh: MeshData2D) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("2d-mesh"),
             contents: mesh.vertices.as_bytes(),

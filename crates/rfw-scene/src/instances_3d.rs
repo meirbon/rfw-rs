@@ -1,109 +1,55 @@
+use rfw_backend::*;
 use rfw_math::*;
 use std::cell::UnsafeCell;
-use std::fmt::{Display, Formatter};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use crate::utils::Transform;
+
 bitflags::bitflags! {
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     #[repr(transparent)]
-    pub struct InstanceFlags: u32 {
+    pub struct InstanceFlags3D: u32 {
         const TRANSFORMED = 1;
         const CHANGED_MESH = 2;
     }
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct MeshID(pub(crate) i32);
-
-impl Display for MeshID {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MeshID({})", self.0)
-    }
-}
-
-impl MeshID {
-    pub const INVALID: Self = MeshID(-1);
-
-    pub fn is_valid(&self) -> bool {
-        self.0 >= 0
-    }
-
-    pub fn as_index(&self) -> Option<usize> {
-        if self.0 >= 0 {
-            Some(self.0 as usize)
-        } else {
-            None
-        }
-    }
-}
-
-impl Into<usize> for MeshID {
-    fn into(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct SkinID(pub(crate) i32);
-
-impl SkinID {
-    pub const INVALID: Self = SkinID(-1);
-
-    pub fn is_valid(&self) -> bool {
-        self.0 >= 0
-    }
-
-    pub fn as_index(&self) -> Option<usize> {
-        if self.0 >= 0 {
-            Some(self.0 as usize)
-        } else {
-            None
-        }
-    }
-}
-
-impl Into<usize> for SkinID {
-    fn into(self) -> usize {
-        self.0 as usize
-    }
-}
-
 #[derive(Debug, Clone)]
-pub struct InstanceList {
-    pub(crate) list: Arc<UnsafeCell<List>>,
+pub struct InstanceList3D {
+    pub(crate) list: Arc<UnsafeCell<List3D>>,
 }
 
 /// Although sharing instances amongst multiple threads without any mitigations against data races
 /// is unsafe, the performance benefits of not doing any mitigation is too great to neglect this
 /// opportunity (especially with many instances).
-unsafe impl Send for InstanceList {}
-unsafe impl Sync for InstanceList {}
+unsafe impl Send for InstanceList3D {}
+unsafe impl Sync for InstanceList3D {}
 
-impl From<List> for InstanceList {
-    fn from(l: List) -> Self {
+impl From<List3D> for InstanceList3D {
+    fn from(l: List3D) -> Self {
         Self {
             list: Arc::new(UnsafeCell::new(l)),
         }
     }
 }
 
-impl Into<List> for InstanceList {
-    fn into(self) -> List {
+impl Into<List3D> for InstanceList3D {
+    fn into(self) -> List3D {
         self.clone_inner()
     }
 }
 
-impl Default for InstanceList {
+impl Default for InstanceList3D {
     fn default() -> Self {
         Self {
-            list: Arc::new(UnsafeCell::new(List::default())),
+            list: Arc::new(UnsafeCell::new(List3D::default())),
         }
     }
 }
 
-impl InstanceList {
+impl InstanceList3D {
     pub fn new() -> Self {
         Self::default()
     }
@@ -112,10 +58,10 @@ impl InstanceList {
         unsafe { (*self.list.get()).ptr.load(Ordering::SeqCst) }
     }
 
-    pub fn allocate(&mut self) -> InstanceHandle {
+    pub fn allocate(&mut self) -> InstanceHandle3D {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         if let Some(id) = list.free_slots.pop() {
-            return InstanceHandle {
+            return InstanceHandle3D {
                 index: id,
                 ptr: self.list.clone(),
             };
@@ -126,21 +72,20 @@ impl InstanceList {
             self.resize((id + 1) * 4);
         }
         list.ptr.store(id + 1, Ordering::Release);
-        list.flags[id] = InstanceFlags::all();
+        list.flags[id] = InstanceFlags3D::all();
 
-        InstanceHandle {
+        InstanceHandle3D {
             index: id,
             ptr: self.list.clone(),
         }
     }
 
-    pub fn make_invalid(&mut self, handle: InstanceHandle) {
+    pub fn make_invalid(&mut self, handle: InstanceHandle3D) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         list.matrices[handle.index] = Mat4::identity();
-        list.normal_matrices[handle.index] = Mat4::identity();
         list.mesh_ids[handle.index] = MeshID::INVALID;
         list.skin_ids[handle.index] = SkinID::INVALID;
-        list.flags[handle.index] = InstanceFlags::all();
+        list.flags[handle.index] = InstanceFlags3D::all();
         list.free_slots.push(handle.index);
         list.removed.push(handle.index);
     }
@@ -148,16 +93,15 @@ impl InstanceList {
     pub fn resize(&mut self, new_size: usize) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         list.matrices.resize(new_size, Mat4::identity());
-        list.normal_matrices.resize(new_size, Mat4::identity());
         list.mesh_ids.resize(new_size, MeshID::INVALID);
         list.skin_ids.resize(new_size, SkinID::INVALID);
-        list.flags.resize(new_size, InstanceFlags::empty());
+        list.flags.resize(new_size, InstanceFlags3D::empty());
     }
 
-    pub fn get(&self, index: usize) -> Option<InstanceHandle> {
+    pub fn get(&self, index: usize) -> Option<InstanceHandle3D> {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         if let Some(_) = list.matrices.get(index) {
-            Some(InstanceHandle {
+            Some(InstanceHandle3D {
                 index,
                 ptr: self.list.clone(),
             })
@@ -171,27 +115,27 @@ impl InstanceList {
         unsafe { &(*list).matrices[0..(*list).len()] }
     }
 
-    pub fn normal_matrices(&self) -> &[Mat4] {
-        let list = self.list.get();
-        unsafe { &(*list).normal_matrices[0..(*list).len()] }
-    }
-
     pub fn mesh_ids(&self) -> &[MeshID] {
         let list = self.list.get();
         unsafe { &(*list).mesh_ids[0..(*list).len()] }
     }
 
-    pub fn flags(&self) -> &[InstanceFlags] {
+    pub fn skin_ids(&self) -> &[SkinID] {
+        let list = self.list.get();
+        unsafe { &(*list).skin_ids[0..(*list).len()] }
+    }
+
+    pub fn flags(&self) -> &[InstanceFlags3D] {
         let list = self.list.get();
         unsafe { &(*list).flags[0..(*list).len()] }
     }
 
-    pub fn clone_inner(&self) -> List {
+    pub fn clone_inner(&self) -> List3D {
         unsafe { self.list.get().as_ref().unwrap() }.clone()
     }
 
-    pub fn iter(&self) -> InstanceIterator {
-        InstanceIterator {
+    pub fn iter(&self) -> InstanceIterator3D {
+        InstanceIterator3D {
             list: self.list.clone(),
             current: 0,
             ptr: unsafe { (*self.list.get()).len() },
@@ -211,7 +155,7 @@ impl InstanceList {
     pub fn reset_changed(&mut self) {
         let list = unsafe { (*self.list.get()).flags.as_mut_slice() };
         for v in list.iter_mut() {
-            *v = InstanceFlags::empty();
+            *v = InstanceFlags3D::empty();
         }
     }
 
@@ -225,24 +169,22 @@ impl InstanceList {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
-pub struct List {
+pub struct List3D {
     matrices: Vec<Mat4>,
-    normal_matrices: Vec<Mat4>,
     mesh_ids: Vec<MeshID>,
     skin_ids: Vec<SkinID>,
-    flags: Vec<InstanceFlags>,
+    flags: Vec<InstanceFlags3D>,
 
     ptr: AtomicUsize,
     free_slots: Vec<usize>,
     removed: Vec<usize>,
 }
 
-impl Clone for List {
+impl Clone for List3D {
     fn clone(&self) -> Self {
         let ptr = AtomicUsize::new(self.ptr.load(Ordering::Acquire));
         let this = Self {
             matrices: self.matrices.clone(),
-            normal_matrices: self.normal_matrices.clone(),
             mesh_ids: self.mesh_ids.clone(),
             skin_ids: self.skin_ids.clone(),
             flags: self.flags.clone(),
@@ -257,20 +199,20 @@ impl Clone for List {
     }
 }
 
-impl List {
+impl List3D {
     pub fn len(&self) -> usize {
         self.ptr.load(Ordering::SeqCst)
     }
 }
 
 #[derive(Debug)]
-pub struct InstanceIterator {
-    list: Arc<UnsafeCell<List>>,
+pub struct InstanceIterator3D {
+    list: Arc<UnsafeCell<List3D>>,
     current: usize,
     ptr: usize,
 }
 
-impl Clone for InstanceIterator {
+impl Clone for InstanceIterator3D {
     fn clone(&self) -> Self {
         Self {
             list: self.list.clone(),
@@ -280,14 +222,14 @@ impl Clone for InstanceIterator {
     }
 }
 
-impl Iterator for InstanceIterator {
-    type Item = InstanceHandle;
+impl Iterator for InstanceIterator3D {
+    type Item = InstanceHandle3D;
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current < self.ptr {
             let index = self.current;
             self.current += 1;
-            return Some(InstanceHandle {
+            return Some(InstanceHandle3D {
                 index,
                 ptr: self.list.clone(),
             });
@@ -298,17 +240,17 @@ impl Iterator for InstanceIterator {
 }
 
 #[derive(Debug, Default)]
-pub struct InstanceHandle {
+pub struct InstanceHandle3D {
     index: usize,
-    ptr: Arc<UnsafeCell<List>>,
+    ptr: Arc<UnsafeCell<List3D>>,
 }
 
-impl InstanceHandle {
+impl InstanceHandle3D {
     #[inline]
     pub fn set_mesh(&mut self, mesh: MeshID) {
         let list = unsafe { self.ptr.get().as_mut().unwrap() };
         list.mesh_ids[self.index] = mesh;
-        list.flags[self.index] |= InstanceFlags::CHANGED_MESH;
+        list.flags[self.index] |= InstanceFlags3D::CHANGED_MESH;
     }
 
     pub fn set_skin(&mut self, skin: SkinID) {
@@ -320,46 +262,59 @@ impl InstanceHandle {
     pub fn set_matrix(&mut self, matrix: Mat4) {
         let list = unsafe { self.ptr.get().as_mut().unwrap() };
         list.matrices[self.index] = matrix;
-        list.normal_matrices[self.index] = matrix.inverse().transpose();
-        list.flags[self.index] |= InstanceFlags::TRANSFORMED;
+        list.flags[self.index] |= InstanceFlags3D::TRANSFORMED;
     }
 
+    #[inline]
     pub fn get_matrix(&self) -> Mat4 {
         unsafe { (*self.ptr.get()).matrices[self.index] }
     }
 
-    pub fn get_normal_matrix(&self) -> Mat4 {
-        unsafe { (*self.ptr.get()).normal_matrices[self.index] }
+    #[inline]
+    pub fn get_transform(&self) -> Transform<Self> {
+        let (scale, rotation, translation) = self.get_matrix().to_scale_rotation_translation();
+
+        Transform {
+            translation,
+            rotation,
+            scale,
+            handle: self.clone(),
+            changed: false,
+        }
     }
 
+    #[inline]
     pub fn get_mesh_id(&self) -> MeshID {
         unsafe { (*self.ptr.get()).mesh_ids[self.index] }
     }
 
+    #[inline]
     pub fn get_skin_id(&self) -> SkinID {
         unsafe { (*self.ptr.get()).skin_ids[self.index] }
     }
 
-    pub fn get_flags(&self) -> InstanceFlags {
+    #[inline]
+    pub fn get_flags(&self) -> InstanceFlags3D {
         unsafe { (*self.ptr.get()).flags[self.index] }
     }
 
+    #[inline]
     pub fn get_id(&self) -> usize {
         self.index
     }
 
     #[inline]
     pub fn transformed(&self) -> bool {
-        unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags::TRANSFORMED) }
+        unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags3D::TRANSFORMED) }
     }
 
     #[inline]
     pub fn changed_mesh(&mut self) -> bool {
-        unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags::CHANGED_MESH) }
+        unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags3D::CHANGED_MESH) }
     }
 }
 
-impl Clone for InstanceHandle {
+impl Clone for InstanceHandle3D {
     fn clone(&self) -> Self {
         Self {
             index: self.index,

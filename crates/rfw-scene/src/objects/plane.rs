@@ -1,4 +1,4 @@
-use crate::{constants::EPSILON, objects::*, PrimID};
+use crate::{constants::EPSILON, objects::*};
 use l3d::mat::{Material, Texture};
 use rtbvh::{Bounds, Ray, RayPacket4, AABB};
 
@@ -122,6 +122,7 @@ impl Intersect for Plane {
         None
     }
 
+    #[allow(clippy::clippy::many_single_char_names)]
     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
         use rfw_math::*;
 
@@ -171,7 +172,7 @@ impl Intersect for Plane {
         }
     }
 
-    fn get_mat_id(&self, _prim_id: PrimID) -> u32 {
+    fn get_mat_id(&self, _prim_id: i32) -> u32 {
         self.mat_id as u32
     }
 }

@@ -16,13 +16,10 @@ use winit::{
 use glyph_brush::ab_glyph::point;
 use rayon::prelude::*;
 use rfw::{
-    backend::{RenderMode, Setting, SettingValue},
+    backend::RenderMode,
     math::*,
     prelude::*,
-    scene::{
-        r2d::{Mesh2D, Vertex2D},
-        Camera,
-    },
+    scene::{r2d::Mesh2D, Camera},
     system::RenderSystem,
     utils,
 };
@@ -120,8 +117,8 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
         .build(&event_loop)
         .unwrap();
 
-    width = window.inner_size().width as usize;
-    height = window.inner_size().height as usize;
+    width = window.inner_size().width as u32;
+    height = window.inner_size().height as u32;
 
     let res_scale = if let Some(m) = window.current_monitor() {
         1.0 / m.scale_factor()
@@ -129,18 +126,14 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
         1.0
     };
 
-    let render_width = (width as f64 * res_scale) as usize;
-    let render_height = (height as f64 * res_scale) as usize;
-
     let mut renderer: RenderSystem<T> =
-        RenderSystem::new(&window, (width, height), (render_width, render_height)).unwrap();
+        RenderSystem::new(&window, (width, height), Some(res_scale)).unwrap();
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let cam_id = renderer.create_camera(render_width as _, render_height as _);
-    *renderer.get_camera_mut(cam_id).unwrap() =
-        Camera::new(render_width as u32, render_height as u32).with_fov(60.0);
+    let cam_id = renderer.create_camera(width as _, height as _);
+    *renderer.get_camera_mut(cam_id).unwrap() = Camera::new(width, height).with_fov(60.0);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -157,7 +150,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
     let roboto = FontArc::try_from_slice(font)?;
     let mut glyph_brush = GlyphBrushBuilder::using_font(roboto).build();
 
-    let tex = renderer.add_texture(rfw::prelude::Texture::default())?;
+    let tex = renderer.add_texture(rfw::prelude::Texture::default());
     let d2_mesh = renderer.add_2d_object(Mesh2D::new(
         vec![
             [-0.5, -0.5, 0.5],
@@ -500,8 +493,8 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                 event: WindowEvent::Resized(size),
                 window_id,
             } if window_id == window.id() => {
-                width = size.width as usize;
-                height = size.height as usize;
+                width = size.width as u32;
+                height = size.height as u32;
 
                 resized = true;
             }

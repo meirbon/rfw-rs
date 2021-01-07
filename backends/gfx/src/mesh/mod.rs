@@ -17,7 +17,6 @@ use hal::{
     window::Extent2D,
 };
 use pass::Subpass;
-use rfw::prelude::mesh::VertexMesh;
 use rfw::prelude::*;
 use std::{borrow::Borrow, mem::ManuallyDrop, ptr, rc::Rc, sync::Arc};
 
@@ -952,7 +951,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .unwrap()
     }
 
-    pub fn update_camera(&mut self, camera: &rfw::prelude::Camera) {
+    pub fn update_camera(&mut self, camera: &CameraView) {
         let mapping = match self.uniform_buffer.map(hal::memory::Segment::ALL) {
             Ok(mapping) => mapping,
             Err(_) => return,
@@ -1271,11 +1270,17 @@ impl<B: hal::Backend> RenderPipeline<B> {
         self.viewport.rect.h = height as _;
     }
 
-    pub fn set_textures(&mut self, textures: ChangedIterator<'_, rfw::prelude::Texture>) {
+    pub fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
         let mut texels = 0;
 
-        for (i, t) in textures.clone() {
-            texels += t.data.len();
+        for i in 0..textures.len() {
+            if !changed[i] {
+                continue;
+            }
+
+            let t = textures[i];
+
+            texels += t.bytes.len();
             let tex = Texture::new(
                 self.device.clone(),
                 &self.allocator,
@@ -1326,15 +1331,25 @@ impl<B: hal::Backend> RenderPipeline<B> {
 
         if let Ok(mapping) = staging_buffer.map(Segment::ALL) {
             let mut byte_offset = 0;
-            for (_, t) in textures.clone() {
-                let bytes = t.data.as_bytes();
-                mapping.as_slice()[byte_offset..(byte_offset + bytes.len())].copy_from_slice(bytes);
-                byte_offset += bytes.len();
+            for i in 0..textures.len() {
+                if !changed[i] {
+                    continue;
+                }
+
+                let t = textures[i];
+                mapping.as_slice()[byte_offset..(byte_offset + t.bytes.len())]
+                    .copy_from_slice(t.bytes);
+                byte_offset += t.bytes.len();
             }
         }
 
         let mut byte_offset = 0;
-        for (i, t) in textures.clone() {
+        for i in 0..textures.len() {
+            if !changed[i] {
+                continue;
+            }
+
+            let t = textures[i];
             let target = self.textures[i].as_ref().as_ref().unwrap();
             unsafe {
                 cmd_buffer.pipeline_barrier(
@@ -1410,7 +1425,6 @@ impl<B: hal::Backend> RenderPipeline<B> {
                 );
             }
         }
-
         unsafe {
             cmd_buffer.finish();
         }
