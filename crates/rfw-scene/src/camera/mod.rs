@@ -8,6 +8,8 @@ pub use frustrum::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::utils::{HasMatrix, HasRotation, HasTranslation, Transform};
+
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Camera {
@@ -121,7 +123,7 @@ impl Camera {
     }
 
     pub fn get_fov(&self) -> f32 {
-        return self.fov;
+        self.fov
     }
 
     pub fn get_aspect_ratio(&self) -> f32 {
@@ -135,6 +137,16 @@ impl Camera {
     pub fn with_aspect_ratio(mut self, aspect_ratio: f32) -> Self {
         self.aspect_ratio = aspect_ratio;
         self
+    }
+
+    pub fn get_transform(&mut self) -> Transform<Self> {
+        Transform {
+            translation: self.pos.into(),
+            rotation: Quat::identity(),
+            scale: Vec3::default(),
+            handle: self,
+            changed: false,
+        }
     }
 
     pub fn with_position<T: Into<[f32; 3]>>(mut self, position: T) -> Self {
@@ -182,7 +194,7 @@ impl Camera {
         let pos = Vec3::from(self.pos);
         let dir = Vec3::from(self.direction);
 
-        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
+        let view = Mat4::look_at_rh(pos, pos + dir, up);
 
         projection * view
     }
@@ -197,7 +209,7 @@ impl Camera {
         let pos = Vec3::from(self.pos);
         let dir = Vec3::from(self.direction);
 
-        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
+        let view = Mat4::look_at_lh(pos, pos + dir, up);
 
         projection * view
     }
@@ -218,9 +230,7 @@ impl Camera {
         let pos = Vec3::from(self.pos);
         let dir = Vec3::from(self.direction);
 
-        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
-
-        view
+        Mat4::look_at_rh(pos, pos + dir, up)
     }
 
     pub fn get_lh_view_matrix(&self) -> Mat4 {
@@ -229,9 +239,7 @@ impl Camera {
         let pos = Vec3::from(self.pos);
         let dir = Vec3::from(self.direction);
 
-        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
-
-        view
+        Mat4::look_at_lh(pos, pos + dir, up)
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
@@ -270,3 +278,13 @@ impl Camera {
         Ok(object)
     }
 }
+
+impl HasMatrix for Camera {
+    fn update(&mut self, t: Vec3, r: Quat, _s: Vec3) {
+        self.pos = t.into();
+        self.direction = r.mul_vec3(self.direction.into()).into();
+    }
+}
+
+impl HasTranslation for Camera {}
+impl HasRotation for Camera {}

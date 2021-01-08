@@ -1,5 +1,5 @@
 use crate::{
-    utils::{HasMatrix, Transform},
+    utils::{HasMatrix, HasRotation, HasScale, HasTranslation, Transform},
     InstanceList3D, MeshID, ObjectRef, SkinID,
 };
 use l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor};
@@ -72,6 +72,25 @@ pub struct NodeDescriptor {
     pub id: u32,
 }
 
+impl Default for NodeDescriptor {
+    fn default() -> Self {
+        Self {
+            name: Default::default(),
+            child_nodes: Default::default(),
+
+            translation: Vec3::zero(),
+            rotation: Quat::identity(),
+            scale: Vec3::one(),
+
+            meshes: Default::default(),
+            skin: None,
+            weights: Default::default(),
+
+            id: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
     pub nodes: Vec<NodeDescriptor>,
@@ -138,10 +157,13 @@ impl GraphHandle {
     }
 }
 
+impl HasTranslation for GraphHandle {}
+impl HasRotation for GraphHandle {}
+impl HasScale for GraphHandle {}
+
 impl HasMatrix for GraphHandle {
-    fn udpate_matrix(&mut self, matrix: Mat4) {
+    fn update(&mut self, t: Vec3, r: Quat, s: Vec3) {
         if let Ok(mut graph) = self.data.lock() {
-            let (s, r, t) = matrix.to_scale_rotation_translation();
             let root_node = graph.root_node as usize;
             graph.nodes[root_node].scale = s;
             graph.nodes[root_node].rotation = r;

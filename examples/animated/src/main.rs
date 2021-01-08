@@ -145,11 +145,15 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .unwrap();
 
     let mut cesium_man1 = renderer.add_3d_scene(&cesium_man);
-    cesium_man1.get_transform().set_scale(Vec3::splat(3.0));
+    cesium_man1
+        .get_transform()
+        .set_scale(Vec3::splat(3.0))
+        .rotate_y(180.0_f32.to_radians());
     let mut cesium_man2 = renderer.add_3d_scene(&cesium_man);
     cesium_man2
         .get_transform()
-        .translate(Vec3::new(-3.0, 0.0, 0.0));
+        .translate(Vec3::new(-3.0, 0.0, 0.0))
+        .rotate_y(180.0_f32.to_radians());
 
     let pica_desc = renderer
         .load("assets/models/pica/scene.gltf")?
@@ -215,7 +219,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                         scene_id = None;
                     } else {
                         let mut handle = renderer.add_3d_scene(&cesium_man);
-                        handle.get_transform().translate(Vec3::new(-6.0, 0.0, 0.0));
+                        handle
+                            .get_transform()
+                            .translate(Vec3::new(-6.0, 0.0, 0.0))
+                            .rotate_y(180.0_f32.to_radians());
                         scene_id = Some(handle);
                     }
 
