@@ -57,13 +57,13 @@ impl Camera {
         }
     }
 
-    pub fn new(width: u32, height: u32) -> Camera {
+    pub fn new() -> Camera {
         Camera {
             pos: [0.0; 3],
             up: [0.0; 3],
             direction: [0.0, 0.0, 1.0],
             fov: 40.0,
-            aspect_ratio: width as f32 / height as f32,
+            aspect_ratio: 1.0,
             aperture: 0.0001,
             focal_distance: 1.0,
             near_plane: 1e-2,

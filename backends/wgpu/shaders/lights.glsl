@@ -5,11 +5,12 @@ float linearizeDepth(float depth, float farPlane) {
 
 struct LightInfo {
     mat4 MP;
-    vec4 PosRange;
     
+    vec4 PosRange;
     vec4 padding0;
     vec4 padding1;
     vec4 padding2;
+
     mat4 padding3;
     mat4 padding4;
 };

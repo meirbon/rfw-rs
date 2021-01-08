@@ -38,28 +38,26 @@ impl Font {
         );
 
         let tex_id = system.add_texture(texture);
-        let mesh = system
-            .add_2d_object(Mesh2D::new(
-                vec![
-                    [-0.5, -0.5, 0.5],
-                    [0.5, -0.5, 0.5],
-                    [0.5, 0.5, 0.5],
-                    [-0.5, 0.5, 0.5],
-                    [-0.5, -0.5, 0.5],
-                    [0.5, 0.5, 0.5],
-                ],
-                vec![
-                    [0.01, 0.01],
-                    [0.99, 0.01],
-                    [0.99, 0.99],
-                    [0.01, 0.99],
-                    [0.01, 0.01],
-                    [0.99, 0.99],
-                ],
-                Some(tex_id),
-                [1.0; 4],
-            ))
-            .unwrap();
+        let mesh = system.add_2d_object(Mesh2D::new(
+            vec![
+                [-0.5, -0.5, 0.5],
+                [0.5, -0.5, 0.5],
+                [0.5, 0.5, 0.5],
+                [-0.5, 0.5, 0.5],
+                [-0.5, -0.5, 0.5],
+                [0.5, 0.5, 0.5],
+            ],
+            vec![
+                [0.01, 0.01],
+                [0.99, 0.01],
+                [0.99, 0.99],
+                [0.01, 0.99],
+                [0.01, 0.01],
+                [0.99, 0.99],
+            ],
+            Some(tex_id),
+            [1.0; 4],
+        ));
 
         let mut instance = system.create_2d_instance(mesh).unwrap();
         let width = system.render_width() as f32;

@@ -290,15 +290,14 @@ impl Scene {
         Err(SceneError::NoFileLoader(extension))
     }
 
-    pub fn add_3d_object(&mut self, object: Mesh3D) -> Result<usize, SceneError> {
+    pub fn add_3d_object(&mut self, object: Mesh3D) -> usize {
         let id = self.objects.meshes_3d.push(object);
         self.objects.o_to_i_mapping.insert(id, HashSet::new());
-        Ok(id)
+        id
     }
 
-    pub fn add_2d_object(&mut self, object: Mesh2D) -> Result<usize, SceneError> {
-        let id = self.objects.meshes_2d.push(object);
-        Ok(id)
+    pub fn add_2d_object(&mut self, object: Mesh2D) -> usize {
+        self.objects.meshes_2d.push(object)
     }
 
     pub fn set_3d_object(&mut self, index: usize, object: Mesh3D) -> Result<(), SceneError> {
@@ -597,8 +596,8 @@ impl Scene {
         Ok(bounds)
     }
 
-    pub fn add_camera(&mut self, width: u32, height: u32) -> usize {
-        self.cameras.push(Camera::new(width, height))
+    pub fn add_3d_camera(&mut self) -> usize {
+        self.cameras.push(Camera::default())
     }
 
     pub fn get_cameras(&self) -> FlaggedIterator<'_, Camera> {

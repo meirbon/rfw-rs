@@ -58,6 +58,10 @@ impl InstanceList3D {
         unsafe { (*self.list.get()).ptr.load(Ordering::SeqCst) }
     }
 
+    pub fn is_empty(&self) -> bool {
+        (unsafe { (*self.list.get()).ptr.load(Ordering::SeqCst) }) == 0
+    }
+
     pub fn allocate(&mut self) -> InstanceHandle3D {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         if let Some(id) = list.free_slots.pop() {
@@ -100,7 +104,7 @@ impl InstanceList3D {
 
     pub fn get(&self, index: usize) -> Option<InstanceHandle3D> {
         let list = unsafe { self.list.get().as_mut().unwrap() };
-        if let Some(_) = list.matrices.get(index) {
+        if list.matrices.get(index).is_some() {
             Some(InstanceHandle3D {
                 index,
                 ptr: self.list.clone(),
@@ -194,14 +198,18 @@ impl Clone for List3D {
             removed: self.removed.clone(),
         };
 
-        self.ptr.load(Ordering::Release);
+        self.ptr.load(Ordering::Acquire);
         this
     }
 }
 
 impl List3D {
     pub fn len(&self) -> usize {
-        self.ptr.load(Ordering::SeqCst)
+        self.ptr.load(Ordering::Acquire)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -217,7 +225,7 @@ impl Clone for InstanceIterator3D {
         Self {
             list: self.list.clone(),
             current: 0,
-            ptr: unsafe { (*self.list.get()).ptr.load(Ordering::AcqRel) },
+            ptr: unsafe { (*self.list.get()).ptr.load(Ordering::Acquire) },
         }
     }
 }
@@ -226,7 +234,7 @@ impl Iterator for InstanceIterator3D {
     type Item = InstanceHandle3D;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.current < self.ptr {
+        if self.current < self.ptr {
             let index = self.current;
             self.current += 1;
             return Some(InstanceHandle3D {
@@ -239,7 +247,7 @@ impl Iterator for InstanceIterator3D {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct InstanceHandle3D {
     index: usize,
     ptr: Arc<UnsafeCell<List3D>>,
@@ -271,14 +279,14 @@ impl InstanceHandle3D {
     }
 
     #[inline]
-    pub fn get_transform(&self) -> Transform<Self> {
+    pub fn get_transform(&mut self) -> Transform<Self> {
         let (scale, rotation, translation) = self.get_matrix().to_scale_rotation_translation();
 
         Transform {
             translation,
             rotation,
             scale,
-            handle: self.clone(),
+            handle: self,
             changed: false,
         }
     }
@@ -312,10 +320,12 @@ impl InstanceHandle3D {
     pub fn changed_mesh(&mut self) -> bool {
         unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags3D::CHANGED_MESH) }
     }
-}
 
-impl Clone for InstanceHandle3D {
-    fn clone(&self) -> Self {
+    /// # Safety
+    ///
+    /// There should only be a single instance of a handle at a time.
+    /// Using these handles makes updating instances fast but leaves safety up to the user.
+    pub unsafe fn clone_handle(&self) -> Self {
         Self {
             index: self.index,
             ptr: self.ptr.clone(),

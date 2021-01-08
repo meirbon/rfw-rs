@@ -7,15 +7,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-#[allow(dead_code)]
 pub struct LightInfo {
     pub pm: Mat4,
     pub pos: [f32; 3],
     pub range: f32,
     // 80
-    padding0: [Vec4; 3],
-    padding1: Mat4,
-    padding2: Mat4,
+    _padding0: [Vec4; 3],
+    _padding1: Mat4,
+    _padding2: Mat4,
 }
 
 pub trait Light {
@@ -33,9 +32,9 @@ impl Default for LightInfo {
             pm: Mat4::identity(),
             pos: [0.0; 3],
             range: 0.0,
-            padding0: [Vec4::zero(); 3],
-            padding1: Mat4::identity(),
-            padding2: Mat4::identity(),
+            _padding0: [Vec4::zero(); 3],
+            _padding1: Mat4::identity(),
+            _padding2: Mat4::identity(),
         }
     }
 }
@@ -221,7 +220,7 @@ impl Light for DirectionalLight {
         let w = (direction.cross(up).normalize() * l).length();
 
         let projection = Mat4::orthographic_rh(-w, w, -h, h, 0.1, l);
-        let view = Mat4::look_at_rh(center.into(), (center + direction).into(), up.into());
+        let view = Mat4::look_at_rh(center, center + direction, up);
         projection * view
     }
 

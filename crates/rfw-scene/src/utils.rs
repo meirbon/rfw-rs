@@ -68,15 +68,15 @@ impl HasMatrix for InstanceHandle3D {
 }
 
 #[derive(Debug)]
-pub struct Transform<T: HasMatrix> {
+pub struct Transform<'a, T: HasMatrix> {
     pub(crate) translation: Vec3,
     pub(crate) rotation: Quat,
     pub(crate) scale: Vec3,
-    pub(crate) handle: T,
+    pub(crate) handle: &'a mut T,
     pub(crate) changed: bool,
 }
 
-impl<T: HasMatrix> Transform<T> {
+impl<T: HasMatrix> Transform<'_, T> {
     pub fn translate_x(&mut self, offset: f32) {
         self.translation.x += offset;
         self.changed = true;
@@ -92,23 +92,32 @@ impl<T: HasMatrix> Transform<T> {
         self.changed = true;
     }
 
+    pub fn translate<V: Into<[f32; 3]>>(&mut self, offset: V) {
+        let offset: [f32; 3] = offset.into();
+        self.translation += Vec3::from(offset);
+        self.changed = true;
+    }
+
     pub fn rotate_x(&mut self, radians: f32) {
-        self.rotation = self.rotation * Quat::from_rotation_x(radians);
+        self.rotation *= Quat::from_rotation_x(radians);
         self.changed = true;
     }
 
     pub fn rotate_y(&mut self, radians: f32) {
-        self.rotation = self.rotation * Quat::from_rotation_y(radians);
+        self.rotation *= Quat::from_rotation_y(radians);
         self.changed = true;
     }
 
     pub fn rotate_z(&mut self, radians: f32) {
-        self.rotation = self.rotation * Quat::from_rotation_z(radians);
+        self.rotation *= Quat::from_rotation_z(radians);
         self.changed = true;
     }
 
-    pub fn rotate(&mut self, radians: Vec3) {
-        self.rotation = self.rotation * Quat::from_axis_angle(radians, 1.0);
+    pub fn rotate<V: Into<[f32; 3]>>(&mut self, degrees: V) {
+        let degrees: [f32; 3] = degrees.into();
+        self.rotation *= Quat::from_rotation_x(degrees[0].to_radians());
+        self.rotation *= Quat::from_rotation_y(degrees[1].to_radians());
+        self.rotation *= Quat::from_rotation_z(degrees[2].to_radians());
         self.changed = true;
     }
 
@@ -127,15 +136,20 @@ impl<T: HasMatrix> Transform<T> {
         self.changed = true;
     }
 
-    pub fn translation(&self) -> Vec3 {
+    pub fn scale<V: Into<[f32; 3]>>(&mut self, offset: V) {
+        self.scale *= Vec3::from(offset.into());
+        self.changed = true;
+    }
+
+    pub fn get_translation(&self) -> Vec3 {
         self.translation
     }
 
-    pub fn rotation(&self) -> Quat {
+    pub fn get_rotation(&self) -> Quat {
         self.rotation
     }
 
-    pub fn scale(&self) -> Vec3 {
+    pub fn get_scale(&self) -> Vec3 {
         self.scale
     }
 
@@ -155,7 +169,7 @@ impl<T: HasMatrix> Transform<T> {
     }
 }
 
-impl<T: HasMatrix> Drop for Transform<T> {
+impl<T: HasMatrix> Drop for Transform<'_, T> {
     fn drop(&mut self) {
         if !self.changed {
             return;

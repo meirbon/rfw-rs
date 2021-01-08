@@ -1,14 +1,20 @@
-use crate::{InstanceList3D, MeshID, ObjectRef, SkinID};
+use crate::{
+    utils::{HasMatrix, Transform},
+    InstanceList3D, MeshID, ObjectRef, SkinID,
+};
 use l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor};
 use rayon::prelude::*;
 use rfw_backend::*;
 use rfw_math::*;
 
-use rfw_utils::collections::{FlaggedIterator, TrackedStorage};
+use rfw_utils::collections::TrackedStorage;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::RwLock;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(u32)]
@@ -75,11 +81,11 @@ pub struct SceneDescriptor {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Node {
-    translation: Vec3,
-    rotation: Quat,
-    scale: Vec3,
-    matrix: Mat4,
-    local_matrix: Mat4,
+    pub(crate) translation: Vec3,
+    pub(crate) rotation: Quat,
+    pub(crate) scale: Vec3,
+    pub(crate) matrix: Mat4,
+    pub(crate) local_matrix: Mat4,
     pub combined_matrix: Mat4,
     pub skin: Option<u32>,
     pub weights: Vec<f32>,
@@ -89,6 +95,60 @@ pub struct Node {
     pub changed: bool,
     pub first: bool,
     pub morphed: bool,
+}
+
+#[derive(Debug)]
+pub struct GraphHandle {
+    id: usize,
+    data: Arc<Mutex<NodeGraph>>,
+}
+
+impl GraphHandle {
+    pub fn get_id(&self) -> usize {
+        self.id
+    }
+
+    pub fn get_transform(&mut self) -> Transform<Self> {
+        let data = self.data.lock().unwrap();
+        let root_node = data.root_node as usize;
+        let translation = data.nodes[root_node].translation;
+        let rotation = data.nodes[root_node].rotation;
+        let scale = data.nodes[root_node].scale;
+        drop(data);
+
+        Transform {
+            translation,
+            rotation,
+            scale,
+            handle: self,
+            changed: false,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// Although in this case cloning is safe, the graph could be deleted and thus not reference any existing data.
+    /// Having multiple handles could work but management of whether the graph actually still exists is up to the user
+    /// once they start cloning handles.
+    pub unsafe fn clone_handle(&self) -> Self {
+        Self {
+            id: self.id,
+            data: self.data.clone(),
+        }
+    }
+}
+
+impl HasMatrix for GraphHandle {
+    fn udpate_matrix(&mut self, matrix: Mat4) {
+        if let Ok(mut graph) = self.data.lock() {
+            let (s, r, t) = matrix.to_scale_rotation_translation();
+            let root_node = graph.root_node as usize;
+            graph.nodes[root_node].scale = s;
+            graph.nodes[root_node].rotation = r;
+            graph.nodes[root_node].translation = t;
+            graph.nodes[root_node].changed = true;
+        }
+    }
 }
 
 impl AnimationNode for Node {
@@ -109,18 +169,13 @@ impl AnimationNode for Node {
 
     fn set_weights(&mut self, weights: &[f32]) {
         let num_weights = self.weights.len().min(weights.len());
-        for i in 0..num_weights {
-            self.weights[i] = weights[i];
-        }
+        self.weights[0..num_weights].copy_from_slice(&weights[0..num_weights]);
         self.morphed = true;
     }
 
     fn update_matrix(&mut self) {
-        let trs = Mat4::from_scale_rotation_translation(
-            self.scale.into(),
-            self.rotation,
-            self.translation.into(),
-        );
+        let trs =
+            Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
         self.local_matrix = trs * self.matrix;
         self.changed = false;
     }
@@ -243,21 +298,45 @@ impl Node {
     }
 }
 
+pub trait ToScene {
+    fn into_scene(
+        &self,
+        instances: &mut InstanceList3D,
+        skins: &mut TrackedStorage<Skin>,
+    ) -> NodeGraph;
+}
+
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct NodeGraph {
     nodes: TrackedStorage<Node>,
-    root_nodes: TrackedStorage<u32>,
+    root_node: u32,
     pub animations: TrackedStorage<Animation>,
     pub skins: TrackedStorage<Skin>,
     pub active_animation: Option<usize>,
 }
 
+impl ToScene for SceneDescriptor {
+    fn into_scene(
+        &self,
+        instances: &mut InstanceList3D,
+        skins: &mut TrackedStorage<Skin>,
+    ) -> NodeGraph {
+        let mut graph = NodeGraph::new();
+        graph.load_scene_descriptor(self, instances);
+        graph.initialize(instances, skins);
+        graph
+    }
+}
+
 impl Default for NodeGraph {
     fn default() -> Self {
+        let mut nodes = TrackedStorage::new();
+        nodes.push(Node::default());
+
         Self {
-            nodes: TrackedStorage::new(),
-            root_nodes: TrackedStorage::new(),
+            nodes,
+            root_node: 0,
             animations: TrackedStorage::new(),
             skins: TrackedStorage::new(),
             active_animation: None,
@@ -321,44 +400,30 @@ impl NodeGraph {
 
     pub fn trigger_changed_all(&mut self) {
         self.nodes.trigger_changed_all();
-        self.root_nodes.trigger_changed_all();
-    }
-
-    pub fn add_root_node(&mut self, id: usize) {
-        assert!(self.nodes.get(id).is_some());
-        self.root_nodes.push(id as u32);
     }
 
     pub fn update(
         &mut self,
-        instances: &RwLock<&mut InstanceList3D>,
+        instances: &InstanceList3D,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
-        if !self.root_nodes.any_changed() && !self.nodes.any_changed() {
+        if !self.nodes.any_changed() {
             return false;
         }
 
         let mut changed = false;
-        for i in 0..self.root_nodes.len() {
-            let id = self.root_nodes[i] as usize;
-            if self.nodes.get_changed(id) {
-                self.root_nodes.trigger_changed(i);
+        let id = self.root_node as usize;
+
+        changed |= Self::traverse_children(id, Mat4::identity(), &mut self.nodes, instances, skins);
+
+        for i in self.nodes[id].child_nodes.iter() {
+            if self.nodes.get_changed(*i as usize) {
+                self.nodes.trigger_changed(id);
+                break;
             }
         }
 
-        for (_, root_node) in self.root_nodes.iter_changed() {
-            changed |= Self::traverse_children(
-                (*root_node) as usize,
-                Mat4::identity(),
-                &mut self.nodes,
-                instances,
-                skins,
-            );
-        }
-
-        self.root_nodes.reset_changed();
         self.nodes.reset_changed();
-
         changed
     }
 
@@ -370,19 +435,25 @@ impl NodeGraph {
         self.nodes.get_mut(index)
     }
 
+    /// # Safety
+    ///
+    /// Returns reference to node without index checking.
     pub unsafe fn get_unchecked(&self, index: usize) -> &Node {
         self.nodes.get_unchecked(index)
     }
 
+    /// # Safety
+    ///
+    /// Returns mutable reference to node without index checking.
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut Node {
         self.nodes.get_unchecked_mut(index)
     }
 
-    pub unsafe fn as_ptr(&self) -> *const Node {
+    pub fn as_ptr(&self) -> *const Node {
         self.nodes.as_ptr()
     }
 
-    pub unsafe fn as_mut_ptr(&mut self) -> *mut Node {
+    pub fn as_mut_ptr(&mut self) -> *mut Node {
         self.nodes.as_mut_ptr()
     }
 
@@ -390,7 +461,7 @@ impl NodeGraph {
         current_index: usize,
         accumulated_matrix: Mat4,
         nodes: &mut TrackedStorage<Node>,
-        instances: &RwLock<&mut InstanceList3D>,
+        instances: &InstanceList3D,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         let mut changed = nodes[current_index].changed;
@@ -424,10 +495,8 @@ impl NodeGraph {
             .iter()
             .filter(|m| m.instance_id.is_some())
             .for_each(|m| {
-                if let Ok(instances) = instances.read() {
-                    if let Some(mut instance) = instances.get(m.instance_id.unwrap() as usize) {
-                        instance.set_matrix(combined_matrix);
-                    }
+                if let Some(mut instance) = instances.get(m.instance_id.unwrap() as usize) {
+                    instance.set_matrix(combined_matrix);
                 }
 
                 // TODO: Morph animations
@@ -456,13 +525,9 @@ impl NodeGraph {
                 .iter()
                 .filter(|m| m.instance_id.is_some())
                 .for_each(|m| {
-                    if let Ok(instances) = instances.read() {
-                        if let Some(skin) = nodes[current_index].skin {
-                            if let Some(mut instance) =
-                                instances.get(m.instance_id.unwrap() as usize)
-                            {
-                                instance.set_skin(SkinID(skin as i32));
-                            }
+                    if let Some(skin) = nodes[current_index].skin {
+                        if let Some(mut instance) = instances.get(m.instance_id.unwrap() as usize) {
+                            instance.set_skin(SkinID(skin as i32));
                         }
                     }
                 });
@@ -474,38 +539,21 @@ impl NodeGraph {
         changed
     }
 
-    pub fn root_nodes(&self) -> Vec<u32> {
-        self.root_nodes.iter().map(|(_, i)| *i).collect()
-    }
-
-    pub fn iter_root_nodes(&self) -> RootNodeIterator<'_> {
-        RootNodeIterator {
-            nodes: self.nodes.as_slice(),
-            root_nodes: self.root_nodes.iter(),
-        }
-    }
-
-    pub fn iter_root_nodes_mut(&mut self) -> RootNodeIteratorMut<'_> {
-        RootNodeIteratorMut {
-            nodes: self.nodes.as_mut_slice(),
-            root_nodes: self.root_nodes.iter(),
-        }
+    pub fn root_node(&self) -> usize {
+        self.root_node as usize
     }
 
     pub fn update_animation(&mut self, time: f32) {
         if let Some(animation) = self.active_animation {
             self.animations[animation].set_time(time, self.nodes.as_mut_slice());
-            self.root_nodes.trigger_changed_all(); // Trigger a change
+            self.nodes.trigger_changed(self.root_node as usize); // Trigger a change
         }
     }
 
-    pub fn set_active_animation(&mut self, id: usize) -> Result<(), ()> {
-        if let Some(_) = self.animations.get(id) {
+    pub fn set_active_animation(&mut self, id: usize) {
+        if self.animations.get(id).is_some() {
             self.active_animation = Some(id);
-            return Ok(());
         }
-
-        Err(())
     }
 
     pub fn load_scene_descriptor(
@@ -513,18 +561,38 @@ impl NodeGraph {
         scene_descriptor: &SceneDescriptor,
         instances: &mut InstanceList3D,
     ) {
-        let mut node_map: HashMap<u32, u32> = HashMap::with_capacity(scene_descriptor.nodes.len());
+        let mut node_map: HashMap<u32, u32> =
+            HashMap::with_capacity(scene_descriptor.nodes.len() + 1);
+        let root_id = self.load_node_descriptor(
+            &mut node_map,
+            &NodeDescriptor {
+                name: String::new(),
+                child_nodes: Vec::new(),
+                translation: Vec3::zero(),
+                rotation: Quat::identity(),
+                scale: Vec3::one(),
+                meshes: Default::default(),
+                skin: None,
+                weights: Default::default(),
+                id: 0,
+            },
+            scene_descriptor,
+            instances,
+        );
 
         let mut root_nodes = Vec::with_capacity(scene_descriptor.nodes.len());
+
         for node in &scene_descriptor.nodes {
             let node_id =
                 self.load_node_descriptor(&mut node_map, node, scene_descriptor, instances);
 
+            self.nodes[self.root_node as usize]
+                .child_nodes
+                .push(node_id);
             root_nodes.push(node_id);
-            self.root_nodes.push(node_id);
         }
 
-        for animation in &scene_descriptor.animations {
+        for animation in scene_descriptor.animations.iter() {
             let channels = animation
                 .channels
                 .iter()
@@ -536,13 +604,16 @@ impl NodeGraph {
 
             let animation_id = self.animations.push(Animation {
                 name: animation.name.clone(),
-                // TODO
                 affected_roots: root_nodes.clone(),
                 channels,
             });
 
-            self.set_active_animation(animation_id).unwrap();
+            self.set_active_animation(animation_id);
             self.update_animation(0.0);
+        }
+
+        for node in root_nodes {
+            self.nodes[root_id as usize].child_nodes.push(node);
         }
     }
 
@@ -652,42 +723,6 @@ impl NodeGraph {
     }
 }
 
-pub struct RootNodeIterator<'a> {
-    nodes: &'a [Node],
-    root_nodes: FlaggedIterator<'a, u32>,
-}
-
-impl<'a> Iterator for RootNodeIterator<'a> {
-    type Item = &'a Node;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some((_, root_node)) = self.root_nodes.next() {
-            Some(&self.nodes[*root_node as usize])
-        } else {
-            None
-        }
-    }
-}
-
-pub struct RootNodeIteratorMut<'a> {
-    nodes: &'a mut [Node],
-    root_nodes: FlaggedIterator<'a, u32>,
-}
-
-impl<'a> Iterator for RootNodeIteratorMut<'a> {
-    type Item = &'a mut Node;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some((_, root_node)) = self.root_nodes.next() {
-            let ptr = self.nodes.as_mut_ptr();
-            let reference = unsafe { ptr.add(*root_node as usize).as_mut().unwrap() };
-            Some(reference)
-        } else {
-            None
-        }
-    }
-}
-
 impl std::ops::Index<usize> for NodeGraph {
     type Output = Node;
     fn index(&self, index: usize) -> &Self::Output {
@@ -734,7 +769,7 @@ impl<'a> Into<SkinData<'a>> for &'a Skin {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct SceneGraph {
-    sub_graphs: TrackedStorage<NodeGraph>,
+    sub_graphs: TrackedStorage<Arc<Mutex<NodeGraph>>>,
     times: TrackedStorage<f32>,
 }
 
@@ -758,25 +793,22 @@ impl SceneGraph {
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let times = &self.times;
-        self.sub_graphs
-            .iter_mut()
-            .filter(|(i, _)| times.get_changed(*i))
-            .par_bridge()
-            .for_each(|(i, g)| g.update_animation(times[i]));
-
-        let (instances, skins) = (RwLock::new(instances), RwLock::new(skins));
-
+        let (instances, skins) = (instances, RwLock::new(skins));
         let changed: u32 = self
             .sub_graphs
-            .iter_mut()
+            .iter()
+            .filter(|(i, _)| times.get_changed(*i))
             .par_bridge()
-            .map(|(_, graph)| {
-                if graph.update(&instances, &skins) {
-                    graph.reset_changed();
-                    1
-                } else {
-                    0
+            .map(|(i, graph)| {
+                if let Ok(mut graph) = graph.lock() {
+                    graph.update_animation(times[i]);
+                    if graph.update(instances, &skins) {
+                        graph.reset_changed();
+                        return 1;
+                    }
                 }
+
+                0
             })
             .sum();
 
@@ -785,46 +817,56 @@ impl SceneGraph {
         changed > 0
     }
 
-    pub fn add_graph(&mut self, graph: NodeGraph) -> usize {
-        let id = self.sub_graphs.push(graph);
+    pub fn add_graph(&mut self, graph: NodeGraph) -> GraphHandle {
+        let data = Arc::new(Mutex::new(graph));
+        let id = self.sub_graphs.push(data.clone());
         self.times.overwrite(id, 0.0);
-        id
+        GraphHandle { id, data }
+    }
+
+    pub fn get_graph(&self, id: usize) -> Option<GraphHandle> {
+        if let Some(graph) = self.sub_graphs.get(id) {
+            Some(GraphHandle {
+                id,
+                data: graph.clone(),
+            })
+        } else {
+            None
+        }
     }
 
     pub fn remove_graph(
         &mut self,
-        id: usize,
+        handle: GraphHandle,
         instances: &mut InstanceList3D,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
+        let id = handle.get_id();
+
         // Remove instances part of this sub graph
         if let Some(graph) = self.sub_graphs.get(id) {
-            for (_, node) in graph.nodes.iter() {
-                if let Some(skin_id) = node.skin {
-                    skins.erase(skin_id as usize).unwrap();
-                }
+            if let Ok(graph) = graph.lock() {
+                for (_, node) in graph.nodes.iter() {
+                    if let Some(skin_id) = node.skin {
+                        skins.erase(skin_id as usize).unwrap();
+                    }
 
-                for mesh in &node.meshes {
-                    if let Some(id) = mesh.instance_id {
-                        if let Some(handle) = instances.get(id as usize) {
-                            instances.make_invalid(handle);
+                    for mesh in &node.meshes {
+                        if let Some(id) = mesh.instance_id {
+                            if let Some(handle) = instances.get(id as usize) {
+                                instances.make_invalid(handle);
+                            }
                         }
                     }
                 }
             }
         }
 
-        match (
-            self.sub_graphs.erase(id as usize),
-            self.times.erase(id as usize),
-        ) {
-            (Ok(_), Ok(_)) => true,
-            _ => false,
-        }
+        self.sub_graphs.erase(id).is_ok() && self.times.erase(id).is_ok()
     }
 
-    pub fn set_animation(&mut self, id: usize, time: f32) {
-        if let Some(t) = self.times.get_mut(id as usize) {
+    pub fn set_animation(&mut self, handle: &GraphHandle, time: f32) {
+        if let Some(t) = self.times.get_mut(handle.get_id()) {
             *t = time;
         }
     }

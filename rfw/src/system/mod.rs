@@ -4,8 +4,8 @@ use rfw_backend::{
 };
 use rfw_math::*;
 use rfw_scene::{
-    r2d::Mesh2D, Camera, InstanceHandle2D, InstanceHandle3D, InstanceIterator2D,
-    InstanceIterator3D, LoadResult, NodeGraph, ObjectRef, Scene, SceneError, SceneLights, ToMesh,
+    r2d::Mesh2D, Camera, GraphHandle, InstanceHandle2D, InstanceHandle3D, InstanceIterator2D,
+    InstanceIterator3D, LoadResult, ObjectRef, Scene, SceneError, SceneLights, ToMesh, ToScene,
 };
 use rfw_scene::{Flip, Material, Texture};
 use rfw_utils::{
@@ -25,6 +25,23 @@ pub struct RenderSystem<T: Sized + Backend> {
     height: u32,
     scale_factor: f64,
     renderer: Box<T>,
+}
+
+pub enum CameraRef<'a> {
+    ID(usize),
+    Ref(&'a Camera),
+}
+
+impl<'a> From<&'a Camera> for CameraRef<'a> {
+    fn from(cam: &'a Camera) -> Self {
+        Self::Ref(cam)
+    }
+}
+
+impl From<usize> for CameraRef<'_> {
+    fn from(id: usize) -> Self {
+        Self::ID(id)
+    }
 }
 
 impl<T: Sized + Backend> RenderSystem<T> {
@@ -112,14 +129,25 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.scale_factor = scale_factor;
     }
 
-    pub fn render(&mut self, camera_id: usize, mode: RenderMode) -> Result<(), SceneError> {
-        if let Some(camera) = self.scene.cameras.get(camera_id as usize) {
-            let view = camera.get_view(self.width, self.height);
-            self.renderer.render(view, mode);
-            Ok(())
-        } else {
-            Err(SceneError::InvalidCameraID(camera_id))
+    pub fn render<'a, C: Into<CameraRef<'a>>>(
+        &mut self,
+        camera: C,
+        mode: RenderMode,
+    ) -> Result<(), SceneError> {
+        let view = match camera.into() {
+            CameraRef::ID(id) => {
+                if let Some(c) = self.scene.cameras.get(id) {
+                    c
+                } else {
+                    return Err(SceneError::InvalidCameraID(id));
+                }
+            }
+            CameraRef::Ref(reference) => reference,
         }
+        .get_view(self.width, self.height);
+
+        self.renderer.render(view, mode);
+        Ok(())
     }
 
     pub fn load<B: AsRef<Path>>(&mut self, path: B) -> Result<LoadResult, SceneError> {
@@ -168,16 +196,13 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.scene.materials.tex_iter_mut()
     }
 
-    pub fn add_object<B: ToMesh>(&mut self, object: B) -> Result<usize, SceneError> {
+    pub fn add_3d_object<B: ToMesh>(&mut self, object: B) -> usize {
         let m = object.into_mesh();
         self.scene.add_3d_object(m)
     }
 
-    pub fn add_2d_object(&mut self, object: Mesh2D) -> Result<usize, SceneError> {
-        match self.scene.add_2d_object(object) {
-            Ok(id) => Ok(id),
-            Err(e) => Err(e),
-        }
+    pub fn add_2d_object(&mut self, object: Mesh2D) -> usize {
+        self.scene.add_2d_object(object)
     }
 
     pub fn set_2d_object(&mut self, id: usize, object: Mesh2D) -> Result<(), SceneError> {
@@ -197,26 +222,27 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.scene.add_2d_instance(object)
     }
 
-    pub fn create_camera(&mut self, width: u32, height: u32) -> usize {
-        self.scene.add_camera(width, height)
-    }
-
-    pub fn get_camera(&self, id: usize) -> Option<&Camera> {
+    pub fn get_3d_camera(&self, id: usize) -> Option<&Camera> {
         self.scene.cameras.get(id)
     }
 
-    pub fn get_camera_mut(&mut self, id: usize) -> Option<&mut Camera> {
+    pub fn get_3d_camera_mut(&mut self, id: usize) -> Option<&mut Camera> {
         self.scene.cameras.get_mut(id)
     }
 
-    pub fn add_scene(&mut self, mut graph: NodeGraph) -> usize {
-        graph.initialize(&mut self.scene.instances_3d, &mut self.scene.objects.skins);
+    pub fn add_3d_scene<S: ToScene>(&mut self, scene: &S) -> GraphHandle {
+        let graph = scene.into_scene(&mut self.scene.instances_3d, &mut self.scene.objects.skins);
         self.scene.objects.graph.add_graph(graph)
     }
 
-    pub fn remove_scene(&mut self, id: usize) -> Result<(), SceneError> {
+    pub fn get_3d_scene<S: ToScene>(&self, id: usize) -> Option<GraphHandle> {
+        self.scene.objects.graph.get_graph(id)
+    }
+
+    pub fn remove_3d_scene(&mut self, handle: GraphHandle) -> Result<(), SceneError> {
+        let id = handle.get_id();
         if self.scene.objects.graph.remove_graph(
-            id,
+            handle,
             &mut self.scene.instances_3d,
             &mut self.scene.objects.skins,
         ) {
@@ -259,8 +285,8 @@ impl<T: Sized + Backend> RenderSystem<T> {
         let position: Vec3 = Vec3::from(position.into());
         let radiance: Vec3 = Vec3::from(radiance.into());
 
-        let light = PointLight::new(position.into(), radiance.into());
-        let id = self.scene.lights.point_lights.push(light.clone());
+        let light = PointLight::new(position, radiance);
+        let id = self.scene.lights.point_lights.push(light);
 
         PointLightRef(id as u32)
     }
@@ -278,15 +304,9 @@ impl<T: Sized + Backend> RenderSystem<T> {
         let direction = Vec3::from(direction.into());
         let radiance = Vec3::from(radiance.into());
 
-        let light = SpotLight::new(
-            position.into(),
-            direction.into(),
-            inner_degrees,
-            outer_degrees,
-            radiance.into(),
-        );
+        let light = SpotLight::new(position, direction, inner_degrees, outer_degrees, radiance);
 
-        let id = self.scene.lights.spot_lights.push(light.clone());
+        let id = self.scene.lights.spot_lights.push(light);
         SpotLightRef(id as u32)
     }
 
@@ -298,12 +318,12 @@ impl<T: Sized + Backend> RenderSystem<T> {
     ) -> DirectionalLightRef {
         let light =
             DirectionalLight::new(Vec3::from(direction.into()), Vec3::from(radiance.into()));
-        let id = self.scene.lights.directional_lights.push(light.clone());
+        let id = self.scene.lights.directional_lights.push(light);
         DirectionalLightRef(id as u32)
     }
 
-    pub fn set_animation_time(&mut self, id: usize, time: f32) {
-        self.scene.objects.graph.set_animation(id, time);
+    pub fn set_animation_time(&mut self, handle: &GraphHandle, time: f32) {
+        self.scene.objects.graph.set_animation(handle, time);
     }
 
     pub fn set_animations_time(&mut self, time: f32) {
@@ -509,8 +529,8 @@ impl<T: Sized + Backend> RenderSystem<T> {
         self.renderer.settings()
     }
 
-    pub fn set_skybox<B: AsRef<Path>>(&mut self, path: B) -> Result<(), ()> {
-        if let Ok(texture) = Texture::load(path, Flip::FlipV) {
+    pub fn set_skybox<B: AsRef<Path>>(&mut self, path: B) -> Result<(), SceneError> {
+        if let Ok(texture) = Texture::load(path.as_ref(), Flip::FlipV) {
             self.renderer.set_skybox(TextureData {
                 width: texture.width,
                 height: texture.height,
@@ -520,7 +540,7 @@ impl<T: Sized + Backend> RenderSystem<T> {
             });
             Ok(())
         } else {
-            Err(())
+            Err(SceneError::LoadError(path.as_ref().to_path_buf()))
         }
     }
 

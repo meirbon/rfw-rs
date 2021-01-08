@@ -13,13 +13,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use rfw::{
-    backend::RenderMode,
-    math::*,
-    scene::{self},
-    system::RenderSystem,
-    utils,
-};
+use rfw::{backend::RenderMode, math::*, prelude::Camera, system::RenderSystem, utils};
 use rfw_backend_wgpu::{WgpuBackend, WgpuView};
 use rfw_font::*;
 use winit::window::Fullscreen;
@@ -57,21 +51,21 @@ pub struct MouseButtonHandler {
     states: HashMap<MouseButtonCode, bool>,
 }
 
+impl Default for MouseButtonHandler {
+    fn default() -> Self {
+        Self {
+            states: Default::default(),
+        }
+    }
+}
+
 impl MouseButtonHandler {
     pub fn new() -> MouseButtonHandler {
-        Self {
-            states: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn insert(&mut self, key: MouseButtonCode, state: ElementState) {
-        self.states.insert(
-            key,
-            match state {
-                ElementState::Pressed => true,
-                _ => false,
-            },
-        );
+        self.states.insert(key, state == ElementState::Pressed);
     }
 
     pub fn pressed(&self, key: MouseButtonCode) -> bool {
@@ -114,7 +108,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
     let scale_factor: f64 = window
         .current_monitor()
-        .and_then(|m| Some(1.0 / m.scale_factor()))
+        .map(|m| 1.0 / m.scale_factor())
         .unwrap_or(1.0);
 
     let mut renderer: RenderSystem<WgpuBackend> =
@@ -123,7 +117,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let cam_id = renderer.create_camera(width as u32, height as u32);
+    let mut camera = Camera::new().with_aspect_ratio(width as f32 / height as f32);
 
     let mut timer = utils::Timer::new();
     let mut timer2 = utils::Timer::new();
@@ -150,33 +144,18 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .scene()
         .unwrap();
 
-    let mut cesium_man1 = scene::graph::NodeGraph::from_scene_descriptor(
-        &cesium_man,
-        &mut renderer.scene.instances_3d,
-    );
-    let mut cesium_man2 = scene::graph::NodeGraph::from_scene_descriptor(
-        &cesium_man,
-        &mut renderer.scene.instances_3d,
-    );
-
-    for node in cesium_man1.iter_root_nodes_mut() {
-        node.set_scale(Vec3::splat(3.0));
-    }
-
-    for node in cesium_man2.iter_root_nodes_mut() {
-        node.translate(Vec3::new(-3.0, 0.0, 0.0));
-    }
-
-    let cesium_man1 = renderer.add_scene(cesium_man1);
-    let cesium_man2 = renderer.add_scene(cesium_man2);
+    let mut cesium_man1 = renderer.add_3d_scene(&cesium_man);
+    cesium_man1.get_transform().set_scale(Vec3::splat(3.0));
+    let mut cesium_man2 = renderer.add_3d_scene(&cesium_man);
+    cesium_man2
+        .get_transform()
+        .translate(Vec3::new(-3.0, 0.0, 0.0));
 
     let pica_desc = renderer
         .load("assets/models/pica/scene.gltf")?
         .scene()
         .unwrap();
-    let mut pica = scene::graph::NodeGraph::new();
-    pica.load_scene_descriptor(&pica_desc, &mut renderer.scene.instances_3d);
-    renderer.add_scene(pica);
+    renderer.add_3d_scene(&pica_desc);
 
     let app_time = utils::Timer::new();
 
@@ -231,18 +210,13 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
-                    if let Some(id) = scene_id {
-                        renderer.remove_scene(id).unwrap();
+                    if let Some(handle) = scene_id.take() {
+                        renderer.remove_3d_scene(handle).unwrap();
                         scene_id = None;
                     } else {
-                        let mut cesium_man3 = scene::graph::NodeGraph::from_scene_descriptor(
-                            &cesium_man,
-                            &mut renderer.scene.instances_3d,
-                        );
-                        for node in cesium_man3.iter_root_nodes_mut() {
-                            node.translate(Vec3::new(-6.0, 0.0, 0.0));
-                        }
-                        scene_id = Some(renderer.add_scene(cesium_man3));
+                        let mut handle = renderer.add_3d_scene(&cesium_man);
+                        handle.get_transform().translate(Vec3::new(-6.0, 0.0, 0.0));
+                        scene_id = Some(handle);
                     }
 
                     scene_timer.reset();
@@ -287,7 +261,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     && key_handler.pressed(KeyCode::LControl)
                     && key_handler.pressed(KeyCode::F)
                 {
-                    if let None = window.fullscreen() {
+                    if window.fullscreen().is_none() {
                         window
                             .set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
                     } else {
@@ -314,21 +288,17 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 let view_change = view_change * elapsed * 0.001;
                 let pos_change = pos_change * elapsed * 0.01;
 
-                if let Some(camera) = renderer.get_camera_mut(cam_id) {
-                    if view_change != [0.0; 3].into() {
-                        camera.translate_target(view_change);
-                    }
-                    if pos_change != [0.0; 3].into() {
-                        camera.translate_relative(pos_change);
-                    }
+                if view_change != [0.0; 3].into() {
+                    camera.translate_target(view_change);
+                }
+                if pos_change != [0.0; 3].into() {
+                    camera.translate_relative(pos_change);
                 }
 
                 if resized {
                     font.resize(&mut renderer);
                     renderer.resize(&window, (width, height), None);
-                    renderer.get_camera_mut(cam_id).map(|c| {
-                        c.set_aspect_ratio(width as f32 / height as f32);
-                    });
+                    camera.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
                 }
 
@@ -360,9 +330,9 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
                 timer2.reset();
                 let time = app_time.elapsed_in_millis() / 1000.0;
-                renderer.set_animation_time(cesium_man1, time);
-                renderer.set_animation_time(cesium_man2, time / 2.0);
-                if let Some(cesium_man3) = scene_id {
+                renderer.set_animation_time(&cesium_man1, time);
+                renderer.set_animation_time(&cesium_man2, time / 2.0);
+                if let Some(cesium_man3) = &scene_id {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
                 }
 
@@ -403,7 +373,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     });
                 }
 
-                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
+                if let Err(e) = renderer.render(&camera, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
                     *control_flow = ControlFlow::Exit;
                 }

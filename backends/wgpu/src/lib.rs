@@ -413,7 +413,7 @@ impl Backend for WgpuBackend {
             radiance_pass,
             blit_pass,
             output_pass,
-            scene_bounds: AABB::new(),
+            scene_bounds: AABB::empty(),
 
             skins: TrackedStorage::new(),
 
@@ -437,14 +437,14 @@ impl Backend for WgpuBackend {
 
     fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
         self.mesh_bounds
-            .overwrite_val(id, (mesh.bounds.clone(), mesh.ranges.to_vec()));
+            .overwrite_val(id, (mesh.bounds, mesh.ranges.to_vec()));
         let device = self.device.clone();
 
         let name = mesh.name.to_string();
         let vertices = mesh.vertices.to_vec();
         let ranges = mesh.ranges.to_vec();
         let skin_data = mesh.skin_data.to_vec();
-        let bounds = mesh.bounds.clone();
+        let bounds = mesh.bounds;
 
         self.task_pool.push(move |finish| {
             let mesh = mesh::WgpuMesh::new(&device, name, vertices, ranges, skin_data, bounds);

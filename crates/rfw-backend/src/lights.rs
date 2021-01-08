@@ -290,11 +290,12 @@ impl SpotLight {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-#[repr(C, align(32))]
+#[repr(C)]
 pub struct DirectionalLight {
     pub direction: [f32; 3],
     pub energy: f32,
     pub radiance: [f32; 3],
+    _dummy: f32,
 } // 32 Bytes
 
 impl Default for DirectionalLight {
@@ -303,6 +304,7 @@ impl Default for DirectionalLight {
             direction: [0.0; 3],
             energy: 0.0,
             radiance: [0.0; 3],
+            _dummy: 0.0,
         }
     }
 }
@@ -326,6 +328,7 @@ impl DirectionalLight {
             direction: direction.normalize().into(),
             energy: radiance.length(),
             radiance: radiance.into(),
+            _dummy: 0.0,
         }
     }
 

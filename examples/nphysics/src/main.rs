@@ -1,12 +1,7 @@
 #![allow(dead_code)]
 
-use rfw::{
-    math::*,
-    prelude::*,
-    scene::Camera,
-    scene::{Plane, Sphere},
-    utils::Timer,
-};
+use rfw::{math::*, prelude::*, utils::Timer};
+use rfw_backend_wgpu::WgpuView;
 use std::collections::HashMap;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -46,25 +41,18 @@ impl KeyHandler {
     }
 }
 
+#[derive(Default)]
 pub struct MouseButtonHandler {
     states: HashMap<MouseButtonCode, bool>,
 }
 
 impl MouseButtonHandler {
     pub fn new() -> MouseButtonHandler {
-        Self {
-            states: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn insert(&mut self, key: MouseButtonCode, state: ElementState) {
-        self.states.insert(
-            key,
-            match state {
-                ElementState::Pressed => true,
-                _ => false,
-            },
-        );
+        self.states.insert(key, state == ElementState::Pressed);
     }
 
     pub fn pressed(&self, key: MouseButtonCode) -> bool {
@@ -115,9 +103,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     width = window.inner_size().width as u32;
     height = window.inner_size().height as u32;
 
+    let scale_factor: f64 = window
+        .current_monitor()
+        .and_then(|m| Some(1.0 / m.scale_factor()))
+        .unwrap_or(1.0);
+
     use rfw_backend_wgpu::WgpuBackend as Renderer;
 
-    let mut renderer: RenderSystem<Renderer> = RenderSystem::new(&window, (width, height), None)?;
+    let mut renderer: RenderSystem<Renderer> =
+        RenderSystem::new(&window, (width, height), Some(scale_factor))?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -126,8 +120,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut joint_constraints = DefaultJointConstraintSet::new();
     let mut force_generators = DefaultForceGeneratorSet::new();
 
-    let cam_id = renderer.create_camera(width as u32, height as u32);
-    *renderer.get_camera_mut(cam_id).unwrap() =
+    let mut camera =
         Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
@@ -137,13 +130,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut render = Averager::new();
     let mut resized = false;
 
+    renderer.add_spot_light(
+        Vec3::new(0.0, 15.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.3),
+        Vec3::new(105.0, 100.0, 110.0),
+        45.0,
+        60.0,
+    );
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     // Ground
     let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0);
-    let plane = Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
-    let plane = renderer.add_object(plane)?;
-    let _plane_inst = renderer.create_instance(plane.unwrap())?;
+    let plane = Quad::new(Vec3::unit_y(), Vec3::zero(), 50.0, 0.5, plane_material);
+
+    let plane = renderer.add_3d_object(plane);
+    let _plane_inst = renderer.create_3d_instance(plane).unwrap();
 
     let ground_shape = ShapeHandle::new(nphysics3d::ncollide3d::shape::Plane::new(
         Unit::new_normalize(Vector3::new(0.0_f32, 1.0, 0.0)),
@@ -165,12 +166,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sphere_radius = 0.5_f32;
     let sphere_center: [f32; 3] = [0.0, 5.0, 0.0];
     let sphere = Sphere::new([0.0; 3], sphere_radius, sphere_material);
-    let sphere = renderer.add_object(sphere)?;
-    let sphere_inst = renderer.create_instance(sphere)?;
-    renderer
-        .get_instance_mut(sphere_inst)
-        .unwrap()
-        .set_translation(sphere_center);
+    let sphere = renderer.add_3d_object(sphere);
+    let mut sphere_inst = renderer.create_3d_instance(sphere)?;
+    sphere_inst
+        .get_transform()
+        .set_translation(sphere_center.into());
 
     let sphere = ShapeHandle::new(Ball::new(sphere_radius));
 
@@ -230,6 +230,34 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut view_change = Vec3::zero();
                 let mut pos_change = Vec3::zero();
                 let mut sphere_forces = Vec3::zero();
+
+                {
+                    let settings = renderer.get_settings();
+                    if key_handler.pressed(KeyCode::Key0) {
+                        settings.view = WgpuView::Output;
+                    }
+                    if key_handler.pressed(KeyCode::Key1) {
+                        settings.view = WgpuView::Albedo;
+                    }
+                    if key_handler.pressed(KeyCode::Key2) {
+                        settings.view = WgpuView::Normal;
+                    }
+                    if key_handler.pressed(KeyCode::Key3) {
+                        settings.view = WgpuView::WorldPos;
+                    }
+                    if key_handler.pressed(KeyCode::Key4) {
+                        settings.view = WgpuView::Radiance;
+                    }
+                    if key_handler.pressed(KeyCode::Key5) {
+                        settings.view = WgpuView::ScreenSpace;
+                    }
+                    if key_handler.pressed(KeyCode::Key6) {
+                        settings.view = WgpuView::SSAO;
+                    }
+                    if key_handler.pressed(KeyCode::Key7) {
+                        settings.view = WgpuView::FilteredSSAO;
+                    }
+                }
 
                 if key_handler.pressed(KeyCode::Up) {
                     view_change += (0.0, 1.0, 0.0).into();
@@ -318,21 +346,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let view_change = view_change * camera_elapsed * 0.001;
                 let pos_change = pos_change * camera_elapsed * 0.01;
 
-                if let Some(camera) = renderer.get_camera_mut(cam_id) {
-                    if view_change != [0.0; 3].into() {
-                        camera.translate_target(view_change);
-                    }
-                    if pos_change != [0.0; 3].into() {
-                        camera.translate_relative(pos_change);
-                    }
-
-                    if resized {
-                        camera.resize(width as u32, height as u32);
-                    }
-                }
+                camera.translate_target(view_change);
+                camera.translate_relative(pos_change);
 
                 if resized {
-                    renderer.resize(&window, (width, height), (width, height));
+                    renderer.resize(&window, (width, height), None);
+                    camera.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
                 }
 
@@ -372,18 +391,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 physics.add_sample(timer2.elapsed_in_millis());
 
-                if let Some(instance) = renderer.get_instance(sphere_inst) {
-                    let translation =
-                        Vec3::new(data.translation.x, data.translation.y, data.translation.z);
-
-                    // instance.set_translation(translation);
-                    // let rotation = Quat::from(Vec4::new(
-                    //     data.rotation.i,
-                    //     data.rotation.j,
-                    //     data.rotation.k,
-                    //     data.rotation.w,
-                    // ));
-                    // instance.set_rotation_quat(rotation);
+                {
+                    let mut transform = sphere_inst.get_transform();
+                    transform.set_translation(Vec3::new(
+                        data.translation.x,
+                        data.translation.y,
+                        data.translation.z,
+                    ));
+                    transform.set_rotation(Quat::from(Vec4::new(
+                        data.rotation.i,
+                        data.rotation.j,
+                        data.rotation.k,
+                        data.rotation.w,
+                    )));
                 }
 
                 timer2.reset();
@@ -391,7 +411,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
+                if let Err(e) = renderer.render(&camera, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
                     *control_flow = ControlFlow::Exit;
                 }
@@ -401,8 +421,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::Resized(size),
                 window_id,
             } if window_id == window.id() => {
-                width = size.width as usize;
-                height = size.height as usize;
+                width = size.width;
+                height = size.height;
 
                 resized = true;
             }

@@ -28,7 +28,7 @@ impl WgpuLights {
                 device,
                 instance_bind_group_layout,
                 capacity,
-                true,
+                false,
             ),
         }
     }
@@ -148,7 +148,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     }
 
     pub fn needs_update(&self) -> bool {
-        self.len() != 0 && self.lights.any_changed()
+        !self.is_empty() && self.lights.any_changed()
     }
 
     pub fn synchronize(
@@ -157,7 +157,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> bool {
-        if self.len() == 0 || !self.lights.any_changed() {
+        if self.is_empty() || !self.lights.any_changed() {
             return false;
         }
 
@@ -204,6 +204,10 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
 
     pub fn len(&self) -> usize {
         self.lights.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lights.is_empty()
     }
 
     pub fn uniform_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
@@ -459,9 +463,10 @@ impl ShadowMapArray {
             vert_shader.as_quad_bytes(),
         )));
         let frag_module =
-            device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(match linear {
-                true => linear_frag_shader.as_quad_bytes(),
-                false => regular_frag_shader.as_quad_bytes(),
+            device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(if linear {
+                linear_frag_shader.as_quad_bytes()
+            } else {
+                regular_frag_shader.as_quad_bytes()
             })));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -994,7 +999,6 @@ impl ShadowMapArray {
         let start = range.start;
         let end = range.end;
 
-        // TODO: Use anim meshes
         assert!(range.end as usize <= self.views.len());
         for v in range.into_iter() {
             let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
