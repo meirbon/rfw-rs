@@ -1,11 +1,11 @@
-use crate::{HitRecord4, RTTriangle};
+use crate::RTTriangle;
 use l3d::load::MeshDescriptor;
 use l3d::mat::MaterialList;
 use rayon::prelude::*;
-use rfw_math::*;
-use rtbvh::{Bounds, RayPacket4, AABB};
-use std::fmt::Display;
 use rfw_backend::*;
+use rfw_math::*;
+use rtbvh::{Bounds, AABB};
+use std::fmt::Display;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -431,257 +431,257 @@ impl Mesh3D {
         }
     }
 
-    pub fn get_hit_record4(&self, ray: &RayPacket4, t: [f32; 4], hit_data: [u32; 4]) -> HitRecord4 {
-        let (org_x, org_y, org_z) = ray.origin_xyz::<Vec4>();
-        let (dir_x, dir_y, dir_z) = ray.direction_xyz::<Vec4>();
-        let t = Vec4::from(t);
+    // pub fn get_hit_record4(&self, ray: &RayPacket4, t: [f32; 4], hit_data: [u32; 4]) -> HitRecord4 {
+    //     let (org_x, org_y, org_z) = ray.origin_xyz::<Vec4>();
+    //     let (dir_x, dir_y, dir_z) = ray.direction_xyz::<Vec4>();
+    //     let t = Vec4::from(t);
 
-        let vertex0_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex0[0],
-            self.triangles[hit_data[1] as usize].vertex0[0],
-            self.triangles[hit_data[2] as usize].vertex0[0],
-            self.triangles[hit_data[3] as usize].vertex0[0],
-        );
-        let vertex0_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex0[1],
-            self.triangles[hit_data[1] as usize].vertex0[1],
-            self.triangles[hit_data[2] as usize].vertex0[1],
-            self.triangles[hit_data[3] as usize].vertex0[1],
-        );
-        let vertex0_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex0[2],
-            self.triangles[hit_data[1] as usize].vertex0[2],
-            self.triangles[hit_data[2] as usize].vertex0[2],
-            self.triangles[hit_data[3] as usize].vertex0[2],
-        );
-        let vertex1_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex1[0],
-            self.triangles[hit_data[1] as usize].vertex1[0],
-            self.triangles[hit_data[2] as usize].vertex1[0],
-            self.triangles[hit_data[3] as usize].vertex1[0],
-        );
-        let vertex1_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex1[1],
-            self.triangles[hit_data[1] as usize].vertex1[1],
-            self.triangles[hit_data[2] as usize].vertex1[1],
-            self.triangles[hit_data[3] as usize].vertex1[1],
-        );
-        let vertex1_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex1[2],
-            self.triangles[hit_data[1] as usize].vertex1[2],
-            self.triangles[hit_data[2] as usize].vertex1[2],
-            self.triangles[hit_data[3] as usize].vertex1[2],
-        );
-        let vertex2_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex2[0],
-            self.triangles[hit_data[1] as usize].vertex2[0],
-            self.triangles[hit_data[2] as usize].vertex2[0],
-            self.triangles[hit_data[3] as usize].vertex2[0],
-        );
-        let vertex2_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex2[1],
-            self.triangles[hit_data[1] as usize].vertex2[1],
-            self.triangles[hit_data[2] as usize].vertex2[1],
-            self.triangles[hit_data[3] as usize].vertex2[1],
-        );
-        let vertex2_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].vertex2[2],
-            self.triangles[hit_data[1] as usize].vertex2[2],
-            self.triangles[hit_data[2] as usize].vertex2[2],
-            self.triangles[hit_data[3] as usize].vertex2[2],
-        );
+    //     let vertex0_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex0[0],
+    //         self.triangles[hit_data[1] as usize].vertex0[0],
+    //         self.triangles[hit_data[2] as usize].vertex0[0],
+    //         self.triangles[hit_data[3] as usize].vertex0[0],
+    //     );
+    //     let vertex0_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex0[1],
+    //         self.triangles[hit_data[1] as usize].vertex0[1],
+    //         self.triangles[hit_data[2] as usize].vertex0[1],
+    //         self.triangles[hit_data[3] as usize].vertex0[1],
+    //     );
+    //     let vertex0_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex0[2],
+    //         self.triangles[hit_data[1] as usize].vertex0[2],
+    //         self.triangles[hit_data[2] as usize].vertex0[2],
+    //         self.triangles[hit_data[3] as usize].vertex0[2],
+    //     );
+    //     let vertex1_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex1[0],
+    //         self.triangles[hit_data[1] as usize].vertex1[0],
+    //         self.triangles[hit_data[2] as usize].vertex1[0],
+    //         self.triangles[hit_data[3] as usize].vertex1[0],
+    //     );
+    //     let vertex1_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex1[1],
+    //         self.triangles[hit_data[1] as usize].vertex1[1],
+    //         self.triangles[hit_data[2] as usize].vertex1[1],
+    //         self.triangles[hit_data[3] as usize].vertex1[1],
+    //     );
+    //     let vertex1_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex1[2],
+    //         self.triangles[hit_data[1] as usize].vertex1[2],
+    //         self.triangles[hit_data[2] as usize].vertex1[2],
+    //         self.triangles[hit_data[3] as usize].vertex1[2],
+    //     );
+    //     let vertex2_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex2[0],
+    //         self.triangles[hit_data[1] as usize].vertex2[0],
+    //         self.triangles[hit_data[2] as usize].vertex2[0],
+    //         self.triangles[hit_data[3] as usize].vertex2[0],
+    //     );
+    //     let vertex2_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex2[1],
+    //         self.triangles[hit_data[1] as usize].vertex2[1],
+    //         self.triangles[hit_data[2] as usize].vertex2[1],
+    //         self.triangles[hit_data[3] as usize].vertex2[1],
+    //     );
+    //     let vertex2_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].vertex2[2],
+    //         self.triangles[hit_data[1] as usize].vertex2[2],
+    //         self.triangles[hit_data[2] as usize].vertex2[2],
+    //         self.triangles[hit_data[3] as usize].vertex2[2],
+    //     );
 
-        let edge1_x = vertex1_x - vertex0_x;
-        let edge1_y = vertex1_y - vertex0_y;
-        let edge1_z = vertex1_z - vertex0_z;
+    //     let edge1_x = vertex1_x - vertex0_x;
+    //     let edge1_y = vertex1_y - vertex0_y;
+    //     let edge1_z = vertex1_z - vertex0_z;
 
-        let edge2_x = vertex2_x - vertex0_x;
-        let edge2_y = vertex2_y - vertex0_y;
-        let edge2_z = vertex2_z - vertex0_z;
+    //     let edge2_x = vertex2_x - vertex0_x;
+    //     let edge2_y = vertex2_y - vertex0_y;
+    //     let edge2_z = vertex2_z - vertex0_z;
 
-        let p_x = org_x + dir_x * t;
-        let p_y = org_y + dir_y * t;
-        let p_z = org_z + dir_z * t;
+    //     let p_x = org_x + dir_x * t;
+    //     let p_y = org_y + dir_y * t;
+    //     let p_z = org_z + dir_z * t;
 
-        let n_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].normal[0],
-            self.triangles[hit_data[1] as usize].normal[0],
-            self.triangles[hit_data[2] as usize].normal[0],
-            self.triangles[hit_data[3] as usize].normal[0],
-        );
-        let n_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].normal[1],
-            self.triangles[hit_data[1] as usize].normal[1],
-            self.triangles[hit_data[2] as usize].normal[1],
-            self.triangles[hit_data[3] as usize].normal[1],
-        );
-        let n_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].normal[2],
-            self.triangles[hit_data[1] as usize].normal[2],
-            self.triangles[hit_data[2] as usize].normal[2],
-            self.triangles[hit_data[3] as usize].normal[2],
-        );
+    //     let n_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].normal[0],
+    //         self.triangles[hit_data[1] as usize].normal[0],
+    //         self.triangles[hit_data[2] as usize].normal[0],
+    //         self.triangles[hit_data[3] as usize].normal[0],
+    //     );
+    //     let n_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].normal[1],
+    //         self.triangles[hit_data[1] as usize].normal[1],
+    //         self.triangles[hit_data[2] as usize].normal[1],
+    //         self.triangles[hit_data[3] as usize].normal[1],
+    //     );
+    //     let n_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].normal[2],
+    //         self.triangles[hit_data[1] as usize].normal[2],
+    //         self.triangles[hit_data[2] as usize].normal[2],
+    //         self.triangles[hit_data[3] as usize].normal[2],
+    //     );
 
-        let abc_x: Vec4 = edge1_y * edge2_z - edge1_z * edge2_y;
-        let abc_y: Vec4 = edge1_z * edge2_x - edge1_z * edge2_z;
-        let abc_z: Vec4 = edge1_x * edge2_y - edge1_z * edge2_x;
-        let abc = n_x * abc_x + n_y * abc_y + n_z * abc_z;
+    //     let abc_x: Vec4 = edge1_y * edge2_z - edge1_z * edge2_y;
+    //     let abc_y: Vec4 = edge1_z * edge2_x - edge1_z * edge2_z;
+    //     let abc_z: Vec4 = edge1_x * edge2_y - edge1_z * edge2_x;
+    //     let abc = n_x * abc_x + n_y * abc_y + n_z * abc_z;
 
-        let v0_p_x: Vec4 = vertex0_x - p_x;
-        let v0_p_y: Vec4 = vertex0_y - p_y;
-        let v0_p_z: Vec4 = vertex0_z - p_z;
+    //     let v0_p_x: Vec4 = vertex0_x - p_x;
+    //     let v0_p_y: Vec4 = vertex0_y - p_y;
+    //     let v0_p_z: Vec4 = vertex0_z - p_z;
 
-        let v1_p_x: Vec4 = vertex1_x - p_x;
-        let v1_p_y: Vec4 = vertex1_y - p_y;
-        let v1_p_z: Vec4 = vertex1_z - p_z;
+    //     let v1_p_x: Vec4 = vertex1_x - p_x;
+    //     let v1_p_y: Vec4 = vertex1_y - p_y;
+    //     let v1_p_z: Vec4 = vertex1_z - p_z;
 
-        let v2_p_x: Vec4 = vertex2_x - p_x;
-        let v2_p_y: Vec4 = vertex2_y - p_y;
-        let v2_p_z: Vec4 = vertex2_z - p_z;
+    //     let v2_p_x: Vec4 = vertex2_x - p_x;
+    //     let v2_p_y: Vec4 = vertex2_y - p_y;
+    //     let v2_p_z: Vec4 = vertex2_z - p_z;
 
-        let pbc_x: Vec4 = v1_p_y * v2_p_z - v1_p_z * v2_p_y;
-        let pbc_y: Vec4 = v1_p_z * v2_p_x - v1_p_z * v2_p_z;
-        let pbc_z: Vec4 = v1_p_x * v2_p_y - v1_p_z * v2_p_x;
-        let pbc = n_x * pbc_x + n_y * pbc_y + n_z * pbc_z;
+    //     let pbc_x: Vec4 = v1_p_y * v2_p_z - v1_p_z * v2_p_y;
+    //     let pbc_y: Vec4 = v1_p_z * v2_p_x - v1_p_z * v2_p_z;
+    //     let pbc_z: Vec4 = v1_p_x * v2_p_y - v1_p_z * v2_p_x;
+    //     let pbc = n_x * pbc_x + n_y * pbc_y + n_z * pbc_z;
 
-        let pca_x: Vec4 = v2_p_y * v0_p_z - v2_p_z * v0_p_y;
-        let pca_y: Vec4 = v2_p_z * v0_p_x - v2_p_z * v0_p_z;
-        let pca_z: Vec4 = v2_p_x * v0_p_y - v2_p_z * v0_p_x;
-        let pca = n_x * pca_x + n_y * pca_y + n_z * pca_z;
+    //     let pca_x: Vec4 = v2_p_y * v0_p_z - v2_p_z * v0_p_y;
+    //     let pca_y: Vec4 = v2_p_z * v0_p_x - v2_p_z * v0_p_z;
+    //     let pca_z: Vec4 = v2_p_x * v0_p_y - v2_p_z * v0_p_x;
+    //     let pca = n_x * pca_x + n_y * pca_y + n_z * pca_z;
 
-        let u: Vec4 = pbc / abc;
-        let v: Vec4 = pca / abc;
+    //     let u: Vec4 = pbc / abc;
+    //     let v: Vec4 = pca / abc;
 
-        let w = Vec4::one() - u - v;
+    //     let w = Vec4::one() - u - v;
 
-        let n0_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].n0[0],
-            self.triangles[hit_data[1] as usize].n0[0],
-            self.triangles[hit_data[2] as usize].n0[0],
-            self.triangles[hit_data[3] as usize].n0[0],
-        );
-        let n0_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].n0[1],
-            self.triangles[hit_data[1] as usize].n0[1],
-            self.triangles[hit_data[2] as usize].n0[1],
-            self.triangles[hit_data[3] as usize].n0[1],
-        );
-        let n0_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].n0[2],
-            self.triangles[hit_data[1] as usize].n0[2],
-            self.triangles[hit_data[2] as usize].n0[2],
-            self.triangles[hit_data[3] as usize].n0[2],
-        );
-        let n1_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].n1[0],
-            self.triangles[hit_data[1] as usize].n1[0],
-            self.triangles[hit_data[2] as usize].n1[0],
-            self.triangles[hit_data[3] as usize].n1[0],
-        );
-        let n1_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].n1[1],
-            self.triangles[hit_data[1] as usize].n1[1],
-            self.triangles[hit_data[2] as usize].n1[1],
-            self.triangles[hit_data[3] as usize].n1[1],
-        );
-        let n1_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].n1[2],
-            self.triangles[hit_data[1] as usize].n1[2],
-            self.triangles[hit_data[2] as usize].n1[2],
-            self.triangles[hit_data[3] as usize].n1[2],
-        );
-        let n2_x = Vec4::new(
-            self.triangles[hit_data[0] as usize].n2[0],
-            self.triangles[hit_data[1] as usize].n2[0],
-            self.triangles[hit_data[2] as usize].n2[0],
-            self.triangles[hit_data[3] as usize].n2[0],
-        );
-        let n2_y = Vec4::new(
-            self.triangles[hit_data[0] as usize].n2[1],
-            self.triangles[hit_data[1] as usize].n2[1],
-            self.triangles[hit_data[2] as usize].n2[1],
-            self.triangles[hit_data[3] as usize].n2[1],
-        );
-        let n2_z = Vec4::new(
-            self.triangles[hit_data[0] as usize].n2[2],
-            self.triangles[hit_data[1] as usize].n2[2],
-            self.triangles[hit_data[2] as usize].n2[2],
-            self.triangles[hit_data[3] as usize].n2[2],
-        );
+    //     let n0_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n0[0],
+    //         self.triangles[hit_data[1] as usize].n0[0],
+    //         self.triangles[hit_data[2] as usize].n0[0],
+    //         self.triangles[hit_data[3] as usize].n0[0],
+    //     );
+    //     let n0_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n0[1],
+    //         self.triangles[hit_data[1] as usize].n0[1],
+    //         self.triangles[hit_data[2] as usize].n0[1],
+    //         self.triangles[hit_data[3] as usize].n0[1],
+    //     );
+    //     let n0_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n0[2],
+    //         self.triangles[hit_data[1] as usize].n0[2],
+    //         self.triangles[hit_data[2] as usize].n0[2],
+    //         self.triangles[hit_data[3] as usize].n0[2],
+    //     );
+    //     let n1_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n1[0],
+    //         self.triangles[hit_data[1] as usize].n1[0],
+    //         self.triangles[hit_data[2] as usize].n1[0],
+    //         self.triangles[hit_data[3] as usize].n1[0],
+    //     );
+    //     let n1_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n1[1],
+    //         self.triangles[hit_data[1] as usize].n1[1],
+    //         self.triangles[hit_data[2] as usize].n1[1],
+    //         self.triangles[hit_data[3] as usize].n1[1],
+    //     );
+    //     let n1_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n1[2],
+    //         self.triangles[hit_data[1] as usize].n1[2],
+    //         self.triangles[hit_data[2] as usize].n1[2],
+    //         self.triangles[hit_data[3] as usize].n1[2],
+    //     );
+    //     let n2_x = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n2[0],
+    //         self.triangles[hit_data[1] as usize].n2[0],
+    //         self.triangles[hit_data[2] as usize].n2[0],
+    //         self.triangles[hit_data[3] as usize].n2[0],
+    //     );
+    //     let n2_y = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n2[1],
+    //         self.triangles[hit_data[1] as usize].n2[1],
+    //         self.triangles[hit_data[2] as usize].n2[1],
+    //         self.triangles[hit_data[3] as usize].n2[1],
+    //     );
+    //     let n2_z = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].n2[2],
+    //         self.triangles[hit_data[1] as usize].n2[2],
+    //         self.triangles[hit_data[2] as usize].n2[2],
+    //         self.triangles[hit_data[3] as usize].n2[2],
+    //     );
 
-        let vn_x = u * n0_x + v * n1_x + w * n2_x;
-        let vn_y = u * n0_y + v * n1_y + w * n2_y;
-        let vn_z = u * n0_z + v * n1_z + w * n2_z;
+    //     let vn_x = u * n0_x + v * n1_x + w * n2_x;
+    //     let vn_y = u * n0_y + v * n1_y + w * n2_y;
+    //     let vn_z = u * n0_z + v * n1_z + w * n2_z;
 
-        let t_u0 = Vec4::new(
-            self.triangles[hit_data[0] as usize].u0,
-            self.triangles[hit_data[1] as usize].u0,
-            self.triangles[hit_data[2] as usize].u0,
-            self.triangles[hit_data[3] as usize].u0,
-        );
-        let t_u1 = Vec4::new(
-            self.triangles[hit_data[0] as usize].u1,
-            self.triangles[hit_data[1] as usize].u1,
-            self.triangles[hit_data[2] as usize].u1,
-            self.triangles[hit_data[3] as usize].u1,
-        );
-        let t_u2 = Vec4::new(
-            self.triangles[hit_data[0] as usize].u2,
-            self.triangles[hit_data[1] as usize].u2,
-            self.triangles[hit_data[2] as usize].u2,
-            self.triangles[hit_data[3] as usize].u2,
-        );
+    //     let t_u0 = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].u0,
+    //         self.triangles[hit_data[1] as usize].u0,
+    //         self.triangles[hit_data[2] as usize].u0,
+    //         self.triangles[hit_data[3] as usize].u0,
+    //     );
+    //     let t_u1 = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].u1,
+    //         self.triangles[hit_data[1] as usize].u1,
+    //         self.triangles[hit_data[2] as usize].u1,
+    //         self.triangles[hit_data[3] as usize].u1,
+    //     );
+    //     let t_u2 = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].u2,
+    //         self.triangles[hit_data[1] as usize].u2,
+    //         self.triangles[hit_data[2] as usize].u2,
+    //         self.triangles[hit_data[3] as usize].u2,
+    //     );
 
-        let t_v0 = Vec4::new(
-            self.triangles[hit_data[0] as usize].v0,
-            self.triangles[hit_data[1] as usize].v0,
-            self.triangles[hit_data[2] as usize].v0,
-            self.triangles[hit_data[3] as usize].v0,
-        );
-        let t_v1 = Vec4::new(
-            self.triangles[hit_data[0] as usize].v1,
-            self.triangles[hit_data[1] as usize].v1,
-            self.triangles[hit_data[2] as usize].v1,
-            self.triangles[hit_data[3] as usize].v1,
-        );
-        let t_v2 = Vec4::new(
-            self.triangles[hit_data[0] as usize].v2,
-            self.triangles[hit_data[1] as usize].v2,
-            self.triangles[hit_data[2] as usize].v2,
-            self.triangles[hit_data[3] as usize].v2,
-        );
+    //     let t_v0 = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].v0,
+    //         self.triangles[hit_data[1] as usize].v0,
+    //         self.triangles[hit_data[2] as usize].v0,
+    //         self.triangles[hit_data[3] as usize].v0,
+    //     );
+    //     let t_v1 = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].v1,
+    //         self.triangles[hit_data[1] as usize].v1,
+    //         self.triangles[hit_data[2] as usize].v1,
+    //         self.triangles[hit_data[3] as usize].v1,
+    //     );
+    //     let t_v2 = Vec4::new(
+    //         self.triangles[hit_data[0] as usize].v2,
+    //         self.triangles[hit_data[1] as usize].v2,
+    //         self.triangles[hit_data[2] as usize].v2,
+    //         self.triangles[hit_data[3] as usize].v2,
+    //     );
 
-        let t_u: Vec4 = t_u0 * u + t_u1 * v + t_u2 * w;
-        let t_v: Vec4 = t_v0 * u + t_v1 * v + t_v2 * w;
+    //     let t_u: Vec4 = t_u0 * u + t_u1 * v + t_u2 * w;
+    //     let t_v: Vec4 = t_v0 * u + t_v1 * v + t_v2 * w;
 
-        HitRecord4 {
-            normal_x: vn_x.into(),
-            normal_y: vn_y.into(),
-            normal_z: vn_z.into(),
-            t: t.into(),
-            p_x: p_x.into(),
-            p_y: p_y.into(),
-            p_z: p_z.into(),
-            mat_id: [
-                self.materials[hit_data[0] as usize],
-                self.materials[hit_data[1] as usize],
-                self.materials[hit_data[2] as usize],
-                self.materials[hit_data[3] as usize],
-            ],
-            g_normal_x: n_x.into(),
-            g_normal_y: n_y.into(),
-            g_normal_z: n_z.into(),
-            u: t_u.into(),
-            v: t_v.into(),
-        }
-    }
+    //     HitRecord4 {
+    //         normal_x: vn_x.into(),
+    //         normal_y: vn_y.into(),
+    //         normal_z: vn_z.into(),
+    //         t: t.into(),
+    //         p_x: p_x.into(),
+    //         p_y: p_y.into(),
+    //         p_z: p_z.into(),
+    //         mat_id: [
+    //             self.materials[hit_data[0] as usize],
+    //             self.materials[hit_data[1] as usize],
+    //             self.materials[hit_data[2] as usize],
+    //             self.materials[hit_data[3] as usize],
+    //         ],
+    //         g_normal_x: n_x.into(),
+    //         g_normal_y: n_y.into(),
+    //         g_normal_z: n_z.into(),
+    //         u: t_u.into(),
+    //         v: t_v.into(),
+    //     }
+    // }
 
     pub fn apply_skin(&self, skin: &SkinData) -> SkinnedMesh3D {
         SkinnedMesh3D::apply(
             self.vertices.as_slice(),
             self.skin_data.as_slice(),
             self.ranges.as_slice(),
-            skin,
+            skin.joint_matrices,
         )
     }
 
@@ -689,7 +689,7 @@ impl Mesh3D {
         SkinnedTriangles3D::apply(
             self.triangles.as_slice(),
             self.skin_data.as_slice(),
-            skin,
+            skin.joint_matrices,
         )
     }
 }

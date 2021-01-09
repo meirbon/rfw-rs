@@ -41,6 +41,12 @@ impl InstancesData3D<'_> {
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct MeshID(pub i32);
 
+impl Default for MeshID {
+    fn default() -> Self {
+        Self::INVALID
+    }
+}
+
 impl std::fmt::Display for MeshID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -71,6 +77,12 @@ impl Into<usize> for MeshID {
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct SkinID(pub i32);
+
+impl Default for SkinID {
+    fn default() -> Self {
+        Self::INVALID
+    }
+}
 
 impl std::fmt::Display for SkinID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -232,12 +244,12 @@ pub struct MeshData3D<'a> {
 }
 
 impl<'a> MeshData3D<'a> {
-    pub fn apply_skin_vertices(&self, skin: &SkinData<'_>) -> SkinnedMesh3D {
-        SkinnedMesh3D::apply(self.vertices, self.skin_data, self.ranges, skin)
+    pub fn apply_skin_vertices(&self, joint_matrices: &[Mat4]) -> SkinnedMesh3D {
+        SkinnedMesh3D::apply(self.vertices, self.skin_data, self.ranges, joint_matrices)
     }
 
-    pub fn apply_skin_triangles(&self, skin: &SkinData<'_>) -> SkinnedTriangles3D {
-        SkinnedTriangles3D::apply(self.triangles, self.skin_data, skin)
+    pub fn apply_skin_triangles(&self, joint_matrices: &[Mat4]) -> SkinnedTriangles3D {
+        SkinnedTriangles3D::apply(self.triangles, self.skin_data, joint_matrices)
     }
 }
 
@@ -684,18 +696,17 @@ impl SkinnedMesh3D {
         vertices: &[Vertex3D],
         skin_data: &[JointData],
         ranges: &[VertexMesh],
-        skin: &SkinData,
+        joint_matrices: &[Mat4],
     ) -> Self {
         let mut vertices = vertices.to_vec();
         let ranges = ranges.to_vec();
-        let matrices = &skin.joint_matrices;
 
         vertices.par_iter_mut().enumerate().for_each(|(i, v)| {
             let (joint, weight) = skin_data[i].into();
-            let matrix = weight[0] * matrices[joint[0] as usize];
-            let matrix = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let matrix = weight[0] * joint_matrices[joint[0] as usize];
+            let matrix = matrix + (weight[1] * joint_matrices[joint[1] as usize]);
+            let matrix = matrix + (weight[2] * joint_matrices[joint[2] as usize]);
+            let matrix = matrix + (weight[3] * joint_matrices[joint[3] as usize]);
 
             v.vertex = matrix * v.vertex;
             let matrix = matrix.inverse().transpose();
@@ -718,9 +729,12 @@ pub struct SkinnedTriangles3D {
 }
 
 impl SkinnedTriangles3D {
-    pub fn apply(triangles: &[RTTriangle], skin_data: &[JointData], skin: &SkinData) -> Self {
+    pub fn apply(
+        triangles: &[RTTriangle],
+        skin_data: &[JointData],
+        joint_matrices: &[Mat4],
+    ) -> Self {
         let mut triangles = triangles.to_vec();
-        let matrices = &skin.joint_matrices;
 
         triangles.iter_mut().enumerate().for_each(|(i, t)| {
             let i0 = i / 3;
@@ -728,10 +742,10 @@ impl SkinnedTriangles3D {
             let i2 = i + 2;
 
             let (joint, weight) = skin_data[i0].into();
-            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
-            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let matrix: Mat4 = weight[0] * joint_matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * joint_matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * joint_matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * joint_matrices[joint[3] as usize]);
             let n_matrix: Mat4 = matrix.inverse().transpose();
 
             t.vertex0 = (matrix * t.vertex0.extend(1.0)).truncate();
@@ -741,10 +755,10 @@ impl SkinnedTriangles3D {
                 .extend(t.tangent2[3]);
 
             let (joint, weight) = skin_data[i1].into();
-            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
-            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let matrix: Mat4 = weight[0] * joint_matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * joint_matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * joint_matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * joint_matrices[joint[3] as usize]);
             let n_matrix: Mat4 = matrix.inverse().transpose();
 
             t.vertex1 = (matrix * t.vertex1.extend(1.0)).truncate();
@@ -754,10 +768,10 @@ impl SkinnedTriangles3D {
                 .extend(t.tangent2[3]);
 
             let (joint, weight) = skin_data[i2].into();
-            let matrix: Mat4 = weight[0] * matrices[joint[0] as usize];
-            let matrix: Mat4 = matrix + (weight[1] * matrices[joint[1] as usize]);
-            let matrix: Mat4 = matrix + (weight[2] * matrices[joint[2] as usize]);
-            let matrix: Mat4 = matrix + (weight[3] * matrices[joint[3] as usize]);
+            let matrix: Mat4 = weight[0] * joint_matrices[joint[0] as usize];
+            let matrix: Mat4 = matrix + (weight[1] * joint_matrices[joint[1] as usize]);
+            let matrix: Mat4 = matrix + (weight[2] * joint_matrices[joint[2] as usize]);
+            let matrix: Mat4 = matrix + (weight[3] * joint_matrices[joint[3] as usize]);
             let n_matrix: Mat4 = matrix.inverse().transpose();
 
             t.vertex2 = (matrix * t.vertex2.extend(1.0)).truncate();

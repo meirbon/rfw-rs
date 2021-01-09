@@ -1,5 +1,6 @@
 pub use glam::*;
 
+#[inline(always)]
 pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     unsafe {
@@ -15,6 +16,7 @@ pub fn vec4_sqrt(vec: Vec4) -> Vec4 {
     }
 }
 
+#[inline(always)]
 pub fn vec4_rsqrt(vec: Vec4) -> Vec4 {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     unsafe {

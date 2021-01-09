@@ -13,7 +13,13 @@ use winit::{
     window::WindowBuilder,
 };
 
-use rfw::{backend::RenderMode, math::*, prelude::Camera, system::RenderSystem, utils};
+use rfw::{
+    backend::RenderMode,
+    ecs::System,
+    math::*,
+    prelude::{Averager, Camera, Timer},
+    utils, Instance,
+};
 use rfw_backend_wgpu::{WgpuBackend, WgpuView};
 use rfw_font::*;
 use winit::window::Fullscreen;
@@ -76,6 +82,44 @@ impl MouseButtonHandler {
     }
 }
 
+struct FpsSystem {
+    timer: Timer,
+    average: Averager<f32>,
+}
+
+impl Default for FpsSystem {
+    fn default() -> Self {
+        Self {
+            timer: Timer::new(),
+            average: Averager::with_capacity(250),
+        }
+    }
+}
+
+impl System for FpsSystem {
+    fn run(&mut self, resources: &rfw::resources::ResourceList) {
+        let elapsed = self.timer.elapsed_in_millis();
+        self.timer.reset();
+        self.average.add_sample(elapsed);
+        let average = self.average.get_average();
+
+        if let Some(mut font) = resources.get_resource_mut::<FontRenderer>() {
+            font.draw(
+                Section::default()
+                    .with_screen_position((0.0, 0.0))
+                    .add_text(
+                        Text::new(
+                            format!("FPS: {:.2}\nFrametime: {:.2} ms", 1000.0 / average, average)
+                                .as_str(),
+                        )
+                        .with_scale(32.0)
+                        .with_color([1.0; 4]),
+                    ),
+            );
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("rfw-animated")
         .about("Example with animated meshes for the rfw framework.")
@@ -111,8 +155,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .map(|m| 1.0 / m.scale_factor())
         .unwrap_or(1.0);
 
-    let mut renderer: RenderSystem<WgpuBackend> =
-        RenderSystem::new(&window, (width, height), Some(scale_factor)).unwrap();
+    let font = include_bytes!("../../../assets/good-times-rg.ttf");
+    let mut renderer: Instance<WgpuBackend> =
+        Instance::new(&window, (width, height), Some(scale_factor))
+            .unwrap()
+            .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
+            .with_system(FpsSystem::default());
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
@@ -120,16 +168,8 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut camera = Camera::new().with_aspect_ratio(width as f32 / height as f32);
 
     let mut timer = utils::Timer::new();
-    let mut timer2 = utils::Timer::new();
-    let mut fps = utils::Averager::with_capacity(250);
-    let mut render = utils::Averager::new();
-    let mut synchronize = utils::Averager::new();
 
     let mut resized = false;
-
-    let font = include_bytes!("../../../assets/good-times-rg.ttf");
-    let mut font =
-        Font::from_bytes(&mut renderer, &font[0..font.len()]).expect("Could not initialize font.");
 
     renderer.add_spot_light(
         Vec3::new(0.0, 15.0, 0.0),
@@ -140,33 +180,32 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     );
 
     let cesium_man = renderer
+        .get_scene_mut()
         .load("assets/models/CesiumMan/CesiumMan.gltf")?
         .scene()
         .unwrap();
 
-    let mut cesium_man1 = renderer.add_3d_scene(&cesium_man);
+    let mut cesium_man1 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
     cesium_man1
         .get_transform()
         .set_scale(Vec3::splat(3.0))
         .rotate_y(180.0_f32.to_radians());
-    let mut cesium_man2 = renderer.add_3d_scene(&cesium_man);
+    let mut cesium_man2 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
     cesium_man2
         .get_transform()
         .translate(Vec3::new(-3.0, 0.0, 0.0))
         .rotate_y(180.0_f32.to_radians());
 
     let pica_desc = renderer
+        .get_scene_mut()
         .load("assets/models/pica/scene.gltf")?
         .scene()
         .unwrap();
-    renderer.add_3d_scene(&pica_desc);
+    renderer.get_scene_mut().add_3d_scene(&pica_desc);
 
     let app_time = utils::Timer::new();
 
-    timer2.reset();
     renderer.set_animations_time(0.0);
-    renderer.synchronize();
-    synchronize.add_sample(timer2.elapsed_in_millis());
 
     let mut scene_timer = utils::Timer::new();
     let mut scene_id = None;
@@ -215,10 +254,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
                 if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
                     if let Some(handle) = scene_id.take() {
-                        renderer.remove_3d_scene(handle).unwrap();
+                        renderer.get_scene_mut().remove_3d_scene(handle);
                         scene_id = None;
                     } else {
-                        let mut handle = renderer.add_3d_scene(&cesium_man);
+                        let mut handle = renderer.get_scene_mut().add_3d_scene(&cesium_man);
                         handle
                             .get_transform()
                             .translate(Vec3::new(-6.0, 0.0, 0.0))
@@ -279,10 +318,6 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
                 let elapsed = timer.elapsed_in_millis();
                 fullscreen_timer += elapsed;
-                fps.add_sample(1000.0 / elapsed);
-                let fps_avg = fps.get_average();
-                let render_avg = render.get_average();
-                let sync_avg = synchronize.get_average();
 
                 let elapsed = if key_handler.pressed(KeyCode::LShift) {
                     elapsed * 2.0
@@ -303,39 +338,23 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 if resized {
-                    font.resize(&mut renderer);
                     renderer.resize(&window, (width, height), None);
                     camera.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
                 }
 
-                font.draw(
-                    Section::default()
-                        .with_screen_position((0.0, 0.0))
-                        .add_text(
-                            Text::new(
-                                format!(
-                                    "FPS: {:.2}\nRender: {:.2} ms\nSynchronize: {:.2} ms",
-                                    fps_avg, render_avg, sync_avg
-                                )
-                                .as_str(),
-                            )
-                            .with_scale(32.0)
-                            .with_color([1.0; 4]),
-                        ),
-                );
-
-                {
-                    let lights = renderer.get_lights_mut();
-                    lights.spot_lights.iter_mut().for_each(|(_, sl)| {
+                renderer
+                    .get_scene_mut()
+                    .lights
+                    .spot_lights
+                    .iter_mut()
+                    .for_each(|(_, sl)| {
                         let direction = Vec3::from(sl.direction);
                         let direction = Quat::from_rotation_y((elapsed / 10.0).to_radians())
                             .mul_vec3(direction);
                         sl.direction = direction.into();
                     });
-                }
 
-                timer2.reset();
                 let time = app_time.elapsed_in_millis() / 1000.0;
                 renderer.set_animation_time(&cesium_man1, time);
                 renderer.set_animation_time(&cesium_man2, time / 2.0);
@@ -343,19 +362,13 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
                 }
 
-                font.synchronize(&mut renderer);
-                renderer.synchronize();
-                synchronize.add_sample(timer2.elapsed_in_millis());
-
-                timer2.reset();
-
                 {
-                    let instances_3d = renderer.scene.instances_3d.len();
-                    let meshes_3d = renderer.scene.objects.meshes_3d.len();
-                    let instances_2d = renderer.scene.instances_2d.len();
-                    let meshes_2d = renderer.scene.objects.meshes_2d.len();
-                    let settings = renderer.get_settings();
+                    let instances_3d = renderer.get_scene().instances_3d.len();
+                    let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
+                    let instances_2d = renderer.get_scene().instances_2d.len();
+                    let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
 
+                    let settings = renderer.get_settings();
                     settings.draw_ui(&window, |ui| {
                         use rfw_backend_wgpu::imgui;
                         let window = imgui::Window::new(imgui::im_str!("RFW"));
@@ -363,15 +376,6 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                             .size([350.0, 250.0], imgui::Condition::FirstUseEver)
                             .position([900.0, 25.0], imgui::Condition::FirstUseEver)
                             .build(&ui, || {
-                                ui.plot_histogram(
-                                    &*imgui::im_str!("FPS {:.2} ms", fps_avg),
-                                    fps.data(),
-                                )
-                                .graph_size([0.0, 50.0])
-                                .build();
-                                ui.text(imgui::im_str!("Synchronize: {:.2} ms", sync_avg));
-                                ui.text(imgui::im_str!("Render: {:.2} ms", render_avg));
-                                ui.separator();
                                 ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
                                 ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
@@ -384,7 +388,6 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     eprintln!("Error while rendering: {}", e);
                     *control_flow = ControlFlow::Exit;
                 }
-                render.add_sample(timer2.elapsed_in_millis());
             }
             Event::WindowEvent {
                 event: WindowEvent::KeyboardInput { input, .. },

@@ -6,9 +6,6 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub type ObjectRef = Option<u32>;
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InstanceUpdate {
     None,
@@ -65,6 +62,8 @@ impl Default for Instance3D {
         }
     }
 }
+
+pub type ObjectRef = Option<u32>;
 
 #[allow(dead_code)]
 impl Instance3D {
@@ -204,124 +203,124 @@ impl Instance3D {
         new_packet
     }
 
-    #[inline(always)]
-    pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
-        let normal_transform = self.get_normal_transform();
-        let normal = normal_transform * Vec3::from(hit.normal).extend(0.0);
+    // #[inline(always)]
+    // pub fn transform_hit(&self, hit: HitRecord) -> HitRecord {
+    //     let normal_transform = self.get_normal_transform();
+    //     let normal = normal_transform * Vec3::from(hit.normal).extend(0.0);
 
-        HitRecord {
-            normal: normal.truncate().normalize().into(),
-            ..hit
-        }
-    }
+    //     HitRecord {
+    //         normal: normal.truncate().normalize().into(),
+    //         ..hit
+    //     }
+    // }
 
-    #[inline(always)]
-    pub fn transform_hit4(&self, hit: HitRecord4) -> HitRecord4 {
-        let inverse = self.get_inverse_transform();
-        let normal_transform = self.get_normal_transform();
-        let one = Vec4::one();
+    // #[inline(always)]
+    // pub fn transform_hit4(&self, hit: HitRecord4) -> HitRecord4 {
+    //     let inverse = self.get_inverse_transform();
+    //     let normal_transform = self.get_normal_transform();
+    //     let one = Vec4::one();
 
-        let (p_x, p_y, p_z) = {
-            let matrix_cols = inverse.to_cols_array();
-            // Col 0
-            let m0_0 = Vec4::from([matrix_cols[0]; 4]);
-            let m0_1 = Vec4::from([matrix_cols[1]; 4]);
-            let m0_2 = Vec4::from([matrix_cols[2]; 4]);
+    //     let (p_x, p_y, p_z) = {
+    //         let matrix_cols = inverse.to_cols_array();
+    //         // Col 0
+    //         let m0_0 = Vec4::from([matrix_cols[0]; 4]);
+    //         let m0_1 = Vec4::from([matrix_cols[1]; 4]);
+    //         let m0_2 = Vec4::from([matrix_cols[2]; 4]);
 
-            // Col 1
-            let m1_0 = Vec4::from([matrix_cols[4]; 4]);
-            let m1_1 = Vec4::from([matrix_cols[5]; 4]);
-            let m1_2 = Vec4::from([matrix_cols[6]; 4]);
+    //         // Col 1
+    //         let m1_0 = Vec4::from([matrix_cols[4]; 4]);
+    //         let m1_1 = Vec4::from([matrix_cols[5]; 4]);
+    //         let m1_2 = Vec4::from([matrix_cols[6]; 4]);
 
-            // Col 2
-            let m2_0 = Vec4::from([matrix_cols[8]; 4]);
-            let m2_1 = Vec4::from([matrix_cols[9]; 4]);
-            let m2_2 = Vec4::from([matrix_cols[10]; 4]);
+    //         // Col 2
+    //         let m2_0 = Vec4::from([matrix_cols[8]; 4]);
+    //         let m2_1 = Vec4::from([matrix_cols[9]; 4]);
+    //         let m2_2 = Vec4::from([matrix_cols[10]; 4]);
 
-            // Col 3
-            let m3_0 = Vec4::from([matrix_cols[12]; 4]);
-            let m3_1 = Vec4::from([matrix_cols[13]; 4]);
-            let m3_2 = Vec4::from([matrix_cols[14]; 4]);
+    //         // Col 3
+    //         let m3_0 = Vec4::from([matrix_cols[12]; 4]);
+    //         let m3_1 = Vec4::from([matrix_cols[13]; 4]);
+    //         let m3_2 = Vec4::from([matrix_cols[14]; 4]);
 
-            let p_x = Vec4::from(hit.p_x);
-            let p_y = Vec4::from(hit.p_y);
-            let p_z = Vec4::from(hit.p_z);
+    //         let p_x = Vec4::from(hit.p_x);
+    //         let p_y = Vec4::from(hit.p_y);
+    //         let p_z = Vec4::from(hit.p_z);
 
-            let mut new_p_x = m0_0 * p_x;
-            let mut new_p_y = m0_1 * p_x;
-            let mut new_p_z = m0_2 * p_x;
+    //         let mut new_p_x = m0_0 * p_x;
+    //         let mut new_p_y = m0_1 * p_x;
+    //         let mut new_p_z = m0_2 * p_x;
 
-            new_p_x += m1_0 * p_y;
-            new_p_y += m1_1 * p_y;
-            new_p_z += m1_2 * p_y;
+    //         new_p_x += m1_0 * p_y;
+    //         new_p_y += m1_1 * p_y;
+    //         new_p_z += m1_2 * p_y;
 
-            new_p_x += m2_0 * p_z;
-            new_p_y += m2_1 * p_z;
-            new_p_z += m2_2 * p_z;
+    //         new_p_x += m2_0 * p_z;
+    //         new_p_y += m2_1 * p_z;
+    //         new_p_z += m2_2 * p_z;
 
-            new_p_x += m3_0 * one;
-            new_p_y += m3_1 * one;
-            new_p_z += m3_2 * one;
+    //         new_p_x += m3_0 * one;
+    //         new_p_y += m3_1 * one;
+    //         new_p_z += m3_2 * one;
 
-            (new_p_x, new_p_y, new_p_z)
-        };
+    //         (new_p_x, new_p_y, new_p_z)
+    //     };
 
-        let (n_x, n_y, n_z) = {
-            let matrix_cols = normal_transform.to_cols_array();
-            // Col 0
-            let m0_0 = Vec4::from([matrix_cols[0]; 4]);
-            let m0_1 = Vec4::from([matrix_cols[1]; 4]);
-            let m0_2 = Vec4::from([matrix_cols[2]; 4]);
+    //     let (n_x, n_y, n_z) = {
+    //         let matrix_cols = normal_transform.to_cols_array();
+    //         // Col 0
+    //         let m0_0 = Vec4::from([matrix_cols[0]; 4]);
+    //         let m0_1 = Vec4::from([matrix_cols[1]; 4]);
+    //         let m0_2 = Vec4::from([matrix_cols[2]; 4]);
 
-            // C    ol 1
-            let m1_0 = Vec4::from([matrix_cols[4]; 4]);
-            let m1_1 = Vec4::from([matrix_cols[5]; 4]);
-            let m1_2 = Vec4::from([matrix_cols[6]; 4]);
+    //         // C    ol 1
+    //         let m1_0 = Vec4::from([matrix_cols[4]; 4]);
+    //         let m1_1 = Vec4::from([matrix_cols[5]; 4]);
+    //         let m1_2 = Vec4::from([matrix_cols[6]; 4]);
 
-            // Col 2
-            let m2_0 = Vec4::from([matrix_cols[8]; 4]);
-            let m2_1 = Vec4::from([matrix_cols[9]; 4]);
-            let m2_2 = Vec4::from([matrix_cols[10]; 4]);
+    //         // Col 2
+    //         let m2_0 = Vec4::from([matrix_cols[8]; 4]);
+    //         let m2_1 = Vec4::from([matrix_cols[9]; 4]);
+    //         let m2_2 = Vec4::from([matrix_cols[10]; 4]);
 
-            let n_x = Vec4::from(hit.normal_x);
-            let n_y = Vec4::from(hit.normal_y);
-            let n_z = Vec4::from(hit.normal_z);
+    //         let n_x = Vec4::from(hit.normal_x);
+    //         let n_y = Vec4::from(hit.normal_y);
+    //         let n_z = Vec4::from(hit.normal_z);
 
-            let mut new_n_x = m0_0 * n_x;
-            let mut new_n_y = m0_1 * n_x;
-            let mut new_n_z = m0_2 * n_x;
+    //         let mut new_n_x = m0_0 * n_x;
+    //         let mut new_n_y = m0_1 * n_x;
+    //         let mut new_n_z = m0_2 * n_x;
 
-            new_n_x += m1_0 * n_y;
-            new_n_y += m1_1 * n_y;
-            new_n_z += m1_2 * n_y;
+    //         new_n_x += m1_0 * n_y;
+    //         new_n_y += m1_1 * n_y;
+    //         new_n_z += m1_2 * n_y;
 
-            new_n_x += m2_0 * n_z;
-            new_n_y += m2_1 * n_z;
-            new_n_z += m2_2 * n_z;
+    //         new_n_x += m2_0 * n_z;
+    //         new_n_y += m2_1 * n_z;
+    //         new_n_z += m2_2 * n_z;
 
-            (new_n_x, new_n_y, new_n_z)
-        };
+    //         (new_n_x, new_n_y, new_n_z)
+    //     };
 
-        HitRecord4 {
-            p_x: p_x.into(),
-            p_y: p_y.into(),
-            p_z: p_z.into(),
-            normal_x: n_x.into(),
-            normal_y: n_y.into(),
-            normal_z: n_z.into(),
-            ..hit
-        }
-    }
+    //     HitRecord4 {
+    //         p_x: p_x.into(),
+    //         p_y: p_y.into(),
+    //         p_z: p_z.into(),
+    //         normal_x: n_x.into(),
+    //         normal_y: n_y.into(),
+    //         normal_z: n_z.into(),
+    //         ..hit
+    //     }
+    // }
 
-    #[inline(always)]
-    pub fn transform_ray(&self, ray: Ray) -> Ray {
-        let inverse = self.get_inverse_transform();
+    // #[inline(always)]
+    // pub fn transform_ray(&self, ray: Ray) -> Ray {
+    //     let inverse = self.get_inverse_transform();
 
-        let (origin, direction) = ray.get_vectors::<Vec3>();
-        let new_origin: Vec4 = inverse * origin.extend(1.0);
-        let new_direction: Vec4 = inverse * direction.extend(0.0);
-        (new_origin.truncate(), new_direction.truncate()).into()
-    }
+    //     let (origin, direction) = ray.get_vectors::<Vec3>();
+    //     let new_origin: Vec4 = inverse * origin.extend(1.0);
+    //     let new_direction: Vec4 = inverse * direction.extend(0.0);
+    //     (new_origin.truncate(), new_direction.truncate()).into()
+    // }
 
     pub fn set_translation<T: Into<[f32; 3]>>(&mut self, t: T) {
         self.translation = Vec3::from(t.into());

@@ -39,7 +39,6 @@ use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
 use crate::utils::Flags;
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut, TrackedStorage};
-use rtbvh::AABB;
 use std::collections::HashSet;
 use std::sync::{PoisonError, TryLockError};
 use std::{
@@ -247,26 +246,6 @@ impl Scene {
         }
     }
 
-    pub fn get_scene(&self) -> Objects {
-        self.objects.clone()
-    }
-
-    pub fn get_lights(&self) -> &SceneLights {
-        &self.lights
-    }
-
-    pub fn get_materials(&self) -> &MaterialList {
-        &self.materials
-    }
-
-    pub fn get_lights_mut(&mut self) -> &mut SceneLights {
-        &mut self.lights
-    }
-
-    pub fn get_materials_mut(&mut self) -> &mut MaterialList {
-        &mut self.materials
-    }
-
     /// Returns an id if a single mesh was loaded, otherwise it was a scene
     pub fn load<S: AsRef<Path>>(&mut self, path: S) -> Result<LoadResult, SceneError> {
         let path = path.as_ref();
@@ -288,6 +267,18 @@ impl Scene {
         }
 
         Err(SceneError::NoFileLoader(extension))
+    }
+
+    pub fn add_3d_scene<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
+        self.objects
+            .graph
+            .add_graph(scene.into_scene(&mut self.instances_3d, &mut self.objects.skins))
+    }
+
+    pub fn remove_3d_scene(&mut self, scene: GraphHandle) {
+        self.objects
+            .graph
+            .remove_graph(scene, &mut self.instances_3d, &mut self.objects.skins);
     }
 
     pub fn add_3d_object(&mut self, object: Mesh3D) -> usize {
@@ -352,10 +343,9 @@ impl Scene {
     }
 
     pub fn add_instance(&mut self, index: usize) -> Result<InstanceHandle3D, SceneError> {
-        match self.objects.meshes_3d.get(index) {
-            None => return Err(SceneError::InvalidObjectIndex(index)),
-            _ => {}
-        };
+        if self.objects.meshes_3d.get(index).is_none() {
+            return Err(SceneError::InvalidObjectIndex(index));
+        }
 
         let instance = self.instances_3d.allocate();
         self.objects
@@ -367,10 +357,9 @@ impl Scene {
     }
 
     pub fn add_2d_instance(&mut self, index: usize) -> Result<InstanceHandle2D, SceneError> {
-        match self.objects.meshes_2d.get(index) {
-            None => return Err(SceneError::InvalidObjectIndex(index)),
-            _ => {}
-        };
+        if self.objects.meshes_2d.get(index).is_none() {
+            return Err(SceneError::InvalidObjectIndex(index));
+        }
 
         let mut instance_id = self.instances_2d.allocate();
         instance_id.set_mesh(MeshID(index as _));
@@ -411,6 +400,19 @@ impl Scene {
     pub fn remove_2d_instance(&mut self, index: usize) {
         if let Some(instance) = self.instances_2d.get(index) {
             self.instances_2d.make_invalid(instance);
+        }
+    }
+
+    pub fn add_texture(&mut self, texture: Texture) -> usize {
+        self.materials.push_texture(texture)
+    }
+
+    pub fn set_texture(&mut self, id: usize, texture: Texture) -> Result<(), SceneError> {
+        if let Some(t) = self.materials.get_texture_mut(id) {
+            *t = texture;
+            Ok(())
+        } else {
+            Err(SceneError::InvalidID(id))
         }
     }
 
@@ -524,9 +526,9 @@ impl Scene {
 
                             let transform = instance.get_matrix();
 
-                            let vertex0: Vec3 = (transform * Vec4::from(v0.vertex)).truncate();
-                            let vertex1: Vec3 = (transform * Vec4::from(v1.vertex)).truncate();
-                            let vertex2: Vec3 = (transform * Vec4::from(v2.vertex)).truncate();
+                            let vertex0: Vec3 = (transform * v0.vertex).truncate();
+                            let vertex1: Vec3 = (transform * v1.vertex).truncate();
+                            let vertex2: Vec3 = (transform * v2.vertex).truncate();
 
                             let normal = RTTriangle::normal(vertex0, vertex1, vertex2);
                             let position = (vertex0 + vertex1 + vertex2) * (1.0 / 3.0);
@@ -582,18 +584,6 @@ impl Scene {
         );
 
         loaders
-    }
-
-    fn get_bounds(&self, index: ObjectRef) -> Result<AABB, SceneError> {
-        let bounds = match index {
-            ObjectRef::Some(id) => match self.objects.meshes_3d.get(id as usize) {
-                None => return Err(SceneError::InvalidObjectIndex(id as usize)),
-                _ => self.objects.meshes_3d.get(id as usize).unwrap().bounds,
-            },
-            ObjectRef::None => AABB::empty(),
-        };
-
-        Ok(bounds)
     }
 
     pub fn add_3d_camera(&mut self) -> usize {

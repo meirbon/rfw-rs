@@ -1,28 +1,56 @@
 use glyph_brush::{
-    ab_glyph::{point, FontArc, InvalidFont},
+    ab_glyph::{point, FontArc},
     BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder,
 };
-use rfw::prelude::*;
+use rfw::{
+    ecs::{Plugin, Scheduler, System},
+    prelude::*,
+    resources::ResourceList,
+    system::RenderSystem,
+};
 
 pub use glyph_brush::{Section, Text};
-pub struct Font {
+
+pub struct FontRenderer {
     brush: GlyphBrush<BrushVertex>,
-    tex_data: Vec<u32>,
     tex_width: u32,
     tex_height: u32,
     tex_id: usize,
     mesh_id: usize,
-    instance: InstanceHandle2D,
+    prev_dims: (u32, u32),
+    instance: Option<InstanceHandle2D>,
 }
 
-impl Font {
-    pub fn from_vec<T: Backend>(
-        system: &mut RenderSystem<T>,
-        data: Vec<u8>,
-    ) -> Result<Self, InvalidFont> {
-        let font = FontArc::try_from_vec(data)?;
+pub struct FontSystem {
+    tex_data: Vec<u32>,
+}
+
+impl FontRenderer {
+    pub fn draw(&mut self, section: Section) {
+        self.brush.queue(section);
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let font = FontArc::try_from_vec(bytes.to_vec()).unwrap();
         let brush = GlyphBrushBuilder::using_font(font).build();
-        let (tex_width, tex_height) = brush.texture_dimensions();
+        Self {
+            brush,
+            tex_width: 0,
+            tex_height: 0,
+            tex_id: 0,
+            mesh_id: 0,
+            instance: None,
+            prev_dims: (0, 0),
+        }
+    }
+}
+
+impl Plugin for FontRenderer {
+    fn init(&mut self, resources: &mut ResourceList, scheduler: &mut Scheduler) {
+        let mut scene = resources.get_resource_mut::<Scene>().unwrap();
+        let system = resources.get_resource_mut::<RenderSystem>().unwrap();
+
+        let (tex_width, tex_height) = self.brush.texture_dimensions();
         let tex_data = vec![0_u32; (tex_width * tex_height) as usize];
         let texture = Texture::from_bytes(
             unsafe {
@@ -37,8 +65,8 @@ impl Font {
             std::mem::size_of::<u32>(),
         );
 
-        let tex_id = system.add_texture(texture);
-        let mesh = system.add_2d_object(Mesh2D::new(
+        let tex_id = scene.add_texture(texture);
+        let mesh_id = scene.add_2d_object(Mesh2D::new(
             vec![
                 [-0.5, -0.5, 0.5],
                 [0.5, -0.5, 0.5],
@@ -59,52 +87,46 @@ impl Font {
             [1.0; 4],
         ));
 
-        let mut instance = system.create_2d_instance(mesh).unwrap();
+        let mut instance = scene.add_2d_instance(mesh_id).unwrap();
         let width = system.render_width() as f32;
         let height = system.render_height() as f32;
-
         instance.set_matrix(Mat4::orthographic_lh(0.0, width, height, 0.0, 1.0, -1.0));
 
-        Ok(Self {
-            brush,
-            tex_data,
-            tex_width,
-            tex_height,
-            tex_id,
-            mesh_id: mesh,
-            instance,
-        })
-    }
+        self.tex_width = tex_width;
+        self.tex_height = tex_height;
+        self.tex_id = tex_id;
+        self.mesh_id = mesh_id;
+        self.instance = Some(instance);
 
-    pub fn from_bytes<T: Backend>(
-        system: &mut RenderSystem<T>,
-        data: &[u8],
-    ) -> Result<Self, InvalidFont> {
-        Self::from_vec(system, data.to_vec())
+        scheduler.add_system(FontSystem { tex_data });
     }
+}
 
-    pub fn resize<T: Backend>(&mut self, system: &mut RenderSystem<T>) {
+impl System for FontSystem {
+    fn run(&mut self, resources: &ResourceList) {
+        let mut scene = resources.get_resource_mut::<Scene>().unwrap();
+        let system = resources.get_resource_mut::<RenderSystem>().unwrap();
+        let mut font = resources.get_resource_mut::<FontRenderer>().unwrap();
+
         let width = system.render_width();
         let height = system.render_height();
-        self.instance.set_matrix(Mat4::orthographic_lh(
-            0.0,
-            width as f32,
-            height as f32,
-            0.0,
-            1.0,
-            -1.0,
-        ));
-    }
+        if font.prev_dims.0 != width || font.prev_dims.1 != height {
+            if let Some(instance) = &mut font.instance {
+                instance.set_matrix(Mat4::orthographic_lh(
+                    0.0,
+                    width as f32,
+                    height as f32,
+                    0.0,
+                    1.0,
+                    -1.0,
+                ));
+            }
+        }
 
-    pub fn draw(&mut self, section: Section) {
-        self.brush.queue(section);
-    }
-
-    pub fn synchronize<T: Backend>(&mut self, system: &mut RenderSystem<T>) {
         let mut tex_changed = false;
-        let brush = &mut self.brush;
-        let tex_data = &mut self.tex_data;
-        let tex_width = self.tex_width;
+        let tex_width = font.tex_width;
+        let brush = &mut font.brush;
+        let tex_data = self.tex_data.as_mut_slice();
         match brush.process_queued(
             |rect, t_data| {
                 let offset: [u32; 2] = [rect.min[0], rect.min[1]];
@@ -130,7 +152,7 @@ impl Font {
             to_vertex,
         ) {
             Ok(BrushAction::Draw(vertices)) => {
-                let has_tex = self.tex_id as u32;
+                let has_tex = font.tex_id as u32;
                 let mut verts = Vec::with_capacity(vertices.len() * 6);
                 let vertices: Vec<_> = vertices
                     .iter()
@@ -173,24 +195,25 @@ impl Font {
                 });
 
                 let mut mesh = Mesh2D::from(verts);
-                mesh.tex_id = Some(self.tex_id);
-                system.set_2d_object(self.mesh_id, mesh).unwrap();
+                mesh.tex_id = Some(font.tex_id);
+                scene.set_2d_object(font.mesh_id, mesh).unwrap();
             }
             Ok(BrushAction::ReDraw) => {}
             Err(BrushError::TextureTooSmall { suggested }) => {
-                tex_data.resize((suggested.0 * suggested.1) as usize, 0);
-                self.tex_width = suggested.0;
-                self.tex_height = suggested.1;
+                self.tex_data
+                    .resize((suggested.0 * suggested.1) as usize, 0);
+                font.tex_width = suggested.0;
+                font.tex_height = suggested.1;
             }
         }
 
         if tex_changed {
-            system
+            scene
                 .set_texture(
-                    self.tex_id,
+                    font.tex_id,
                     rfw::prelude::Texture {
-                        width: self.tex_width,
-                        height: self.tex_height,
+                        width: font.tex_width,
+                        height: font.tex_height,
                         data: self.tex_data.clone(),
                         mip_levels: 1,
                     },

@@ -1,6 +1,6 @@
 use crate::{constants::EPSILON, objects::*};
 use l3d::mat::{Material, Texture};
-use rtbvh::{Bounds, Ray, RayPacket4, AABB};
+use rtbvh::{Bounds, AABB};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -63,119 +63,119 @@ impl Plane {
     }
 }
 
-impl Intersect for Plane {
-    fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
-        let up = Vec3A::from(self.up);
+// impl Intersect for Plane {
+//     fn occludes(&self, ray: Ray, t_min: f32, t_max: f32) -> bool {
+//         let (origin, direction) = ray.get_vectors::<Vec3A>();
+//         let up = Vec3A::from(self.up);
 
-        let div = up.dot(direction);
-        let t = -(up.dot(origin) + self.offset) / div;
+//         let div = up.dot(direction);
+//         let t = -(up.dot(origin) + self.offset) / div;
 
-        if t < t_min || t > t_max {
-            return false;
-        }
+//         if t < t_min || t > t_max {
+//             return false;
+//         }
 
-        true
-    }
+//         true
+//     }
 
-    fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
-        let up = Vec3A::from(self.up);
+//     fn intersect(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
+//         let (origin, direction) = ray.get_vectors::<Vec3A>();
+//         let up = Vec3A::from(self.up);
 
-        let div = up.dot(direction);
-        let t = -(up.dot(origin) + self.offset) / div;
+//         let div = up.dot(direction);
+//         let t = -(up.dot(origin) + self.offset) / div;
 
-        if t < t_min || t > t_max {
-            return None;
-        }
+//         if t < t_min || t > t_max {
+//             return None;
+//         }
 
-        let p = origin + t * direction;
+//         let p = origin + t * direction;
 
-        Some(HitRecord {
-            normal: self.up.into(),
-            t,
-            p: p.into(),
-            mat_id: self.mat_id,
-            g_normal: self.up.into(),
-            uv: self.get_uv(p).into(),
-        })
-    }
+//         Some(HitRecord {
+//             normal: self.up.into(),
+//             t,
+//             p: p.into(),
+//             mat_id: self.mat_id,
+//             g_normal: self.up.into(),
+//             uv: self.get_uv(p).into(),
+//         })
+//     }
 
-    fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
-        let up = Vec3A::from(self.up);
+//     fn intersect_t(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<f32> {
+//         let (origin, direction) = ray.get_vectors::<Vec3A>();
+//         let up = Vec3A::from(self.up);
 
-        let div = up.dot(direction);
-        let t = -(up.dot(origin) + self.offset) / div;
+//         let div = up.dot(direction);
+//         let t = -(up.dot(origin) + self.offset) / div;
 
-        if t < t_min || t > t_max {
-            return None;
-        }
+//         if t < t_min || t > t_max {
+//             return None;
+//         }
 
-        Some(t)
-    }
+//         Some(t)
+//     }
 
-    fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
-        if let Some(t) = self.intersect_t(ray, t_min, t_max) {
-            return Some((t, 1));
-        }
-        None
-    }
+//     fn depth_test(&self, ray: Ray, t_min: f32, t_max: f32) -> Option<(f32, u32)> {
+//         if let Some(t) = self.intersect_t(ray, t_min, t_max) {
+//             return Some((t, 1));
+//         }
+//         None
+//     }
 
-    #[allow(clippy::clippy::many_single_char_names)]
-    fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
-        use rfw_math::*;
+//     #[allow(clippy::clippy::many_single_char_names)]
+//     fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
+//         use rfw_math::*;
 
-        let (origin_x, origin_y, origin_z) = packet.origin_xyz::<Vec4>();
-        let (dir_x, dir_y, dir_z) = packet.direction_xyz::<Vec4>();
+//         let (origin_x, origin_y, origin_z) = packet.origin_xyz::<Vec4>();
+//         let (dir_x, dir_y, dir_z) = packet.direction_xyz::<Vec4>();
 
-        let up_x = Vec4::splat(self.up[0]);
-        let up_y = Vec4::splat(self.up[1]);
-        let up_z = Vec4::splat(self.up[2]);
+//         let up_x = Vec4::splat(self.up[0]);
+//         let up_y = Vec4::splat(self.up[1]);
+//         let up_z = Vec4::splat(self.up[2]);
 
-        let div_x = up_x * dir_x;
-        let div_y = up_y * dir_y;
-        let div_z = up_z * dir_z;
-        let div = div_x + div_y + div_z;
+//         let div_x = up_x * dir_x;
+//         let div_y = up_y * dir_y;
+//         let div_z = up_z * dir_z;
+//         let div = div_x + div_y + div_z;
 
-        let offset = Vec4::splat(self.offset);
-        let up_dot_org_x = up_x * origin_x;
-        let up_dot_org_y = up_y * origin_y;
-        let up_dot_org_z = up_z * origin_z;
-        let up_dot_org = up_dot_org_x + up_dot_org_y + up_dot_org_z;
-        let t = -(up_dot_org + offset) / div;
+//         let offset = Vec4::splat(self.offset);
+//         let up_dot_org_x = up_x * origin_x;
+//         let up_dot_org_y = up_y * origin_y;
+//         let up_dot_org_z = up_z * origin_z;
+//         let up_dot_org = up_dot_org_x + up_dot_org_y + up_dot_org_z;
+//         let t = -(up_dot_org + offset) / div;
 
-        let mask = t.cmple(packet.t()) & t.cmpge(Vec4::from(*t_min));
-        let mask = mask.bitmask();
-        if mask == 0 {
-            return None;
-        }
+//         let mask = t.cmple(packet.t()) & t.cmpge(Vec4::from(*t_min));
+//         let mask = mask.bitmask();
+//         if mask == 0 {
+//             return None;
+//         }
 
-        let x = if mask & 1 != 0 { 0 } else { -1 };
-        let y = if mask & 2 != 0 { 0 } else { -1 };
-        let z = if mask & 4 != 0 { 0 } else { -1 };
-        let w = if mask & 8 != 0 { 0 } else { -1 };
-        Some([x, y, z, w])
-    }
+//         let x = if mask & 1 != 0 { 0 } else { -1 };
+//         let y = if mask & 2 != 0 { 0 } else { -1 };
+//         let z = if mask & 4 != 0 { 0 } else { -1 };
+//         let w = if mask & 8 != 0 { 0 } else { -1 };
+//         Some([x, y, z, w])
+//     }
 
-    fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
-        let (origin, direction) = ray.get_vectors::<Vec3A>();
-        let p = origin + direction * t;
+//     fn get_hit_record(&self, ray: Ray, t: f32, _: u32) -> HitRecord {
+//         let (origin, direction) = ray.get_vectors::<Vec3A>();
+//         let p = origin + direction * t;
 
-        HitRecord {
-            normal: self.up.into(),
-            t,
-            p: p.into(),
-            mat_id: self.mat_id,
-            g_normal: self.up.into(),
-            uv: self.get_uv(p).into(),
-        }
-    }
+//         HitRecord {
+//             normal: self.up.into(),
+//             t,
+//             p: p.into(),
+//             mat_id: self.mat_id,
+//             g_normal: self.up.into(),
+//             uv: self.get_uv(p).into(),
+//         }
+//     }
 
-    fn get_mat_id(&self, _prim_id: i32) -> u32 {
-        self.mat_id as u32
-    }
-}
+//     fn get_mat_id(&self, _prim_id: i32) -> u32 {
+//         self.mat_id as u32
+//     }
+// }
 
 impl Bounds for Plane {
     fn bounds(&self) -> AABB {

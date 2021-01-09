@@ -17,7 +17,7 @@ rayon = "1.5"
 imgui = { version = "0.6", optional = true }
 imgui-wgpu = { version = "0.12", optional = true }
 imgui-winit-support = { version = "0.6", optional = true }
-winit = { version = "0.23", optional = true }
+winit = { version = "0.24", optional = true }
 # rfw = "0.1"
 
 [build-dependencies]
