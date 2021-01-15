@@ -1,6 +1,6 @@
-use crate::instance::{DeviceInstances, InstanceList};
+// use crate::instance::{DeviceInstances, InstanceList};
 use crate::light::WgpuLights;
-use crate::mesh::WgpuSkin;
+use crate::mesh::{SkinningPipeline, WgpuSkin};
 pub use crate::output::WgpuView;
 use futures::executor::block_on;
 use mesh::WgpuMesh;
@@ -12,7 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 mod d2;
-mod instance;
+// mod instance;
 mod light;
 mod mat;
 mod mem;
@@ -30,6 +30,7 @@ mod gui;
 #[cfg(feature = "imgui-winit")]
 pub use gui::*;
 pub use output::WgpuOutput;
+use rfw::scene::FrustrumResult;
 
 #[derive(Debug, Clone)]
 pub enum TaskResult {
@@ -96,13 +97,15 @@ pub struct WgpuBackend {
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
     meshes: TrackedStorage<mesh::WgpuMesh>,
-    instances: instance::InstanceList,
+    // instances: instance::InstanceList,
+    instance_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     material_buffer: ManagedBuffer<DeviceMaterial>,
     material_bind_groups: FlaggedStorage<WgpuBindGroup>,
     texture_sampler: wgpu::Sampler,
     textures: FlaggedStorage<WgpuTexture>,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     lights: light::WgpuLights,
+    skinning_pipeline: SkinningPipeline,
 
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group: wgpu::BindGroup,
@@ -121,6 +124,7 @@ pub struct WgpuBackend {
 
     lights_changed: bool,
     materials_changed: bool,
+    instances_changed: bool,
 
     mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
     task_pool: ManagedTaskPool<TaskResult>,
@@ -251,6 +255,23 @@ impl WgpuBackend {
             ],
         })
     }
+
+    fn sync_pool(&mut self) {
+        let meshes = &mut self.meshes;
+
+        for result in self
+            .task_pool
+            .sync()
+            .filter(|t| t.is_some())
+            .map(|t| t.unwrap())
+        {
+            match result {
+                TaskResult::Mesh(id, mesh) => {
+                    meshes.overwrite(id, mesh);
+                }
+            }
+        }
+    }
 }
 
 impl Backend for WgpuBackend {
@@ -306,7 +327,7 @@ impl Backend for WgpuBackend {
             },
         );
 
-        let instances = instance::InstanceList::new(&device);
+        // let instances = instance::InstanceList::new(&device);
         let material_buffer: ManagedBuffer<DeviceMaterial> = ManagedBuffer::new(
             device.clone(),
             queue.clone(),
@@ -315,8 +336,24 @@ impl Backend for WgpuBackend {
         );
 
         let texture_bind_group_layout = Self::create_texture_bind_group_layout(&device);
+        let instance_bind_group_layout = Arc::new(device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    // Instance matrices
+                    binding: 0,
+                    count: None,
+                    visibility: wgpu::ShaderStage::VERTEX,
+                    ty: wgpu::BindingType::StorageBuffer {
+                        readonly: true,
+                        min_binding_size: None,
+                        dynamic: false,
+                    },
+                }],
+                label: Some("mesh-bind-group-descriptor-layout"),
+            },
+        ));
 
-        let lights = light::WgpuLights::new(10, &device, &instances.bind_group_layout);
+        let lights = light::WgpuLights::new(10, &device, &instance_bind_group_layout);
 
         let camera_buffer = ManagedBuffer::new(
             device.clone(),
@@ -364,7 +401,7 @@ impl Backend for WgpuBackend {
         let pipeline = pipeline::RenderPipeline::new(
             &device,
             &uniform_bind_group_layout,
-            &instances.bind_group_layout,
+            &instance_bind_group_layout,
             &texture_bind_group_layout,
         );
 
@@ -391,19 +428,23 @@ impl Backend for WgpuBackend {
             imgui: None,
         };
 
+        let skinning_pipeline = SkinningPipeline::new(&device);
+
         Ok(Box::new(Self {
             device,
             queue,
             surface,
             swap_chain,
             meshes: TrackedStorage::new(),
-            instances,
+            instance_bind_group_layout,
             material_buffer,
             material_bind_groups: Default::default(),
             texture_sampler,
             textures: FlaggedStorage::new(),
             texture_bind_group_layout,
             lights,
+            skinning_pipeline,
+
             uniform_bind_group_layout,
             uniform_bind_group,
             camera_buffer,
@@ -419,6 +460,7 @@ impl Backend for WgpuBackend {
 
             lights_changed: true,
             materials_changed: true,
+            instances_changed: true,
 
             mesh_bounds: FlaggedStorage::new(),
             task_pool: ManagedTaskPool::default(),
@@ -436,8 +478,8 @@ impl Backend for WgpuBackend {
     }
 
     fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
-        self.mesh_bounds
-            .overwrite_val(id, (mesh.bounds, mesh.ranges.to_vec()));
+        let ranges = mesh.ranges.to_vec();
+        self.mesh_bounds.overwrite_val(id, (mesh.bounds, ranges));
         let device = self.device.clone();
 
         let name = mesh.name.to_string();
@@ -446,8 +488,17 @@ impl Backend for WgpuBackend {
         let skin_data = mesh.skin_data.to_vec();
         let bounds = mesh.bounds;
 
+        let instance_bind_group_layout = self.instance_bind_group_layout.clone();
         self.task_pool.push(move |finish| {
-            let mesh = mesh::WgpuMesh::new(&device, name, vertices, ranges, skin_data, bounds);
+            let mesh = mesh::WgpuMesh::new(
+                &device,
+                &instance_bind_group_layout,
+                name,
+                vertices,
+                ranges,
+                skin_data,
+                bounds,
+            );
             finish.send(TaskResult::Mesh(id, mesh));
         });
     }
@@ -461,37 +512,25 @@ impl Backend for WgpuBackend {
         }
     }
 
-    fn set_3d_instances(&mut self, instances: InstancesData3D<'_>) {
-        for i in 0..instances.len() {
-            let mesh_id = instances.mesh_ids[i];
-            if !mesh_id.is_valid() {
-                continue;
+    fn set_3d_instances(&mut self, mesh: usize, instances: InstancesData3D<'_>) {
+        self.sync_pool();
+        if let Some(m) = self.meshes.get_mut(mesh) {
+            for matrix in instances.matrices {
+                self.scene_bounds
+                    .grow_bb(&m.bounds.transformed(matrix.to_cols_array()));
             }
 
-            let mesh = self.meshes.get(mesh_id.into());
-            self.instances.set(
+            m.set_instances(
                 &self.device,
-                i,
-                instances.matrices[i],
-                instances.mesh_ids[i],
-                instances.skin_ids[i],
-                mesh,
+                &self.queue,
+                instances,
+                &self.instance_bind_group_layout,
+                self.skins.as_slice(),
+                &self.skinning_pipeline,
             );
-
-            if let Some(mesh) = mesh {
-                self.scene_bounds.grow_bb(
-                    &mesh
-                        .bounds
-                        .transformed(instances.matrices[i].to_cols_array()),
-                );
-            }
         }
-    }
 
-    fn unload_3d_instances(&mut self, ids: Vec<usize>) {
-        for id in ids {
-            self.instances.remove(id);
-        }
+        self.instances_changed = true;
     }
 
     fn set_materials(&mut self, materials: &[DeviceMaterial], changed: &BitSlice) {
@@ -572,31 +611,7 @@ impl Backend for WgpuBackend {
     }
 
     fn synchronize(&mut self) {
-        {
-            let meshes = &mut self.meshes;
-
-            for result in self
-                .task_pool
-                .sync()
-                .filter(|t| t.is_some())
-                .map(|t| t.unwrap())
-            {
-                match result {
-                    TaskResult::Mesh(id, mesh) => {
-                        meshes.overwrite(id, mesh);
-                    }
-                }
-            }
-        }
-
-        Self::record_update(
-            &self.device,
-            &self.queue,
-            &mut self.instances,
-            &self.meshes,
-            &self.skins,
-            &self.settings,
-        );
+        self.sync_pool();
 
         self.lights_changed |= self.lights.synchronize(&self.device, &self.queue);
 
@@ -634,14 +649,17 @@ impl Backend for WgpuBackend {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render"),
             });
-        Self::render_lights(&mut encoder, &mut self.lights, &self.instances);
+
+        if self.instances_changed {
+            Self::render_lights(&mut encoder, &mut self.lights, &self.meshes);
+            self.instances_changed = false;
+        }
 
         Self::render_scene(
-            &camera,
             &mut encoder,
             FrustrumG::from_matrix(camera.get_rh_matrix()),
             &self.pipeline,
-            &self.instances,
+            self.meshes.as_slice(),
             &self.output,
             &self.uniform_bind_group,
             self.material_bind_groups.as_slice(),
@@ -678,8 +696,8 @@ impl Backend for WgpuBackend {
         self.output_pass
             .render(&mut d2_encoder, &output.output.view);
 
-        self.queue.submit(Some(encoder.finish()));
-        self.queue.submit(Some(output_pass.finish()));
+        self.queue
+            .submit(vec![encoder.finish(), output_pass.finish()]);
 
         #[cfg(feature = "imgui-winit")]
         if let Some(imgui) = self.settings.imgui.as_mut() {
@@ -706,8 +724,6 @@ impl Backend for WgpuBackend {
         }
 
         self.queue.submit(Some(d2_encoder.finish()));
-
-        self.instances.reset_changed();
         self.lights_changed = false;
     }
 
@@ -799,31 +815,19 @@ impl Backend for WgpuBackend {
 }
 
 impl WgpuBackend {
-    fn record_update(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        instances: &mut InstanceList,
-        meshes: &TrackedStorage<WgpuMesh>,
-        skins: &TrackedStorage<WgpuSkin>,
-        settings: &WgpuSettings,
-    ) {
-        instances.update(device, queue, meshes, skins, settings);
-    }
-
     fn render_lights(
         encoder: &mut wgpu::CommandEncoder,
         lights: &mut WgpuLights,
-        instances: &InstanceList,
+        meshes: &TrackedStorage<WgpuMesh>,
     ) {
-        lights.render(encoder, instances);
+        lights.render(encoder, meshes);
     }
 
     fn render_scene(
-        camera: &CameraView,
         encoder: &mut wgpu::CommandEncoder,
         frustrum: FrustrumG,
         pipeline: &pipeline::RenderPipeline,
-        instances: &InstanceList,
+        meshes: &[WgpuMesh],
         d_output: &output::WgpuOutput,
         uniform_bind_group: &wgpu::BindGroup,
         material_bind_groups: &[WgpuBindGroup],
@@ -832,37 +836,64 @@ impl WgpuBackend {
     ) {
         use output::*;
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[
-                    d_output.as_descriptor(WgpuView::Albedo),
-                    d_output.as_descriptor(WgpuView::Normal),
-                    d_output.as_descriptor(WgpuView::WorldPos),
-                    d_output.as_descriptor(WgpuView::ScreenSpace),
-                    d_output.as_descriptor(WgpuView::MatParams),
-                ],
-                depth_stencil_attachment: Some(d_output.as_depth_descriptor()),
-            });
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[
+                d_output.as_descriptor(WgpuView::Albedo),
+                d_output.as_descriptor(WgpuView::Normal),
+                d_output.as_descriptor(WgpuView::WorldPos),
+                d_output.as_descriptor(WgpuView::ScreenSpace),
+                d_output.as_descriptor(WgpuView::MatParams),
+            ],
+            depth_stencil_attachment: Some(d_output.as_depth_descriptor()),
+        });
 
-            let device_instance = &instances.device_instances;
+        render_pass.set_pipeline(&pipeline.pipeline);
+        render_pass.set_bind_group(0, uniform_bind_group, &[]);
 
-            render_pass.set_pipeline(&pipeline.pipeline);
-            render_pass.set_bind_group(0, uniform_bind_group, &[]);
+        for m in meshes.iter() {
+            let instances = m.instances() as usize;
+            if instances == 0 {
+                continue;
+            }
 
-            // Render all instances
-            for (i, buffer, desc) in
-                instances.iter_sorted(Vec3::from(camera.pos), camera.direction.into())
-            {
-                // Check whether instance is valid and in frustrum
-                if !frustrum.aabb_in_frustrum(&desc.root_bounds).should_render() {
-                    continue;
+            render_pass.set_bind_group(1, (*m.instances_bg).as_ref().unwrap(), &[]);
+            if m.supports_skinning() {
+                for instance in 0..instances {
+                    if frustrum.aabb_in_frustrum(&m.instances_bounds[instance])
+                        == FrustrumResult::Outside
+                    {
+                        continue;
+                    }
+
+                    let buffer = if let Some(b) = m.buffer_for(instance) {
+                        b
+                    } else {
+                        continue;
+                    };
+
+                    let buffer_slice = buffer.slice(..);
+                    render_pass.set_vertex_buffer(0, buffer_slice);
+                    render_pass.set_vertex_buffer(1, buffer_slice);
+                    render_pass.set_vertex_buffer(2, buffer_slice);
+                    render_pass.set_vertex_buffer(3, buffer_slice);
+                    render_pass.set_vertex_buffer(4, buffer_slice);
+
+                    for r in m.ranges.iter() {
+                        let bind_group = &material_bind_groups[r.mat_id as usize];
+                        render_pass.set_bind_group(
+                            2,
+                            bind_group.group.deref().as_ref().unwrap(),
+                            &[],
+                        );
+                        render_pass.draw(r.first..r.last, (instance as u32)..(instance as u32 + 1));
+                    }
                 }
-
-                render_pass.set_bind_group(
-                    1,
-                    &device_instance.bind_group,
-                    &[DeviceInstances::offset_for(i) as u32],
-                );
+            } else {
+                let buffer = if let Some(buffer) = m.buffer() {
+                    buffer
+                } else {
+                    continue;
+                };
 
                 let buffer_slice = buffer.slice(..);
                 render_pass.set_vertex_buffer(0, buffer_slice);
@@ -871,25 +902,25 @@ impl WgpuBackend {
                 render_pass.set_vertex_buffer(3, buffer_slice);
                 render_pass.set_vertex_buffer(4, buffer_slice);
 
-                desc.ranges
-                    .iter()
-                    .enumerate()
-                    .filter(|(j, _)| {
-                        frustrum
-                            .aabb_in_frustrum(&desc.mesh_bounds[*j])
-                            .should_render()
-                    })
-                    .for_each(|(_, sub_mesh)| {
-                        let bind_group = &material_bind_groups[sub_mesh.mat_id as usize];
-                        render_pass.set_bind_group(
-                            2,
-                            bind_group.group.deref().as_ref().unwrap(),
-                            &[],
-                        );
-                        render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                    });
+                for instance in 0..m.instances() {
+                    if frustrum.aabb_in_frustrum(&m.instances_bounds[instance as usize])
+                        != FrustrumResult::Outside
+                    {
+                        for r in m.ranges.iter() {
+                            let bind_group = &material_bind_groups[r.mat_id as usize];
+                            render_pass.set_bind_group(
+                                2,
+                                bind_group.group.deref().as_ref().unwrap(),
+                                &[],
+                            );
+                            render_pass.draw(r.first..r.last, instance..(instance + 1));
+                        }
+                    }
+                }
             }
         }
+
+        drop(render_pass);
 
         ssao_pass.launch(
             encoder,

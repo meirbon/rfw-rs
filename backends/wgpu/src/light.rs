@@ -1,5 +1,4 @@
-use super::instance::InstanceList;
-use crate::instance::DeviceInstances;
+use crate::mesh::WgpuMesh;
 use rfw::prelude::{AABB, *};
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -90,10 +89,14 @@ impl WgpuLights {
         changed1 || changed2 || changed3
     }
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, instances: &InstanceList) {
-        self.area_lights.render(encoder, instances);
-        self.spot_lights.render(encoder, instances);
-        self.directional_lights.render(encoder, instances);
+    pub fn render(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        meshes: &TrackedStorage<WgpuMesh>,
+    ) {
+        self.area_lights.render(encoder, meshes);
+        self.spot_lights.render(encoder, meshes);
+        self.directional_lights.render(encoder, meshes);
     }
 }
 
@@ -237,20 +240,13 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub fn render(&mut self, encoder: &mut wgpu::CommandEncoder, instances: &InstanceList) {
-        if instances.changed() {
-            self.shadow_maps
-                .render(0..self.lights.len() as u32, encoder, instances);
-        } else {
-            if !self.lights.any_changed() {
-                return;
-            }
-
-            for (i, _) in self.lights.iter_changed() {
-                let i = i as u32;
-                self.shadow_maps.render(i..(i + 1), encoder, instances);
-            }
-        };
+    pub fn render(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        meshes: &TrackedStorage<WgpuMesh>,
+    ) {
+        self.shadow_maps
+            .render(0..self.lights.len() as u32, encoder, meshes);
 
         self.lights.reset_changed();
     }
@@ -994,7 +990,7 @@ impl ShadowMapArray {
         &self,
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &super::instance::InstanceList,
+        meshes: &TrackedStorage<WgpuMesh>,
     ) {
         let start = range.start;
         let end = range.end;
@@ -1021,40 +1017,66 @@ impl ShadowMapArray {
                 }),
             });
 
-            let device_instance = &instances.device_instances;
+            render_pass.set_pipeline(&self.pipeline);
 
-            for (i, buffer, desc) in instances.iter() {
-                if frustrum.aabb_in_frustrum(&desc.root_bounds) == FrustrumResult::Outside {
+            for (_, m) in meshes.iter() {
+                let instances = m.instances() as usize;
+                if instances == 0 {
                     continue;
                 }
 
-                let mesh_id = instances.mesh_ids[i];
-                if !mesh_id.is_valid() {
-                    continue;
-                }
-
-                render_pass.set_pipeline(&self.pipeline);
-                render_pass.set_vertex_buffer(0, buffer.slice(..));
-                render_pass.set_bind_group(
-                    0,
-                    &self.bind_group,
-                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
-                );
-                render_pass.set_bind_group(
-                    1,
-                    &device_instance.bind_group,
-                    &[DeviceInstances::offset_for(i) as u32],
-                );
-
-                for j in 0..desc.ranges.len() {
-                    if let Some(bounds) = desc.mesh_bounds.get(i) {
-                        if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside {
+                if m.supports_skinning() {
+                    for instance in 0..instances {
+                        if frustrum.aabb_in_frustrum(&m.instances_bounds[instance])
+                            == FrustrumResult::Outside
+                        {
                             continue;
                         }
-                    }
 
-                    let sub_mesh = &desc.ranges[j];
-                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
+                        let buffer = if let Some(b) = m.buffer_for(instance) {
+                            b
+                        } else {
+                            continue;
+                        };
+
+                        render_pass.set_vertex_buffer(0, buffer.slice(..));
+                        render_pass.set_bind_group(
+                            0,
+                            &self.bind_group,
+                            &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                        );
+                        render_pass.set_bind_group(1, (*m.instances_bg).as_ref().unwrap(), &[]);
+
+                        render_pass.draw(
+                            m.ranges[0].first..(m.ranges.last().unwrap().last),
+                            (instance as u32)..(instance as u32 + 1),
+                        );
+                    }
+                } else {
+                    let buffer = if let Some(b) = m.buffer() {
+                        b
+                    } else {
+                        continue;
+                    };
+
+                    render_pass.set_vertex_buffer(0, buffer.slice(..));
+                    render_pass.set_bind_group(
+                        0,
+                        &self.bind_group,
+                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+                    );
+                    render_pass.set_bind_group(1, (*m.instances_bg).as_ref().unwrap(), &[]);
+
+                    for instance in 0..m.instances() {
+                        if frustrum.aabb_in_frustrum(&m.instances_bounds[instance as usize])
+                            != FrustrumResult::Outside
+                        {
+                            render_pass.draw(
+                                m.ranges[0].first..(m.ranges.last().unwrap().last),
+                                instance..(instance + 1),
+                            );
+                        }
+                    }
                 }
             }
         }

@@ -87,7 +87,6 @@ impl InstanceList3D {
     pub fn make_invalid(&mut self, handle: InstanceHandle3D) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         list.matrices[handle.index] = Mat4::identity();
-        list.mesh_ids[handle.index] = MeshID::INVALID;
         list.skin_ids[handle.index] = SkinID::INVALID;
         list.flags[handle.index] = InstanceFlags3D::all();
         list.free_slots.push(handle.index);
@@ -97,7 +96,6 @@ impl InstanceList3D {
     pub fn resize(&mut self, new_size: usize) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         list.matrices.resize(new_size, Mat4::identity());
-        list.mesh_ids.resize(new_size, MeshID::INVALID);
         list.skin_ids.resize(new_size, SkinID::INVALID);
         list.flags.resize(new_size, InstanceFlags3D::empty());
     }
@@ -117,11 +115,6 @@ impl InstanceList3D {
     pub fn matrices(&self) -> &[Mat4] {
         let list = self.list.get();
         unsafe { &(*list).matrices[0..(*list).len()] }
-    }
-
-    pub fn mesh_ids(&self) -> &[MeshID] {
-        let list = self.list.get();
-        unsafe { &(*list).mesh_ids[0..(*list).len()] }
     }
 
     pub fn skin_ids(&self) -> &[SkinID] {
@@ -175,7 +168,6 @@ impl InstanceList3D {
 #[derive(Debug, Default)]
 pub struct List3D {
     matrices: Vec<Mat4>,
-    mesh_ids: Vec<MeshID>,
     skin_ids: Vec<SkinID>,
     flags: Vec<InstanceFlags3D>,
 
@@ -189,7 +181,6 @@ impl Clone for List3D {
         let ptr = AtomicUsize::new(self.ptr.load(Ordering::Acquire));
         let this = Self {
             matrices: self.matrices.clone(),
-            mesh_ids: self.mesh_ids.clone(),
             skin_ids: self.skin_ids.clone(),
             flags: self.flags.clone(),
 
@@ -255,12 +246,6 @@ pub struct InstanceHandle3D {
 
 impl InstanceHandle3D {
     #[inline]
-    pub fn set_mesh(&mut self, mesh: MeshID) {
-        let list = unsafe { self.ptr.get().as_mut().unwrap() };
-        list.mesh_ids[self.index] = mesh;
-        list.flags[self.index] |= InstanceFlags3D::CHANGED_MESH;
-    }
-
     pub fn set_skin(&mut self, skin: SkinID) {
         let list = unsafe { self.ptr.get().as_mut().unwrap() };
         list.skin_ids[self.index] = skin;
@@ -292,11 +277,6 @@ impl InstanceHandle3D {
     }
 
     #[inline]
-    pub fn get_mesh_id(&self) -> MeshID {
-        unsafe { (*self.ptr.get()).mesh_ids[self.index] }
-    }
-
-    #[inline]
     pub fn get_skin_id(&self) -> SkinID {
         unsafe { (*self.ptr.get()).skin_ids[self.index] }
     }
@@ -319,6 +299,15 @@ impl InstanceHandle3D {
     #[inline]
     pub fn changed_mesh(&mut self) -> bool {
         unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags3D::CHANGED_MESH) }
+    }
+
+    pub fn make_invalid(self) {
+        let list = unsafe { self.ptr.get().as_mut().unwrap() };
+        list.matrices[self.index] = Mat4::zero();
+        list.skin_ids[self.index] = SkinID::INVALID;
+        list.flags[self.index] = InstanceFlags3D::all();
+        list.free_slots.push(self.index);
+        list.removed.push(self.index);
     }
 
     /// # Safety

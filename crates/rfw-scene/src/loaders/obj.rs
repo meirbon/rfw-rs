@@ -262,6 +262,6 @@ impl ObjectLoader for ObjLoader {
             material_ids,
             Some(String::from(path.to_str().unwrap())),
         );
-        Ok(LoadResult::Object(Some(mesh_id as u32)))
+        Ok(LoadResult::Object(mesh_id as u32))
     }
 }

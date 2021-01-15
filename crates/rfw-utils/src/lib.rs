@@ -5,6 +5,7 @@ pub use bitvec::prelude::*;
 
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timer {
     moment: Instant,
 }

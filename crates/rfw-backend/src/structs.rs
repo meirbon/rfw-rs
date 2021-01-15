@@ -26,14 +26,12 @@ impl InstancesData2D<'_> {
 #[derive(Debug, Copy, Clone)]
 pub struct InstancesData3D<'a> {
     pub matrices: &'a [Mat4],
-    pub mesh_ids: &'a [MeshID],
     pub skin_ids: &'a [SkinID],
 }
 
 impl InstancesData3D<'_> {
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.matrices.len(), self.mesh_ids.len());
-        debug_assert_eq!(self.mesh_ids.len(), self.skin_ids.len());
+        debug_assert_eq!(self.matrices.len(), self.skin_ids.len());
         self.matrices.len()
     }
 }
@@ -69,9 +67,9 @@ impl MeshID {
     }
 }
 
-impl Into<usize> for MeshID {
-    fn into(self) -> usize {
-        self.0 as usize
+impl From<usize> for MeshID {
+    fn from(i: usize) -> Self {
+        MeshID(i as i32)
     }
 }
 
@@ -379,7 +377,7 @@ impl DeviceMaterial {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct CameraView {
     pub pos: [f32; 3],
     // 12

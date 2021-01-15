@@ -26,7 +26,7 @@ pub struct Instance3D {
     translation: Vec3,
     scaling: Vec3,
     rotation: [f32; 4],
-    pub object_id: ObjectRef,
+    pub object_id: u32,
     pub skin_id: Option<u32>,
     updated: InstanceUpdate,
 }
@@ -34,10 +34,7 @@ pub struct Instance3D {
 impl Display for Instance3D {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Instance {{ original_bounds: {}, bounds: {}, hit_id: {}, transform: {}, inverse: {}, normal_transform: {} }}",
-               self.original_bounds, self.bounds, match self.object_id {
-                None => String::from("None"),
-                Some(id) =>format!("{}", id) 
-            },
+               self.original_bounds, self.bounds, self.object_id,
            Mat4::from_cols_array(&self.transform),
            Mat4::from_cols_array(&self.inverse),
            Mat4::from_cols_array(&self.normal_transform)
@@ -56,18 +53,16 @@ impl Default for Instance3D {
             translation: Vec3::zero(),
             scaling: Vec3::one(),
             rotation: Quat::identity().into(),
-            object_id: ObjectRef::None,
+            object_id: 0,
             skin_id: None,
             updated: InstanceUpdate::None,
         }
     }
 }
 
-pub type ObjectRef = Option<u32>;
-
 #[allow(dead_code)]
 impl Instance3D {
-    pub fn new(object_id: ObjectRef, bounds: &AABB) -> Instance3D {
+    pub fn new(object_id: u32, bounds: &AABB) -> Instance3D {
         let transform = Mat4::identity();
         let inverse = transform.inverse();
 

@@ -1,6 +1,6 @@
 pub use bitvec::prelude::*;
 pub use lights::*;
-pub use raw_window_handle::HasRawWindowHandle;
+pub use raw_window_handle::*;
 pub use rtbvh::AABB;
 pub use structs::*;
 
@@ -39,9 +39,7 @@ pub trait Backend {
     fn unload_3d_meshes(&mut self, ids: Vec<usize>);
 
     /// Sets an instance with a 4x4 transformation matrix in column-major format
-    fn set_3d_instances(&mut self, instances: InstancesData3D<'_>);
-
-    fn unload_3d_instances(&mut self, ids: Vec<usize>);
+    fn set_3d_instances(&mut self, mesh: usize, instances: InstancesData3D<'_>);
 
     /// Updates materials
     fn set_materials(&mut self, materials: &[DeviceMaterial], changed: &BitSlice);

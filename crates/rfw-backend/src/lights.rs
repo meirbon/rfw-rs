@@ -20,7 +20,7 @@ pub struct AreaLight {
     // 48
     pub vertex1: [f32; 3],
     // 60
-    _dummy0: i32,
+    mesh_id: i32,
     pub radiance: [f32; 3],
     // 72
     _dummy1: i32,
@@ -39,7 +39,7 @@ impl Default for AreaLight {
             vertex0: [0.0; 3], // 44
             inst_idx: 0,       // 48
             vertex1: [0.0; 3], // 60
-            _dummy0: 0,
+            mesh_id: -1,
             radiance: [0.0; 3], // 72
             _dummy1: 0,
             vertex2: [0.0; 3], // 84
@@ -71,6 +71,7 @@ impl AreaLight {
         pos: Vec3,
         radiance: Vec3,
         normal: Vec3,
+        mesh_id: i32,
         inst_id: i32,
         vertex0: Vec3,
         vertex1: Vec3,
@@ -86,7 +87,7 @@ impl AreaLight {
             vertex0: vertex0.into(),
             inst_idx: inst_id,
             vertex1: vertex1.into(),
-            _dummy0: 0,
+            mesh_id,
             radiance: radiance.into(),
             _dummy1: 1,
             vertex2: vertex2.into(),

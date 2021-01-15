@@ -13,9 +13,13 @@ layout(set = 0, binding = 0) uniform Locals {
     vec4 cam_pos;
 };
 
-layout(set = 1, binding = 0) buffer readonly I {
-    mat4 Transform;
-    mat4 InverseTransform;
+struct Transform {
+    mat4 M;
+    mat4 IM;
+};
+
+layout(set = 1, binding = 0) buffer readonly Instances {
+    Transform transforms[];
 };
 
 layout(location = 0) out vec4 V;
@@ -27,15 +31,15 @@ layout(location = 5) out vec3 T;
 layout(location = 6) out vec3 B;
 
 void main() {
-    const vec4 vertex = Transform * Vertex;
+    const vec4 vertex = transforms[gl_InstanceIndex].M * Vertex;
     const vec4 cVertex = View * vec4(vertex.xyz, 1.0);
 
     gl_Position = Proj * cVertex;
 
     V = vec4(vertex.xyz, cVertex.w);
     SSV = cVertex;
-    N = normalize(vec3(InverseTransform * vec4(Normal, 0.0)));
-    T = normalize(vec3(InverseTransform * vec4(Tangent.xyz, 0.0)));
+    N = normalize(vec3(transforms[gl_InstanceIndex].IM * vec4(Normal, 0.0)));
+    T = normalize(vec3(transforms[gl_InstanceIndex].IM * vec4(Tangent.xyz, 0.0)));
     B = cross(N, T) * Tangent.w;
     MID = MatID;
     TUV = UV;

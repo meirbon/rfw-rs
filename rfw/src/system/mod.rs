@@ -31,7 +31,11 @@ impl RenderSystem {
         self.scale_factor
     }
 
-    pub(crate) fn synchronize<T: Backend>(&mut self, scene: &mut rfw_scene::Scene, renderer: &mut T) {
+    pub(crate) fn synchronize<T: Backend>(
+        &mut self,
+        scene: &mut rfw_scene::Scene,
+        renderer: &mut T,
+    ) {
         let mut changed = false;
         let mut update_lights = false;
         let mut found_light = false;
@@ -39,7 +43,7 @@ impl RenderSystem {
         scene
             .objects
             .graph
-            .synchronize(&mut scene.instances_3d, &mut scene.objects.skins);
+            .synchronize(&mut scene.objects.meshes_3d, &mut scene.objects.skins);
 
         if scene.objects.skins.any_changed() {
             let skins: Vec<SkinData> = scene
@@ -92,22 +96,17 @@ impl RenderSystem {
                 );
             }
             changed = true;
-            scene.objects.meshes_3d.reset_changed();
         }
 
         let light_flags = scene.materials.light_flags();
-        changed |= scene.instances_3d.any_changed();
-
-        for instance in scene.instances_3d.iter() {
-            if found_light {
-                break;
+        for (i, mesh) in scene.objects.meshes_3d.iter_mut() {
+            if !mesh.instances.any_changed() {
+                continue;
             }
 
-            if let Some(mesh_id) = instance.get_mesh_id().as_index() {
-                for j in 0..scene.objects.meshes_3d[mesh_id].ranges.len() {
-                    match light_flags
-                        .get(scene.objects.meshes_3d[mesh_id].ranges[j].mat_id as usize)
-                    {
+            if !found_light {
+                for r in mesh.ranges.iter() {
+                    match light_flags.get(r.mat_id as usize) {
                         None => {}
                         Some(flag) => {
                             if *flag {
@@ -118,18 +117,20 @@ impl RenderSystem {
                     }
                 }
             }
-        }
 
-        if scene.instances_3d.any_changed() {
-            renderer.set_3d_instances(InstancesData3D {
-                matrices: scene.instances_3d.matrices(),
-                mesh_ids: scene.instances_3d.mesh_ids(),
-                skin_ids: scene.instances_3d.skin_ids(),
-            });
             changed = true;
-            scene.instances_3d.reset_changed();
+            renderer.set_3d_instances(
+                i,
+                InstancesData3D {
+                    matrices: mesh.instances.matrices(),
+                    skin_ids: mesh.instances.skin_ids(),
+                },
+            );
+
+            mesh.instances.reset_changed();
         }
 
+        scene.objects.meshes_3d.reset_changed();
         update_lights |= found_light;
 
         let mut mat_changed = false;
@@ -204,16 +205,9 @@ impl RenderSystem {
         }
 
         let deleted_meshes = scene.objects.meshes_3d.take_erased();
-        let deleted_instances = scene.instances_3d.take_removed();
-
         if !deleted_meshes.is_empty() {
             changed = true;
             renderer.unload_3d_meshes(deleted_meshes);
-        }
-
-        if !deleted_instances.is_empty() {
-            changed = true;
-            renderer.unload_3d_instances(deleted_instances);
         }
 
         if changed {

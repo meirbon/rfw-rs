@@ -192,8 +192,7 @@ impl<'a, T: 'static + Debug + Sized + Send + Sync> Iterator for SyncIter<'a, T> 
             let index = self.index;
             self.index += 1;
 
-            if let Some(_) = self.jobs.get(index) {
-                let signal: Signal<T> = self.jobs.take(index).unwrap();
+            if let Some(signal) = self.jobs.take(index) {
                 return Some(signal.join());
             }
         }

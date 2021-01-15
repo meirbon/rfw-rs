@@ -39,7 +39,6 @@ use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
 use crate::utils::Flags;
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut, TrackedStorage};
-use std::collections::HashSet;
 use std::sync::{PoisonError, TryLockError};
 use std::{
     collections::HashMap,
@@ -113,7 +112,6 @@ pub struct Objects {
     pub meshes_2d: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
-    pub o_to_i_mapping: HashMap<usize, HashSet<usize>>,
 }
 
 impl Default for Objects {
@@ -123,7 +121,6 @@ impl Default for Objects {
             meshes_2d: TrackedStorage::new(),
             graph: graph::SceneGraph::new(),
             skins: TrackedStorage::new(),
-            o_to_i_mapping: HashMap::new(),
         }
     }
 }
@@ -158,7 +155,6 @@ pub struct Scene {
     pub materials: MaterialList,
     pub settings: Flags,
     pub cameras: TrackedStorage<Camera>,
-    pub instances_3d: InstanceList3D,
     pub instances_2d: InstanceList2D,
 }
 
@@ -173,7 +169,6 @@ impl Default for Scene {
             materials: MaterialList::new(),
             settings: Flags::new(),
             cameras: TrackedStorage::new(),
-            instances_3d: InstanceList3D::new(),
             instances_2d: InstanceList2D::new(),
         }
     }
@@ -182,13 +177,11 @@ impl Default for Scene {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
-    pub instances_3d: instances_3d::List3D,
     pub instances_2d: instances_2d::List2D,
     pub meshes: TrackedStorage<Mesh3D>,
     pub d2_meshes: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
     pub skins: TrackedStorage<graph::Skin>,
-    pub o_to_i_mapping: HashMap<usize, HashSet<usize>>,
     pub lights: SceneLights,
     pub materials: MaterialList,
     pub settings: Flags,
@@ -197,13 +190,11 @@ struct SerializableScene {
 impl From<&Scene> for SerializableScene {
     fn from(scene: &Scene) -> Self {
         Self {
-            instances_3d: scene.instances_3d.clone_inner(),
             instances_2d: scene.instances_2d.clone_inner(),
             meshes: scene.objects.meshes_3d.clone(),
             d2_meshes: scene.objects.meshes_2d.clone(),
             graph: scene.objects.graph.clone(),
             skins: scene.objects.skins.clone(),
-            o_to_i_mapping: scene.objects.o_to_i_mapping.clone(),
             lights: scene.lights.clone(),
             materials: scene.materials.clone(),
             settings: scene.settings.clone(),
@@ -220,13 +211,11 @@ impl Into<Scene> for SerializableScene {
                 meshes_2d: self.d2_meshes,
                 graph: self.graph,
                 skins: self.skins,
-                o_to_i_mapping: self.o_to_i_mapping,
             },
             lights: self.lights,
             materials: self.materials,
             settings: self.settings,
             cameras: TrackedStorage::new(),
-            instances_3d: self.instances_3d.into(),
             instances_2d: self.instances_2d.into(),
         }
     }
@@ -272,18 +261,19 @@ impl Scene {
     pub fn add_3d_scene<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
         self.objects
             .graph
-            .add_graph(scene.into_scene(&mut self.instances_3d, &mut self.objects.skins))
+            .add_graph(scene.into_scene(&mut self.objects.meshes_3d, &mut self.objects.skins))
     }
 
     pub fn remove_3d_scene(&mut self, scene: GraphHandle) {
-        self.objects
-            .graph
-            .remove_graph(scene, &mut self.instances_3d, &mut self.objects.skins);
+        self.objects.graph.remove_graph(
+            scene,
+            &mut self.objects.meshes_3d,
+            &mut self.objects.skins,
+        );
     }
 
-    pub fn add_3d_object(&mut self, object: Mesh3D) -> usize {
-        let id = self.objects.meshes_3d.push(object);
-        self.objects.o_to_i_mapping.insert(id, HashSet::new());
+    pub fn add_3d_object<T: ToMesh>(&mut self, object: T) -> usize {
+        let id = self.objects.meshes_3d.push(object.into_mesh());
         id
     }
 
@@ -310,26 +300,8 @@ impl Scene {
     }
 
     pub fn remove_3d_object(&mut self, index: usize) -> Result<(), SceneError> {
-        // TODO: Remove instances that contained this object
-        // TODO: Remove scenes that contained this object
         match self.objects.meshes_3d.erase(index as usize) {
-            Ok(_) => {
-                for inst in self
-                    .objects
-                    .o_to_i_mapping
-                    .get(&index)
-                    .expect("Object should exist in o_to_i_mapping")
-                    .iter()
-                {
-                    let mut instance = self
-                        .instances_3d
-                        .get(*inst as usize)
-                        .expect("Instance should exist");
-                    instance.set_mesh(MeshID::INVALID);
-                }
-
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err(_) => Err(SceneError::InvalidObjectIndex(index as _)),
         }
     }
@@ -342,18 +314,12 @@ impl Scene {
         }
     }
 
-    pub fn add_instance(&mut self, index: usize) -> Result<InstanceHandle3D, SceneError> {
+    pub fn add_3d_instance(&mut self, index: usize) -> Result<InstanceHandle3D, SceneError> {
         if self.objects.meshes_3d.get(index).is_none() {
             return Err(SceneError::InvalidObjectIndex(index));
         }
 
-        let instance = self.instances_3d.allocate();
-        self.objects
-            .o_to_i_mapping
-            .get_mut(&index)
-            .expect("Object should exist in o_to_i_mapping")
-            .insert(instance.get_id());
-        Ok(instance)
+        Ok(self.objects.meshes_3d[index].instances.allocate())
     }
 
     pub fn add_2d_instance(&mut self, index: usize) -> Result<InstanceHandle2D, SceneError> {
@@ -364,37 +330,6 @@ impl Scene {
         let mut instance_id = self.instances_2d.allocate();
         instance_id.set_mesh(MeshID(index as _));
         Ok(instance_id)
-    }
-
-    pub fn set_instance_object(&mut self, instance: usize, index: usize) -> Result<(), SceneError> {
-        assert!(self.objects.meshes_3d.get(index as usize).is_some());
-
-        match self.instances_3d.get(instance) {
-            None => return Err(SceneError::InvalidInstanceIndex(instance)),
-            Some(inst) => {
-                if let Some(mesh_id) = inst.get_mesh_id().as_index() {
-                    self.objects
-                        .o_to_i_mapping
-                        .get_mut(&(mesh_id))
-                        .expect("Object should exist in o_to_i_mapping")
-                        .remove(&(inst.get_id()));
-                }
-
-                self.objects
-                    .o_to_i_mapping
-                    .get_mut(&index)
-                    .expect("Object should exist in o_to_i_mapping")
-                    .insert(inst.get_id());
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn remove_3d_instance(&mut self, index: usize) {
-        if let Some(instance) = self.instances_3d.get(index) {
-            self.instances_3d.make_invalid(instance);
-        }
     }
 
     pub fn remove_2d_instance(&mut self, index: usize) {
@@ -505,9 +440,8 @@ impl Scene {
 
         let mut triangle_light_ids: Vec<(u32, u32, u32)> = Vec::new();
 
-        for (inst_idx, instance) in self.instances_3d.iter().enumerate() {
-            if let Some(mesh_id) = instance.get_mesh_id().as_index() {
-                let m = &self.objects.meshes_3d[mesh_id];
+        self.objects.meshes_3d.iter().for_each(|(mesh_id, m)| {
+            m.instances.iter().for_each(|instance| {
                 for v in m.ranges.iter() {
                     let light_flag = light_flags.get(v.mat_id as usize);
                     if light_flag.is_none() {
@@ -546,7 +480,8 @@ impl Scene {
                                 position,
                                 Vec3::new(color[0], color[1], color[2]),
                                 normal,
-                                inst_idx as i32,
+                                mesh_id as i32,
+                                instance.get_id() as i32,
                                 vertex0,
                                 vertex1,
                                 vertex2,
@@ -554,8 +489,8 @@ impl Scene {
                         }
                     }
                 }
-            }
-        }
+            });
+        });
 
         triangle_light_ids
             .into_iter()

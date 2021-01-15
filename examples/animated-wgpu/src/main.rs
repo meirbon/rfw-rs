@@ -13,6 +13,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+use rfw::scene::Sphere;
 use rfw::{
     backend::RenderMode,
     ecs::System,
@@ -150,14 +151,14 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut width = window.inner_size().width;
     let mut height = window.inner_size().height;
 
-    let scale_factor: f64 = window
+    let mut scale_factor: f32 = window
         .current_monitor()
-        .map(|m| 1.0 / m.scale_factor())
+        .map(|m| 1.0 / m.scale_factor() as f32)
         .unwrap_or(1.0);
 
     let font = include_bytes!("../../../assets/good-times-rg.ttf");
     let mut renderer: Instance<WgpuBackend> =
-        Instance::new(&window, (width, height), Some(scale_factor))
+        Instance::new(&window, (width, height), Some(scale_factor as f64))
             .unwrap()
             .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
             .with_system(FpsSystem::default());
@@ -178,6 +179,23 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         45.0,
         60.0,
     );
+
+    let material =
+        renderer
+            .get_scene_mut()
+            .materials
+            .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
+    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32);
+    let sphere = renderer.get_scene_mut().add_3d_object(sphere);
+    {
+        let mut scene = renderer.get_scene_mut();
+        for x in -50..=50 {
+            for z in -25..=25 {
+                let mut instance = scene.add_3d_instance(sphere).unwrap();
+                instance.set_matrix(Mat4::from_translation(Vec3::new(x as f32, 0.3, z as f32)));
+            }
+        }
+    }
 
     let cesium_man = renderer
         .get_scene_mut()
@@ -213,6 +231,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     renderer.get_settings().setup_imgui(&window);
 
     let mut fullscreen_timer = 0.0;
+    let mut scale_factor_changed = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -337,10 +356,11 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     camera.translate_relative(pos_change);
                 }
 
-                if resized {
-                    renderer.resize(&window, (width, height), None);
+                if resized || scale_factor_changed {
+                    renderer.resize(&window, (width, height), Some(scale_factor as f64));
                     camera.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
+                    scale_factor_changed = false;
                 }
 
                 renderer
@@ -363,7 +383,13 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 {
-                    let instances_3d = renderer.get_scene().instances_3d.len();
+                    let instances_3d: usize = renderer
+                        .get_scene()
+                        .objects
+                        .meshes_3d
+                        .iter()
+                        .map(|(_, m)| m.instances.len())
+                        .sum();
                     let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
                     let instances_2d = renderer.get_scene().instances_2d.len();
                     let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
@@ -380,6 +406,11 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
                                 ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
                                 ui.text(imgui::im_str!("2D Mesh count: {}", meshes_2d));
+                                scale_factor_changed = ui
+                                    .input_float(imgui::im_str!("Scale factor"), &mut scale_factor)
+                                    .step(0.05)
+                                    .build();
+                                scale_factor = scale_factor.max(0.1).min(2.0);
                             });
                     });
                 }

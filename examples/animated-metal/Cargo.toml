@@ -1,5 +1,5 @@
 [package]
-name = "animated"
+name = "animated-metal"
 version = "0.1.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
@@ -11,6 +11,5 @@ clap = "2.33"
 glyph_brush = "0.7.0"
 rayon = "1.5"
 rfw = { path = "../../rfw" }
-rfw-backend-wgpu = { path = "../../backends/wgpu", features = ["imgui-winit"] }
-rfw-backend-gfx = { path = "../../backends/gfx" }
+rfw-backend-metal = { path = "../../backends/metal" }
 rfw-font = { path = "../../crates/rfw-font" }

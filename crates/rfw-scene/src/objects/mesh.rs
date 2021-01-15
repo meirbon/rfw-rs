@@ -1,4 +1,4 @@
-use crate::RTTriangle;
+use crate::{InstanceList3D, RTTriangle};
 use l3d::load::MeshDescriptor;
 use l3d::mat::MaterialList;
 use rayon::prelude::*;
@@ -20,6 +20,7 @@ pub trait ToMesh {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Mesh3D {
+    pub instances: InstanceList3D,
     pub triangles: Vec<RTTriangle>,
     pub vertices: Vec<Vertex3D>,
     pub skin_data: Vec<JointData>,
@@ -366,6 +367,7 @@ impl Mesh3D {
         });
 
         Mesh3D {
+            instances: InstanceList3D::default(),
             triangles,
             vertices: vertex_data,
             materials: Vec::from(material_ids),
@@ -407,6 +409,7 @@ impl Mesh3D {
 
     pub fn empty() -> Mesh3D {
         Mesh3D {
+            instances: Default::default(),
             triangles: Default::default(),
             vertices: Default::default(),
             skin_data: Default::default(),
@@ -1200,6 +1203,7 @@ impl From<l3d::load::MeshDescriptor> for Mesh3D {
         });
 
         Mesh3D {
+            instances: Default::default(),
             triangles,
             vertices: vertex_data,
             skin_data: joints_weights,

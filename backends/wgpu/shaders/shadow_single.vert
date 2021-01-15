@@ -8,16 +8,20 @@ layout(set = 0, binding = 0) uniform Locals {
     LightInfo info;
 };
 
-layout(set = 1, binding = 0) uniform I {
-    mat4 Transform;
-    mat4 InverseTransform;
+struct Transform {
+    mat4 M;
+    mat4 IM;
+};
+
+layout(set = 1, binding = 0) buffer readonly Instances {
+    Transform transforms[];
 };
 
 layout (location = 0) out vec4 LightSpaceV;
 layout (location = 1) out vec4 V;
 
 void main() {
-    const vec4 v = Transform * Vertex;
+    const vec4 v = transforms[gl_InstanceIndex].M * Vertex;
     V = v;
 
     const vec4 Light_V = info.MP * vec4(v.xyz, 1.0);
