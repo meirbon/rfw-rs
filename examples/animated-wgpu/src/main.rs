@@ -383,13 +383,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 {
-                    let instances_3d: usize = renderer
-                        .get_scene()
-                        .objects
-                        .meshes_3d
-                        .iter()
-                        .map(|(_, m)| m.instances.len())
-                        .sum();
+                    let mut instances_3d = 0;
+                    let mut vertices = 0;
+                    for (_, m) in renderer.get_scene().objects.meshes_3d.iter() {
+                        instances_3d += m.instances.len();
+                        vertices += m.vertices.len() * m.instances.len();
+                    }
                     let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
                     let instances_2d = renderer.get_scene().instances_2d.len();
                     let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
@@ -402,6 +401,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                             .size([350.0, 250.0], imgui::Condition::FirstUseEver)
                             .position([900.0, 25.0], imgui::Condition::FirstUseEver)
                             .build(&ui, || {
+                                ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
                                 ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
                                 ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
