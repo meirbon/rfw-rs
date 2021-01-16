@@ -13,13 +13,15 @@ pub struct SkinData<'a> {
 #[derive(Debug, Copy, Clone)]
 pub struct InstancesData2D<'a> {
     pub matrices: &'a [Mat4],
-    pub mesh_ids: &'a [MeshID],
 }
 
 impl InstancesData2D<'_> {
     pub fn len(&self) -> usize {
-        debug_assert_eq!(self.matrices.len(), self.mesh_ids.len());
         self.matrices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.matrices.is_empty()
     }
 }
 
@@ -33,6 +35,10 @@ impl InstancesData3D<'_> {
     pub fn len(&self) -> usize {
         debug_assert_eq!(self.matrices.len(), self.skin_ids.len());
         self.matrices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.matrices.is_empty()
     }
 }
 
@@ -64,6 +70,12 @@ impl MeshID {
         } else {
             None
         }
+    }
+}
+
+impl Into<usize> for MeshID {
+    fn into(self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -101,6 +113,12 @@ impl SkinID {
         } else {
             None
         }
+    }
+}
+
+impl From<usize> for SkinID {
+    fn from(i: usize) -> Self {
+        SkinID(i as i32)
     }
 }
 

@@ -10,7 +10,7 @@ pub mod obj;
 #[derive(Debug, Clone)]
 pub enum LoadResult {
     /// Reference to single mesh
-    Object(u32),
+    Object(MeshID),
     /// Indices of root nodes of scene
     Scene(SceneDescriptor),
 }
@@ -18,7 +18,7 @@ pub enum LoadResult {
 impl LoadResult {
     pub fn object(self) -> Result<MeshID, ()> {
         match self {
-            LoadResult::Object(obj) => Ok(MeshID::from(obj as usize)),
+            LoadResult::Object(obj) => Ok(obj),
             LoadResult::Scene(_) => Err(()),
         }
     }

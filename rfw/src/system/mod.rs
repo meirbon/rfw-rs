@@ -40,10 +40,11 @@ impl RenderSystem {
         let mut update_lights = false;
         let mut found_light = false;
 
-        scene
-            .objects
-            .graph
-            .synchronize(&mut scene.objects.meshes_3d, &mut scene.objects.skins);
+        scene.objects.graph.synchronize(
+            &mut scene.objects.meshes_3d,
+            &mut scene.objects.instances_3d,
+            &mut scene.objects.skins,
+        );
 
         if scene.objects.skins.any_changed() {
             let skins: Vec<SkinData> = scene
@@ -70,15 +71,20 @@ impl RenderSystem {
                     },
                 );
             }
-            scene.objects.meshes_2d.reset_changed();
         }
+        scene.objects.meshes_2d.reset_changed();
 
-        if scene.instances_2d.any_changed() {
-            renderer.set_2d_instances(InstancesData2D {
-                matrices: scene.instances_2d.matrices(),
-                mesh_ids: scene.instances_2d.mesh_ids(),
-            });
-            scene.instances_2d.reset_changed();
+        for (id, i) in scene.objects.instances_2d.iter_mut() {
+            if !i.any_changed() {
+                continue;
+            }
+
+            renderer.set_2d_instances(
+                id,
+                InstancesData2D {
+                    matrices: i.matrices(),
+                },
+            );
         }
 
         if scene.objects.meshes_3d.any_changed() {
@@ -97,10 +103,12 @@ impl RenderSystem {
             }
             changed = true;
         }
+        scene.objects.meshes_3d.reset_changed();
 
         let light_flags = scene.materials.light_flags();
-        for (i, mesh) in scene.objects.meshes_3d.iter_mut() {
-            if !mesh.instances.any_changed() {
+        for (i, mesh) in scene.objects.meshes_3d.iter() {
+            let instances = &mut scene.objects.instances_3d[i];
+            if !instances.any_changed() {
                 continue;
             }
 
@@ -122,15 +130,14 @@ impl RenderSystem {
             renderer.set_3d_instances(
                 i,
                 InstancesData3D {
-                    matrices: mesh.instances.matrices(),
-                    skin_ids: mesh.instances.skin_ids(),
+                    matrices: instances.matrices(),
+                    skin_ids: instances.skin_ids(),
                 },
             );
 
-            mesh.instances.reset_changed();
+            instances.reset_changed();
         }
 
-        scene.objects.meshes_3d.reset_changed();
         update_lights |= found_light;
 
         let mut mat_changed = false;

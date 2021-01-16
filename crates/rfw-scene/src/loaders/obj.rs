@@ -1,23 +1,12 @@
 use crate::{
     material::*,
-    {utils::Flags, SceneError},
-    {LoadResult, Mesh3D, ObjectLoader},
+    SceneError, {LoadResult, Mesh3D, ObjectLoader},
 };
 use l3d::mat::{Flip, Texture, TextureSource};
+use rfw_backend::MeshID;
 use rfw_math::*;
 use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
-
-enum ObjFlags {
-    HasNormals = 1,
-    HasUvs = 2,
-}
-
-impl Into<u8> for ObjFlags {
-    fn into(self) -> u8 {
-        self as u8
-    }
-}
 
 #[derive(Debug, Copy, Clone)]
 pub struct ObjLoader {}
@@ -198,7 +187,6 @@ impl ObjectLoader for ObjLoader {
             ));
         }
 
-        let mut flags = Flags::new();
         let num_vertices: usize = models.iter().map(|m| m.mesh.indices.len()).sum();
 
         let mut vertices = Vec::with_capacity(num_vertices);
@@ -219,14 +207,12 @@ impl ObjectLoader for ObjLoader {
                 let pos = [mesh.positions[i0], mesh.positions[i1], mesh.positions[i2]];
 
                 let normal = if !mesh.normals.is_empty() {
-                    flags.set_flag(ObjFlags::HasNormals);
                     [mesh.normals[i0], mesh.normals[i1], mesh.normals[i2]]
                 } else {
                     [0.0; 3]
                 };
 
                 let uv = if !mesh.texcoords.is_empty() {
-                    flags.set_flag(ObjFlags::HasUvs);
                     [mesh.texcoords[idx * 2], mesh.texcoords[idx * 2 + 1]]
                 } else {
                     [0.0; 2]
@@ -262,6 +248,6 @@ impl ObjectLoader for ObjLoader {
             material_ids,
             Some(String::from(path.to_str().unwrap())),
         );
-        Ok(LoadResult::Object(mesh_id as u32))
+        Ok(LoadResult::Object(MeshID::from(mesh_id)))
     }
 }

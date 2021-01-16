@@ -5,6 +5,7 @@ use rfw_math::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Mesh2D {
@@ -47,7 +48,10 @@ impl Mesh2D {
             })
             .collect();
 
-        Self { vertices, tex_id }
+        Self {
+            vertices,
+            tex_id,
+        }
     }
 
     pub fn set_tex_id(&mut self, id: u32) {
@@ -82,35 +86,5 @@ impl From<&[Vertex2D]> for Mesh2D {
             vertices: vec.to_vec(),
             tex_id: None,
         }
-    }
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct Instance2D {
-    pub mesh: Option<u32>,
-    pub transform: [f32; 16],
-}
-
-impl Default for Instance2D {
-    fn default() -> Self {
-        Self {
-            mesh: None,
-            transform: Mat4::identity().to_cols_array(),
-        }
-    }
-}
-
-impl Instance2D {
-    pub fn new(mesh: u32) -> Self {
-        Self {
-            mesh: Some(mesh),
-            transform: Mat4::identity().to_cols_array(),
-        }
-    }
-
-    pub fn with_transform(mut self, transform: [f32; 16]) -> Self {
-        self.transform = transform;
-        self
     }
 }

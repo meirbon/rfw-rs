@@ -187,15 +187,18 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
     let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    {
+    let mut handles = {
+        let mut handles = Vec::new();
         let mut scene = renderer.get_scene_mut();
         for x in -50..=50 {
             for z in -25..=25 {
                 let mut instance = scene.add_3d_instance(sphere).unwrap();
                 instance.set_matrix(Mat4::from_translation(Vec3::new(x as f32, 0.3, z as f32)));
+                handles.push(instance);
             }
         }
-    }
+        handles
+    };
 
     let cesium_man = renderer
         .get_scene_mut()
@@ -386,12 +389,18 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     let instances_3d: usize = renderer
                         .get_scene()
                         .objects
-                        .meshes_3d
+                        .instances_3d
                         .iter()
-                        .map(|(_, m)| m.instances.len())
+                        .map(|(_, i)| i.len())
                         .sum();
                     let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
-                    let instances_2d = renderer.get_scene().instances_2d.len();
+                    let instances_2d: usize = renderer
+                        .get_scene()
+                        .objects
+                        .instances_2d
+                        .iter()
+                        .map(|(_, i)| i.len())
+                        .sum();
                     let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
 
                     let settings = renderer.get_settings();
@@ -413,6 +422,23 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                                 scale_factor = scale_factor.max(0.1).min(2.0);
                             });
                     });
+                }
+
+                let t = (app_time.elapsed_in_millis() / 1000.0).sin();
+                let mut i = 0;
+                for x in -50..=50 {
+                    for z in -25..=25 {
+                        let _x = ((x as f32 + t) % 10.0).sin();
+                        let _z = ((z as f32 + t) % 10.0).sin();
+                        let height = (_z + _x) * 0.5 + 1.0;
+
+                        handles[i].set_matrix(Mat4::from_translation(Vec3::new(
+                            x as f32,
+                            0.3 + height,
+                            z as f32,
+                        )));
+                        i += 1;
+                    }
                 }
 
                 if let Err(e) = renderer.render(&camera, RenderMode::Reset) {

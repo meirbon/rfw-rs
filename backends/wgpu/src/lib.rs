@@ -1,4 +1,3 @@
-// use crate::instance::{DeviceInstances, InstanceList};
 use crate::light::WgpuLights;
 use crate::mesh::{SkinningPipeline, WgpuSkin};
 pub use crate::output::WgpuView;
@@ -12,7 +11,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 mod d2;
-// mod instance;
+mod instance;
 mod light;
 mod mat;
 mod mem;
@@ -27,6 +26,7 @@ use mat::*;
 #[cfg(feature = "imgui-winit")]
 mod gui;
 
+use crate::instance::InstanceList;
 #[cfg(feature = "imgui-winit")]
 pub use gui::*;
 pub use output::WgpuOutput;
@@ -97,7 +97,7 @@ pub struct WgpuBackend {
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
     meshes: TrackedStorage<mesh::WgpuMesh>,
-    // instances: instance::InstanceList,
+    instances: TrackedStorage<instance::InstanceList>,
     instance_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     material_buffer: ManagedBuffer<DeviceMaterial>,
     material_bind_groups: FlaggedStorage<WgpuBindGroup>,
@@ -267,6 +267,11 @@ impl WgpuBackend {
         {
             match result {
                 TaskResult::Mesh(id, mesh) => {
+                    if self.instances.get(id).is_none() {
+                        self.instances
+                            .overwrite(id, instance::InstanceList::default());
+                    }
+
                     meshes.overwrite(id, mesh);
                 }
             }
@@ -327,7 +332,6 @@ impl Backend for WgpuBackend {
             },
         );
 
-        // let instances = instance::InstanceList::new(&device);
         let material_buffer: ManagedBuffer<DeviceMaterial> = ManagedBuffer::new(
             device.clone(),
             queue.clone(),
@@ -416,7 +420,7 @@ impl Backend for WgpuBackend {
         let blit_pass = pass::BlitPass::new(&device, &output);
         let output_pass = pass::QuadPass::new(&device, &output);
 
-        let d2_renderer = d2::Renderer::new(&device);
+        let d2_renderer = d2::Renderer::new(&device, &instance_bind_group_layout);
 
         let settings = WgpuSettings {
             view: WgpuView::Output,
@@ -436,6 +440,7 @@ impl Backend for WgpuBackend {
             surface,
             swap_chain,
             meshes: TrackedStorage::new(),
+            instances: TrackedStorage::new(),
             instance_bind_group_layout,
             material_buffer,
             material_bind_groups: Default::default(),
@@ -470,11 +475,18 @@ impl Backend for WgpuBackend {
     }
 
     fn set_2d_mesh(&mut self, id: usize, mesh: MeshData2D) {
-        self.d2_renderer.update_mesh(&self.device, id, mesh);
+        self.d2_renderer
+            .set_mesh(&self.device, &self.queue, id, mesh);
     }
 
-    fn set_2d_instances(&mut self, instances: InstancesData2D<'_>) {
-        self.d2_renderer.update_instances(&self.queue, instances);
+    fn set_2d_instances(&mut self, id: usize, instances: InstancesData2D<'_>) {
+        self.d2_renderer.set_instances(
+            id,
+            &self.device,
+            &self.queue,
+            instances,
+            &self.instance_bind_group_layout,
+        );
     }
 
     fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
@@ -488,17 +500,8 @@ impl Backend for WgpuBackend {
         let skin_data = mesh.skin_data.to_vec();
         let bounds = mesh.bounds;
 
-        let instance_bind_group_layout = self.instance_bind_group_layout.clone();
         self.task_pool.push(move |finish| {
-            let mesh = mesh::WgpuMesh::new(
-                &device,
-                &instance_bind_group_layout,
-                name,
-                vertices,
-                ranges,
-                skin_data,
-                bounds,
-            );
+            let mesh = mesh::WgpuMesh::new(&device, name, vertices, ranges, skin_data, bounds);
             finish.send(TaskResult::Mesh(id, mesh));
         });
     }
@@ -509,20 +512,27 @@ impl Backend for WgpuBackend {
                 Ok(_) => {}
                 Err(_) => panic!("mesh id {} did not exist", id),
             }
+
+            match self.instances.erase(id) {
+                Ok(_) => {}
+                Err(_) => panic!("mesh id {} did not exist", id),
+            }
         }
     }
 
     fn set_3d_instances(&mut self, mesh: usize, instances: InstancesData3D<'_>) {
         self.sync_pool();
-        if let Some(m) = self.meshes.get_mut(mesh) {
+        if let Some(i) = self.instances.get_mut(mesh) {
+            let m = &self.meshes[mesh];
             for matrix in instances.matrices {
                 self.scene_bounds
                     .grow_bb(&m.bounds.transformed(matrix.to_cols_array()));
             }
 
-            m.set_instances(
+            i.update(
                 &self.device,
                 &self.queue,
+                m,
                 instances,
                 &self.instance_bind_group_layout,
                 self.skins.as_slice(),
@@ -607,7 +617,7 @@ impl Backend for WgpuBackend {
         }
 
         self.d2_renderer
-            .update_bind_groups(&self.device, &self.textures);
+            .update_bind_groups(&self.device, self.textures.as_slice());
     }
 
     fn synchronize(&mut self) {
@@ -651,7 +661,12 @@ impl Backend for WgpuBackend {
             });
 
         if self.instances_changed {
-            Self::render_lights(&mut encoder, &mut self.lights, &self.meshes);
+            Self::render_lights(
+                &mut encoder,
+                &mut self.lights,
+                &self.instances,
+                &self.meshes,
+            );
             self.instances_changed = false;
         }
 
@@ -659,7 +674,8 @@ impl Backend for WgpuBackend {
             &mut encoder,
             FrustrumG::from_matrix(camera.get_rh_matrix()),
             &self.pipeline,
-            self.meshes.as_slice(),
+            &self.instances,
+            &self.meshes,
             &self.output,
             &self.uniform_bind_group,
             self.material_bind_groups.as_slice(),
@@ -818,16 +834,18 @@ impl WgpuBackend {
     fn render_lights(
         encoder: &mut wgpu::CommandEncoder,
         lights: &mut WgpuLights,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
     ) {
-        lights.render(encoder, meshes);
+        lights.render(encoder, instances, meshes);
     }
 
     fn render_scene(
         encoder: &mut wgpu::CommandEncoder,
         frustrum: FrustrumG,
         pipeline: &pipeline::RenderPipeline,
-        meshes: &[WgpuMesh],
+        instances: &TrackedStorage<InstanceList>,
+        meshes: &TrackedStorage<WgpuMesh>,
         d_output: &output::WgpuOutput,
         uniform_bind_group: &wgpu::BindGroup,
         material_bind_groups: &[WgpuBindGroup],
@@ -850,22 +868,23 @@ impl WgpuBackend {
         render_pass.set_pipeline(&pipeline.pipeline);
         render_pass.set_bind_group(0, uniform_bind_group, &[]);
 
-        for m in meshes.iter() {
-            let instances = m.instances() as usize;
+        for (id, i) in instances.iter() {
+            let m = &meshes[id];
+            let instances = i.len() as usize;
             if instances == 0 {
                 continue;
             }
 
-            render_pass.set_bind_group(1, (*m.instances_bg).as_ref().unwrap(), &[]);
-            if m.supports_skinning() {
+            render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
+            if i.supports_skinning {
                 for instance in 0..instances {
-                    if frustrum.aabb_in_frustrum(&m.instances_bounds[instance])
+                    if frustrum.aabb_in_frustrum(&i.instances_bounds[instance])
                         == FrustrumResult::Outside
                     {
                         continue;
                     }
 
-                    let buffer = if let Some(b) = m.buffer_for(instance) {
+                    let buffer = if let Some(b) = i.buffer_for(instance) {
                         b
                     } else {
                         continue;
@@ -902,8 +921,8 @@ impl WgpuBackend {
                 render_pass.set_vertex_buffer(3, buffer_slice);
                 render_pass.set_vertex_buffer(4, buffer_slice);
 
-                for instance in 0..m.instances() {
-                    if frustrum.aabb_in_frustrum(&m.instances_bounds[instance as usize])
+                for instance in 0..(instances as u32) {
+                    if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
                         != FrustrumResult::Outside
                     {
                         for r in m.ranges.iter() {

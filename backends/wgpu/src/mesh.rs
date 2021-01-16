@@ -3,15 +3,9 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct WgpuMesh {
-    instance_capacity: wgpu::BufferAddress,
-    instances: u32,
-    instance_buffers: Vec<Arc<Option<wgpu::Buffer>>>,
-    pub instances_buffer: Arc<Option<wgpu::Buffer>>,
-    pub instances_bg: Arc<Option<wgpu::BindGroup>>,
-    pub instances_bounds: Vec<AABB>,
-    buffer: Arc<Option<wgpu::Buffer>>,
+    pub(crate) buffer: Arc<Option<wgpu::Buffer>>,
     pub buffer_size: wgpu::BufferAddress,
-    joints_weights_buffer: Arc<Option<wgpu::Buffer>>,
+    pub(crate) joints_weights_buffer: Arc<Option<wgpu::Buffer>>,
     pub ranges: Vec<VertexMesh>,
     pub bounds: AABB,
 }
@@ -19,12 +13,6 @@ pub struct WgpuMesh {
 impl Default for WgpuMesh {
     fn default() -> Self {
         Self {
-            instance_capacity: 0,
-            instances: 0,
-            instance_buffers: Vec::new(),
-            instances_buffer: Arc::new(None),
-            instances_bg: Arc::new(None),
-            instances_bounds: Vec::new(),
             buffer: Arc::new(None),
             buffer_size: 0,
             joints_weights_buffer: Arc::new(None),
@@ -37,12 +25,6 @@ impl Default for WgpuMesh {
 impl Clone for WgpuMesh {
     fn clone(&self) -> Self {
         Self {
-            instance_capacity: self.instance_capacity,
-            instances: self.instances,
-            instance_buffers: self.instance_buffers.clone(),
-            instances_buffer: self.instances_buffer.clone(),
-            instances_bg: self.instances_bg.clone(),
-            instances_bounds: self.instances_bounds.clone(),
             buffer: self.buffer.clone(),
             buffer_size: self.buffer_size,
             joints_weights_buffer: self.joints_weights_buffer.clone(),
@@ -54,11 +36,8 @@ impl Clone for WgpuMesh {
 
 #[allow(dead_code)]
 impl WgpuMesh {
-    const DEFAULT_CAPACITY: usize = 4;
-
     pub fn new(
         device: &wgpu::Device,
-        instances_layout: &wgpu::BindGroupLayout,
         name: String,
         vertices: Vec<Vertex3D>,
         ranges: Vec<VertexMesh>,
@@ -107,31 +86,7 @@ impl WgpuMesh {
             None
         };
 
-        let instances_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(format!("mesh-{}-instances", name).as_str()),
-            size: (Self::DEFAULT_CAPACITY * std::mem::size_of::<Mat4>() * 2) as _,
-            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: false,
-        }));
-
-        let instances_bg = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(format!("mesh-{}-bind-group", name).as_str()),
-            layout: instances_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(
-                    instances_buffer.as_ref().unwrap().slice(..),
-                ),
-            }],
-        }));
-
         Self {
-            instance_capacity: Self::DEFAULT_CAPACITY as _,
-            instances: 0,
-            instance_buffers: Vec::new(),
-            instances_buffer: Arc::new(instances_buffer),
-            instances_bg: Arc::new(instances_bg),
-            instances_bounds: vec![bounds; Self::DEFAULT_CAPACITY],
             buffer: Arc::new(Some(buffer)),
             buffer_size,
             joints_weights_buffer: Arc::new(joints_weights_buffer),
@@ -150,79 +105,6 @@ impl WgpuMesh {
 
     pub fn buffer(&self) -> Option<&wgpu::Buffer> {
         self.buffer.as_ref().as_ref()
-    }
-
-    pub fn buffer_for(&self, i: usize) -> Option<&wgpu::Buffer> {
-        if let Some(buffer) = self.instance_buffers.get(i) {
-            buffer.as_ref().as_ref()
-        } else {
-            None
-        }
-    }
-
-    pub fn set_instances(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        instances: InstancesData3D<'_>,
-        instances_layout: &wgpu::BindGroupLayout,
-        skins: &[WgpuSkin],
-        skinning_pipeline: &SkinningPipeline,
-    ) {
-        self.instances = instances.len() as _;
-        if instances.len() > self.instance_capacity as usize || self.instances_buffer.is_none() {
-            self.instances_buffer = Arc::new(Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: (instances.len().next_power_of_two() * std::mem::size_of::<Mat4>() * 2) as _,
-                usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-                mapped_at_creation: false,
-            })));
-
-            self.instances_bg =
-                Arc::new(Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    layout: instances_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(
-                            (*self.instances_buffer).as_ref().unwrap().slice(..),
-                        ),
-                    }],
-                })));
-        }
-
-        self.instances_bounds
-            .resize(instances.len(), AABB::default());
-        self.instance_buffers
-            .resize(instances.len(), Arc::new(None));
-
-        let mut matrices = Vec::with_capacity(instances.len() * 2);
-        for (i, m) in instances.matrices.iter().enumerate() {
-            matrices.push(*m);
-            matrices.push(m.inverse().transpose());
-            self.instances_bounds[i] = self.bounds.transformed(m.to_cols_array());
-            self.instance_buffers[i] = if let Some(skin) = instances.skin_ids[i].as_index() {
-                Arc::new(Some(
-                    skinning_pipeline
-                        .apply_skin(device, queue, self, &skins[skin])
-                        .0,
-                ))
-            } else {
-                self.buffer.clone()
-            };
-        }
-
-        queue.write_buffer(
-            (*self.instances_buffer).as_ref().unwrap(),
-            0,
-            matrices.as_bytes(),
-        );
-
-        assert!(instances.len() > 0);
-    }
-
-    pub fn instances(&self) -> u32 {
-        self.instances
     }
 }
 
@@ -353,75 +235,6 @@ impl SkinningPipeline {
         queue.submit(std::iter::once(encoder.finish()));
 
         (buffer, len as wgpu::BufferAddress)
-    }
-
-    pub fn apply_skin_buffer(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        buffer: &mut (wgpu::Buffer, wgpu::BufferAddress),
-        mesh: &WgpuMesh,
-        skin: &WgpuSkin,
-    ) {
-        let len = mesh.len() + (64 - mesh.len() % 64);
-        if (buffer.1 as usize) < len {
-            // Recreate buffer if it is not large enough
-            let b = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("skinned-vertices"),
-                size: (len * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsage::VERTEX
-                    | wgpu::BufferUsage::STORAGE
-                    | wgpu::BufferUsage::COPY_DST,
-                mapped_at_creation: false,
-            });
-            buffer.0 = b;
-            buffer.1 = len as wgpu::BufferAddress;
-        }
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("apply-skin"),
-        });
-        encoder.copy_buffer_to_buffer(
-            (*mesh.buffer).as_ref().unwrap(),
-            0,
-            &buffer.0,
-            0,
-            (mesh.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
-        );
-
-        assert!(mesh.buffer.is_some());
-        assert!(mesh.joints_weights_buffer.is_some());
-        assert!(skin.buffer.is_some());
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("skinning-bind-group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(buffer.0.slice(..)),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(
-                        skin.buffer.as_ref().unwrap().slice(..),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(
-                        (*mesh.joints_weights_buffer).as_ref().unwrap().slice(..),
-                    ),
-                },
-            ],
-        });
-
-        let mut compute_pass = encoder.begin_compute_pass();
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &bind_group, &[]);
-        compute_pass.dispatch(len as u32 / 64, 1, 1);
-        drop(compute_pass);
-
-        queue.submit(std::iter::once(encoder.finish()));
     }
 }
 

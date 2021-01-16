@@ -1,6 +1,6 @@
 use crate::{
     utils::{HasMatrix, HasRotation, HasScale, HasTranslation, Transform},
-    Mesh3D, SkinID,
+    InstanceList3D, Mesh3D, SkinID,
 };
 use l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor};
 use rayon::prelude::*;
@@ -90,6 +90,7 @@ impl Default for NodeDescriptor {
 
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
+    pub meshes: Vec<MeshID>,
     pub nodes: Vec<NodeDescriptor>,
     pub animations: Vec<AnimationDescriptor>,
 }
@@ -321,6 +322,7 @@ pub trait ToScene {
     fn into_scene(
         &self,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> NodeGraph;
 }
@@ -339,11 +341,12 @@ impl ToScene for SceneDescriptor {
     fn into_scene(
         &self,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> NodeGraph {
         let mut graph = NodeGraph::new();
-        graph.load_scene_descriptor(self, meshes);
-        graph.initialize(meshes, skins);
+        graph.load_scene_descriptor(self, meshes, instances);
+        graph.initialize(meshes, instances, skins);
         graph
     }
 }
@@ -370,7 +373,8 @@ impl NodeGraph {
 
     pub fn initialize(
         &mut self,
-        meshes: &mut TrackedStorage<Mesh3D>,
+        _meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) {
         for (_, node) in self.nodes.iter_mut() {
@@ -381,7 +385,7 @@ impl NodeGraph {
 
             for mesh in &mut node.meshes {
                 if mesh.instance_id.is_none() {
-                    let mut instance = meshes[mesh.object_id as usize].instances.allocate();
+                    let mut instance = instances[mesh.object_id as usize].allocate();
                     mesh.instance_id = Some(instance.get_id() as u32);
                     instance.set_skin(SkinID(if let Some(s) = node.skin {
                         s as i32
@@ -424,6 +428,7 @@ impl NodeGraph {
     pub fn update(
         &mut self,
         meshes: &RwLock<&mut TrackedStorage<Mesh3D>>,
+        instances: &RwLock<&mut TrackedStorage<InstanceList3D>>,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         if !self.nodes.any_changed() {
@@ -433,7 +438,14 @@ impl NodeGraph {
         let mut changed = false;
         let id = self.root_node as usize;
 
-        changed |= Self::traverse_children(id, Mat4::identity(), &mut self.nodes, meshes, skins);
+        changed |= Self::traverse_children(
+            id,
+            Mat4::identity(),
+            &mut self.nodes,
+            meshes,
+            instances,
+            skins,
+        );
 
         for i in self.nodes[id].child_nodes.iter() {
             if self.nodes.get_changed(*i as usize) {
@@ -481,6 +493,7 @@ impl NodeGraph {
         accumulated_matrix: Mat4,
         nodes: &mut TrackedStorage<Node>,
         meshes: &RwLock<&mut TrackedStorage<Mesh3D>>,
+        instances: &RwLock<&mut TrackedStorage<InstanceList3D>>,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         let mut changed = nodes[current_index].changed;
@@ -502,7 +515,8 @@ impl NodeGraph {
         // Update children
         for c_id in child_nodes.iter() {
             let c_id = *c_id as usize;
-            changed |= Self::traverse_children(c_id, combined_matrix, nodes, meshes, skins);
+            changed |=
+                Self::traverse_children(c_id, combined_matrix, nodes, meshes, instances, skins);
         }
 
         if !changed && !nodes[current_index].first {
@@ -514,10 +528,9 @@ impl NodeGraph {
             .iter()
             .filter(|m| m.instance_id.is_some())
             .for_each(|m| {
-                let meshes = meshes.read().unwrap();
-                if let Some(mesh) = meshes.get(m.object_id as usize) {
-                    if let Some(mut instance) = mesh.instances.get(m.instance_id.unwrap() as usize)
-                    {
+                let instances = instances.read().unwrap();
+                if let Some(instances) = instances.get(m.object_id as usize) {
+                    if let Some(mut instance) = instances.get(m.instance_id.unwrap() as usize) {
                         instance.set_matrix(combined_matrix);
                     }
                 }
@@ -549,10 +562,10 @@ impl NodeGraph {
                 .filter(|m| m.instance_id.is_some())
                 .for_each(|m| {
                     if let Some(skin) = nodes[current_index].skin {
-                        let meshes = meshes.read().unwrap();
-                        if let Some(mesh) = meshes.get(m.object_id as usize) {
+                        let instances = instances.read().unwrap();
+                        if let Some(instances) = instances.get(m.object_id as usize) {
                             if let Some(mut instance) =
-                                mesh.instances.get(m.instance_id.unwrap() as usize)
+                                instances.get(m.instance_id.unwrap() as usize)
                             {
                                 instance.set_skin(SkinID(skin as i32));
                             }
@@ -588,6 +601,7 @@ impl NodeGraph {
         &mut self,
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
     ) {
         let mut node_map: HashMap<u32, u32> =
             HashMap::with_capacity(scene_descriptor.nodes.len() + 1);
@@ -606,12 +620,14 @@ impl NodeGraph {
             },
             scene_descriptor,
             meshes,
+            instances,
         );
 
         let mut root_nodes = Vec::with_capacity(scene_descriptor.nodes.len());
 
         for node in &scene_descriptor.nodes {
-            let node_id = self.load_node_descriptor(&mut node_map, node, scene_descriptor, meshes);
+            let node_id =
+                self.load_node_descriptor(&mut node_map, node, scene_descriptor, meshes, instances);
 
             self.nodes[self.root_node as usize]
                 .child_nodes
@@ -650,12 +666,19 @@ impl NodeGraph {
         descriptor: &NodeDescriptor,
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
     ) -> u32 {
         let child_nodes: Vec<u32> = descriptor
             .child_nodes
             .iter()
             .map(|child_node_descriptor| {
-                self.load_node_descriptor(node_map, child_node_descriptor, scene_descriptor, meshes)
+                self.load_node_descriptor(
+                    node_map,
+                    child_node_descriptor,
+                    scene_descriptor,
+                    meshes,
+                    instances,
+                )
             })
             .collect();
 
@@ -686,7 +709,7 @@ impl NodeGraph {
             .meshes
             .iter()
             .map(|mesh| {
-                let mut instance = meshes[*mesh as usize].instances.allocate();
+                let mut instance = instances.get_mut(*mesh as usize).unwrap().allocate();
                 instance.set_skin(SkinID(match skin_id {
                     None => -1,
                     Some(id) => id as i32,
@@ -726,9 +749,10 @@ impl NodeGraph {
     pub fn from_scene_descriptor(
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
     ) -> Self {
         let mut graph = Self::new();
-        graph.load_scene_descriptor(scene_descriptor, meshes);
+        graph.load_scene_descriptor(scene_descriptor, meshes, instances);
         graph
     }
 
@@ -737,9 +761,10 @@ impl NodeGraph {
         descriptor: &NodeDescriptor,
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
     ) -> Self {
         let mut graph = Self::new();
-        graph.load_node_descriptor(node_map, descriptor, scene_descriptor, meshes);
+        graph.load_node_descriptor(node_map, descriptor, scene_descriptor, meshes, instances);
         graph
     }
 }
@@ -811,10 +836,15 @@ impl SceneGraph {
     pub fn synchronize(
         &mut self,
         meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let times = &self.times;
-        let (meshes, skins) = (RwLock::new(meshes), RwLock::new(skins));
+        let (meshes, instances, skins) = (
+            RwLock::new(meshes),
+            RwLock::new(instances),
+            RwLock::new(skins),
+        );
         let changed: u32 = self
             .sub_graphs
             .iter()
@@ -823,7 +853,7 @@ impl SceneGraph {
             .map(|(i, graph)| {
                 if let Ok(mut graph) = graph.lock() {
                     graph.update_animation(times[i]);
-                    if graph.update(&meshes, &skins) {
+                    if graph.update(&meshes, &instances, &skins) {
                         graph.reset_changed();
                         return 1;
                     }
@@ -859,7 +889,8 @@ impl SceneGraph {
     pub fn remove_graph(
         &mut self,
         handle: GraphHandle,
-        meshes: &mut TrackedStorage<Mesh3D>,
+        _meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut TrackedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let id = handle.get_id();
@@ -873,9 +904,10 @@ impl SceneGraph {
                     }
 
                     for mesh in &node.meshes {
-                        let m = &meshes[mesh.object_id as usize];
                         if let Some(id) = mesh.instance_id {
-                            if let Some(handle) = m.instances.get(id as usize) {
+                            if let Some(handle) =
+                                instances[mesh.object_id as usize].get(id as usize)
+                            {
                                 handle.make_invalid();
                             }
                         }

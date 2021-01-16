@@ -37,7 +37,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
-use crate::utils::Flags;
 use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut, TrackedStorage};
 use std::sync::{PoisonError, TryLockError};
 use std::{
@@ -108,6 +107,8 @@ impl std::error::Error for SceneError {}
 
 #[derive(Debug, Clone)]
 pub struct Objects {
+    pub instances_2d: TrackedStorage<InstanceList2D>,
+    pub instances_3d: TrackedStorage<InstanceList3D>,
     pub meshes_3d: TrackedStorage<Mesh3D>,
     pub meshes_2d: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
@@ -117,6 +118,8 @@ pub struct Objects {
 impl Default for Objects {
     fn default() -> Self {
         Self {
+            instances_2d: TrackedStorage::new(),
+            instances_3d: TrackedStorage::new(),
             meshes_3d: TrackedStorage::new(),
             meshes_2d: TrackedStorage::new(),
             graph: graph::SceneGraph::new(),
@@ -153,9 +156,7 @@ pub struct Scene {
     pub objects: Objects,
     pub lights: SceneLights,
     pub materials: MaterialList,
-    pub settings: Flags,
     pub cameras: TrackedStorage<Camera>,
-    pub instances_2d: InstanceList2D,
 }
 
 impl Default for Scene {
@@ -167,9 +168,7 @@ impl Default for Scene {
             objects: Objects::default(),
             lights: SceneLights::default(),
             materials: MaterialList::new(),
-            settings: Flags::new(),
             cameras: TrackedStorage::new(),
-            instances_2d: InstanceList2D::new(),
         }
     }
 }
@@ -177,27 +176,27 @@ impl Default for Scene {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
-    pub instances_2d: instances_2d::List2D,
-    pub meshes: TrackedStorage<Mesh3D>,
-    pub d2_meshes: TrackedStorage<Mesh2D>,
-    pub graph: graph::SceneGraph,
-    pub skins: TrackedStorage<graph::Skin>,
-    pub lights: SceneLights,
-    pub materials: MaterialList,
-    pub settings: Flags,
+    instances_3d: TrackedStorage<InstanceList3D>,
+    instances_2d: TrackedStorage<InstanceList2D>,
+    meshes_3d: TrackedStorage<Mesh3D>,
+    meshes_2d: TrackedStorage<Mesh2D>,
+    graph: graph::SceneGraph,
+    skins: TrackedStorage<graph::Skin>,
+    lights: SceneLights,
+    materials: MaterialList,
 }
 
 impl From<&Scene> for SerializableScene {
     fn from(scene: &Scene) -> Self {
         Self {
-            instances_2d: scene.instances_2d.clone_inner(),
-            meshes: scene.objects.meshes_3d.clone(),
-            d2_meshes: scene.objects.meshes_2d.clone(),
+            instances_3d: scene.objects.instances_3d.clone(),
+            instances_2d: scene.objects.instances_2d.clone(),
+            meshes_3d: scene.objects.meshes_3d.clone(),
+            meshes_2d: scene.objects.meshes_2d.clone(),
             graph: scene.objects.graph.clone(),
             skins: scene.objects.skins.clone(),
             lights: scene.lights.clone(),
             materials: scene.materials.clone(),
-            settings: scene.settings.clone(),
         }
     }
 }
@@ -207,16 +206,16 @@ impl Into<Scene> for SerializableScene {
         Scene {
             loaders: Scene::create_loaders(),
             objects: Objects {
-                meshes_3d: self.meshes,
-                meshes_2d: self.d2_meshes,
+                instances_2d: self.instances_2d,
+                instances_3d: self.instances_3d,
+                meshes_3d: self.meshes_3d,
+                meshes_2d: self.meshes_2d,
                 graph: self.graph,
                 skins: self.skins,
             },
             lights: self.lights,
             materials: self.materials,
-            settings: self.settings,
             cameras: TrackedStorage::new(),
-            instances_2d: self.instances_2d.into(),
         }
     }
 }
@@ -230,7 +229,6 @@ impl Scene {
             objects: Objects::default(),
             lights: SceneLights::default(),
             materials: MaterialList::new(),
-            settings: Flags::default(),
             ..Default::default()
         }
     }
@@ -239,7 +237,6 @@ impl Scene {
     pub fn load<S: AsRef<Path>>(&mut self, path: S) -> Result<LoadResult, SceneError> {
         let path = path.as_ref();
         let extension = path.extension();
-        let _build_bvh = self.settings.has_flag(SceneFlags::BuildBVHs);
         if extension.is_none() {
             return Err(SceneError::NoFileExtension);
         }
@@ -248,60 +245,145 @@ impl Scene {
         // Load obj files
         let extension = extension.to_str().unwrap().to_string();
         if let Some(loader) = self.loaders.get(extension.as_str()) {
-            return loader.load(
+            let result = loader.load(
                 path.to_path_buf(),
                 &mut self.materials,
                 &mut self.objects.meshes_3d,
             );
+            if let Ok(r) = result.as_ref() {
+                match r {
+                    LoadResult::Object(i) => {
+                        self.objects
+                            .instances_3d
+                            .overwrite(i.as_index().unwrap(), InstanceList3D::default());
+                    }
+                    LoadResult::Scene(s) => s.meshes.iter().for_each(|i| {
+                        self.objects
+                            .instances_3d
+                            .overwrite(i.as_index().unwrap(), InstanceList3D::default());
+                    }),
+                }
+            }
+
+            return result;
         }
 
         Err(SceneError::NoFileLoader(extension))
     }
 
     pub fn add_3d_scene<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
-        self.objects
-            .graph
-            .add_graph(scene.into_scene(&mut self.objects.meshes_3d, &mut self.objects.skins))
+        self.objects.graph.add_graph(scene.into_scene(
+            &mut self.objects.meshes_3d,
+            &mut self.objects.instances_3d,
+            &mut self.objects.skins,
+        ))
     }
 
     pub fn remove_3d_scene(&mut self, scene: GraphHandle) {
         self.objects.graph.remove_graph(
             scene,
             &mut self.objects.meshes_3d,
+            &mut self.objects.instances_3d,
             &mut self.objects.skins,
         );
     }
 
-    pub fn add_3d_object<T: ToMesh>(&mut self, object: T) -> usize {
+    pub fn add_3d_object<T: ToMesh>(&mut self, object: T) -> MeshID {
         let id = self.objects.meshes_3d.push(object.into_mesh());
-        id
+        self.objects
+            .instances_3d
+            .overwrite(id, InstanceList3D::default());
+        MeshID(id as _)
     }
 
-    pub fn add_2d_object(&mut self, object: Mesh2D) -> usize {
-        self.objects.meshes_2d.push(object)
+    pub fn get_3d_object(&self, id: MeshID) -> Option<&Mesh3D> {
+        if let Some(index) = id.as_index() {
+            self.objects.meshes_3d.get(index)
+        } else {
+            None
+        }
     }
 
-    pub fn set_3d_object(&mut self, index: usize, object: Mesh3D) -> Result<(), SceneError> {
+    pub fn get_3d_object_mut(&mut self, id: MeshID) -> Option<&mut Mesh3D> {
+        if let Some(index) = id.as_index() {
+            self.objects.meshes_3d.get_mut(index)
+        } else {
+            None
+        }
+    }
+
+    pub fn add_2d_object(&mut self, object: Mesh2D) -> MeshID {
+        let id = self.objects.meshes_2d.push(object);
+        self.objects
+            .instances_2d
+            .overwrite(id, InstanceList2D::default());
+        MeshID(id as _)
+    }
+
+    pub fn get_2d_object(&self, id: MeshID) -> Option<&Mesh2D> {
+        if let Some(index) = id.as_index() {
+            self.objects.meshes_2d.get(index)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_2d_object_mut(&mut self, id: MeshID) -> Option<&mut Mesh2D> {
+        if let Some(index) = id.as_index() {
+            self.objects.meshes_2d.get_mut(index)
+        } else {
+            None
+        }
+    }
+
+    /// Sets an index to the given object.
+    /// This removes all instances that contained this object.
+    pub fn set_3d_object(&mut self, index: MeshID, object: Mesh3D) -> Result<(), SceneError> {
+        let index = if let Some(index) = index.as_index() {
+            index
+        } else {
+            return Err(SceneError::InvalidObjectIndex(index.into()));
+        };
+
         if self.objects.meshes_3d.get(index).is_none() {
             return Err(SceneError::InvalidObjectIndex(index));
         }
 
         self.objects.meshes_3d[index] = object;
+        self.objects.instances_3d[index].set_all_flags(InstanceFlags3D::all());
         Ok(())
     }
 
-    pub fn set_2d_object(&mut self, index: usize, object: Mesh2D) -> Result<(), SceneError> {
+    /// Sets an index to the given object.
+    /// This removes all instances that contained this object.
+    pub fn set_2d_object(&mut self, index: MeshID, object: Mesh2D) -> Result<(), SceneError> {
+        let index = if let Some(index) = index.as_index() {
+            index
+        } else {
+            return Err(SceneError::InvalidObjectIndex(index.into()));
+        };
+
         if self.objects.meshes_2d.get(index).is_none() {
             Err(SceneError::InvalidObjectIndex(index))
         } else {
             self.objects.meshes_2d[index] = object;
+            self.objects.instances_2d[index].set_all_flags(InstanceFlags2D::all());
             Ok(())
         }
     }
 
-    pub fn remove_3d_object(&mut self, index: usize) -> Result<(), SceneError> {
+    pub fn remove_3d_object(&mut self, index: MeshID) -> Result<(), SceneError> {
+        let index = if let Some(index) = index.as_index() {
+            index
+        } else {
+            return Err(SceneError::InvalidObjectIndex(index.into()));
+        };
+
         match self.objects.meshes_3d.erase(index as usize) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.objects.instances_3d.erase(index).unwrap();
+                Ok(())
+            }
             Err(_) => Err(SceneError::InvalidObjectIndex(index as _)),
         }
     }
@@ -309,33 +391,44 @@ impl Scene {
     pub fn remove_2d_object(&mut self, index: usize) -> Result<(), SceneError> {
         // TODO: Remove 2d instances that contained this object
         match self.objects.meshes_2d.erase(index) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.objects.instances_2d.erase(index).unwrap();
+                Ok(())
+            }
             Err(_) => Err(SceneError::InvalidObjectIndex(index)),
         }
     }
 
-    pub fn add_3d_instance(&mut self, index: usize) -> Result<InstanceHandle3D, SceneError> {
-        if self.objects.meshes_3d.get(index).is_none() {
-            return Err(SceneError::InvalidObjectIndex(index));
+    pub fn add_3d_instance(&mut self, mesh: MeshID) -> Result<InstanceHandle3D, SceneError> {
+        let id = if let Some(id) = mesh.as_index() {
+            id
+        } else {
+            return Err(SceneError::InvalidObjectIndex(mesh.0 as usize));
+        };
+
+        if self.objects.meshes_3d.get(id).is_none() {
+            return Err(SceneError::InvalidObjectIndex(id));
         }
 
-        Ok(self.objects.meshes_3d[index].instances.allocate())
+        Ok(self.objects.instances_3d[id].allocate())
     }
 
-    pub fn add_2d_instance(&mut self, index: usize) -> Result<InstanceHandle2D, SceneError> {
-        if self.objects.meshes_2d.get(index).is_none() {
-            return Err(SceneError::InvalidObjectIndex(index));
+    pub fn add_2d_instance(&mut self, mesh: MeshID) -> Result<InstanceHandle2D, SceneError> {
+        let id = if let Some(id) = mesh.as_index() {
+            id
+        } else {
+            return Err(SceneError::InvalidObjectIndex(mesh.0 as usize));
+        };
+
+        if self.objects.meshes_2d.get(id).is_none() {
+            return Err(SceneError::InvalidObjectIndex(id));
         }
 
-        let mut instance_id = self.instances_2d.allocate();
-        instance_id.set_mesh(MeshID(index as _));
-        Ok(instance_id)
+        Ok(self.objects.instances_2d[id].allocate())
     }
 
-    pub fn remove_2d_instance(&mut self, index: usize) {
-        if let Some(instance) = self.instances_2d.get(index) {
-            self.instances_2d.make_invalid(instance);
-        }
+    pub fn remove_2d_instance(&mut self, handle: InstanceHandle2D) {
+        handle.make_invalid();
     }
 
     pub fn add_texture(&mut self, texture: Texture) -> usize {
@@ -377,7 +470,7 @@ impl Scene {
         object.skins.trigger_changed_all();
         object.materials.set_changed();
         object.instances.trigger_changed_all();
-        object.meshes.trigger_changed_all();
+        object.meshes_3d.trigger_changed_all();
         object.animated_meshes.trigger_changed_all();
         object.lights.point_lights.trigger_changed_all();
         object.lights.spot_lights.trigger_changed_all();
@@ -439,9 +532,11 @@ impl Scene {
         let mut area_lights: Vec<AreaLight> = Vec::new();
 
         let mut triangle_light_ids: Vec<(u32, u32, u32)> = Vec::new();
+        let meshes = &self.objects.meshes_3d;
+        let instances = &self.objects.instances_3d;
 
-        self.objects.meshes_3d.iter().for_each(|(mesh_id, m)| {
-            m.instances.iter().for_each(|instance| {
+        meshes.iter().for_each(|(mesh_id, m)| {
+            instances[mesh_id].iter().for_each(|instance| {
                 for v in m.ranges.iter() {
                     let light_flag = light_flags.get(v.mat_id as usize);
                     if light_flag.is_none() {

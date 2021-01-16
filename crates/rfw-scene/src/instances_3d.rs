@@ -12,7 +12,6 @@ bitflags::bitflags! {
     #[repr(transparent)]
     pub struct InstanceFlags3D: u32 {
         const TRANSFORMED = 1;
-        const CHANGED_MESH = 2;
     }
 }
 
@@ -125,6 +124,14 @@ impl InstanceList3D {
     pub fn flags(&self) -> &[InstanceFlags3D] {
         let list = self.list.get();
         unsafe { &(*list).flags[0..(*list).len()] }
+    }
+
+    pub fn set_all_flags(&mut self, flag: InstanceFlags3D) {
+        let list = self.list.get();
+        let flags = unsafe { &mut (*list).flags[0..(*list).len()] };
+        flags.iter_mut().for_each(|f| {
+            (*f) |= flag;
+        });
     }
 
     pub fn clone_inner(&self) -> List3D {
@@ -297,10 +304,6 @@ impl InstanceHandle3D {
     }
 
     #[inline]
-    pub fn changed_mesh(&mut self) -> bool {
-        unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags3D::CHANGED_MESH) }
-    }
-
     pub fn make_invalid(self) {
         let list = unsafe { self.ptr.get().as_mut().unwrap() };
         list.matrices[self.index] = Mat4::zero();

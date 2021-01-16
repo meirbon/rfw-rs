@@ -1,227 +1,80 @@
-use super::mesh::WgpuMesh;
-use crate::mesh::{SkinningPipeline, WgpuSkin};
-use crate::WgpuSettings;
-use rfw::prelude::*;
-use std::num::NonZeroU64;
+use crate::mesh::{SkinningPipeline, WgpuMesh, WgpuSkin};
+use rfw::backend::InstancesData3D;
+use rfw::math::*;
+use rfw::scene::bvh::AABB;
+use rfw::utils::BytesConversion;
 use std::sync::Arc;
 
-pub struct DeviceInstances {
-    pub device_matrices: wgpu::Buffer,
-    capacity: usize,
-    pub bind_group: wgpu::BindGroup,
-}
-
-#[derive(Debug, Clone, Default)]
-#[repr(C)]
-pub struct DeviceInstance {
-    pub matrix: Mat4,
-    pub normal_matrix: Mat4,
-    _dummy0: Mat4,
-    _dummy1: Mat4,
-}
-
-impl DeviceInstances {
-    pub const INSTANCE_SIZE: usize = 256;
-    pub fn new(
-        capacity: usize,
-        device: &wgpu::Device,
-        bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (capacity * Self::INSTANCE_SIZE) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(buffer.slice(0..256)),
-            }],
-        });
-
-        Self {
-            device_matrices: buffer,
-            capacity,
-            bind_group,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.capacity
-    }
-
-    pub const fn offset_for(instance: usize) -> wgpu::BufferAddress {
-        (Self::INSTANCE_SIZE * instance) as wgpu::BufferAddress
-    }
-}
-
-pub struct InstanceDescriptor {
-    pub root_bounds: AABB,
-    pub mesh_bounds: Vec<AABB>,
-    pub ranges: Vec<VertexMesh>,
-    pub changed: bool,
-}
-
-impl Default for InstanceDescriptor {
-    fn default() -> Self {
-        Self {
-            root_bounds: AABB::empty(),
-            mesh_bounds: Vec::new(),
-            ranges: Vec::new(),
-            changed: true,
-        }
-    }
-}
-
-impl InstanceDescriptor {
-    pub fn new(transform: Mat4, mesh: &WgpuMesh) -> Self {
-        let root_bounds = mesh.bounds.transformed(transform.to_cols_array());
-        let mesh_bounds: Vec<AABB> = mesh
-            .ranges
-            .iter()
-            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-            .collect();
-
-        assert_eq!(mesh.ranges.len(), mesh_bounds.len());
-
-        InstanceDescriptor {
-            root_bounds,
-            mesh_bounds,
-            ranges: mesh.ranges.clone(),
-            changed: true,
-        }
-    }
-}
-
 #[derive(Debug)]
-pub enum InstanceVertexBuffer {
-    None,
-    Owned((wgpu::Buffer, wgpu::BufferAddress)),
-    Reference(Arc<wgpu::Buffer>),
-}
-
-impl Default for InstanceVertexBuffer {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl InstanceVertexBuffer {
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        match self {
-            InstanceVertexBuffer::None => None,
-            InstanceVertexBuffer::Owned((b, _)) => Some(b),
-            InstanceVertexBuffer::Reference(b) => Some(b),
-        }
-    }
-
-    pub fn has_buffer(&self) -> bool {
-        match self {
-            InstanceVertexBuffer::None => false,
-            InstanceVertexBuffer::Owned(_) => true,
-            InstanceVertexBuffer::Reference(_) => true,
-        }
-    }
-}
-
 pub struct InstanceList {
-    pub device_instances: DeviceInstances,
-    pub matrices: Vec<Mat4>,
-    pub normal_matrices: Vec<Mat4>,
-    pub mesh_ids: Vec<MeshID>,
-    pub skin_ids: Vec<SkinID>,
-    pub changed: BitVec,
+    instance_capacity: usize,
+    instances: u32,
+    instance_buffers: Vec<Arc<Option<wgpu::Buffer>>>,
+    pub instances_buffer: Arc<Option<wgpu::Buffer>>,
+    pub instances_bg: Arc<Option<wgpu::BindGroup>>,
+    pub instances_bounds: Vec<AABB>,
+    pub supports_skinning: bool,
+}
 
-    pub bind_group_layout: wgpu::BindGroupLayout,
-    pub bounds: Vec<InstanceDescriptor>,
-    pub vertex_buffers: Vec<InstanceVertexBuffer>,
-    skinning_pipeline: SkinningPipeline,
+impl Default for InstanceList {
+    fn default() -> Self {
+        Self {
+            instance_capacity: 0,
+            instances: 0,
+            instance_buffers: Vec::new(),
+            instances_buffer: Arc::new(None),
+            instances_bg: Arc::new(None),
+            instances_bounds: Vec::new(),
+            supports_skinning: false,
+        }
+    }
+}
+
+impl Clone for InstanceList {
+    fn clone(&self) -> Self {
+        Self {
+            instance_capacity: self.instance_capacity,
+            instances: self.instances,
+            instance_buffers: self.instance_buffers.clone(),
+            instances_buffer: self.instances_buffer.clone(),
+            instances_bg: self.instances_bg.clone(),
+            instances_bounds: self.instances_bounds.clone(),
+            supports_skinning: self.supports_skinning,
+        }
+    }
 }
 
 #[allow(dead_code)]
 impl InstanceList {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                // Instance matrices
-                binding: 0,
-                count: None,
-                visibility: wgpu::ShaderStage::VERTEX,
-                ty: wgpu::BindingType::UniformBuffer {
-                    min_binding_size: NonZeroU64::new(256),
-                    dynamic: true,
-                },
-            }],
-            label: Some("mesh-bind-group-descriptor-layout"),
-        });
+    const DEFAULT_CAPACITY: usize = 4;
 
-        let device_instances = DeviceInstances::new(32, device, &bind_group_layout);
+    pub fn new(device: &wgpu::Device, instances_layout: &wgpu::BindGroupLayout) -> Self {
+        let instances_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (Self::DEFAULT_CAPACITY * std::mem::size_of::<Mat4>() * 2) as _,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
+        }));
+
+        let instances_bg = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: instances_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    instances_buffer.as_ref().unwrap().slice(..),
+                ),
+            }],
+        }));
 
         Self {
-            device_instances,
-            bind_group_layout,
-            matrices: Default::default(),
-            normal_matrices: Default::default(),
-            changed: Default::default(),
-            mesh_ids: Default::default(),
-            skin_ids: Default::default(),
-            bounds: Default::default(),
-            vertex_buffers: Default::default(),
-            skinning_pipeline: SkinningPipeline::new(device),
-        }
-    }
-
-    pub fn remove(&mut self, id: usize) {
-        self.bounds[id] = InstanceDescriptor::default();
-        self.matrices[id] = Mat4::zero();
-        self.normal_matrices[id] = Mat4::zero();
-        self.vertex_buffers[id] = InstanceVertexBuffer::None;
-    }
-
-    pub fn set(
-        &mut self,
-        device: &wgpu::Device,
-        id: usize,
-        matrix: Mat4,
-        mesh_id: MeshID,
-        skin_id: SkinID,
-        mesh: Option<&WgpuMesh>,
-    ) {
-        let n_matrix = matrix.inverse().transpose();
-        if id >= self.bounds.len() {
-            if let Some(mesh) = mesh {
-                self.bounds.push(InstanceDescriptor::new(matrix, mesh));
-            } else {
-                self.bounds.push(InstanceDescriptor::default());
-            }
-
-            self.changed.push(true);
-            self.matrices.push(matrix);
-            self.normal_matrices.push(n_matrix);
-            self.mesh_ids.push(mesh_id);
-            self.skin_ids.push(skin_id);
-        } else {
-            if let Some(mesh) = mesh {
-                self.bounds[id] = InstanceDescriptor::new(matrix, mesh);
-            } else {
-                self.bounds[id] = InstanceDescriptor::default();
-            }
-
-            self.changed.set(id, true);
-            self.matrices[id] = matrix;
-            self.normal_matrices[id] = n_matrix;
-            self.mesh_ids[id] = mesh_id;
-            self.skin_ids[id] = skin_id;
-        }
-
-        if self.device_instances.len() <= self.matrices.len() {
-            self.device_instances =
-                DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
-            self.changed.set_all(true);
+            instance_capacity: Self::DEFAULT_CAPACITY,
+            instances: 0,
+            instance_buffers: Vec::new(),
+            instances_buffer: Arc::new(instances_buffer),
+            instances_bg: Arc::new(instances_bg),
+            instances_bounds: vec![AABB::empty(); Self::DEFAULT_CAPACITY],
+            supports_skinning: false,
         }
     }
 
@@ -229,238 +82,79 @@ impl InstanceList {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        meshes: &TrackedStorage<WgpuMesh>,
-        skins: &TrackedStorage<WgpuSkin>,
-        settings: &WgpuSettings,
+        mesh: &WgpuMesh,
+        instances: InstancesData3D<'_>,
+        instances_layout: &wgpu::BindGroupLayout,
+        skins: &[WgpuSkin],
+        skinning_pipeline: &SkinningPipeline,
     ) {
-        assert!(
-            self.device_instances.len() >= self.matrices.len(),
-            "capacity for {} instances but there were {} instances",
-            self.device_instances.len(),
-            self.matrices.len()
+        self.instances = instances.len() as _;
+        if instances.len() > self.instance_capacity as usize || self.instances_buffer.is_none() {
+            self.instance_capacity = instances.len().next_power_of_two() as _;
+            self.instances_buffer = Arc::new(Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: (self.instance_capacity as usize * std::mem::size_of::<Mat4>() * 2) as _,
+                usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+                mapped_at_creation: false,
+            })));
+
+            self.instances_bg =
+                Arc::new(Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: instances_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(
+                            (*self.instances_buffer).as_ref().unwrap().slice(..),
+                        ),
+                    }],
+                })));
+        }
+
+        self.instances_bounds
+            .resize(instances.len(), AABB::default());
+        self.instance_buffers
+            .resize(instances.len(), Arc::new(None));
+
+        let mut matrices = Vec::with_capacity(instances.len() * 2);
+        for (i, m) in instances.matrices.iter().enumerate() {
+            matrices.push(*m);
+            matrices.push(m.inverse().transpose());
+            self.instances_bounds[i] = mesh.bounds.transformed(m.to_cols_array());
+            self.instance_buffers[i] = if let Some(skin) = instances.skin_ids[i].as_index() {
+                Arc::new(Some(
+                    skinning_pipeline
+                        .apply_skin(device, queue, mesh, &skins[skin])
+                        .0,
+                ))
+            } else {
+                mesh.buffer.clone()
+            };
+        }
+
+        queue.write_buffer(
+            (*self.instances_buffer).as_ref().unwrap(),
+            0,
+            matrices.as_bytes(),
         );
 
-        if self.matrices.is_empty() {
-            return;
-        }
-
-        let mut bytes = vec![DeviceInstance::default(); self.matrices.len()];
-        for (i, instance) in bytes.iter_mut().enumerate() {
-            instance.matrix = self.matrices[i];
-            instance.normal_matrix = self.normal_matrices[i];
-        }
-        queue.write_buffer(&self.device_instances.device_matrices, 0, bytes.as_bytes());
-
-        let vertex_buffers = &mut self.vertex_buffers;
-        vertex_buffers.resize_with(self.matrices.len(), || Default::default());
-
-        let skinning_pipeline = &self.skinning_pipeline;
-        let changed = &self.changed;
-        let mesh_ids = &self.mesh_ids;
-        let skin_ids = &self.skin_ids;
-        let enable_skinning = settings.enable_skinning;
-
-        vertex_buffers.iter_mut().enumerate().for_each(|(i, vb)| {
-            if !*changed.get(i).unwrap() && vb.has_buffer() {
-                return;
-            }
-
-            let mut success = false;
-            let mesh_id = mesh_ids[i];
-            if mesh_id.is_valid() {
-                let mesh = if let Some(m) = meshes.get(mesh_id.into()) {
-                    m
-                } else if cfg!(debug_assertions) {
-                    panic!(
-                        "Object {} is expected to have been initialized but it was not.",
-                        mesh_id
-                    );
-                } else {
-                    // Gracefully handle error
-                    *vb = InstanceVertexBuffer::None;
-                    return;
-                };
-
-                if enable_skinning {
-                    if let Some(skin_id) = skin_ids[i].as_index() {
-                        if let Some(skin) = skins.get(skin_id) {
-                            if let InstanceVertexBuffer::Owned(buffer) = vb {
-                                // Attempt to use pre-existing buffer
-                                skinning_pipeline
-                                    .apply_skin_buffer(device, queue, buffer, mesh, skin);
-                            } else {
-                                // Create new buffer
-                                *vb = InstanceVertexBuffer::Owned(
-                                    skinning_pipeline.apply_skin(device, queue, mesh, skin),
-                                );
-                            }
-                            success = true;
-                        }
-                    } else {
-                        if let Some(b) = mesh.buffer.as_ref() {
-                            *vb = InstanceVertexBuffer::Reference(b.clone());
-                            success = true;
-                        }
-                    }
-                } else {
-                    if let Some(b) = mesh.buffer.as_ref() {
-                        *vb = InstanceVertexBuffer::Reference(b.clone());
-                        success = true;
-                    }
-                }
-            }
-
-            if !success {
-                *vb = InstanceVertexBuffer::None;
-            }
-        });
-
-        self.bounds = self.get_bounds(meshes);
+        assert!(instances.len() > 0);
+        self.supports_skinning = mesh.joints_weights_buffer.is_some();
     }
 
-    pub fn reset_changed(&mut self) {
-        self.changed.set_all(false);
-    }
-
-    pub fn len(&self) -> usize {
-        self.matrices.len()
-    }
-
-    pub fn changed(&self) -> bool {
-        self.changed.any()
-    }
-
-    pub fn get(&self, index: usize) -> Option<&InstanceDescriptor> {
-        self.bounds.get(index)
-    }
-
-    fn get_bounds(&self, meshes: &TrackedStorage<WgpuMesh>) -> Vec<InstanceDescriptor> {
-        (0..self.len())
-            .into_iter()
-            .map(|i| {
-                let root_bounds = self.bounds[i].root_bounds;
-                let (mesh_bounds, ranges) = match self.mesh_ids.get(i) {
-                    Some(mesh_id) if mesh_id.is_valid() => {
-                        let mesh = &meshes[mesh_id.as_index().unwrap()];
-                        let transform = self.matrices[i];
-                        (
-                            mesh.ranges
-                                .iter()
-                                .map(|m| m.bounds.transformed(transform.to_cols_array()))
-                                .collect(),
-                            mesh.ranges.clone(),
-                        )
-                    }
-                    _ => (vec![AABB::empty(); 1], vec![]),
-                };
-
-                InstanceDescriptor {
-                    root_bounds,
-                    mesh_bounds,
-                    ranges,
-                    changed: *self.changed.get(i).unwrap(),
-                }
-            })
-            .collect()
-    }
-
-    pub fn iter(&self) -> InstanceIterator<'_> {
-        let length = self.matrices.len();
-
-        InstanceIterator {
-            vertex_buffers: self.vertex_buffers.as_slice(),
-            bounds: self.bounds.as_slice(),
-            current: 0,
-            length,
+    pub fn buffer_for(&self, i: usize) -> Option<&wgpu::Buffer> {
+        if let Some(buffer) = self.instance_buffers.get(i) {
+            buffer.as_ref().as_ref()
+        } else {
+            None
         }
     }
 
-    pub fn iter_sorted(&self, eye: Vec3, direction: Vec3) -> SortedInstanceIterator<'_> {
-        let mut ids: Vec<usize> = (0..self.matrices.len())
-            .into_iter()
-            .filter(|i| (self.bounds[*i].root_bounds.center::<Vec3>() - eye).dot(direction) > 0.0)
-            .collect();
-
-        ids.sort_by(|a, b| {
-            let a = *a;
-            let b = *b;
-
-            let a = &self.bounds[a];
-            let b = &self.bounds[b];
-
-            let a: Vec3 = a.root_bounds.center();
-            let b: Vec3 = b.root_bounds.center();
-
-            let dist_a = (a - eye).distance_squared(eye);
-            let dist_b = (b - eye).distance_squared(eye);
-
-            if dist_a < dist_b {
-                std::cmp::Ordering::Less
-            } else {
-                std::cmp::Ordering::Greater
-            }
-        });
-
-        SortedInstanceIterator {
-            ids,
-            vertex_buffers: self.vertex_buffers.as_slice(),
-            bounds: self.bounds.as_slice(),
-        }
+    pub fn len(&self) -> u32 {
+        self.instances
     }
-}
 
-pub struct SortedInstanceIterator<'a> {
-    ids: Vec<usize>,
-    vertex_buffers: &'a [InstanceVertexBuffer],
-    bounds: &'a [InstanceDescriptor],
-}
-
-impl<'a> Iterator for SortedInstanceIterator<'a> {
-    type Item = (usize, &'a wgpu::Buffer, &'a InstanceDescriptor);
-    fn next(&mut self) -> Option<Self::Item> {
-        let bounds = self.bounds.as_ptr();
-
-        while let Some(id) = self.ids.pop() {
-            if let Some(buffer) = self.vertex_buffers.get(id) {
-                if let Some(buffer) = buffer.buffer() {
-                    unsafe {
-                        return Some((id, buffer, bounds.add(id).as_ref().unwrap()));
-                    }
-                }
-            }
-        }
-
-        None
-    }
-}
-
-pub struct InstanceIterator<'a> {
-    vertex_buffers: &'a [InstanceVertexBuffer],
-    bounds: &'a [InstanceDescriptor],
-    current: usize,
-    length: usize,
-}
-
-impl<'a> Iterator for InstanceIterator<'a> {
-    type Item = (usize, &'a wgpu::Buffer, &'a InstanceDescriptor);
-    fn next(&mut self) -> Option<Self::Item> {
-        let bounds = self.bounds.as_ptr();
-
-        while self.current < self.length {
-            if let Some(buffer) = self.vertex_buffers.get(self.current) {
-                self.current += 1;
-                if let Some(buffer) = buffer.buffer() {
-                    unsafe {
-                        return Some((
-                            self.current - 1,
-                            buffer,
-                            bounds.add(self.current - 1).as_ref().unwrap(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        None
+    pub fn is_empty(&self) -> bool {
+        self.instances == 0
     }
 }

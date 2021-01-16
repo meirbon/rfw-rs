@@ -2,6 +2,7 @@ use crate::{
     graph::{NodeDescriptor, SceneDescriptor},
     {LoadResult, MaterialList, Mesh3D, ObjectLoader, SceneError},
 };
+use rfw_backend::MeshID;
 use rfw_math::*;
 use rfw_utils::collections::TrackedStorage;
 use std::collections::HashMap;
@@ -80,7 +81,9 @@ impl ObjectLoader for GltfLoader {
         let mut node_descriptors = Vec::with_capacity(scene.nodes.len());
         node_descriptors.push(load_node(&meshes, &scene.nodes[0]));
 
+        let meshes = meshes.iter().map(|i| MeshID::from(*i as usize)).collect();
         Ok(LoadResult::Scene(SceneDescriptor {
+            meshes,
             nodes: node_descriptors,
             animations: scene.animations,
         }))

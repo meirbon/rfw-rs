@@ -12,7 +12,6 @@ bitflags::bitflags! {
     #[repr(transparent)]
     pub struct InstanceFlags2D: u32 {
         const TRANSFORMED = 1;
-        const CHANGED_MESH = 2;
     }
 }
 
@@ -125,6 +124,14 @@ impl InstanceList2D {
     pub fn flags(&self) -> &[InstanceFlags2D] {
         let list = self.list.get();
         unsafe { &(*list).flags[0..(*list).len()] }
+    }
+
+    pub fn set_all_flags(&mut self, flag: InstanceFlags2D) {
+        let list = self.list.get();
+        let flags = unsafe { &mut (*list).flags[0..(*list).len()] };
+        flags.iter_mut().for_each(|f| {
+            (*f) |= flag;
+        });
     }
 
     pub fn clone_inner(&self) -> List2D {
@@ -246,13 +253,6 @@ pub struct InstanceHandle2D {
 
 impl InstanceHandle2D {
     #[inline]
-    pub fn set_mesh(&mut self, mesh: MeshID) {
-        let list = unsafe { self.ptr.get().as_mut().unwrap() };
-        list.mesh_ids[self.index] = mesh;
-        list.flags[self.index] |= InstanceFlags2D::CHANGED_MESH;
-    }
-
-    #[inline]
     pub fn set_matrix(&mut self, matrix: Mat4) {
         let list = unsafe { self.ptr.get().as_mut().unwrap() };
         list.matrices[self.index] = matrix;
@@ -278,11 +278,6 @@ impl InstanceHandle2D {
     }
 
     #[inline]
-    pub fn get_mesh_id(&self) -> MeshID {
-        unsafe { (*self.ptr.get()).mesh_ids[self.index] }
-    }
-
-    #[inline]
     pub fn get_flags(&self) -> InstanceFlags2D {
         unsafe { (*self.ptr.get()).flags[self.index] }
     }
@@ -298,8 +293,12 @@ impl InstanceHandle2D {
     }
 
     #[inline]
-    pub fn changed_mesh(&mut self) -> bool {
-        unsafe { (*self.ptr.get()).flags[self.index].contains(InstanceFlags2D::CHANGED_MESH) }
+    pub fn make_invalid(self) {
+        let list = unsafe { self.ptr.get().as_mut().unwrap() };
+        list.matrices[self.index] = Mat4::zero();
+        list.flags[self.index] = InstanceFlags2D::all();
+        list.free_slots.push(self.index);
+        list.removed.push(self.index);
     }
 
     /// # Safety

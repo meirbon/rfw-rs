@@ -32,7 +32,7 @@ pub trait Backend {
 
     fn set_2d_mesh(&mut self, id: usize, data: MeshData2D<'_>);
     /// Sets an instance with a 4x4 transformation matrix in column-major format
-    fn set_2d_instances(&mut self, instances: InstancesData2D<'_>);
+    fn set_2d_instances(&mut self, mesh: usize, instances: InstancesData2D<'_>);
 
     fn set_3d_mesh(&mut self, id: usize, data: MeshData3D<'_>);
 

@@ -1,3 +1,4 @@
+use crate::instance::InstanceList;
 use crate::mesh::WgpuMesh;
 use rfw::prelude::{AABB, *};
 use std::borrow::Cow;
@@ -92,11 +93,12 @@ impl WgpuLights {
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
     ) {
-        self.area_lights.render(encoder, meshes);
-        self.spot_lights.render(encoder, meshes);
-        self.directional_lights.render(encoder, meshes);
+        self.area_lights.render(encoder, instances, meshes);
+        self.spot_lights.render(encoder, instances, meshes);
+        self.directional_lights.render(encoder, instances, meshes);
     }
 }
 
@@ -243,10 +245,11 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
     ) {
         self.shadow_maps
-            .render(0..self.lights.len() as u32, encoder, meshes);
+            .render(0..self.lights.len() as u32, encoder, instances, meshes);
 
         self.lights.reset_changed();
     }
@@ -990,6 +993,7 @@ impl ShadowMapArray {
         &self,
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
     ) {
         let start = range.start;
@@ -1019,21 +1023,22 @@ impl ShadowMapArray {
 
             render_pass.set_pipeline(&self.pipeline);
 
-            for (_, m) in meshes.iter() {
-                let instances = m.instances() as usize;
+            for (id, i) in instances.iter() {
+                let m = &meshes[id];
+                let instances = i.len() as usize;
                 if instances == 0 {
                     continue;
                 }
 
                 if m.supports_skinning() {
                     for instance in 0..instances {
-                        if frustrum.aabb_in_frustrum(&m.instances_bounds[instance])
+                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance])
                             == FrustrumResult::Outside
                         {
                             continue;
                         }
 
-                        let buffer = if let Some(b) = m.buffer_for(instance) {
+                        let buffer = if let Some(b) = i.buffer_for(instance) {
                             b
                         } else {
                             continue;
@@ -1045,7 +1050,7 @@ impl ShadowMapArray {
                             &self.bind_group,
                             &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
                         );
-                        render_pass.set_bind_group(1, (*m.instances_bg).as_ref().unwrap(), &[]);
+                        render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
 
                         render_pass.draw(
                             m.ranges[0].first..(m.ranges.last().unwrap().last),
@@ -1065,10 +1070,10 @@ impl ShadowMapArray {
                         &self.bind_group,
                         &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
                     );
-                    render_pass.set_bind_group(1, (*m.instances_bg).as_ref().unwrap(), &[]);
+                    render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
 
-                    for instance in 0..m.instances() {
-                        if frustrum.aabb_in_frustrum(&m.instances_bounds[instance as usize])
+                    for instance in 0..(instances as u32) {
+                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
                             != FrustrumResult::Outside
                         {
                             render_pass.draw(

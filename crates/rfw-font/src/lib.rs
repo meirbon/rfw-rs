@@ -16,7 +16,7 @@ pub struct FontRenderer {
     tex_width: u32,
     tex_height: u32,
     tex_id: usize,
-    mesh_id: usize,
+    mesh_id: MeshID,
     prev_dims: (u32, u32),
     instance: Option<InstanceHandle2D>,
 }
@@ -38,7 +38,7 @@ impl FontRenderer {
             tex_width: 0,
             tex_height: 0,
             tex_id: 0,
-            mesh_id: 0,
+            mesh_id: MeshID::INVALID,
             instance: None,
             prev_dims: (0, 0),
         }
