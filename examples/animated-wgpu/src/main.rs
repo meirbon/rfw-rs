@@ -13,7 +13,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use rfw::scene::Sphere;
+use rfw::scene::{Sphere, Quality};
 use rfw::{
     backend::RenderMode,
     ecs::System,
@@ -185,7 +185,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             .get_scene_mut()
             .materials
             .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
-    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32);
+    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
     let mut handles = {
         let mut handles = Vec::new();
@@ -386,13 +386,16 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 {
-                    let instances_3d: usize = renderer
-                        .get_scene()
-                        .objects
-                        .instances_3d
-                        .iter()
-                        .map(|(_, i)| i.len())
-                        .sum();
+                    let mut instances_3d = 0;
+                    let mut vertices = 0;
+                    {
+                        let scene = renderer.get_scene();
+
+                        for (i, m) in scene.objects.meshes_3d.iter() {
+                            instances_3d += scene.objects.instances_3d[i].len();
+                            vertices += m.vertices.len() * scene.objects.instances_3d[i].len();
+                        }
+                    }
                     let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
                     let instances_2d: usize = renderer
                         .get_scene()
@@ -411,6 +414,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                             .size([350.0, 250.0], imgui::Condition::FirstUseEver)
                             .position([900.0, 25.0], imgui::Condition::FirstUseEver)
                             .build(&ui, || {
+                                ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
                                 ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
                                 ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
