@@ -1,4 +1,4 @@
-use rfw_backend::CameraView;
+use rfw_backend::CameraView3D;
 use rfw_math::*;
 
 pub mod frustrum;
@@ -74,7 +74,7 @@ impl Camera {
         }
     }
 
-    pub fn get_view(&self, width: u32, height: u32) -> CameraView {
+    pub fn get_view(&self, width: u32, height: u32) -> CameraView3D {
         let (right, up, forward) = self.calculate_matrix();
         let pos = Vec3::from(self.pos);
         let fov = self.fov;
@@ -95,7 +95,7 @@ impl Camera {
         let right = p2 - p1;
         let up = p3 - p1;
 
-        CameraView {
+        CameraView3D {
             pos: pos.into(),
             lens_size: aperture,
             right: right.into(),

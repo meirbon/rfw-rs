@@ -270,7 +270,7 @@ impl<'a> MeshData3D<'a> {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 #[repr(C)]
 pub struct Vertex2D {
     pub vertex: [f32; 3],
@@ -396,7 +396,12 @@ impl DeviceMaterial {
 }
 
 #[derive(Default, Debug, Copy, Clone)]
-pub struct CameraView {
+pub struct CameraView2D {
+    matrix: Mat4,
+}
+
+#[derive(Default, Debug, Copy, Clone)]
+pub struct CameraView3D {
     pub pos: [f32; 3],
     // 12
     pub right: [f32; 3],
@@ -423,7 +428,7 @@ pub struct CameraView {
 }
 
 #[allow(dead_code)]
-impl CameraView {
+impl CameraView3D {
     pub fn generate_lens_ray(&self, x: u32, y: u32, r0: f32, r1: f32, r2: f32, r3: f32) -> Ray {
         let blade = (r0 * 9.0).round();
         let r2 = (r2 - blade * (1.0 / 9.0)) * 9.0;

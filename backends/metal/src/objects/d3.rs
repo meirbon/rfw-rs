@@ -49,9 +49,30 @@ impl MetalMesh3D {
         }
     }
 
+    pub fn set_data(&mut self, device: &DeviceRef, mesh: MeshData3D) {
+        self.vertices = mesh.vertices.len();
+        self.skin_len = mesh.skin_data.len();
+
+        self.buffer = device.new_buffer_with_data(
+            mesh.vertices.as_ptr() as _,
+            (mesh.vertices.len() * std::mem::size_of::<Vertex3D>()) as _,
+            MTLResourceOptions::StorageModeManaged,
+        );
+
+        self.skin_buffer = if !mesh.skin_data.is_empty() {
+            Some(device.new_buffer_with_data(
+                mesh.skin_data.as_ptr() as _,
+                (mesh.skin_data.len() * std::mem::size_of::<JointData>()) as _,
+                MTLResourceOptions::StorageModeManaged,
+            ))
+        } else {
+            None
+        };
+    }
+
     pub fn set_instances(&mut self, device: &DeviceRef, instances: InstancesData3D<'_>) {
         if instances.len() > self.instance_buffer.len() {
-            self.instance_buffer = ManagedBuffer::new(device, Self::DEFAULT_CAPACITY);
+            self.instance_buffer = ManagedBuffer::new(device, instances.len().next_power_of_two());
         }
 
         self.instance_buffer.as_mut(|slice| {

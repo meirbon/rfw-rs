@@ -53,7 +53,7 @@ pub trait Backend {
     fn synchronize(&mut self);
 
     /// Renders an image to the window surface
-    fn render(&mut self, camera: CameraView, mode: RenderMode);
+    fn render(&mut self, view_3d: CameraView3D, mode: RenderMode);
 
     /// Resizes framebuffer, uses scale factor provided in init function.
     fn resize<T: HasRawWindowHandle>(

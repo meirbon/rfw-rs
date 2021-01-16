@@ -951,7 +951,7 @@ impl<B: hal::Backend> RenderPipeline<B> {
             .unwrap()
     }
 
-    pub fn update_camera(&mut self, camera: &CameraView) {
+    pub fn update_camera(&mut self, camera: &CameraView3D) {
         let mapping = match self.uniform_buffer.map(hal::memory::Segment::ALL) {
             Ok(mapping) => mapping,
             Err(_) => return,

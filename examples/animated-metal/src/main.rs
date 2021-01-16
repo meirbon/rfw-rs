@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 
-use clap::App;
+use clap::{App, Arg};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -13,6 +13,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+use rfw::scene::{Quality, Sphere};
 use rfw::{
     backend::RenderMode,
     ecs::System,
@@ -82,16 +83,12 @@ impl MouseButtonHandler {
     }
 }
 
-#[derive(Debug)]
-struct FpsCounter {
+struct FpsSystem {
     timer: Timer,
     average: Averager<f32>,
 }
 
-#[derive(Debug, Default)]
-struct FpsSystem {}
-
-impl Default for FpsCounter {
+impl Default for FpsSystem {
     fn default() -> Self {
         Self {
             timer: Timer::new(),
@@ -102,40 +99,45 @@ impl Default for FpsCounter {
 
 impl System for FpsSystem {
     fn run(&mut self, resources: &rfw::resources::ResourceList) {
-        if let Some(mut counter) = resources.get_resource_mut::<FpsCounter>() {
-            let elapsed = counter.timer.elapsed_in_millis();
-            counter.timer.reset();
-            counter.average.add_sample(elapsed);
-            let average = counter.average.get_average();
+        let elapsed = self.timer.elapsed_in_millis();
+        self.timer.reset();
+        self.average.add_sample(elapsed);
+        let average = self.average.get_average();
 
-            if let Some(mut font) = resources.get_resource_mut::<FontRenderer>() {
-                font.draw(
-                    Section::default()
-                        .with_screen_position((0.0, 0.0))
-                        .add_text(
-                            Text::new(
-                                format!(
-                                    "FPS: {:.2}\nFrametime: {:.2} ms",
-                                    1000.0 / average,
-                                    average
-                                )
+        if let Some(mut font) = resources.get_resource_mut::<FontRenderer>() {
+            font.draw(
+                Section::default()
+                    .with_screen_position((0.0, 0.0))
+                    .add_text(
+                        Text::new(
+                            format!("FPS: {:.2}\nFrametime: {:.2} ms", 1000.0 / average, average)
                                 .as_str(),
-                            )
-                            .with_scale(32.0)
-                            .with_color([1.0; 4]),
-                        ),
-                );
-            }
+                        )
+                        .with_scale(32.0)
+                        .with_color([1.0; 4]),
+                    ),
+            );
         }
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let _ = App::new("rfw-animated")
+    let matches = App::new("rfw-animated")
         .about("Example with animated meshes for the rfw framework.")
+        .arg(
+            Arg::with_name("renderer")
+                .short("r")
+                .long("renderer")
+                .takes_value(true)
+                .help("Which renderer to use (current options are: gpu-rt, deferred)"),
+        )
         .get_matches();
 
-    run_backend()
+    match matches.value_of("renderer") {
+        // Some("gpu-rt") => run_application::<RayTracer>(),
+        // Some("gfx") => run_application::<GfxBackend>(),
+        _ => run_backend(),
+    }
 }
 
 fn run_backend() -> Result<(), Box<dyn Error>> {
@@ -149,17 +151,16 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
     let mut width = window.inner_size().width;
     let mut height = window.inner_size().height;
 
-    let scale_factor: f64 = window
+    let scale_factor: f32 = window
         .current_monitor()
-        .map(|m| 1.0 / m.scale_factor())
+        .map(|m| 1.0 / m.scale_factor() as f32)
         .unwrap_or(1.0);
 
     let font = include_bytes!("../../../assets/good-times-rg.ttf");
     let mut renderer: Instance<MetalBackend> =
-        Instance::new(&window, (width, height), Some(scale_factor))
+        Instance::new(&window, (width, height), Some(scale_factor as f64))
             .unwrap()
             .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
-            .with_resource(FpsCounter::default())
             .with_system(FpsSystem::default());
 
     let mut key_handler = KeyHandler::new();
@@ -178,6 +179,26 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
         45.0,
         60.0,
     );
+
+    let material =
+        renderer
+            .get_scene_mut()
+            .materials
+            .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
+    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
+    let sphere = renderer.get_scene_mut().add_3d_object(sphere);
+    let mut handles = {
+        let mut handles = Vec::new();
+        let mut scene = renderer.get_scene_mut();
+        for x in -50..=50 {
+            for z in -25..=25 {
+                let mut instance = scene.add_3d_instance(sphere).unwrap();
+                instance.set_matrix(Mat4::from_translation(Vec3::new(x as f32, 0.3, z as f32)));
+                handles.push(instance);
+            }
+        }
+        handles
+    };
 
     let cesium_man = renderer
         .get_scene_mut()
@@ -211,6 +232,7 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
     let mut scene_id = None;
 
     let mut fullscreen_timer = 0.0;
+    let mut scale_factor_changed = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -305,15 +327,11 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
                     camera.translate_relative(pos_change);
                 }
 
-                if resized {
-                    renderer.resize(&window, (width, height), None);
+                if resized || scale_factor_changed {
+                    renderer.resize(&window, (width, height), Some(scale_factor as f64));
                     camera.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
-                }
-
-                if let Some(mut fps) = renderer.resources.get_resource_mut::<FpsCounter>() {
-                    let average = fps.average.get_average();
-                    window.set_title(format!("FPS: {}", 1000.0 / average).as_str());
+                    scale_factor_changed = false;
                 }
 
                 renderer
@@ -333,6 +351,23 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
                 renderer.set_animation_time(&cesium_man2, time / 2.0);
                 if let Some(cesium_man3) = &scene_id {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
+                }
+
+                let t = (app_time.elapsed_in_millis() / 1000.0).sin();
+                let mut i = 0;
+                for x in -50..=50 {
+                    for z in -25..=25 {
+                        let _x = ((x as f32 + t) % 10.0).sin();
+                        let _z = ((z as f32 + t) % 10.0).sin();
+                        let height = (_z + _x) * 0.5 + 1.0;
+
+                        handles[i].set_matrix(Mat4::from_translation(Vec3::new(
+                            x as f32,
+                            0.3 + height,
+                            z as f32,
+                        )));
+                        i += 1;
+                    }
                 }
 
                 if let Err(e) = renderer.render(&camera, RenderMode::Reset) {

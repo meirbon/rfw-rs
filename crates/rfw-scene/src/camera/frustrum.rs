@@ -1,4 +1,4 @@
-use rfw_backend::CameraView;
+use rfw_backend::CameraView3D;
 use rfw_math::*;
 use rtbvh::AABB;
 use std::convert::Into;
@@ -303,8 +303,8 @@ mod tests {
     }
 }
 
-impl From<&CameraView> for FrustrumG {
-    fn from(view: &CameraView) -> Self {
+impl From<&CameraView3D> for FrustrumG {
+    fn from(view: &CameraView3D) -> Self {
         FrustrumG::from_matrix(view.get_rh_matrix())
     }
 }

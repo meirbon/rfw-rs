@@ -639,7 +639,7 @@ impl Backend for WgpuBackend {
         self.meshes.reset_changed();
     }
 
-    fn render(&mut self, camera: CameraView, _mode: RenderMode) {
+    fn render(&mut self, camera: CameraView3D, _mode: RenderMode) {
         let output = match self.swap_chain.get_current_frame() {
             Ok(output) => output,
             Err(_) => return,

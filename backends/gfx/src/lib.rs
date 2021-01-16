@@ -389,7 +389,7 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         self.scene_list.synchronize();
     }
 
-    fn render(&mut self, camera: CameraView, _mode: rfw::prelude::RenderMode) {
+    fn render(&mut self, camera: CameraView3D, _mode: rfw::prelude::RenderMode) {
         self.mesh_renderer.update_camera(&camera);
 
         let surface_image = unsafe {

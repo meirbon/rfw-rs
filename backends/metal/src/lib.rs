@@ -1,6 +1,7 @@
 mod mem;
 mod objects;
 
+use crate::objects::MetalMesh2D;
 use cocoa::{
     appkit::NSView,
     base::{id as cocoa_id, YES},
@@ -18,20 +19,21 @@ pub struct CameraUniform {
     pub projection: Mat4,
     pub view_matrix: Mat4,
     pub combined: Mat4,
-    pub view: CameraView,
+    pub view: CameraView3D,
 }
 
 pub struct MetalBackend {
     device: Device,
     queue: CommandQueue,
-    meshes: HashMap<usize, MetalMesh3D>,
+    meshes_3d: HashMap<usize, MetalMesh3D>,
+    meshes_2d: HashMap<usize, MetalMesh2D>,
     textures: HashMap<usize, metal::Texture>,
     camera: ManagedBuffer<CameraUniform>,
     state: RenderPipelineState,
-    clear_state: RenderPipelineState,
+    state_2d: RenderPipelineState,
+    depth_state: DepthStencilState,
+    depth_state_2d: DepthStencilState,
     layer: CoreAnimationLayer,
-    vbuf: ManagedBuffer<f32>,
-    clear_rect_buffer: ManagedBuffer<ClearRect>,
     materials: ManagedBuffer<DeviceMaterial>,
     depth_texture: metal::Texture,
     settings: MetalSettings,
@@ -105,65 +107,36 @@ impl Backend for MetalBackend {
         desc.set_rasterization_enabled(true);
         {
             let attachment = desc.color_attachments().object_at(0).unwrap();
-            attachment.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
-            attachment.set_blending_enabled(true);
-            attachment.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
-            attachment.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
-            attachment.set_source_rgb_blend_factor(metal::MTLBlendFactor::SourceAlpha);
-            attachment.set_source_alpha_blend_factor(metal::MTLBlendFactor::SourceAlpha);
-            attachment.set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
-            attachment
-                .set_destination_alpha_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+            attachment.set_pixel_format(Self::FORMAT);
+            attachment.set_blending_enabled(false);
         }
         let state = device
             .new_render_pipeline_state(&desc)
             .expect("Could not initialize render pipeline state.");
 
         let desc = RenderPipelineDescriptor::new();
-        let vert = library.get_function("clear_rect_vertex", None).unwrap();
-        let frag = library.get_function("clear_rect_fragment", None).unwrap();
+        let vert = library.get_function("triangle_vertex_2d", None).unwrap();
+        let frag = library.get_function("triangle_fragment_2d", None).unwrap();
         desc.set_vertex_function(Some(&vert));
         desc.set_fragment_function(Some(&frag));
+        desc.set_depth_attachment_pixel_format(Self::DEPTH_FORMAT);
+        desc.set_input_primitive_topology(MTLPrimitiveTopologyClass::Triangle);
+        desc.set_rasterization_enabled(true);
         {
             let attachment = desc.color_attachments().object_at(0).unwrap();
             attachment.set_pixel_format(Self::FORMAT);
             attachment.set_blending_enabled(true);
+
             attachment.set_rgb_blend_operation(metal::MTLBlendOperation::Add);
             attachment.set_alpha_blend_operation(metal::MTLBlendOperation::Add);
             attachment.set_source_rgb_blend_factor(metal::MTLBlendFactor::SourceAlpha);
             attachment.set_source_alpha_blend_factor(metal::MTLBlendFactor::SourceAlpha);
             attachment.set_destination_rgb_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
-            attachment
-                .set_destination_alpha_blend_factor(metal::MTLBlendFactor::OneMinusSourceAlpha);
+            attachment.set_destination_alpha_blend_factor(metal::MTLBlendFactor::Zero);
         }
-        let clear_state = device
+        let state_2d = device
             .new_render_pipeline_state(&desc)
             .expect("Could not initialize render pipeline state.");
-
-        let vbuf = ManagedBuffer::with_data(
-            &device,
-            &[
-                0.0f32, 0.5, 1.0, 0.0, 0.0, -0.5, -0.5, 0.0, 1.0, 0.0, 0.5, 0.5, 0.0, 0.0, 1.0,
-            ],
-        );
-
-        let clear_rect_buffer = ManagedBuffer::with_data(
-            &device,
-            &[ClearRect {
-                rect: Rect {
-                    x: -1.0,
-                    y: -1.0,
-                    w: 2.0,
-                    h: 2.0,
-                },
-                color: Color {
-                    r: 0.5,
-                    g: 0.8,
-                    b: 0.5,
-                    a: 1.0,
-                },
-            }],
-        );
 
         let materials = ManagedBuffer::new(&device, 32);
         let camera = ManagedBuffer::new(&device, 1);
@@ -178,18 +151,30 @@ impl Backend for MetalBackend {
 
         let depth_texture = device.new_texture(&desc);
 
+        let depth_desc = DepthStencilDescriptor::new();
+        depth_desc.set_depth_compare_function(MTLCompareFunction::Less);
+        depth_desc.set_depth_write_enabled(true);
+        let depth_state = device.new_depth_stencil_state(&depth_desc);
+
+        let depth_desc = DepthStencilDescriptor::new();
+        depth_desc.set_depth_compare_function(MTLCompareFunction::Always);
+        depth_desc.set_depth_write_enabled(true);
+        let depth_state_2d = device.new_depth_stencil_state(&depth_desc);
+
         Ok(Box::new(Self {
             device,
             queue,
-            meshes: HashMap::new(),
+            meshes_3d: HashMap::new(),
+            meshes_2d: HashMap::new(),
             textures: HashMap::new(),
             camera,
             state,
-            clear_state,
+            state_2d,
+            depth_state,
+            depth_state_2d,
             layer,
-            vbuf,
-            clear_rect_buffer,
             materials,
+
             depth_texture,
             settings: MetalSettings {},
             window_size,
@@ -197,22 +182,38 @@ impl Backend for MetalBackend {
         }))
     }
 
-    fn set_2d_mesh(&mut self, _id: usize, _data: MeshData2D<'_>) {}
+    fn set_2d_mesh(&mut self, id: usize, data: MeshData2D<'_>) {
+        if let Some(mesh) = self.meshes_2d.get_mut(&id) {
+            mesh.set_data(&self.device, data);
+        } else {
+            self.meshes_2d
+                .insert(id, MetalMesh2D::new(&self.device, data));
+        }
+    }
 
-    fn set_2d_instances(&mut self, _instances: InstancesData2D<'_>) {}
+    fn set_2d_instances(&mut self, mesh: usize, instances: InstancesData2D<'_>) {
+        if let Some(mesh) = self.meshes_2d.get_mut(&mesh) {
+            mesh.set_instances(&self.device, instances);
+        }
+    }
 
     fn set_3d_mesh(&mut self, id: usize, data: MeshData3D<'_>) {
-        self.meshes.insert(id, MetalMesh3D::new(&self.device, data));
+        if let Some(mesh) = self.meshes_3d.get_mut(&id) {
+            mesh.set_data(&self.device, data);
+        } else {
+            self.meshes_3d
+                .insert(id, MetalMesh3D::new(&self.device, data));
+        }
     }
 
     fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
         for id in ids {
-            self.meshes.remove(&id);
+            self.meshes_3d.remove(&id);
         }
     }
 
     fn set_3d_instances(&mut self, mesh: usize, instances: InstancesData3D<'_>) {
-        if let Some(mesh) = self.meshes.get_mut(&mesh) {
+        if let Some(mesh) = self.meshes_3d.get_mut(&mesh) {
             mesh.set_instances(&self.device, instances);
         }
     }
@@ -267,7 +268,7 @@ impl Backend for MetalBackend {
 
     fn synchronize(&mut self) {}
 
-    fn render(&mut self, camera: CameraView, _mode: RenderMode) {
+    fn render(&mut self, camera: CameraView3D, _mode: RenderMode) {
         self.camera.as_mut(|c| {
             let projection = camera.get_rh_projection();
             let view_matrix = camera.get_rh_view_matrix();
@@ -296,34 +297,19 @@ impl Backend for MetalBackend {
             let color_attachment = render_desc.color_attachments().object_at(0).unwrap();
             color_attachment.set_texture(Some(drawable.texture()));
             color_attachment.set_load_action(MTLLoadAction::Clear);
-            color_attachment.set_clear_color(MTLClearColor::new(0.2, 0.2, 0.25, 1.0));
+            color_attachment.set_clear_color(MTLClearColor::new(0.0, 0.0, 0.0, 1.0));
             color_attachment.set_store_action(MTLStoreAction::Store);
         }
 
         let command_buffer = self.queue.new_command_buffer();
         let encoder = command_buffer.new_render_command_encoder(&render_desc);
 
-        encoder.set_scissor_rect(MTLScissorRect {
-            x: 20,
-            y: 20,
-            width: 100,
-            height: 100,
-        });
-        encoder.set_render_pipeline_state(&self.clear_state);
-        encoder.set_vertex_buffer(0, Some(&self.clear_rect_buffer), 0);
-        encoder.draw_primitives_instanced(metal::MTLPrimitiveType::TriangleStrip, 0, 4, 1);
-        encoder.set_scissor_rect(MTLScissorRect {
-            x: 0,
-            y: 0,
-            width: self.window_size.0 as _,
-            height: self.window_size.1 as _,
-        });
-
         encoder.set_render_pipeline_state(&self.state);
+        encoder.set_depth_stencil_state(&self.depth_state);
         encoder.set_front_facing_winding(MTLWinding::CounterClockwise);
         encoder.set_triangle_fill_mode(MTLTriangleFillMode::Fill);
         encoder.set_cull_mode(MTLCullMode::Back);
-        for (i, mesh) in self.meshes.iter() {
+        for (i, mesh) in self.meshes_3d.iter() {
             if mesh.instances == 0 {
                 continue;
             }
@@ -331,6 +317,35 @@ impl Backend for MetalBackend {
             encoder.set_vertex_buffer(0, Some(&mesh.buffer), 0);
             encoder.set_vertex_buffer(1, Some(&self.camera), 0);
             encoder.set_vertex_buffer(2, Some(&mesh.instance_buffer), 0);
+
+            encoder.draw_primitives_instanced(
+                MTLPrimitiveType::Triangle,
+                0,
+                mesh.vertices as _,
+                mesh.instances as _,
+            );
+        }
+
+        for (_, mesh) in self.meshes_2d.iter() {
+            if mesh.instances == 0 || mesh.vertices == 0 {
+                continue;
+            }
+
+            encoder.set_render_pipeline_state(&self.state_2d);
+            encoder.set_depth_stencil_state(&self.depth_state_2d);
+            encoder.set_front_facing_winding(MTLWinding::CounterClockwise);
+            encoder.set_triangle_fill_mode(MTLTriangleFillMode::Fill);
+            encoder.set_cull_mode(MTLCullMode::None);
+            encoder.set_vertex_buffer(0, Some(&mesh.buffer), 0);
+            encoder.set_vertex_buffer(1, Some(&mesh.instance_buffer), 0);
+            encoder.set_fragment_texture(
+                0,
+                Some(if let Some(texture) = mesh.tex_id {
+                    &self.textures[&texture]
+                } else {
+                    &self.textures[&0]
+                }),
+            );
             encoder.draw_primitives_instanced(
                 MTLPrimitiveType::Triangle,
                 0,
