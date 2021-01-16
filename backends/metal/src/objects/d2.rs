@@ -1,9 +1,7 @@
 use crate::mem::ManagedBuffer;
-use crate::objects::Matrices;
-use metal::{Buffer, DeviceRef, MTLResourceOptions};
-use rfw::backend::{InstancesData2D, JointData, MeshData2D, MeshData3D, Vertex2D, Vertex3D};
+use metal::DeviceRef;
+use rfw::backend::{InstancesData2D, MeshData2D, Vertex2D};
 use rfw::math::Mat4;
-use rfw::utils::BytesConversion;
 
 pub struct MetalMesh2D {
     pub(crate) buffer: ManagedBuffer<Vertex2D>,

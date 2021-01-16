@@ -309,7 +309,7 @@ impl Backend for MetalBackend {
         encoder.set_front_facing_winding(MTLWinding::CounterClockwise);
         encoder.set_triangle_fill_mode(MTLTriangleFillMode::Fill);
         encoder.set_cull_mode(MTLCullMode::Back);
-        for (i, mesh) in self.meshes_3d.iter() {
+        for (_, mesh) in self.meshes_3d.iter() {
             if mesh.instances == 0 {
                 continue;
             }

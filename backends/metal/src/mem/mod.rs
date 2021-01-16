@@ -4,7 +4,7 @@ use metal::{Buffer, BufferRef, DeviceRef, MTLResourceOptions};
 pub struct ManagedBuffer<T> {
     buffer: Buffer,
     count: usize,
-    default: T,
+    _default: T,
 }
 
 impl<T: Sized> std::ops::Deref for ManagedBuffer<T> {
@@ -23,7 +23,7 @@ impl<T: Sized + Default> ManagedBuffer<T> {
         Self {
             buffer,
             count,
-            default: T::default(),
+            _default: T::default(),
         }
     }
 
@@ -38,7 +38,7 @@ impl<T: Sized + Default> ManagedBuffer<T> {
         Self {
             buffer,
             count: data.len(),
-            default: T::default(),
+            _default: T::default(),
         }
     }
 
