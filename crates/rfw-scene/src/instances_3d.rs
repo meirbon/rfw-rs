@@ -20,6 +20,24 @@ pub struct InstanceList3D {
     pub(crate) list: Arc<UnsafeCell<List3D>>,
 }
 
+impl<'a> From<&'a InstanceList3D> for InstancesData3D<'a> {
+    fn from(list: &'a InstanceList3D) -> Self {
+        Self {
+            matrices: list.matrices(),
+            skin_ids: list.skin_ids(),
+        }
+    }
+}
+
+impl<'a> From<&'a mut InstanceList3D> for InstancesData3D<'a> {
+    fn from(list: &'a mut InstanceList3D) -> Self {
+        Self {
+            matrices: list.matrices(),
+            skin_ids: list.skin_ids(),
+        }
+    }
+}
+
 /// Although sharing instances amongst multiple threads without any mitigations against data races
 /// is unsafe, the performance benefits of not doing any mitigation is too great to neglect this
 /// opportunity (especially with many instances).

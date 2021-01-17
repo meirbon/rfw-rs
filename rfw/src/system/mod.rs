@@ -1,5 +1,5 @@
 use rfw_backend::{
-    Backend, DataFormat, InstancesData2D, InstancesData3D, MeshData2D, MeshData3D, SkinData,
+    Backend, DataFormat, MeshData2D, MeshData3D, SkinData,
     TextureData,
 };
 use rfw_utils::BytesConversion;
@@ -74,17 +74,13 @@ impl RenderSystem {
         }
         scene.objects.meshes_2d.reset_changed();
 
-        for (id, i) in scene.objects.instances_2d.iter_mut() {
-            if !i.any_changed() {
+        for (id, instances) in scene.objects.instances_2d.iter_mut() {
+            if !instances.any_changed() {
                 continue;
             }
 
-            renderer.set_2d_instances(
-                id,
-                InstancesData2D {
-                    matrices: i.matrices(),
-                },
-            );
+            instances.reset_changed();
+            renderer.set_2d_instances(id, instances.into());
         }
 
         if scene.objects.meshes_3d.any_changed() {
@@ -112,6 +108,8 @@ impl RenderSystem {
                 continue;
             }
 
+            instances.reset_changed();
+
             if !found_light {
                 for r in mesh.ranges.iter() {
                     match light_flags.get(r.mat_id as usize) {
@@ -127,13 +125,7 @@ impl RenderSystem {
             }
 
             changed = true;
-            renderer.set_3d_instances(
-                i,
-                InstancesData3D {
-                    matrices: instances.matrices(),
-                    skin_ids: instances.skin_ids(),
-                },
-            );
+            renderer.set_3d_instances(i, instances.into());
 
             instances.reset_changed();
         }

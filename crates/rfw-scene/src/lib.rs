@@ -18,7 +18,6 @@ pub use camera::*;
 pub use graph::*;
 pub use instances_2d::*;
 pub use instances_3d::*;
-// pub use intersector::*;
 pub use l3d::prelude::{
     load::*, mat::Flip, mat::Material, mat::Texture, mat::TextureDescriptor, mat::TextureFormat,
     mat::TextureSource,
@@ -37,7 +36,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
-use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut, TrackedStorage};
+use rfw_utils::collections::{FlaggedIterator, FlaggedIteratorMut, FlaggedStorage, TrackedStorage};
 use std::sync::{PoisonError, TryLockError};
 use std::{
     collections::HashMap,
@@ -71,18 +70,6 @@ impl<Guard> From<PoisonError<Guard>> for SceneError {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-#[repr(u8)]
-pub enum SceneFlags {
-    BuildBVHs = 0,
-}
-
-impl Into<u8> for SceneFlags {
-    fn into(self) -> u8 {
-        self as u8
-    }
-}
-
 impl std::fmt::Display for SceneError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = match self {
@@ -107,8 +94,8 @@ impl std::error::Error for SceneError {}
 
 #[derive(Debug, Clone)]
 pub struct Objects {
-    pub instances_2d: TrackedStorage<InstanceList2D>,
-    pub instances_3d: TrackedStorage<InstanceList3D>,
+    pub instances_2d: FlaggedStorage<InstanceList2D>,
+    pub instances_3d: FlaggedStorage<InstanceList3D>,
     pub meshes_3d: TrackedStorage<Mesh3D>,
     pub meshes_2d: TrackedStorage<Mesh2D>,
     pub graph: graph::SceneGraph,
@@ -118,12 +105,12 @@ pub struct Objects {
 impl Default for Objects {
     fn default() -> Self {
         Self {
-            instances_2d: TrackedStorage::new(),
-            instances_3d: TrackedStorage::new(),
-            meshes_3d: TrackedStorage::new(),
-            meshes_2d: TrackedStorage::new(),
-            graph: graph::SceneGraph::new(),
-            skins: TrackedStorage::new(),
+            instances_2d: Default::default(),
+            instances_3d: Default::default(),
+            meshes_3d: Default::default(),
+            meshes_2d: Default::default(),
+            graph: Default::default(),
+            skins: Default::default(),
         }
     }
 }
@@ -176,14 +163,15 @@ impl Default for Scene {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
-    instances_3d: TrackedStorage<InstanceList3D>,
-    instances_2d: TrackedStorage<InstanceList2D>,
+    instances_3d: FlaggedStorage<InstanceList3D>,
+    instances_2d: FlaggedStorage<InstanceList2D>,
     meshes_3d: TrackedStorage<Mesh3D>,
     meshes_2d: TrackedStorage<Mesh2D>,
     graph: graph::SceneGraph,
     skins: TrackedStorage<graph::Skin>,
     lights: SceneLights,
     materials: MaterialList,
+    cameras: TrackedStorage<Camera>,
 }
 
 impl From<&Scene> for SerializableScene {
@@ -197,25 +185,26 @@ impl From<&Scene> for SerializableScene {
             skins: scene.objects.skins.clone(),
             lights: scene.lights.clone(),
             materials: scene.materials.clone(),
+            cameras: scene.cameras.clone(),
         }
     }
 }
 
-impl Into<Scene> for SerializableScene {
-    fn into(self) -> Scene {
+impl From<SerializableScene> for Scene {
+    fn from(s: SerializableScene) -> Self {
         Scene {
             loaders: Scene::create_loaders(),
             objects: Objects {
-                instances_2d: self.instances_2d,
-                instances_3d: self.instances_3d,
-                meshes_3d: self.meshes_3d,
-                meshes_2d: self.meshes_2d,
-                graph: self.graph,
-                skins: self.skins,
+                instances_2d: s.instances_2d,
+                instances_3d: s.instances_3d,
+                meshes_3d: s.meshes_3d,
+                meshes_2d: s.meshes_2d,
+                graph: s.graph,
+                skins: s.skins,
             },
-            lights: self.lights,
-            materials: self.materials,
-            cameras: TrackedStorage::new(),
+            lights: s.lights,
+            materials: s.materials,
+            cameras: s.cameras,
         }
     }
 }
@@ -255,12 +244,12 @@ impl Scene {
                     LoadResult::Object(i) => {
                         self.objects
                             .instances_3d
-                            .overwrite(i.as_index().unwrap(), InstanceList3D::default());
+                            .overwrite_val(i.as_index().unwrap(), InstanceList3D::default());
                     }
                     LoadResult::Scene(s) => s.meshes.iter().for_each(|i| {
                         self.objects
                             .instances_3d
-                            .overwrite(i.as_index().unwrap(), InstanceList3D::default());
+                            .overwrite_val(i.as_index().unwrap(), InstanceList3D::default());
                     }),
                 }
             }
@@ -292,7 +281,7 @@ impl Scene {
         let id = self.objects.meshes_3d.push(object.into_mesh());
         self.objects
             .instances_3d
-            .overwrite(id, InstanceList3D::default());
+            .overwrite_val(id, InstanceList3D::default());
         MeshID(id as _)
     }
 
@@ -316,7 +305,7 @@ impl Scene {
         let id = self.objects.meshes_2d.push(object);
         self.objects
             .instances_2d
-            .overwrite(id, InstanceList2D::default());
+            .overwrite_val(id, InstanceList2D::default());
         MeshID(id as _)
     }
 

@@ -40,6 +40,22 @@ impl Into<List2D> for InstanceList2D {
     }
 }
 
+impl<'a> From<&'a InstanceList2D> for InstancesData2D<'a> {
+    fn from(list: &'a InstanceList2D) -> Self {
+        Self {
+            matrices: list.matrices()
+        }
+    }
+}
+
+impl<'a> From<&'a mut InstanceList2D> for InstancesData2D<'a> {
+    fn from(list: &'a mut InstanceList2D) -> Self {
+        Self {
+            matrices: list.matrices()
+        }
+    }
+}
+
 impl Default for InstanceList2D {
     fn default() -> Self {
         Self {
@@ -146,7 +162,7 @@ impl InstanceList2D {
         }
     }
 
-    pub fn any_changed(&mut self) -> bool {
+    pub fn any_changed(&self) -> bool {
         for flag in self.flags() {
             if !flag.is_empty() {
                 return true;

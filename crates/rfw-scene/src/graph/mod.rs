@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use rfw_backend::*;
 use rfw_math::*;
 
-use rfw_utils::collections::TrackedStorage;
+use rfw_utils::collections::{FlaggedStorage, TrackedStorage};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::sync::RwLock;
@@ -322,7 +322,7 @@ pub trait ToScene {
     fn into_scene(
         &self,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> NodeGraph;
 }
@@ -341,7 +341,7 @@ impl ToScene for SceneDescriptor {
     fn into_scene(
         &self,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> NodeGraph {
         let mut graph = NodeGraph::new();
@@ -374,7 +374,7 @@ impl NodeGraph {
     pub fn initialize(
         &mut self,
         _meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) {
         for (_, node) in self.nodes.iter_mut() {
@@ -428,7 +428,7 @@ impl NodeGraph {
     pub fn update(
         &mut self,
         meshes: &RwLock<&mut TrackedStorage<Mesh3D>>,
-        instances: &RwLock<&mut TrackedStorage<InstanceList3D>>,
+        instances: &RwLock<&mut FlaggedStorage<InstanceList3D>>,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         if !self.nodes.any_changed() {
@@ -493,7 +493,7 @@ impl NodeGraph {
         accumulated_matrix: Mat4,
         nodes: &mut TrackedStorage<Node>,
         meshes: &RwLock<&mut TrackedStorage<Mesh3D>>,
-        instances: &RwLock<&mut TrackedStorage<InstanceList3D>>,
+        instances: &RwLock<&mut FlaggedStorage<InstanceList3D>>,
         skins: &RwLock<&mut TrackedStorage<Skin>>,
     ) -> bool {
         let mut changed = nodes[current_index].changed;
@@ -601,7 +601,7 @@ impl NodeGraph {
         &mut self,
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
     ) {
         let mut node_map: HashMap<u32, u32> =
             HashMap::with_capacity(scene_descriptor.nodes.len() + 1);
@@ -666,7 +666,7 @@ impl NodeGraph {
         descriptor: &NodeDescriptor,
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
     ) -> u32 {
         let child_nodes: Vec<u32> = descriptor
             .child_nodes
@@ -749,7 +749,7 @@ impl NodeGraph {
     pub fn from_scene_descriptor(
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
     ) -> Self {
         let mut graph = Self::new();
         graph.load_scene_descriptor(scene_descriptor, meshes, instances);
@@ -761,7 +761,7 @@ impl NodeGraph {
         descriptor: &NodeDescriptor,
         scene_descriptor: &SceneDescriptor,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
     ) -> Self {
         let mut graph = Self::new();
         graph.load_node_descriptor(node_map, descriptor, scene_descriptor, meshes, instances);
@@ -802,12 +802,22 @@ impl Default for Skin {
     }
 }
 
-impl<'a> Into<SkinData<'a>> for &'a Skin {
-    fn into(self) -> SkinData<'a> {
-        SkinData {
-            name: self.name.as_str(),
-            inverse_bind_matrices: self.inverse_bind_matrices.as_slice(),
-            joint_matrices: self.joint_matrices.as_slice(),
+impl<'a> From<&'a Skin> for SkinData<'a> {
+    fn from(skin: &'a Skin) -> Self {
+        Self {
+            name: skin.name.as_str(),
+            inverse_bind_matrices: skin.inverse_bind_matrices.as_slice(),
+            joint_matrices: skin.joint_matrices.as_slice(),
+        }
+    }
+}
+
+impl<'a> From<&'a mut Skin> for SkinData<'a> {
+    fn from(skin: &'a mut Skin) -> Self {
+        Self {
+            name: skin.name.as_str(),
+            inverse_bind_matrices: skin.inverse_bind_matrices.as_slice(),
+            joint_matrices: skin.joint_matrices.as_slice(),
         }
     }
 }
@@ -836,7 +846,7 @@ impl SceneGraph {
     pub fn synchronize(
         &mut self,
         meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let times = &self.times;
@@ -890,7 +900,7 @@ impl SceneGraph {
         &mut self,
         handle: GraphHandle,
         _meshes: &mut TrackedStorage<Mesh3D>,
-        instances: &mut TrackedStorage<InstanceList3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
         skins: &mut TrackedStorage<Skin>,
     ) -> bool {
         let id = handle.get_id();
