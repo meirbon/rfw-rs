@@ -1072,14 +1072,22 @@ impl ShadowMapArray {
                     );
                     render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
 
-                    for instance in 0..(instances as u32) {
-                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
-                            != FrustrumResult::Outside
-                        {
-                            render_pass.draw(
-                                m.ranges[0].first..(m.ranges.last().unwrap().last),
-                                instance..(instance + 1),
-                            );
+                    // TODO: We should probably do some GPU based culling for huge numbers of instances
+                    if instances > 20000 {
+                        render_pass.draw(
+                            m.ranges[0].first..(m.ranges.last().unwrap().last),
+                            0..(instances as u32),
+                        );
+                    } else {
+                        for instance in 0..(instances as u32) {
+                            if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
+                                != FrustrumResult::Outside
+                            {
+                                render_pass.draw(
+                                    m.ranges[0].first..(m.ranges.last().unwrap().last),
+                                    instance..(instance + 1),
+                                );
+                            }
                         }
                     }
                 }

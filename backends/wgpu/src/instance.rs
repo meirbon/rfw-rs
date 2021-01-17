@@ -10,6 +10,7 @@ pub struct InstanceList {
     instance_capacity: usize,
     instances: u32,
     instance_buffers: Vec<Arc<Option<wgpu::Buffer>>>,
+    instance_matrices: Vec<InstanceMatrices>,
     pub instances_buffer: Arc<Option<wgpu::Buffer>>,
     pub instances_bg: Arc<Option<wgpu::BindGroup>>,
     pub instances_bounds: Vec<AABB>,
@@ -29,6 +30,7 @@ impl Default for InstanceList {
             instance_capacity: 0,
             instances: 0,
             instance_buffers: Vec::new(),
+            instance_matrices: Vec::new(),
             instances_buffer: Arc::new(None),
             instances_bg: Arc::new(None),
             instances_bounds: Vec::new(),
@@ -43,6 +45,7 @@ impl Clone for InstanceList {
             instance_capacity: self.instance_capacity,
             instances: self.instances,
             instance_buffers: self.instance_buffers.clone(),
+            instance_matrices: self.instance_matrices.clone(),
             instances_buffer: self.instances_buffer.clone(),
             instances_bg: self.instances_bg.clone(),
             instances_bounds: self.instances_bounds.clone(),
@@ -78,6 +81,7 @@ impl InstanceList {
             instance_capacity: Self::DEFAULT_CAPACITY,
             instances: 0,
             instance_buffers: Vec::new(),
+            instance_matrices: Vec::new(),
             instances_buffer: Arc::new(instances_buffer),
             instances_bg: Arc::new(instances_bg),
             instances_bounds: vec![AABB::empty(); Self::DEFAULT_CAPACITY],
@@ -118,18 +122,21 @@ impl InstanceList {
                 })));
         }
 
+        self.instance_matrices
+            .resize(instances.len(), Default::default());
         self.instances_bounds
             .resize(instances.len(), AABB::default());
         self.instance_buffers
             .resize(instances.len(), Arc::new(None));
 
-        let matrices: Vec<InstanceMatrices> = instances
+        instances
             .matrices
             .iter()
             .enumerate()
+            .zip(self.instance_matrices.iter_mut())
             .zip(self.instance_buffers.iter_mut())
             .zip(self.instances_bounds.iter_mut())
-            .map(|(((i, m), buffer), bounds)| {
+            .for_each(|((((i, m), matrices), buffer), bounds)| {
                 *bounds = mesh.bounds.transformed(m.to_cols_array());
                 *buffer = if let Some(skin) = instances.skin_ids[i].as_index() {
                     Arc::new(Some(
@@ -141,17 +148,16 @@ impl InstanceList {
                     mesh.buffer.clone()
                 };
 
-                InstanceMatrices {
+                *matrices = InstanceMatrices {
                     matrix: *m,
                     normal: m.inverse().transpose(),
-                }
-            })
-            .collect();
+                };
+            });
 
         queue.write_buffer(
             (*self.instances_buffer).as_ref().unwrap(),
             0,
-            matrices.as_bytes(),
+            self.instance_matrices.as_bytes(),
         );
 
         self.supports_skinning = mesh.joints_weights_buffer.is_some();

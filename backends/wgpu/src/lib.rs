@@ -921,18 +921,31 @@ impl WgpuBackend {
                 render_pass.set_vertex_buffer(3, buffer_slice);
                 render_pass.set_vertex_buffer(4, buffer_slice);
 
-                for instance in 0..(instances as u32) {
-                    if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
-                        != FrustrumResult::Outside
-                    {
-                        for r in m.ranges.iter() {
-                            let bind_group = &material_bind_groups[r.mat_id as usize];
-                            render_pass.set_bind_group(
-                                2,
-                                bind_group.group.deref().as_ref().unwrap(),
-                                &[],
-                            );
-                            render_pass.draw(r.first..r.last, instance..(instance + 1));
+                // TODO: We should probably do some GPU based culling for huge numbers of instances
+                if instances > 20000 {
+                    for r in m.ranges.iter() {
+                        let bind_group = &material_bind_groups[r.mat_id as usize];
+                        render_pass.set_bind_group(
+                            2,
+                            bind_group.group.deref().as_ref().unwrap(),
+                            &[],
+                        );
+                        render_pass.draw(r.first..r.last, 0..(instances as u32));
+                    }
+                } else {
+                    for instance in 0..(instances as u32) {
+                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
+                            != FrustrumResult::Outside
+                        {
+                            for r in m.ranges.iter() {
+                                let bind_group = &material_bind_groups[r.mat_id as usize];
+                                render_pass.set_bind_group(
+                                    2,
+                                    bind_group.group.deref().as_ref().unwrap(),
+                                    &[],
+                                );
+                                render_pass.draw(r.first..r.last, instance..(instance + 1));
+                            }
                         }
                     }
                 }

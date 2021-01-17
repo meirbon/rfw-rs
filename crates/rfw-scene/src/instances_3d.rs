@@ -94,6 +94,7 @@ impl InstanceList3D {
         }
         list.ptr.store(id + 1, Ordering::Release);
         list.flags[id] = InstanceFlags3D::all();
+        list.matrices[id] = Mat4::identity();
 
         InstanceHandle3D {
             index: id,
@@ -103,7 +104,7 @@ impl InstanceList3D {
 
     pub fn make_invalid(&mut self, handle: InstanceHandle3D) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
-        list.matrices[handle.index] = Mat4::identity();
+        list.matrices[handle.index] = Mat4::zero();
         list.skin_ids[handle.index] = SkinID::INVALID;
         list.flags[handle.index] = InstanceFlags3D::all();
         list.free_slots.push(handle.index);
@@ -268,6 +269,9 @@ pub struct InstanceHandle3D {
     index: usize,
     ptr: Arc<UnsafeCell<List3D>>,
 }
+
+unsafe impl Send for InstanceHandle3D {}
+unsafe impl Sync for InstanceHandle3D {}
 
 impl InstanceHandle3D {
     #[inline]

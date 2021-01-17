@@ -43,7 +43,7 @@ impl Into<List2D> for InstanceList2D {
 impl<'a> From<&'a InstanceList2D> for InstancesData2D<'a> {
     fn from(list: &'a InstanceList2D) -> Self {
         Self {
-            matrices: list.matrices()
+            matrices: list.matrices(),
         }
     }
 }
@@ -51,7 +51,7 @@ impl<'a> From<&'a InstanceList2D> for InstancesData2D<'a> {
 impl<'a> From<&'a mut InstanceList2D> for InstancesData2D<'a> {
     fn from(list: &'a mut InstanceList2D) -> Self {
         Self {
-            matrices: list.matrices()
+            matrices: list.matrices(),
         }
     }
 }
@@ -92,6 +92,7 @@ impl InstanceList2D {
         }
         list.ptr.store(id + 1, Ordering::Release);
         list.flags[id] = InstanceFlags2D::all();
+        list.matrices[id] = Mat4::identity();
 
         InstanceHandle2D {
             index: id,
@@ -110,7 +111,7 @@ impl InstanceList2D {
 
     pub fn resize(&mut self, new_size: usize) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
-        list.matrices.resize(new_size, Mat4::identity());
+        list.matrices.resize(new_size, Mat4::zero());
         list.mesh_ids.resize(new_size, MeshID::INVALID);
         list.flags.resize(new_size, InstanceFlags2D::empty());
     }
@@ -266,6 +267,9 @@ pub struct InstanceHandle2D {
     index: usize,
     ptr: Arc<UnsafeCell<List2D>>,
 }
+
+unsafe impl Send for InstanceHandle2D {}
+unsafe impl Sync for InstanceHandle2D {}
 
 impl InstanceHandle2D {
     #[inline]

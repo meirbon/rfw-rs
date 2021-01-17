@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -185,13 +184,16 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             .get_scene_mut()
             .materials
             .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
-    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
+    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::High);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
+    let sphere_x = 50 as i32;
+    let sphere_z = 50 as i32;
+
     let mut handles = {
         let mut handles = Vec::new();
         let mut scene = renderer.get_scene_mut();
-        for x in -50..=50 {
-            for z in -25..=25 {
+        for x in -sphere_x..=sphere_x {
+            for z in -sphere_z..=sphere_z {
                 let mut instance = scene.add_3d_instance(sphere).unwrap();
                 instance.set_matrix(Mat4::from_translation(Vec3::new(x as f32, 0.3, z as f32)));
                 handles.push(instance);
@@ -429,21 +431,34 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 }
 
                 let t = app_time.elapsed_in_millis() / 1000.0;
-                let mut i = 0;
-                for x in -50..=50 {
-                    for z in -25..=25 {
-                        let _x = (((x + 50) as f32) + t).sin();
-                        let _z = (((z + 25) as f32) + t).sin();
-                        let height = (_z + _x) * 0.5 + 1.0;
+                handles.par_iter_mut().enumerate().for_each(|(i, h)| {
+                    let x = (i as i32 % (sphere_x * 2)) - sphere_x;
+                    let z = (i as i32 / (sphere_x * 2)) - sphere_z;
+                    let _x = (((x + sphere_x) as f32) + t).sin();
+                    let _z = (((z + sphere_z) as f32) + t).sin();
+                    let height = (_z + _x) * 0.5 + 1.0;
 
-                        handles[i].set_matrix(Mat4::from_translation(Vec3::new(
-                            x as f32,
-                            0.3 + height,
-                            z as f32,
-                        )));
-                        i += 1;
-                    }
-                }
+                    h.set_matrix(Mat4::from_translation(Vec3::new(
+                        x as f32,
+                        0.3 + height,
+                        z as f32,
+                    )));
+                });
+                // let mut i = 0;
+                // for x in -sphere_x..=sphere_x {
+                //     for z in -sphere_x..=sphere_z {
+                //         let _x = (((x + sphere_x) as f32) + t).sin();
+                //         let _z = (((z + sphere_z) as f32) + t).sin();
+                //         let height = (_z + _x) * 0.5 + 1.0;
+
+                //         handles[i].set_matrix(Mat4::from_translation(Vec3::new(
+                //             x as f32,
+                //             0.3 + height,
+                //             z as f32,
+                //         )));
+                //         i += 1;
+                //     }
+                // }
 
                 if let Err(e) = renderer.render(&camera, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
