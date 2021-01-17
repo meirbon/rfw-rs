@@ -15,18 +15,39 @@ pub enum LoadResult {
     Scene(SceneDescriptor),
 }
 
+#[derive(Debug, Clone)]
+pub enum Error {
+    ResultIsScene,
+    ResultIsMesh,
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Error({})",
+            match self {
+                Error::ResultIsScene => "Result is a scene, not a mesh",
+                Error::ResultIsMesh => "Result is a mesh, not a scene",
+            }
+        )
+    }
+}
+
+impl std::error::Error for Error {}
+
 impl LoadResult {
-    pub fn object(self) -> Result<MeshId3D, ()> {
+    pub fn object(self) -> Result<MeshId3D, Error> {
         match self {
             LoadResult::Object(obj) => Ok(obj),
-            LoadResult::Scene(_) => Err(()),
+            LoadResult::Scene(_) => Err(Error::ResultIsScene),
         }
     }
 
-    pub fn scene(self) -> Result<SceneDescriptor, ()> {
+    pub fn scene(self) -> Result<SceneDescriptor, Error> {
         match self {
-            LoadResult::Object(_) => Err(()),
             LoadResult::Scene(scene) => Ok(scene),
+            LoadResult::Object(_) => Err(Error::ResultIsMesh),
         }
     }
 }

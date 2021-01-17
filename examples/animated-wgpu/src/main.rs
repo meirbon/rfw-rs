@@ -12,7 +12,6 @@ use winit::{
 };
 
 use rfw::prelude::*;
-use rfw::scene::{Quality, Sphere};
 use rfw_backend_wgpu::{WgpuBackend, WgpuView};
 use rfw_font::*;
 use winit::window::Fullscreen;
@@ -118,17 +117,17 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         60.0,
     );
     // TODO: Fix directional lights
-    // renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
+    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     let material =
         renderer
             .get_scene_mut()
             .materials
-            .add(Vec3::new(1.0, 1.0, 0.0), 1.0, Vec3::one(), 0.0);
+            .add(Vec3::new(1.0, 0.2, 0.03), 1.0, Vec3::one(), 0.0);
     let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::High);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    let sphere_x = 50 as i32;
-    let sphere_z = 50 as i32;
+    let sphere_x = 30 as i32;
+    let sphere_z = 25 as i32;
 
     let mut handles = {
         let mut handles = Vec::new();
@@ -146,8 +145,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let cesium_man = renderer
         .get_scene_mut()
         .load("assets/models/CesiumMan/CesiumMan.gltf")?
-        .scene()
-        .unwrap();
+        .scene()?;
 
     let mut cesium_man1 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
     cesium_man1
