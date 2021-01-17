@@ -1,4 +1,4 @@
-use crate::objects::*;
+use crate::objects_3d::*;
 use rtbvh::{aabb::Bounds, Ray, RayPacket4, AABB};
 use std::fmt::Display;
 

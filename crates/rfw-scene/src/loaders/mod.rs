@@ -1,6 +1,6 @@
 use crate::graph::SceneDescriptor;
 use crate::{MaterialList, Mesh3D, SceneError};
-use rfw_backend::MeshID;
+use rfw_backend::MeshId3D;
 use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
 
@@ -10,13 +10,13 @@ pub mod obj;
 #[derive(Debug, Clone)]
 pub enum LoadResult {
     /// Reference to single mesh
-    Object(MeshID),
+    Object(MeshId3D),
     /// Indices of root nodes of scene
     Scene(SceneDescriptor),
 }
 
 impl LoadResult {
-    pub fn object(self) -> Result<MeshID, ()> {
+    pub fn object(self) -> Result<MeshId3D, ()> {
         match self {
             LoadResult::Object(obj) => Ok(obj),
             LoadResult::Scene(_) => Err(()),

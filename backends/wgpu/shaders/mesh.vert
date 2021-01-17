@@ -9,6 +9,7 @@ layout(location = 4) in vec4 Tangent;
 layout(set = 0, binding = 0) uniform Locals {
     mat4 View;
     mat4 Proj;
+    mat4 matrix_2d;
     uvec4 light_count;
     vec4 cam_pos;
 };

@@ -1,4 +1,3 @@
-use cocoa::foundation::NSRange;
 use metal::{Buffer, BufferRef, DeviceRef, MTLResourceOptions};
 
 pub struct ManagedBuffer<T> {
@@ -51,7 +50,7 @@ impl<T: Sized + Default> ManagedBuffer<T> {
         CB: FnMut(&mut [T]),
     {
         cb(unsafe { std::slice::from_raw_parts_mut(self.buffer.contents() as *mut T, self.count) });
-        self.buffer.did_modify_range(NSRange::new(
+        self.buffer.did_modify_range(metal::NSRange::new(
             0,
             (self.count * std::mem::size_of::<T>()) as _,
         ));

@@ -1,5 +1,4 @@
 use rayon::prelude::*;
-use std::collections::HashMap;
 use std::error::Error;
 
 use clap::{App, Arg};
@@ -17,70 +16,15 @@ use rfw::{
     backend::RenderMode,
     ecs::System,
     math::*,
-    prelude::{Averager, Camera, Timer},
+    prelude::{Averager, Camera2D, Camera3D, Timer},
     utils, Instance,
 };
 use rfw_backend_wgpu::{WgpuBackend, WgpuView};
 use rfw_font::*;
 use winit::window::Fullscreen;
 
-pub struct KeyHandler {
-    states: HashMap<VirtualKeyCode, bool>,
-}
-
-impl KeyHandler {
-    pub fn new() -> KeyHandler {
-        Self {
-            states: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, key: KeyCode, state: ElementState) {
-        self.states.insert(
-            key,
-            match state {
-                ElementState::Pressed => true,
-                _ => false,
-            },
-        );
-    }
-
-    pub fn pressed(&self, key: KeyCode) -> bool {
-        if let Some(state) = self.states.get(&key) {
-            return *state;
-        }
-        false
-    }
-}
-
-pub struct MouseButtonHandler {
-    states: HashMap<MouseButtonCode, bool>,
-}
-
-impl Default for MouseButtonHandler {
-    fn default() -> Self {
-        Self {
-            states: Default::default(),
-        }
-    }
-}
-
-impl MouseButtonHandler {
-    pub fn new() -> MouseButtonHandler {
-        Self::default()
-    }
-
-    pub fn insert(&mut self, key: MouseButtonCode, state: ElementState) {
-        self.states.insert(key, state == ElementState::Pressed);
-    }
-
-    pub fn pressed(&self, key: MouseButtonCode) -> bool {
-        if let Some(state) = self.states.get(&key) {
-            return *state;
-        }
-        false
-    }
-}
+type KeyHandler = rfw::utils::input::ButtonState<VirtualKeyCode>;
+type MouseButtonHandler = rfw::utils::input::ButtonState<MouseButtonCode>;
 
 struct FpsSystem {
     timer: Timer,
@@ -165,7 +109,8 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let mut camera = Camera::new().with_aspect_ratio(width as f32 / height as f32);
+    let mut camera_2d = Camera2D::from_width_height(width, height, Some(scale_factor as f64));
+    let mut camera_3d = Camera3D::new().with_aspect_ratio(width as f32 / height as f32);
 
     let mut timer = utils::Timer::new();
 
@@ -355,15 +300,17 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 let pos_change = pos_change * elapsed * 0.01;
 
                 if view_change != [0.0; 3].into() {
-                    camera.translate_target(view_change);
+                    camera_3d.translate_target(view_change);
                 }
                 if pos_change != [0.0; 3].into() {
-                    camera.translate_relative(pos_change);
+                    camera_3d.translate_relative(pos_change);
                 }
 
                 if resized || scale_factor_changed {
                     renderer.resize(&window, (width, height), Some(scale_factor as f64));
-                    camera.set_aspect_ratio(width as f32 / height as f32);
+                    camera_2d =
+                        Camera2D::from_width_height(width, height, Some(scale_factor as f64));
+                    camera_3d.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
                     scale_factor_changed = false;
                 }
@@ -444,23 +391,8 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                         z as f32,
                     )));
                 });
-                // let mut i = 0;
-                // for x in -sphere_x..=sphere_x {
-                //     for z in -sphere_x..=sphere_z {
-                //         let _x = (((x + sphere_x) as f32) + t).sin();
-                //         let _z = (((z + sphere_z) as f32) + t).sin();
-                //         let height = (_z + _x) * 0.5 + 1.0;
 
-                //         handles[i].set_matrix(Mat4::from_translation(Vec3::new(
-                //             x as f32,
-                //             0.3 + height,
-                //             z as f32,
-                //         )));
-                //         i += 1;
-                //     }
-                // }
-
-                if let Err(e) = renderer.render(&camera, RenderMode::Reset) {
+                if let Err(e) = renderer.render(&camera_2d, &camera_3d, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
                     *control_flow = ControlFlow::Exit;
                 }
@@ -470,7 +402,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 window_id,
             } if *window_id == window.id() => {
                 if let Some(key) = input.virtual_keycode {
-                    key_handler.insert(key, input.state);
+                    key_handler.insert(key, input.state == ElementState::Pressed);
                 }
             }
             Event::WindowEvent {
@@ -491,7 +423,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::MouseInput { state, button, .. },
                 window_id,
             } if *window_id == window.id() => {
-                mouse_button_handler.insert(*button, *state);
+                mouse_button_handler.insert(*button, *state == ElementState::Pressed);
             }
             _ => (),
         }

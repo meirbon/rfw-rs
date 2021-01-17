@@ -1,5 +1,6 @@
 pub mod collections;
 pub mod task;
+pub mod input;
 
 pub use bitvec::prelude::*;
 

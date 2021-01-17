@@ -103,7 +103,6 @@ impl InstanceList2D {
     pub fn make_invalid(&mut self, handle: InstanceHandle2D) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         list.matrices[handle.index] = Mat4::identity();
-        list.mesh_ids[handle.index] = MeshID::INVALID;
         list.flags[handle.index] = InstanceFlags2D::all();
         list.free_slots.push(handle.index);
         list.removed.push(handle.index);
@@ -112,7 +111,6 @@ impl InstanceList2D {
     pub fn resize(&mut self, new_size: usize) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
         list.matrices.resize(new_size, Mat4::zero());
-        list.mesh_ids.resize(new_size, MeshID::INVALID);
         list.flags.resize(new_size, InstanceFlags2D::empty());
     }
 
@@ -131,11 +129,6 @@ impl InstanceList2D {
     pub fn matrices(&self) -> &[Mat4] {
         let list = self.list.get();
         unsafe { &(*list).matrices[0..(*list).len()] }
-    }
-
-    pub fn mesh_ids(&self) -> &[MeshID] {
-        let list = self.list.get();
-        unsafe { &(*list).mesh_ids[0..(*list).len()] }
     }
 
     pub fn flags(&self) -> &[InstanceFlags2D] {
@@ -192,7 +185,6 @@ impl InstanceList2D {
 #[derive(Debug, Default)]
 pub struct List2D {
     matrices: Vec<Mat4>,
-    mesh_ids: Vec<MeshID>,
     flags: Vec<InstanceFlags2D>,
 
     ptr: AtomicUsize,
@@ -205,7 +197,6 @@ impl Clone for List2D {
         let ptr = AtomicUsize::new(self.ptr.load(Ordering::Acquire));
         let this = Self {
             matrices: self.matrices.clone(),
-            mesh_ids: self.mesh_ids.clone(),
             flags: self.flags.clone(),
 
             ptr,

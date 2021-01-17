@@ -3,8 +3,8 @@
 layout(location = 0) in vec3 UvTex;
 layout(location = 1) in vec4 Color;
 
-layout(set = 1, binding = 0) uniform texture2D Tex;
-layout(set = 1, binding = 1) uniform sampler Sampler;
+layout(set = 2, binding = 0) uniform texture2D Tex;
+layout(set = 2, binding = 1) uniform sampler Sampler;
 
 layout(location = 0) out vec4 C;
 

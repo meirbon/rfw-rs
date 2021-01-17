@@ -87,6 +87,7 @@ impl WgpuSettings {
 pub struct UniformCamera {
     pub view: Mat4,
     pub proj: Mat4,
+    pub matrix_2d: Mat4,
     pub light_count: [u32; 4],
     pub position: Vec4,
 }
@@ -420,7 +421,11 @@ impl Backend for WgpuBackend {
         let blit_pass = pass::BlitPass::new(&device, &output);
         let output_pass = pass::QuadPass::new(&device, &output);
 
-        let d2_renderer = d2::Renderer::new(&device, &instance_bind_group_layout);
+        let d2_renderer = d2::Renderer::new(
+            &device,
+            &uniform_bind_group_layout,
+            &instance_bind_group_layout,
+        );
 
         let settings = WgpuSettings {
             view: WgpuView::Output,
@@ -617,7 +622,7 @@ impl Backend for WgpuBackend {
         }
 
         self.d2_renderer
-            .update_bind_groups(&self.device, self.textures.as_slice());
+            .update_bind_groups(&self.device, self.textures.as_slice(), changed);
     }
 
     fn synchronize(&mut self) {
@@ -639,7 +644,7 @@ impl Backend for WgpuBackend {
         self.meshes.reset_changed();
     }
 
-    fn render(&mut self, camera: CameraView3D, _mode: RenderMode) {
+    fn render(&mut self, camera_2d: CameraView2D, camera_3d: CameraView3D, _mode: RenderMode) {
         let output = match self.swap_chain.get_current_frame() {
             Ok(output) => output,
             Err(_) => return,
@@ -647,10 +652,11 @@ impl Backend for WgpuBackend {
 
         {
             let cam = &mut self.camera_buffer.as_mut_slice()[0];
-            cam.view = camera.get_rh_view_matrix();
-            cam.proj = camera.get_rh_projection();
+            cam.view = camera_3d.get_rh_view_matrix();
+            cam.proj = camera_3d.get_rh_projection();
+            cam.matrix_2d = camera_2d.matrix;
             cam.light_count = self.lights.counts();
-            cam.position = Vec3::from(camera.pos).extend(1.0);
+            cam.position = Vec3::from(camera_3d.pos).extend(1.0);
         }
         self.camera_buffer.copy_to_device();
 
@@ -672,7 +678,7 @@ impl Backend for WgpuBackend {
 
         Self::render_scene(
             &mut encoder,
-            FrustrumG::from_matrix(camera.get_rh_matrix()),
+            FrustrumG::from_matrix(camera_3d.get_rh_matrix()),
             &self.pipeline,
             &self.instances,
             &self.meshes,
@@ -705,6 +711,7 @@ impl Backend for WgpuBackend {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.d2_renderer.render(
             &mut d2_encoder,
+            &self.uniform_bind_group,
             &self.output.output_texture_view,
             &self.output.depth_texture_view,
         );

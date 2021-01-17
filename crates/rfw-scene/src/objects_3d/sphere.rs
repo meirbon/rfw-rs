@@ -1,4 +1,4 @@
-use crate::objects::*;
+use crate::objects_3d::*;
 use l3d::mat::{Material, Texture};
 use rtbvh::{Bounds, AABB};
 use std::collections::HashMap;
@@ -363,8 +363,8 @@ impl<'a> SerializableObject<'a, Sphere> for Sphere {
     }
 }
 
-impl ToMesh for Sphere {
-    fn into_mesh(self) -> Mesh3D {
+impl ToMesh3D for Sphere {
+    fn into_mesh_3d(self) -> Mesh3D {
         use std::f32::consts::PI;
 
         let mut faces: Vec<[u32; 3]> = Vec::with_capacity(20);

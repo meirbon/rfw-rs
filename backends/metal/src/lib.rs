@@ -19,6 +19,7 @@ pub struct CameraUniform {
     pub projection: Mat4,
     pub view_matrix: Mat4,
     pub combined: Mat4,
+    pub matrix_2d: Mat4,
     pub view: CameraView3D,
 }
 
@@ -33,7 +34,7 @@ pub struct MetalBackend {
     state_2d: RenderPipelineState,
     depth_state: DepthStencilState,
     depth_state_2d: DepthStencilState,
-    layer: CoreAnimationLayer,
+    layer: MetalLayer,
     materials: ManagedBuffer<DeviceMaterial>,
     depth_texture: metal::Texture,
     settings: MetalSettings,
@@ -60,10 +61,12 @@ impl Backend for MetalBackend {
         let device = metal::Device::system_default().expect("Could not find Metal device");
         println!("Picked Metal device: {}", device.name());
 
-        let layer = CoreAnimationLayer::new();
+        let layer = MetalLayer::new();
         layer.set_device(&device);
         layer.set_pixel_format(Self::FORMAT);
         layer.set_presents_with_transaction(false);
+        layer.set_display_sync_enabled(false);
+        layer.set_maximum_drawable_count(3);
 
         unsafe {
             match window.raw_window_handle() as RawWindowHandle {
@@ -268,13 +271,14 @@ impl Backend for MetalBackend {
 
     fn synchronize(&mut self) {}
 
-    fn render(&mut self, camera: CameraView3D, _mode: RenderMode) {
+    fn render(&mut self, camera_2d: CameraView2D, camera: CameraView3D, _mode: RenderMode) {
         self.camera.as_mut(|c| {
             let projection = camera.get_rh_projection();
             let view_matrix = camera.get_rh_view_matrix();
             c[0].projection = projection;
             c[0].view_matrix = view_matrix;
             c[0].combined = projection * view_matrix;
+            c[0].matrix_2d = camera_2d.matrix;
             c[0].view = camera;
         });
 
@@ -338,6 +342,7 @@ impl Backend for MetalBackend {
             encoder.set_cull_mode(MTLCullMode::None);
             encoder.set_vertex_buffer(0, Some(&mesh.buffer), 0);
             encoder.set_vertex_buffer(1, Some(&mesh.instance_buffer), 0);
+            encoder.set_vertex_buffer(2, Some(&self.camera), 0);
             encoder.set_fragment_texture(
                 0,
                 Some(if let Some(texture) = mesh.tex_id {

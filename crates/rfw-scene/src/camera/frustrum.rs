@@ -166,7 +166,7 @@ impl FrustrumG {
         }
     }
 
-    pub fn new(camera: &crate::camera::Camera) -> FrustrumG {
+    pub fn new(camera: &crate::camera::Camera3D) -> FrustrumG {
         let matrix = camera.get_rh_matrix();
 
         Self::from_matrix(matrix)
@@ -237,8 +237,8 @@ impl FrustrumG {
     }
 }
 
-impl From<&crate::camera::Camera> for FrustrumG {
-    fn from(camera: &crate::camera::Camera) -> Self {
+impl From<&crate::camera::Camera3D> for FrustrumG {
+    fn from(camera: &crate::camera::Camera3D) -> Self {
         Self::new(camera)
     }
 }
@@ -254,7 +254,7 @@ mod tests {
     use rfw_math::*;
     #[test]
     fn frustrum_works() {
-        use crate::{Camera, FrustrumG, FrustrumResult};
+        use crate::{Camera3D, FrustrumG, FrustrumResult};
 
         use crate::camera::*;
         use rtbvh::AABB;

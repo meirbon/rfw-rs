@@ -43,22 +43,22 @@ impl InstancesData3D<'_> {
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
-pub struct MeshID(pub i32);
+pub struct MeshId2D(pub i32);
 
-impl Default for MeshID {
+impl Default for MeshId2D {
     fn default() -> Self {
         Self::INVALID
     }
 }
 
-impl std::fmt::Display for MeshID {
+impl std::fmt::Display for MeshId2D {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "MeshId3D({})", self.0)
     }
 }
 
-impl MeshID {
-    pub const INVALID: Self = MeshID(-1);
+impl MeshId2D {
+    pub const INVALID: Self = MeshId2D(-1);
 
     pub fn is_valid(&self) -> bool {
         self.0 >= 0
@@ -73,15 +73,58 @@ impl MeshID {
     }
 }
 
-impl Into<usize> for MeshID {
+impl Into<usize> for MeshId2D {
     fn into(self) -> usize {
         self.0 as usize
     }
 }
 
-impl From<usize> for MeshID {
+impl From<usize> for MeshId2D {
     fn from(i: usize) -> Self {
-        MeshID(i as i32)
+        MeshId2D(i as i32)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub struct MeshId3D(pub i32);
+
+impl Default for MeshId3D {
+    fn default() -> Self {
+        Self::INVALID
+    }
+}
+
+impl std::fmt::Display for MeshId3D {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MeshId3D({})", self.0)
+    }
+}
+
+impl MeshId3D {
+    pub const INVALID: Self = MeshId3D(-1);
+
+    pub fn is_valid(&self) -> bool {
+        self.0 >= 0
+    }
+
+    pub fn as_index(&self) -> Option<usize> {
+        if self.0 >= 0 {
+            Some(self.0 as usize)
+        } else {
+            None
+        }
+    }
+}
+
+impl Into<usize> for MeshId3D {
+    fn into(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl From<usize> for MeshId3D {
+    fn from(i: usize) -> Self {
+        MeshId3D(i as i32)
     }
 }
 
@@ -397,7 +440,7 @@ impl DeviceMaterial {
 
 #[derive(Default, Debug, Copy, Clone)]
 pub struct CameraView2D {
-    matrix: Mat4,
+    pub matrix: Mat4,
 }
 
 #[derive(Default, Debug, Copy, Clone)]

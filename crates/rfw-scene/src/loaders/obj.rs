@@ -3,7 +3,7 @@ use crate::{
     SceneError, {LoadResult, Mesh3D, ObjectLoader},
 };
 use l3d::mat::{Flip, Texture, TextureSource};
-use rfw_backend::MeshID;
+use rfw_backend::MeshId3D;
 use rfw_math::*;
 use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
@@ -248,6 +248,6 @@ impl ObjectLoader for ObjLoader {
             material_ids,
             Some(String::from(path.to_str().unwrap())),
         );
-        Ok(LoadResult::Object(MeshID::from(mesh_id)))
+        Ok(LoadResult::Object(MeshId3D::from(mesh_id)))
     }
 }

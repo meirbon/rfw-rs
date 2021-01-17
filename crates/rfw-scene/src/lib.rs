@@ -9,8 +9,8 @@ pub mod instances_3d;
 pub mod lights;
 pub mod loaders;
 pub mod material;
-pub mod objects;
-pub mod r2d;
+pub mod objects_2d;
+pub mod objects_3d;
 
 pub mod utils;
 
@@ -25,9 +25,8 @@ pub use l3d::prelude::{
 pub use lights::*;
 pub use loaders::*;
 pub use material::*;
-pub use objects::mesh::*;
-pub use objects::*;
-pub use r2d::*;
+pub use objects_2d::*;
+pub use objects_3d::*;
 pub use rtbvh as bvh;
 
 #[cfg(feature = "serde")]
@@ -143,7 +142,7 @@ pub struct Scene {
     pub objects: Objects,
     pub lights: SceneLights,
     pub materials: MaterialList,
-    pub cameras: TrackedStorage<Camera>,
+    pub cameras: TrackedStorage<Camera3D>,
 }
 
 impl Default for Scene {
@@ -171,7 +170,7 @@ struct SerializableScene {
     skins: TrackedStorage<graph::Skin>,
     lights: SceneLights,
     materials: MaterialList,
-    cameras: TrackedStorage<Camera>,
+    cameras: TrackedStorage<Camera3D>,
 }
 
 impl From<&Scene> for SerializableScene {
@@ -277,15 +276,15 @@ impl Scene {
         );
     }
 
-    pub fn add_3d_object<T: ToMesh>(&mut self, object: T) -> MeshID {
-        let id = self.objects.meshes_3d.push(object.into_mesh());
+    pub fn add_3d_object<T: ToMesh3D>(&mut self, object: T) -> MeshId3D {
+        let id = self.objects.meshes_3d.push(object.into_mesh_3d());
         self.objects
             .instances_3d
             .overwrite_val(id, InstanceList3D::default());
-        MeshID(id as _)
+        MeshId3D(id as _)
     }
 
-    pub fn get_3d_object(&self, id: MeshID) -> Option<&Mesh3D> {
+    pub fn get_3d_object(&self, id: MeshId3D) -> Option<&Mesh3D> {
         if let Some(index) = id.as_index() {
             self.objects.meshes_3d.get(index)
         } else {
@@ -293,7 +292,7 @@ impl Scene {
         }
     }
 
-    pub fn get_3d_object_mut(&mut self, id: MeshID) -> Option<&mut Mesh3D> {
+    pub fn get_3d_object_mut(&mut self, id: MeshId3D) -> Option<&mut Mesh3D> {
         if let Some(index) = id.as_index() {
             self.objects.meshes_3d.get_mut(index)
         } else {
@@ -301,15 +300,15 @@ impl Scene {
         }
     }
 
-    pub fn add_2d_object(&mut self, object: Mesh2D) -> MeshID {
-        let id = self.objects.meshes_2d.push(object);
+    pub fn add_2d_object<T: ToMesh2D>(&mut self, object: T) -> MeshId2D {
+        let id = self.objects.meshes_2d.push(object.into_mesh_2d());
         self.objects
             .instances_2d
             .overwrite_val(id, InstanceList2D::default());
-        MeshID(id as _)
+        MeshId2D(id as _)
     }
 
-    pub fn get_2d_object(&self, id: MeshID) -> Option<&Mesh2D> {
+    pub fn get_2d_object(&self, id: MeshId2D) -> Option<&Mesh2D> {
         if let Some(index) = id.as_index() {
             self.objects.meshes_2d.get(index)
         } else {
@@ -317,7 +316,7 @@ impl Scene {
         }
     }
 
-    pub fn get_2d_object_mut(&mut self, id: MeshID) -> Option<&mut Mesh2D> {
+    pub fn get_2d_object_mut(&mut self, id: MeshId2D) -> Option<&mut Mesh2D> {
         if let Some(index) = id.as_index() {
             self.objects.meshes_2d.get_mut(index)
         } else {
@@ -327,7 +326,7 @@ impl Scene {
 
     /// Sets an index to the given object.
     /// This removes all instances that contained this object.
-    pub fn set_3d_object(&mut self, index: MeshID, object: Mesh3D) -> Result<(), SceneError> {
+    pub fn set_3d_object(&mut self, index: MeshId3D, object: Mesh3D) -> Result<(), SceneError> {
         let index = if let Some(index) = index.as_index() {
             index
         } else {
@@ -339,13 +338,12 @@ impl Scene {
         }
 
         self.objects.meshes_3d[index] = object;
-        self.objects.instances_3d[index].set_all_flags(InstanceFlags3D::all());
         Ok(())
     }
 
     /// Sets an index to the given object.
     /// This removes all instances that contained this object.
-    pub fn set_2d_object(&mut self, index: MeshID, object: Mesh2D) -> Result<(), SceneError> {
+    pub fn set_2d_object(&mut self, index: MeshId2D, object: Mesh2D) -> Result<(), SceneError> {
         let index = if let Some(index) = index.as_index() {
             index
         } else {
@@ -356,12 +354,11 @@ impl Scene {
             Err(SceneError::InvalidObjectIndex(index))
         } else {
             self.objects.meshes_2d[index] = object;
-            self.objects.instances_2d[index].set_all_flags(InstanceFlags2D::all());
             Ok(())
         }
     }
 
-    pub fn remove_3d_object(&mut self, index: MeshID) -> Result<(), SceneError> {
+    pub fn remove_3d_object(&mut self, index: MeshId3D) -> Result<(), SceneError> {
         let index = if let Some(index) = index.as_index() {
             index
         } else {
@@ -377,18 +374,20 @@ impl Scene {
         }
     }
 
-    pub fn remove_2d_object(&mut self, index: usize) -> Result<(), SceneError> {
-        // TODO: Remove 2d instances that contained this object
-        match self.objects.meshes_2d.erase(index) {
-            Ok(_) => {
-                self.objects.instances_2d.erase(index).unwrap();
-                Ok(())
+    pub fn remove_2d_object(&mut self, index: MeshId2D) -> Result<(), SceneError> {
+        if let Some(index) = index.as_index() {
+            match self.objects.meshes_2d.erase(index) {
+                Ok(_) => {
+                    self.objects.instances_2d.erase(index).unwrap();
+                    return Ok(());
+                }
+                Err(_) => return Err(SceneError::InvalidObjectIndex(index)),
             }
-            Err(_) => Err(SceneError::InvalidObjectIndex(index)),
         }
+        Err(SceneError::InvalidObjectIndex(index.0 as usize))
     }
 
-    pub fn add_3d_instance(&mut self, mesh: MeshID) -> Result<InstanceHandle3D, SceneError> {
+    pub fn add_3d_instance(&mut self, mesh: MeshId3D) -> Result<InstanceHandle3D, SceneError> {
         let id = if let Some(id) = mesh.as_index() {
             id
         } else {
@@ -402,7 +401,7 @@ impl Scene {
         Ok(self.objects.instances_3d[id].allocate())
     }
 
-    pub fn add_2d_instance(&mut self, mesh: MeshID) -> Result<InstanceHandle2D, SceneError> {
+    pub fn add_2d_instance(&mut self, mesh: MeshId2D) -> Result<InstanceHandle2D, SceneError> {
         let id = if let Some(id) = mesh.as_index() {
             id
         } else {
@@ -606,14 +605,14 @@ impl Scene {
     }
 
     pub fn add_3d_camera(&mut self) -> usize {
-        self.cameras.push(Camera::default())
+        self.cameras.push(Camera3D::default())
     }
 
-    pub fn get_cameras(&self) -> FlaggedIterator<'_, Camera> {
+    pub fn get_cameras(&self) -> FlaggedIterator<'_, Camera3D> {
         self.cameras.iter()
     }
 
-    pub fn get_cameras_mut(&mut self) -> FlaggedIteratorMut<'_, Camera> {
+    pub fn get_cameras_mut(&mut self) -> FlaggedIteratorMut<'_, Camera3D> {
         self.cameras.iter_mut()
     }
 }

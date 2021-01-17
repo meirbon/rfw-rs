@@ -12,7 +12,7 @@ pub use rfw_scene as scene;
 pub use rfw_utils as utils;
 
 pub mod prelude {
-    pub use rfw_backend::*;
+    pub use crate::ecs::*;
     pub use rfw_backend::*;
     pub use rfw_math::*;
     pub use rfw_scene::bvh::*;
@@ -24,9 +24,10 @@ pub mod prelude {
 
 use rfw_backend::{Backend, DirectionalLight, PointLight, RenderMode, SpotLight, TextureData};
 use rfw_math::*;
-use rfw_scene::{Camera, GraphHandle, Scene, SceneError};
+use rfw_scene::{Camera3D, GraphHandle, Scene, SceneError};
 use rfw_scene::{Flip, Texture};
 use rfw_utils::BytesConversion;
+use scene::Camera2D;
 use std::error::Error;
 use std::path::Path;
 use system::RenderSystem;
@@ -41,20 +42,30 @@ pub struct Instance<T: Sized + Backend> {
     renderer: Box<T>,
 }
 
-pub enum CameraRef<'a> {
+pub enum CameraRef3D<'a> {
     ID(usize),
-    Ref(&'a Camera),
+    Ref(&'a Camera3D),
 }
 
-impl<'a> From<&'a Camera> for CameraRef<'a> {
-    fn from(cam: &'a Camera) -> Self {
+impl<'a> From<&'a Camera3D> for CameraRef3D<'a> {
+    fn from(cam: &'a Camera3D) -> Self {
         Self::Ref(cam)
     }
 }
 
-impl From<usize> for CameraRef<'_> {
+impl From<usize> for CameraRef3D<'_> {
     fn from(id: usize) -> Self {
         Self::ID(id)
+    }
+}
+
+pub enum CameraRef2D<'a> {
+    Ref(&'a Camera2D),
+}
+
+impl<'a> From<&'a Camera2D> for CameraRef2D<'a> {
+    fn from(cam: &'a Camera2D) -> Self {
+        Self::Ref(cam)
     }
 }
 
@@ -141,9 +152,10 @@ impl<T: Sized + Backend> Instance<T> {
         system.scale_factor = scale_factor;
     }
 
-    pub fn render<'a, C: Into<CameraRef<'a>>>(
+    pub fn render<'a, C2: Into<CameraRef2D<'a>>, C3: Into<CameraRef3D<'a>>>(
         &mut self,
-        camera: C,
+        camera_2d: C2,
+        camera_3d: C3,
         mode: RenderMode,
     ) -> Result<(), SceneError> {
         self.scheduler.run(&self.resources);
@@ -152,19 +164,24 @@ impl<T: Sized + Backend> Instance<T> {
         let mut system = self.resources.get_resource_mut::<RenderSystem>().unwrap();
         system.synchronize(&mut scene, &mut *self.renderer);
 
-        let view = match camera.into() {
-            CameraRef::ID(id) => {
+        let view_3d = match camera_3d.into() {
+            CameraRef3D::ID(id) => {
                 if let Some(c) = scene.cameras.get(id) {
                     c
                 } else {
                     return Err(SceneError::InvalidCameraID(id));
                 }
             }
-            CameraRef::Ref(reference) => reference,
+            CameraRef3D::Ref(reference) => reference,
         }
         .get_view(system.width, system.height);
 
-        self.renderer.render(view, mode);
+        let view_2d = match camera_2d.into() {
+            CameraRef2D::Ref(reference) => reference,
+        }
+        .get_view();
+
+        self.renderer.render(view_2d, view_3d, mode);
         Ok(())
     }
 

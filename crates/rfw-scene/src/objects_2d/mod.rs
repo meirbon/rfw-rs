@@ -2,9 +2,11 @@ use rayon::prelude::*;
 use rfw_backend::*;
 use rfw_math::*;
 
+mod quad;
+pub use quad::*;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
@@ -48,10 +50,7 @@ impl Mesh2D {
             })
             .collect();
 
-        Self {
-            vertices,
-            tex_id,
-        }
+        Self { vertices, tex_id }
     }
 
     pub fn set_tex_id(&mut self, id: u32) {
@@ -86,5 +85,15 @@ impl From<&[Vertex2D]> for Mesh2D {
             vertices: vec.to_vec(),
             tex_id: None,
         }
+    }
+}
+
+pub trait ToMesh2D {
+    fn into_mesh_2d(self) -> Mesh2D;
+}
+
+impl ToMesh2D for Mesh2D {
+    fn into_mesh_2d(self) -> Mesh2D {
+        self
     }
 }

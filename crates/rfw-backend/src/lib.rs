@@ -31,6 +31,7 @@ pub trait Backend {
     ) -> Result<Box<Self>, Box<dyn std::error::Error>>;
 
     fn set_2d_mesh(&mut self, id: usize, data: MeshData2D<'_>);
+
     /// Sets an instance with a 4x4 transformation matrix in column-major format
     fn set_2d_instances(&mut self, mesh: usize, instances: InstancesData2D<'_>);
 
@@ -53,7 +54,7 @@ pub trait Backend {
     fn synchronize(&mut self);
 
     /// Renders an image to the window surface
-    fn render(&mut self, view_3d: CameraView3D, mode: RenderMode);
+    fn render(&mut self, view_2d: CameraView2D, view_3d: CameraView3D, mode: RenderMode);
 
     /// Resizes framebuffer, uses scale factor provided in init function.
     fn resize<T: HasRawWindowHandle>(

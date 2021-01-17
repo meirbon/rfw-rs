@@ -1,4 +1,4 @@
-use rfw_backend::CameraView3D;
+use rfw_backend::{CameraView2D, CameraView3D};
 use rfw_math::*;
 
 pub mod frustrum;
@@ -12,7 +12,7 @@ use crate::utils::{HasMatrix, HasRotation, HasTranslation, Transform};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct Camera {
+pub struct Camera3D {
     pub pos: [f32; 3],
     up: [f32; 3],
     pub direction: [f32; 3],
@@ -25,7 +25,7 @@ pub struct Camera {
     pub speed: f32,
 }
 
-impl Default for Camera {
+impl Default for Camera3D {
     fn default() -> Self {
         Self {
             pos: [0.0; 3],
@@ -43,9 +43,9 @@ impl Default for Camera {
 }
 
 #[allow(dead_code)]
-impl Camera {
-    pub fn zero() -> Camera {
-        Camera {
+impl Camera3D {
+    pub fn zero() -> Camera3D {
+        Camera3D {
             pos: [0.0; 3],
             up: [0.0; 3],
             direction: [0.0, 0.0, 1.0],
@@ -59,8 +59,8 @@ impl Camera {
         }
     }
 
-    pub fn new() -> Camera {
-        Camera {
+    pub fn new() -> Camera3D {
+        Camera3D {
             pos: [0.0; 3],
             up: [0.0; 3],
             direction: [0.0, 0.0, 1.0],
@@ -279,12 +279,105 @@ impl Camera {
     }
 }
 
-impl HasMatrix for Camera {
+impl HasMatrix for Camera3D {
     fn update(&mut self, t: Vec3, r: Quat, _s: Vec3) {
         self.pos = t.into();
         self.direction = r.mul_vec3(self.direction.into()).into();
     }
 }
 
-impl HasTranslation for Camera {}
-impl HasRotation for Camera {}
+impl HasTranslation for Camera3D {}
+impl HasRotation for Camera3D {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Fov(f32);
+
+#[derive(Debug, Clone, Copy)]
+pub struct Dimensions {
+    pub left: f32,
+    pub right: f32,
+    pub bottom: f32,
+    pub top: f32,
+    pub near: f32,
+    pub far: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Camera2D {
+    pub dimensions: Dimensions,
+}
+
+impl Camera2D {
+    pub fn get_view(&self) -> CameraView2D {
+        self.into()
+    }
+
+    pub fn from_width_height(width: u32, height: u32, scale_factor: Option<f64>) -> Self {
+        let scale_fcator = scale_factor.unwrap_or(1.0) as f32;
+        let w = width as f32 * scale_fcator / 2.0;
+        let h = height as f32 * scale_fcator / 2.0;
+        Self {
+            dimensions: Dimensions {
+                left: -w,
+                right: w,
+                bottom: -h,
+                top: h,
+                near: 10.0,
+                far: -10.0,
+            },
+        }
+    }
+
+    pub fn width(&self) -> f32 {
+        (self.dimensions.right - self.dimensions.left).abs()
+    }
+
+    pub fn height(&self) -> f32 {
+        (self.dimensions.top - self.dimensions.bottom).abs()
+    }
+}
+
+impl From<Camera2D> for CameraView2D {
+    fn from(c: Camera2D) -> Self {
+        CameraView2D {
+            matrix: Mat4::orthographic_rh(
+                c.dimensions.left,
+                c.dimensions.right,
+                c.dimensions.bottom,
+                c.dimensions.top,
+                c.dimensions.near,
+                c.dimensions.far,
+            ),
+        }
+    }
+}
+
+impl From<&Camera2D> for CameraView2D {
+    fn from(c: &Camera2D) -> Self {
+        CameraView2D {
+            matrix: Mat4::orthographic_rh(
+                c.dimensions.left,
+                c.dimensions.right,
+                c.dimensions.bottom,
+                c.dimensions.top,
+                c.dimensions.near,
+                c.dimensions.far,
+            ),
+        }
+    }
+}
+
+impl From<&mut Camera2D> for CameraView2D {
+    fn from(c: &mut Camera2D) -> Self {
+        CameraView2D {
+            matrix: Mat4::orthographic_rh(
+                c.dimensions.left,
+                c.dimensions.right,
+                c.dimensions.bottom,
+                c.dimensions.top,
+                c.dimensions.near,
+                c.dimensions.far,
+            ),
+        }
+    }
+}

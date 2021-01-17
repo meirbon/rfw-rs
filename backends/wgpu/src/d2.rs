@@ -127,7 +127,11 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(device: &wgpu::Device, instance_layout: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        camera_layout: &wgpu::BindGroupLayout,
+        instance_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("2d-bind-group-layout"),
             entries: &[
@@ -152,7 +156,7 @@ impl Renderer {
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("2d-layout"),
-            bind_group_layouts: &[instance_layout, &bind_group_layout],
+            bind_group_layouts: &[camera_layout, instance_layout, &bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -267,6 +271,7 @@ impl Renderer {
     pub fn render(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        camera_bg: &wgpu::BindGroup,
         output: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
     ) {
@@ -305,8 +310,9 @@ impl Renderer {
             };
 
             render_pass.set_vertex_buffer(0, buffer.slice(..));
-            render_pass.set_bind_group(0, instance_bg, &[]);
-            render_pass.set_bind_group(1, bg, &[]);
+            render_pass.set_bind_group(0, camera_bg, &[]);
+            render_pass.set_bind_group(1, instance_bg, &[]);
+            render_pass.set_bind_group(2, bg, &[]);
             render_pass.draw(0..mesh.vertex_count, 0..self.instances[i].instances);
         }
     }
@@ -330,19 +336,27 @@ impl Renderer {
         instances.update(device, queue, data, instances_layout)
     }
 
-    pub fn update_bind_groups(&mut self, device: &wgpu::Device, textures: &[WgpuTexture]) {
+    pub fn update_bind_groups(
+        &mut self,
+        device: &wgpu::Device,
+        textures: &[WgpuTexture],
+        changed: &BitSlice,
+    ) {
         let bind_group_layout = &self.bind_group_layout;
         let sampler = &self.sampler;
 
-        self.meshes.iter_mut().for_each(|(_, m)| {
+        for (_, m) in self.meshes.iter_mut() {
             let texture = if let Some(id) = m.tex_id {
+                if !changed[id] && m.bind_group.is_some() {
+                    continue;
+                }
                 textures[id].view.as_ref().as_ref().unwrap()
             } else {
                 textures[0].view.as_ref().as_ref().unwrap()
             };
 
             m.update_bind_group(device, bind_group_layout, texture, sampler);
-        });
+        }
     }
 
     pub fn set_mesh(
@@ -468,13 +482,13 @@ impl Mesh {
                 .copy_from_slice(bytes);
             buffer.unmap();
 
-            self.buffer_size = bytes.len() as wgpu::BufferAddress;
-            self.vertex_count = mesh.vertices.len() as u32;
-
             self.buffer = Some(Arc::new(buffer));
         } else {
             queue.write_buffer(self.buffer.as_ref().unwrap(), 0, bytes);
         }
+
+        self.buffer_size = bytes.len() as wgpu::BufferAddress;
+        self.vertex_count = mesh.vertices.len() as u32;
     }
 
     pub fn update_bind_group(

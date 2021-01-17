@@ -1,7 +1,7 @@
-use crate::{Mesh3D, ToMesh};
+use crate::{Mesh3D, ToMesh3D};
 use rfw_math::*;
 
-pub struct Quad {
+pub struct Quad3D {
     pub normal: Vec3,
     pub position: Vec3,
     pub width: f32,
@@ -15,14 +15,14 @@ pub struct Quad {
 }
 
 #[allow(dead_code)]
-impl Quad {
+impl Quad3D {
     pub fn new<T: Into<[f32; 3]>>(
         normal: T,
         position: T,
         width: f32,
         height: f32,
         material_id: u32,
-    ) -> Quad {
+    ) -> Quad3D {
         let material_id = material_id.max(0);
         // TODO: uvs
         let uvs = [vec2(0.0, 0.0); 6];
@@ -31,9 +31,9 @@ impl Quad {
         let normal = Vec3::from(normal.into());
         let position = Vec3::from(position.into());
 
-        let (vertices, normals) = Quad::generate_render_data(position, normal, width, height);
+        let (vertices, normals) = Quad3D::generate_render_data(position, normal, width, height);
 
-        Quad {
+        Quad3D {
             normal,
             position,
             width,
@@ -73,8 +73,8 @@ impl Quad {
     }
 }
 
-impl ToMesh for Quad {
-    fn into_mesh(self) -> Mesh3D {
+impl ToMesh3D for Quad3D {
+    fn into_mesh_3d(self) -> Mesh3D {
         Mesh3D::new(
             self.vertices.to_vec(),
             self.normals.to_vec(),

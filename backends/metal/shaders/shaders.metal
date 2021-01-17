@@ -72,14 +72,14 @@ struct UniformCamera {
   float4x4 projection;
   float4x4 view_matrix;
   float4x4 combined;
+  float4x4 matrix_2d;
   CameraView view;
 };
 
 // vertex shader function
-vertex ColorInOut triangle_vertex_2d(const device Vertex2D *vertex_array
-                                     [[buffer(0)]],
-                                     const device float4x4 *instances
-                                     [[buffer(1)]],
+vertex ColorInOut triangle_vertex_2d(const device Vertex2D *vertex_array [[buffer(0)]],
+                                     const device float4x4 *instances [[buffer(1)]],
+                                     const device UniformCamera *camera [[buffer(2)]],
                                      unsigned int vid [[vertex_id]],
                                      unsigned int i_id [[instance_id]]) {
   ColorInOut out;
@@ -87,7 +87,7 @@ vertex ColorInOut triangle_vertex_2d(const device Vertex2D *vertex_array
   const auto device &v = vertex_array[vid];
   const auto device &t = instances[i_id];
 
-  out.position = t * float4(v.v_x, v.v_y, v.v_z, 1.0);
+  out.position = camera->matrix_2d * t * float4(v.v_x, v.v_y, v.v_z, 1.0);
   out.color = float4(v.c_x, v.c_y, v.c_z, v.c_w);
   out.uv = float2(v.u, v.v);
   out.tex = v.has_tex;

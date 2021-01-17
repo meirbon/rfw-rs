@@ -16,7 +16,7 @@ pub struct FontRenderer {
     tex_width: u32,
     tex_height: u32,
     tex_id: usize,
-    mesh_id: MeshID,
+    mesh_id: MeshId2D,
     prev_dims: (u32, u32),
     instance: Option<InstanceHandle2D>,
 }
@@ -38,7 +38,7 @@ impl FontRenderer {
             tex_width: 0,
             tex_height: 0,
             tex_id: 0,
-            mesh_id: MeshID::INVALID,
+            mesh_id: MeshId2D::INVALID,
             instance: None,
             prev_dims: (0, 0),
         }
@@ -90,7 +90,14 @@ impl Plugin for FontRenderer {
         let mut instance = scene.add_2d_instance(mesh_id).unwrap();
         let width = system.render_width() as f32;
         let height = system.render_height() as f32;
-        instance.set_matrix(Mat4::orthographic_lh(0.0, width, height, 0.0, 1.0, -1.0));
+        instance.set_matrix(
+            Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0))
+                * Mat4::from_translation(Vec3::new(
+                    -(width as f32 / 2.0),
+                    -(height as f32 / 2.0),
+                    0.0,
+                )),
+        );
 
         self.tex_width = tex_width;
         self.tex_height = tex_height;
@@ -112,14 +119,14 @@ impl System for FontSystem {
         let height = system.render_height();
         if font.prev_dims.0 != width || font.prev_dims.1 != height {
             if let Some(instance) = &mut font.instance {
-                instance.set_matrix(Mat4::orthographic_lh(
-                    0.0,
-                    width as f32,
-                    height as f32,
-                    0.0,
-                    1.0,
-                    -1.0,
-                ));
+                instance.set_matrix(
+                    Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0))
+                        * Mat4::from_translation(Vec3::new(
+                            -(width as f32 / 2.0),
+                            -(height as f32 / 2.0),
+                            0.0,
+                        )),
+                );
             }
         }
 

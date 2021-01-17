@@ -90,7 +90,7 @@ impl Default for NodeDescriptor {
 
 #[derive(Debug, Clone)]
 pub struct SceneDescriptor {
-    pub meshes: Vec<MeshID>,
+    pub meshes: Vec<MeshId3D>,
     pub nodes: Vec<NodeDescriptor>,
     pub animations: Vec<AnimationDescriptor>,
 }

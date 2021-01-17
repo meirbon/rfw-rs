@@ -1,4 +1,4 @@
-use crate::{constants::EPSILON, objects::*};
+use crate::{constants::EPSILON, objects_3d::*};
 use l3d::mat::{Material, Texture};
 use rtbvh::{Bounds, AABB};
 
@@ -267,12 +267,12 @@ impl<'a> SerializableObject<'a, Plane> for Plane {
     }
 }
 
-impl ToMesh for Plane {
-    fn into_mesh(self) -> Mesh3D {
+impl ToMesh3D for Plane {
+    fn into_mesh_3d(self) -> Mesh3D {
         let normal: [f32; 3] = self.up;
         let position: [f32; 3] = self.pos;
         let (width, height) = (self.dims[0], self.dims[1]);
         let mat_id = self.mat_id;
-        Quad::new(normal, position, width, height, mat_id).into_mesh()
+        Quad3D::new(normal, position, width, height, mat_id).into_mesh_3d()
     }
 }
