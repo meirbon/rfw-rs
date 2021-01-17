@@ -1,8 +1,8 @@
 use crate::mesh::{SkinningPipeline, WgpuMesh, WgpuSkin};
-use rfw::backend::InstancesData3D;
 use rfw::math::*;
 use rfw::scene::bvh::AABB;
 use rfw::utils::BytesConversion;
+use rfw::{backend::InstancesData3D, prelude::FrustrumPlane};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -15,6 +15,9 @@ pub struct InstanceList {
     pub instances_bg: Arc<Option<wgpu::BindGroup>>,
     pub instances_bounds: Vec<AABB>,
     pub supports_skinning: bool,
+    // pub descriptor: MeshDescriptor,
+    // pub mesh_desc: Option<Arc<wgpu::Buffer>>,
+    // pub draw_buffer: Option<Arc<wgpu::Buffer>>,
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -35,6 +38,9 @@ impl Default for InstanceList {
             instances_bg: Arc::new(None),
             instances_bounds: Vec::new(),
             supports_skinning: false,
+            // descriptor: Default::default(),
+            // mesh_desc: None,
+            // draw_buffer: None,
         }
     }
 }
@@ -50,6 +56,9 @@ impl Clone for InstanceList {
             instances_bg: self.instances_bg.clone(),
             instances_bounds: self.instances_bounds.clone(),
             supports_skinning: self.supports_skinning,
+            // descriptor: self.descriptor,
+            // mesh_desc: self.mesh_desc.clone(),
+            // draw_buffer: self.draw_buffer.clone(),
         }
     }
 }
@@ -86,6 +95,9 @@ impl InstanceList {
             instances_bg: Arc::new(instances_bg),
             instances_bounds: vec![AABB::empty(); Self::DEFAULT_CAPACITY],
             supports_skinning: false,
+            // descriptor: MeshDescriptor::default(),
+            // mesh_desc: None,
+            // draw_buffer: None,
         }
     }
 
@@ -161,6 +173,43 @@ impl InstanceList {
         );
 
         self.supports_skinning = mesh.joints_weights_buffer.is_some();
+
+        // if self.instances > 5000 {
+        //     self.draw_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+        //         label: None,
+        //         size: self.instances as usize * std::mem::size_of::<DrawCommand>(),
+        //         usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+        //         mapped_at_creation: false,
+        //     })));
+        // }
+
+        // let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: None,
+        //     size: (std::mem::size_of::<FrustrumPlane>() * 6 + std::mem::size_of::<MeshDescriptor>())
+        //         as _,
+        //     usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+        //     mapped_at_creation: true,
+        // });
+
+        // let data = unsafe {
+        //     (buffer.slice(..).get_mapped_range_mut().as_mut_ptr() as *mut CullData)
+        //         .as_mut()
+        //         .unwrap()
+        // };
+        // let desc = MeshDescriptor {
+        //     vertex_count: mesh.ranges.last().unwrap().last,
+        //     instance_count: self.instances,
+        //     base_vertex: 0,
+        //     base_instance: 0,
+        //     draw_index: 0,
+        //     bb_min: mesh.bounds.min.into(),
+        //     bb_max: mesh.bounds.max.into(),
+        //     ..Default::default()
+        // };
+
+        // buffer.unmap();
+        // data.desc = desc;
+        // self.mesh_desc = Some(Arc::new(buffer));
     }
 
     pub fn buffer_for(&self, i: usize) -> Option<&wgpu::Buffer> {
@@ -178,4 +227,34 @@ impl InstanceList {
     pub fn is_empty(&self) -> bool {
         self.instances == 0
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+struct CullData {
+    pub planes: [FrustrumPlane; 6],
+    pub desc: MeshDescriptor,
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+struct MeshDescriptor {
+    pub vertex_count: u32,
+    pub instance_count: u32,
+    pub base_vertex: u32,
+    pub base_instance: u32,
+
+    pub bb_min: Vec3,
+    pub draw_index: u32,
+    pub bb_max: Vec3,
+    pub _dummy: u32,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+struct DrawCommand {
+    pub vertex_count: u32,   // The number of vertices to draw.
+    pub instance_count: u32, // The number of instances to draw.
+    pub base_vertex: u32,    // The Index of the first vertex to draw.
+    pub base_instance: u32,  // The instance ID of the first instance to draw.
 }

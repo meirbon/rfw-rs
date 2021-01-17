@@ -1,20 +1,21 @@
 use rfw_backend::*;
 use rfw_math::*;
 
-pub mod camera;
-pub mod constants;
-pub mod graph;
-pub mod instances_2d;
-pub mod instances_3d;
-pub mod lights;
-pub mod loaders;
-pub mod material;
-pub mod objects_2d;
-pub mod objects_3d;
+mod camera;
+mod constants;
+mod graph;
+mod instances_2d;
+mod instances_3d;
+mod lights;
+mod loaders;
+mod material;
+mod objects_2d;
+mod objects_3d;
 
-pub mod utils;
+mod utils;
 
 pub use camera::*;
+pub use constants::*;
 pub use graph::*;
 pub use instances_2d::*;
 pub use instances_3d::*;
@@ -28,6 +29,7 @@ pub use material::*;
 pub use objects_2d::*;
 pub use objects_3d::*;
 pub use rtbvh as bvh;
+pub use utils::*;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

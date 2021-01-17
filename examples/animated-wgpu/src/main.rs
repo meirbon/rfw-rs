@@ -11,14 +11,8 @@ use winit::{
     window::WindowBuilder,
 };
 
+use rfw::prelude::*;
 use rfw::scene::{Quality, Sphere};
-use rfw::{
-    backend::RenderMode,
-    ecs::System,
-    math::*,
-    prelude::{Averager, Camera2D, Camera3D, Timer},
-    utils, Instance,
-};
 use rfw_backend_wgpu::{WgpuBackend, WgpuView};
 use rfw_font::*;
 use winit::window::Fullscreen;
@@ -41,7 +35,7 @@ impl Default for FpsSystem {
 }
 
 impl System for FpsSystem {
-    fn run(&mut self, resources: &rfw::resources::ResourceList) {
+    fn run(&mut self, resources: &rfw::prelude::ResourceList) {
         let elapsed = self.timer.elapsed_in_millis();
         self.timer.reset();
         self.average.add_sample(elapsed);
@@ -123,12 +117,14 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         45.0,
         60.0,
     );
+    // TODO: Fix directional lights
+    // renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     let material =
         renderer
             .get_scene_mut()
             .materials
-            .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
+            .add(Vec3::new(1.0, 1.0, 0.0), 1.0, Vec3::one(), 0.0);
     let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::High);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
     let sphere_x = 50 as i32;

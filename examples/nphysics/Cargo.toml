@@ -11,4 +11,3 @@ clap = "2.33"
 nphysics3d = "0.18"
 rfw = { path = "../../rfw"}
 rfw-backend-wgpu = { path = "../../backends/wgpu" }
-rfw-backend-gfx = { path = "../../backends/gfx" }

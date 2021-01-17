@@ -1,4 +1,4 @@
-pub mod storage;
+mod storage;
 
 use crossbeam::sync::ShardedLock;
 use downcast_rs::{impl_downcast, Downcast};
@@ -7,7 +7,7 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::fmt::*;
 use std::sync::Arc;
-use storage::{LockedValue, LockedValueMut};
+pub use storage::{LockedValue, LockedValueMut};
 
 pub trait Resource: 'static {}
 

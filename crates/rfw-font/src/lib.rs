@@ -2,12 +2,7 @@ use glyph_brush::{
     ab_glyph::{point, FontArc},
     BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder,
 };
-use rfw::{
-    ecs::{Plugin, Scheduler, System},
-    prelude::*,
-    resources::ResourceList,
-    system::RenderSystem,
-};
+use rfw::prelude::{*, RenderSystem};
 
 pub use glyph_brush::{Section, Text};
 

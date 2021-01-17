@@ -21,9 +21,9 @@ impl FrustrumResult {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct FrustrumPlane {
-    pub normal: [f32; 3],
+    pub normal: Vec3,
     pub d: f32,
 }
 
@@ -32,8 +32,7 @@ impl Display for FrustrumPlane {
         write!(
             f,
             "FrustrumPlane {{ normal: {}, d: {} }}",
-            Vec3::from(self.normal),
-            self.d
+            self.normal, self.d
         )
     }
 }
@@ -45,7 +44,7 @@ impl FrustrumPlane {
         let normal = normal / length;
 
         Self {
-            normal: normal.into(),
+            normal,
             d: d / length,
         }
     }
@@ -59,10 +58,7 @@ impl FrustrumPlane {
         let point = v2;
         let d = -(normal.dot(point));
 
-        FrustrumPlane {
-            normal: normal.into(),
-            d,
-        }
+        FrustrumPlane { normal, d }
     }
 
     pub fn set_3_points(&mut self, v0: Vec3, v1: Vec3, v2: Vec3) {
@@ -74,12 +70,12 @@ impl FrustrumPlane {
         let point = v2;
         let d = -(normal.dot(point));
 
-        self.normal = normal.into();
+        self.normal = normal;
         self.d = d;
     }
 
     pub fn set_normal_and_point(&mut self, normal: Vec3, point: Vec3) {
-        self.normal = normal.into();
+        self.normal = normal;
         self.d = -(normal.dot(point));
     }
 
@@ -87,12 +83,12 @@ impl FrustrumPlane {
         let normal = Vec3::from([a, b, c]);
         let length = normal.length();
         let normal: Vec3 = normal / length;
-        self.normal = normal.into();
+        self.normal = normal;
         self.d = d / length;
     }
 
     pub fn distance(&self, p: Vec3) -> f32 {
-        self.d + Vec3::from(self.normal).dot(p)
+        self.d + self.normal.dot(p)
     }
 }
 
@@ -251,7 +247,7 @@ impl From<Mat4> for FrustrumG {
 
 #[cfg(test)]
 mod tests {
-    use rfw_math::*;
+
     #[test]
     fn frustrum_works() {
         use crate::{Camera3D, FrustrumG, FrustrumResult};
@@ -259,7 +255,7 @@ mod tests {
         use crate::camera::*;
         use rtbvh::AABB;
 
-        let camera = Camera::zero();
+        let camera = Camera3D::zero();
 
         let frustrum: FrustrumG = FrustrumG::from_matrix(camera.get_lh_matrix());
 

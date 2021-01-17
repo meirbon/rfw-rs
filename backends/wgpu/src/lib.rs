@@ -241,7 +241,7 @@ impl WgpuBackend {
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::StorageBuffer {
-                        min_binding_size: wgpu::BufferSize::new(256),
+                        min_binding_size: None,
                         readonly: true,
                         dynamic: false,
                     },
@@ -337,7 +337,7 @@ impl Backend for WgpuBackend {
             device.clone(),
             queue.clone(),
             wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-            10,
+            1,
         );
 
         let texture_bind_group_layout = Self::create_texture_bind_group_layout(&device);
@@ -929,7 +929,11 @@ impl WgpuBackend {
                 render_pass.set_vertex_buffer(4, buffer_slice);
 
                 // TODO: We should probably do some GPU based culling for huge numbers of instances
-                if instances > 20000 {
+
+                for i in (0..(instances as u32)).into_iter().filter(|j| {
+                    frustrum.aabb_in_frustrum(&i.instances_bounds[*j as usize])
+                        != FrustrumResult::Outside
+                }) {
                     for r in m.ranges.iter() {
                         let bind_group = &material_bind_groups[r.mat_id as usize];
                         render_pass.set_bind_group(
@@ -937,23 +941,7 @@ impl WgpuBackend {
                             bind_group.group.deref().as_ref().unwrap(),
                             &[],
                         );
-                        render_pass.draw(r.first..r.last, 0..(instances as u32));
-                    }
-                } else {
-                    for instance in 0..(instances as u32) {
-                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
-                            != FrustrumResult::Outside
-                        {
-                            for r in m.ranges.iter() {
-                                let bind_group = &material_bind_groups[r.mat_id as usize];
-                                render_pass.set_bind_group(
-                                    2,
-                                    bind_group.group.deref().as_ref().unwrap(),
-                                    &[],
-                                );
-                                render_pass.draw(r.first..r.last, instance..(instance + 1));
-                            }
-                        }
+                        render_pass.draw(r.first..r.last, i..(i + 1));
                     }
                 }
             }

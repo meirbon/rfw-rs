@@ -1,18 +1,18 @@
-pub mod ecs;
-pub mod resources;
-pub mod system;
+mod ecs;
+mod resources;
+mod system;
 
-use resources::{
-    storage::{LockedValue, LockedValueMut},
-    Resource, ResourceList, ResourceStorage,
-};
 pub use rfw_backend as backend;
 pub use rfw_math as math;
 pub use rfw_scene as scene;
 pub use rfw_utils as utils;
 
+pub use ecs::*;
+pub use resources::*;
+pub use system::*;
+
 pub mod prelude {
-    pub use crate::ecs::*;
+    pub use crate::*;
     pub use rfw_backend::*;
     pub use rfw_math::*;
     pub use rfw_scene::bvh::*;
@@ -27,10 +27,8 @@ use rfw_math::*;
 use rfw_scene::{Camera3D, GraphHandle, Scene, SceneError};
 use rfw_scene::{Flip, Texture};
 use rfw_utils::BytesConversion;
-use scene::Camera2D;
 use std::error::Error;
 use std::path::Path;
-use system::RenderSystem;
 
 pub struct PointLightRef(u32);
 pub struct SpotLightRef(u32);
@@ -60,11 +58,11 @@ impl From<usize> for CameraRef3D<'_> {
 }
 
 pub enum CameraRef2D<'a> {
-    Ref(&'a Camera2D),
+    Ref(&'a scene::Camera2D),
 }
 
-impl<'a> From<&'a Camera2D> for CameraRef2D<'a> {
-    fn from(cam: &'a Camera2D) -> Self {
+impl<'a> From<&'a scene::Camera2D> for CameraRef2D<'a> {
+    fn from(cam: &'a scene::Camera2D) -> Self {
         Self::Ref(cam)
     }
 }

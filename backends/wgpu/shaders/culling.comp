@@ -1,0 +1,146 @@
+    /// #[repr(C)]
+    /// struct DrawIndirect {
+    ///     vertex_count: u32, // The number of vertices to draw.
+    ///     instance_count: u32, // The number of instances to draw.
+    ///     base_vertex: u32, // The Index of the first vertex to draw.
+    ///     base_instance: u32, // The instance ID of the first instance to draw.
+    /// }
+
+#version 450
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct FrustrumPlane {
+    vec3 normal;
+    float d;
+};
+
+bool should_render(vec3 bb_min, vec3 bb_max);
+
+struct MeshDescriptor {
+    uint vertexCount;
+    uint instanceCount;
+    uint baseVertex;
+    uint baseInstance;
+
+    vec3 bb_min;
+    uint drawIndex;
+    vec3 bb_max;
+    uint _dummy;
+};
+
+struct InstanceMatrices {
+    mat4 matrix;
+    mat4 normal;
+};
+
+struct DrawCommand {
+    uint vertexCount; // The number of vertices to draw.
+    uint instanceCount; // The number of instances to draw.
+    uint baseVertex; // The Index of the first vertex to draw.
+    uint baseInstance; // The instance ID of the first instance to draw.
+};
+
+layout(std430, set = 0, binding = 0) buffer CullData {
+    FrustrumPlane frustrum[6];
+    MeshDescriptor desc;
+};
+
+layout(set = 0, binding = 1) buffer DrawData { DrawCommand commands[]; };
+layout(set = 1, binding = 0) buffer Instances { InstanceMatrices matrices[]; };
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= desc.instanceCount) {
+        return;
+    }
+
+    vec3 lengths = desc.bb_max - desc.bb_min;
+    vec4 v = matrices[index].matrix * vec4(desc.bb_min.xyz, 1.0);
+    vec3 bb_min = min(desc.bb_min, v.xyz);
+    vec3 bb_max = max(desc.bb_max, v.xyz);
+    
+    vec3 _min = desc.bb_min;
+    vec3 _max = desc.bb_max;
+
+    v = matrices[index].matrix * vec4(_max.xyz, 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+
+    v = matrices[index].matrix * vec4(_min.xyz + vec3(lengths.x, 0, 0), 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+    
+    v = matrices[index].matrix * vec4(_min.xyz + vec3(0, lengths.y, 0), 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+
+    v = matrices[index].matrix * vec4(_min.xyz + vec3(0, 0, lengths.z), 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+
+    v = matrices[index].matrix * vec4(_min.xyz + vec3(lengths.x, lengths.y, 0), 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+
+    v = matrices[index].matrix * vec4(_min.xyz + vec3(lengths.x, 0, lengths.z), 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+
+    v = matrices[index].matrix * vec4(_min.xyz + vec3(0, lengths.y, lengths.z), 1.0);
+    bb_min = min(bb_min, v.xyz);
+    bb_max = max(bb_max, v.xyz);
+
+    if (should_render(bb_min, bb_max)) {
+        commands[index].vertexCount = desc.vertexCount;
+        commands[index].instanceCount = 1;
+        commands[index].baseVertex = desc.baseVertex;
+        commands[index].baseInstance = index;
+    } else {
+        commands[index].vertexCount = 0;
+        commands[index].instanceCount = 0;
+        commands[index].baseVertex = 0;
+        commands[index].baseInstance = 0;
+    }
+}
+
+float plane_distance(int i, vec3 v) {
+    return frustrum[i].d + dot(frustrum[i].normal, v);
+}
+
+bool should_render(vec3 bb_min, vec3 bb_max) {
+    for (int i = 0; i < 6; i++) {
+        vec3 _min = vec3(0);
+        vec3 _max = vec3(0);
+
+        if (frustrum[i].normal.x > 0.0) {
+            _min.x = bb_min.x;
+            _max.x = bb_max.x;
+        } else {
+            _min.x = bb_max.x;
+            _max.x = bb_min.x;
+        }
+
+        if (frustrum[i].normal.y > 0.0) {
+            _min.y = bb_min.y;
+            _max.y = bb_max.y;
+        } else {
+            _min.y = bb_max.y;
+            _max.y = bb_min.y;
+        }
+
+        if (frustrum[i].normal.z > 0.0) {
+            _min.z = bb_min.z;
+            _max.z = bb_max.z;
+        } else {
+            _min.z = bb_max.z;
+            _max.z = bb_min.z;
+        }
+
+        if (plane_distance(i, _min) < 0.0 && plane_distance(i, _max) < 0.0) {
+            return false;
+        }
+    }
+
+    return true;
+}
