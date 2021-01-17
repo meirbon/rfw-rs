@@ -16,6 +16,13 @@ pub struct InstanceList {
     pub supports_skinning: bool,
 }
 
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct InstanceMatrices {
+    pub matrix: Mat4,
+    pub normal: Mat4,
+}
+
 impl Default for InstanceList {
     fn default() -> Self {
         Self {
@@ -116,21 +123,30 @@ impl InstanceList {
         self.instance_buffers
             .resize(instances.len(), Arc::new(None));
 
-        let mut matrices = Vec::with_capacity(instances.len() * 2);
-        for (i, m) in instances.matrices.iter().enumerate() {
-            matrices.push(*m);
-            matrices.push(m.inverse().transpose());
-            self.instances_bounds[i] = mesh.bounds.transformed(m.to_cols_array());
-            self.instance_buffers[i] = if let Some(skin) = instances.skin_ids[i].as_index() {
-                Arc::new(Some(
-                    skinning_pipeline
-                        .apply_skin(device, queue, mesh, &skins[skin])
-                        .0,
-                ))
-            } else {
-                mesh.buffer.clone()
-            };
-        }
+        let matrices: Vec<InstanceMatrices> = instances
+            .matrices
+            .iter()
+            .enumerate()
+            .zip(self.instance_buffers.iter_mut())
+            .zip(self.instances_bounds.iter_mut())
+            .map(|(((i, m), buffer), bounds)| {
+                *bounds = mesh.bounds.transformed(m.to_cols_array());
+                *buffer = if let Some(skin) = instances.skin_ids[i].as_index() {
+                    Arc::new(Some(
+                        skinning_pipeline
+                            .apply_skin(device, queue, mesh, &skins[skin])
+                            .0,
+                    ))
+                } else {
+                    mesh.buffer.clone()
+                };
+
+                InstanceMatrices {
+                    matrix: *m,
+                    normal: m.inverse().transpose(),
+                }
+            })
+            .collect();
 
         queue.write_buffer(
             (*self.instances_buffer).as_ref().unwrap(),
@@ -138,7 +154,6 @@ impl InstanceList {
             matrices.as_bytes(),
         );
 
-        assert!(instances.len() > 0);
         self.supports_skinning = mesh.joints_weights_buffer.is_some();
     }
 

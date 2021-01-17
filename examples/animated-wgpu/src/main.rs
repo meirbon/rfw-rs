@@ -13,7 +13,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use rfw::scene::{Sphere, Quality};
+use rfw::scene::{Quality, Sphere};
 use rfw::{
     backend::RenderMode,
     ecs::System,
@@ -428,12 +428,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     });
                 }
 
-                let t = (app_time.elapsed_in_millis() / 1000.0).sin();
+                let t = app_time.elapsed_in_millis() / 1000.0;
                 let mut i = 0;
                 for x in -50..=50 {
                     for z in -25..=25 {
-                        let _x = ((x as f32 + t) % 10.0).sin();
-                        let _z = ((z as f32 + t) % 10.0).sin();
+                        let _x = (((x + 50) as f32) + t).sin();
+                        let _z = (((z + 25) as f32) + t).sin();
                         let height = (_z + _x) * 0.5 + 1.0;
 
                         handles[i].set_matrix(Mat4::from_translation(Vec3::new(
