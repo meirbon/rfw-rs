@@ -1,5 +1,5 @@
 use clap::{App, Arg};
-use rfw::{ecs::System, prelude::*, Instance};
+use rfw::prelude::*;
 use rfw_font::{FontRenderer, Section, Text};
 use std::error::Error;
 pub use winit::event::MouseButton as MouseButtonCode;
@@ -30,7 +30,7 @@ impl Default for FpsSystem {
 }
 
 impl System for FpsSystem {
-    fn run(&mut self, resources: &rfw::resources::ResourceList) {
+    fn run(&mut self, resources: &ResourceList) {
         let elapsed = self.timer.elapsed_in_millis();
         self.timer.reset();
         self.average.add_sample(elapsed);
