@@ -83,13 +83,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut render = Averager::new();
     let mut resized = false;
 
-    renderer.add_spot_light(
-        Vec3::new(0.0, 10.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 100.0, 110.0),
-        60.0,
-        80.0,
-    );
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     // Ground
