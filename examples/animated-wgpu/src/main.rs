@@ -112,12 +112,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     renderer.add_spot_light(
         Vec3::new(0.0, 15.0, 0.0),
         Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 100.0, 110.0),
+        Vec3::new(105.0, 10.0, 20.0),
         45.0,
         60.0,
     );
-    // TODO: Fix directional lights
-    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
+
+    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::new(0.6, 0.4, 0.4));
 
     let material =
         renderer

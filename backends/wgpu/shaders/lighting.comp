@@ -245,9 +245,6 @@ float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
     const vec2 s_uv = coords.xy + 0.5;
     float depth = coords.z - BIAS;
     const vec3 p = vec3(s_uv, light_id);
-    if (depth > 1.0) {
-        return 0.0;
-    }
 
     const vec2 moments = texture(sampler2DArray(DirShadowMaps, ShadowSampler), p).xy;
     if (depth < moments.x) {

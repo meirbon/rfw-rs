@@ -2,7 +2,7 @@ use glyph_brush::{
     ab_glyph::{point, FontArc},
     BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder,
 };
-use rfw::prelude::{*, RenderSystem};
+use rfw::prelude::{RenderSystem, *};
 
 pub use glyph_brush::{Section, Text};
 
@@ -210,17 +210,12 @@ impl System for FontSystem {
         }
 
         if tex_changed {
-            scene
-                .set_texture(
-                    font.tex_id,
-                    rfw::prelude::Texture {
-                        width: font.tex_width,
-                        height: font.tex_height,
-                        data: self.tex_data.clone(),
-                        mip_levels: 1,
-                    },
-                )
-                .unwrap();
+            if let Some(tex) = scene.materials.get_texture_mut(font.tex_id) {
+                tex.data = self.tex_data.clone();
+                tex.width = font.tex_width;
+                tex.height = font.tex_height;
+                tex.mip_levels = 1;
+            }
         }
     }
 }

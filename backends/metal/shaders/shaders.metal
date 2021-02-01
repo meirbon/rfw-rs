@@ -76,6 +76,21 @@ struct UniformCamera {
   CameraView view;
 };
 
+struct Material {
+    float4 color;
+    float4 absorption;
+    float4 specular;
+    uint4 parameters;
+    uint flags;
+    int diffuse_map;
+    int normal_map;
+    int metallic_roughness_map;
+    int emissive_map;
+    int sheen_map;
+    int _dummy0;
+    int _dummy1;
+};
+
 // vertex shader function
 vertex ColorInOut triangle_vertex_2d(const device Vertex2D *vertex_array [[buffer(0)]],
                                      const device float4x4 *instances [[buffer(1)]],
@@ -132,6 +147,9 @@ vertex ColorInOut triangle_vertex(
 }
 
 // fragment shader function
-fragment float4 triangle_fragment(ColorInOut in [[stage_in]]) {
+fragment float4 triangle_fragment(
+    ColorInOut in [[stage_in]],
+    const device Material *materials [[buffer(0)]]) {
+
   return in.color;
 }

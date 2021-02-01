@@ -28,7 +28,7 @@ impl WgpuLights {
                 device,
                 instance_bind_group_layout,
                 capacity,
-                false,
+                true,
             ),
         }
     }
@@ -80,14 +80,14 @@ impl WgpuLights {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("light-mem-copy"),
         });
-        let changed1 = self.spot_lights.synchronize(&mut encoder, device, queue);
-        let changed2 = self.area_lights.synchronize(&mut encoder, device, queue);
-        let changed3 = self
-            .directional_lights
+
+        self.spot_lights.synchronize(&mut encoder, device, queue);
+        self.area_lights.synchronize(&mut encoder, device, queue);
+        self.directional_lights
             .synchronize(&mut encoder, device, queue);
 
         queue.submit(std::iter::once(encoder.finish()));
-        changed1 || changed2 || changed3
+        true
     }
 
     pub fn render(
@@ -148,7 +148,8 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             Some(val) => *val,
             None => false,
         }) {
-            self.info[i] = self.lights[i].get_light_info(scene_bounds);
+            let info = self.lights[i].get_light_info(scene_bounds);
+            self.info[i] = info;
         }
     }
 

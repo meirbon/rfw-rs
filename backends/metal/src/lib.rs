@@ -28,7 +28,7 @@ pub struct MetalBackend {
     queue: CommandQueue,
     meshes_3d: HashMap<usize, MetalMesh3D>,
     meshes_2d: HashMap<usize, MetalMesh2D>,
-    textures: HashMap<usize, metal::Texture>,
+    textures: Vec<metal::Texture>,
     camera: ManagedBuffer<CameraUniform>,
     state: RenderPipelineState,
     state_2d: RenderPipelineState,
@@ -169,7 +169,7 @@ impl Backend for MetalBackend {
             queue,
             meshes_3d: HashMap::new(),
             meshes_2d: HashMap::new(),
-            textures: HashMap::new(),
+            textures: Vec::new(),
             camera,
             state,
             state_2d,
@@ -232,40 +232,72 @@ impl Backend for MetalBackend {
     }
 
     fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
-        for i in 0..textures.len() {
-            if !changed[i] {
-                continue;
-            }
-            let tex = &textures[i];
-
-            let texture_desc = metal::TextureDescriptor::new();
-            texture_desc.set_width(tex.width as _);
-            texture_desc.set_height(tex.height as _);
-            texture_desc.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
-            texture_desc.set_mipmap_level_count(tex.mip_levels as _);
-            texture_desc.set_sample_count(1);
-            texture_desc.set_storage_mode(MTLStorageMode::Managed);
-            texture_desc.set_texture_type(MTLTextureType::D2);
-            texture_desc.set_usage(MTLTextureUsage::ShaderRead);
-            let texture = self.device.new_texture(&texture_desc);
-            for m in 0..tex.mip_levels {
-                let (width, height) = tex.mip_level_width_height(m as _);
-                texture.replace_region(
-                    MTLRegion {
-                        origin: MTLOrigin { x: 0, y: 0, z: 0 },
-                        size: MTLSize {
-                            width: width as _,
-                            height: height as _,
-                            depth: 1,
+        if self.textures.len() != textures.len() {
+            self.textures = textures.iter().map(|tex| {
+                let texture_desc = metal::TextureDescriptor::new();
+                texture_desc.set_width(tex.width as _);
+                texture_desc.set_height(tex.height as _);
+                texture_desc.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+                texture_desc.set_mipmap_level_count(tex.mip_levels as _);
+                texture_desc.set_sample_count(1);
+                texture_desc.set_storage_mode(MTLStorageMode::Managed);
+                texture_desc.set_texture_type(MTLTextureType::D2);
+                texture_desc.set_usage(MTLTextureUsage::ShaderRead);
+                let texture = self.device.new_texture(&texture_desc);
+                for m in 0..tex.mip_levels {
+                    let (width, height) = tex.mip_level_width_height(m as _);
+                    texture.replace_region(
+                        MTLRegion {
+                            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+                            size: MTLSize {
+                                width: width as _,
+                                height: height as _,
+                                depth: 1,
+                            },
                         },
-                    },
-                    m as _,
-                    tex.bytes.as_ptr() as _,
-                    (width * std::mem::size_of::<u32>()) as _,
-                );
-            }
+                        m as _,
+                        tex.bytes.as_ptr() as _,
+                        (width * std::mem::size_of::<u32>()) as _,
+                    );
+                }
+                texture
+            }).collect();
+        } else {
+            for i in 0..textures.len() {
+                if !changed[i] {
+                    continue;
+                }
+                let tex = &textures[i];
 
-            self.textures.insert(i, texture);
+                let texture_desc = metal::TextureDescriptor::new();
+                texture_desc.set_width(tex.width as _);
+                texture_desc.set_height(tex.height as _);
+                texture_desc.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+                texture_desc.set_mipmap_level_count(tex.mip_levels as _);
+                texture_desc.set_sample_count(1);
+                texture_desc.set_storage_mode(MTLStorageMode::Managed);
+                texture_desc.set_texture_type(MTLTextureType::D2);
+                texture_desc.set_usage(MTLTextureUsage::ShaderRead);
+                let texture = self.device.new_texture(&texture_desc);
+                for m in 0..tex.mip_levels {
+                    let (width, height) = tex.mip_level_width_height(m as _);
+                    texture.replace_region(
+                        MTLRegion {
+                            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+                            size: MTLSize {
+                                width: width as _,
+                                height: height as _,
+                                depth: 1,
+                            },
+                        },
+                        m as _,
+                        tex.bytes.as_ptr() as _,
+                        (width * std::mem::size_of::<u32>()) as _,
+                    );
+                }
+
+                self.textures[i] = texture;
+            }
         }
     }
 
@@ -308,6 +340,12 @@ impl Backend for MetalBackend {
         let command_buffer = self.queue.new_command_buffer();
         let encoder = command_buffer.new_render_command_encoder(&render_desc);
 
+        let textures = self
+            .textures
+            .iter()
+            .map(Self::to_texture_ref)
+            .collect::<Vec<_>>();
+
         encoder.set_render_pipeline_state(&self.state);
         encoder.set_depth_stencil_state(&self.depth_state);
         encoder.set_front_facing_winding(MTLWinding::CounterClockwise);
@@ -321,6 +359,9 @@ impl Backend for MetalBackend {
             encoder.set_vertex_buffer(0, Some(&mesh.buffer), 0);
             encoder.set_vertex_buffer(1, Some(&self.camera), 0);
             encoder.set_vertex_buffer(2, Some(&mesh.instance_buffer), 0);
+
+            encoder.set_fragment_buffer(0, Some(&self.materials), 0);
+            encoder.set_fragment_textures(0, textures.as_slice());
 
             encoder.draw_primitives_instanced(
                 MTLPrimitiveType::Triangle,
@@ -346,9 +387,9 @@ impl Backend for MetalBackend {
             encoder.set_fragment_texture(
                 0,
                 Some(if let Some(texture) = mesh.tex_id {
-                    &self.textures[&texture]
+                    &self.textures[texture]
                 } else {
-                    &self.textures[&0]
+                    &self.textures[0]
                 }),
             );
             encoder.draw_primitives_instanced(
@@ -386,7 +427,7 @@ impl Backend for MetalBackend {
         desc.set_pixel_format(Self::DEPTH_FORMAT);
         desc.set_width(self.render_size.0 as _);
         desc.set_height(self.render_size.1 as _);
-        desc.set_depth(1 as _);
+        desc.set_depth(1_u64);
         desc.set_texture_type(MTLTextureType::D2);
         desc.set_storage_mode(MTLStorageMode::Private);
         self.depth_texture = self.device.new_texture(&desc);
@@ -406,6 +447,12 @@ impl Backend for MetalBackend {
 
     fn settings(&mut self) -> &mut Self::Settings {
         &mut self.settings
+    }
+}
+
+impl MetalBackend {
+    fn to_texture_ref(texture: &metal::Texture) -> Option<&metal::TextureRef> {
+        Some(texture)
     }
 }
 

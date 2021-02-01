@@ -1,3 +1,4 @@
+use rendy::core::{rendy_with_metal_backend, rendy_without_metal_backend};
 use rfw_backend::Backend;
 
 pub struct RendyBackend {}
@@ -8,7 +9,6 @@ impl Backend for RendyBackend {
         window_size: (usize, usize),
         render_size: (usize, usize),
     ) -> Result<Box<Self>, Box<dyn std::error::Error>> {
-
     }
 
     fn set_2d_meshes(
