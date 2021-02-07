@@ -80,9 +80,11 @@ impl InstanceList {
             layout: instances_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(
-                    instances_buffer.as_ref().unwrap().slice(..),
-                ),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: instances_buffer.as_ref().unwrap(),
+                    offset: 0,
+                    size: None,
+                },
             }],
         }));
 
@@ -127,9 +129,7 @@ impl InstanceList {
                     layout: instances_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::Buffer(
-                            (*self.instances_buffer).as_ref().unwrap().slice(..),
-                        ),
+                        resource: (*self.instances_buffer).as_ref().unwrap().as_entire_binding(),
                     }],
                 })));
         }

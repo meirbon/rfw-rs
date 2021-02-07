@@ -49,9 +49,7 @@ impl InstanceList2D {
             layout: instances_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(
-                    instances_buffer.as_ref().unwrap().slice(..),
-                ),
+                resource: instances_buffer.as_ref().unwrap().as_entire_binding(),
             }],
         }));
 
@@ -91,7 +89,7 @@ impl InstanceList2D {
                     layout: instances_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::Buffer(instances_buffer.slice(..)),
+                        resource: instances_buffer.as_entire_binding(),
                     }],
                 })));
 
@@ -138,9 +136,9 @@ impl Renderer {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Uint,
-                        dimension: wgpu::TextureViewDimension::D2,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
                     count: None,
@@ -148,7 +146,10 @@ impl Renderer {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler { comparison: false },
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: false,
+                        comparison: false,
+                    },
                     count: None,
                 },
             ],
@@ -160,77 +161,89 @@ impl Renderer {
             push_constant_ranges: &[],
         });
 
-        let vertex = wgpu::include_spirv!("../shaders/2d.vert.spv");
-        let frag = wgpu::include_spirv!("../shaders/2d.frag.spv");
+        let vert = include_bytes!("../shaders/2d.vert.spv");
+        let frag = include_bytes!("../shaders/2d.frag.spv");
+        let vert = &vert[0..vert.len()];
+        let frag = &frag[0..frag.len()];
+
+        let vertex = wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(vert.as_quad_bytes().into()),
+        };
+        let frag = wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(frag.as_quad_bytes().into()),
+        };
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("2d-pipeline"),
             layout: Some(&layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
-                module: &device.create_shader_module(vertex),
-                entry_point: "main",
-            },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                module: &device.create_shader_module(frag),
-                entry_point: "main",
-            }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
-                clamp_depth: false,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: super::output::WgpuOutput::OUTPUT_FORMAT,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                color_blend: wgpu::BlendDescriptor {
-                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                    operation: wgpu::BlendOperation::Add,
-                },
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
-                format: super::output::WgpuOutput::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Always,
-                stencil: wgpu::StencilStateDescriptor::default(),
-            }),
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                    stride: std::mem::size_of::<Vertex2D>() as wgpu::BufferAddress,
-                    step_mode: wgpu::InputStepMode::Vertex,
+            vertex: wgpu::VertexState {
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex2D>() as wgpu::BufferAddress,
                     attributes: &[
-                        wgpu::VertexAttributeDescriptor {
+                        wgpu::VertexAttribute {
                             offset: 0,
                             format: wgpu::VertexFormat::Float3,
                             shader_location: 0,
                         },
-                        wgpu::VertexAttributeDescriptor {
+                        wgpu::VertexAttribute {
                             offset: 12,
                             format: wgpu::VertexFormat::Uint,
                             shader_location: 1,
                         },
-                        wgpu::VertexAttributeDescriptor {
+                        wgpu::VertexAttribute {
                             offset: 16,
                             format: wgpu::VertexFormat::Float2,
                             shader_location: 2,
                         },
-                        wgpu::VertexAttributeDescriptor {
+                        wgpu::VertexAttribute {
                             offset: 24,
                             format: wgpu::VertexFormat::Float4,
                             shader_location: 3,
                         },
                     ],
+                    step_mode: wgpu::InputStepMode::Vertex,
                 }],
+                entry_point: "main",
+                module: &device.create_shader_module(&vertex),
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            fragment: Some(wgpu::FragmentState {
+                entry_point: "main",
+                module: &device.create_shader_module(&frag),
+                targets: &[wgpu::ColorTargetState {
+                    format: super::output::WgpuOutput::OUTPUT_FORMAT,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState {
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
+            }),
+            primitive: wgpu::PrimitiveState {
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: super::output::WgpuOutput::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Always,
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+                stencil: wgpu::StencilState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
         let matrices_buffer_size =
@@ -252,8 +265,7 @@ impl Renderer {
             mipmap_filter: wgpu::FilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 5.0,
-            compare: None,
-            anisotropy_clamp: None,
+            ..Default::default()
         });
 
         Self {
@@ -280,6 +292,7 @@ impl Renderer {
         }
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                 attachment: output,
                 resolve_target: None,

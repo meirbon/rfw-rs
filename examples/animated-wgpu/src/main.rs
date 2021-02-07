@@ -110,12 +110,28 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut resized = false;
 
     renderer.add_spot_light(
-        Vec3::new(0.0, 15.0, 0.0),
+        Vec3::new(2.5, 15.0, 0.0),
         Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 10.0, 20.0),
+        Vec3::new(105.0, 10.0, 10.0),
         45.0,
         60.0,
     );
+
+    // renderer.add_spot_light(
+    //     Vec3::new(0.0, 15.0, 0.0),
+    //     Vec3::new(0.0, -1.0, 0.3),
+    //     Vec3::new(10.0, 105.0, 10.0),
+    //     45.0,
+    //     60.0,
+    // );
+
+    // renderer.add_spot_light(
+    //     Vec3::new(-2.5, 15.0, 0.0),
+    //     Vec3::new(0.0, -1.0, 0.3),
+    //     Vec3::new(10.0, 10.0, 105.0),
+    //     45.0,
+    //     60.0,
+    // );
 
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::new(0.6, 0.4, 0.4));
 
@@ -124,10 +140,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
             .get_scene_mut()
             .materials
             .add(Vec3::new(1.0, 0.2, 0.03), 1.0, Vec3::one(), 0.0);
-    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::High);
+    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    let sphere_x = 30 as i32;
-    let sphere_z = 25 as i32;
+    let sphere_x = 20 as i32;
+    let sphere_z = 15 as i32;
 
     let mut handles = {
         let mut handles = Vec::new();
@@ -314,9 +330,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     .lights
                     .spot_lights
                     .iter_mut()
-                    .for_each(|(_, sl)| {
+                    .enumerate()
+                    .for_each(|(_, (i, sl))| {
                         let direction = Vec3::from(sl.direction);
-                        let direction = Quat::from_rotation_y((elapsed / 10.0).to_radians())
+                        let direction = Quat::from_rotation_y((elapsed / 10.0 + (i as f32 * 30.0)).to_radians())
                             .mul_vec3(direction);
                         sl.direction = direction.into();
                     });

@@ -116,7 +116,11 @@ pub struct SkinningPipeline {
 impl SkinningPipeline {
     pub fn new(device: &wgpu::Device) -> Self {
         let shader = include_bytes!("../shaders/skinning.comp.spv");
-        let module = device.create_shader_module(wgpu::util::make_spirv(&shader[..]));
+        let module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::util::make_spirv(&shader[..]),
+        });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("skinning-bind-group-layout"),
@@ -124,30 +128,30 @@ impl SkinningPipeline {
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::StorageBuffer {
-                        dynamic: false,
+                    ty: wgpu::BindingType::Buffer {
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
-                        readonly: false,
                     },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::StorageBuffer {
-                        dynamic: false,
+                    ty: wgpu::BindingType::Buffer {
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
-                        readonly: true,
                     },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::StorageBuffer {
-                        dynamic: false,
+                    ty: wgpu::BindingType::Buffer {
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
-                        readonly: true,
                     },
                     count: None,
                 },
@@ -159,12 +163,10 @@ impl SkinningPipeline {
             push_constant_ranges: &[],
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            entry_point: "main",
+            module: &module,
             label: Some("skinning-pipeline"),
             layout: Some(&pipeline_layout),
-            compute_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &module,
-            },
         });
 
         Self {
@@ -207,26 +209,24 @@ impl SkinningPipeline {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::Buffer(buffer.slice(..)),
+                        resource: buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Buffer(
-                            skin.buffer.as_ref().unwrap().slice(..),
-                        ),
+                        resource: skin.buffer.as_ref().unwrap().as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::Buffer(
-                            (*mesh.joints_weights_buffer).as_ref().unwrap().slice(
-                                0..(len * std::mem::size_of::<JointData>()) as wgpu::BufferAddress,
-                            ),
-                        ),
+                        resource: (*mesh.joints_weights_buffer)
+                            .as_ref()
+                            .unwrap()
+                            .as_entire_binding(),
                     },
                 ],
             });
 
-            let mut compute_pass = encoder.begin_compute_pass();
+            let mut compute_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
             compute_pass.dispatch(len as u32 / 64, 1, 1);

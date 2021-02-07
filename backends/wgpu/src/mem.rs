@@ -1,5 +1,5 @@
 use rfw::utils::BytesConversion;
-use std::ops::{Index, IndexMut, Range};
+use std::{num::NonZeroU64, ops::{Index, IndexMut, Range}};
 use std::sync::Arc;
 
 pub struct ManagedBuffer<T: Sized> {
@@ -89,14 +89,22 @@ impl<T: Sized> ManagedBuffer<T> {
     }
 
     pub fn binding_resource(&self) -> wgpu::BindingResource {
-        wgpu::BindingResource::Buffer(self.buffer.slice(..))
+        wgpu::BindingResource::Buffer {
+            buffer: &self.buffer,
+            offset: 0,
+            size: None,
+        }
     }
 
     pub fn binding_resource_ranged(
         &self,
         range: Range<wgpu::BufferAddress>,
     ) -> wgpu::BindingResource {
-        wgpu::BindingResource::Buffer(self.buffer.slice(range))
+        wgpu::BindingResource::Buffer {
+            buffer: &self.buffer,
+            offset: range.start,
+            size: NonZeroU64::new(range.end - range.start),
+        }
     }
 
     pub fn buffer(&self) -> &wgpu::Buffer {

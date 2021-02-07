@@ -165,10 +165,10 @@ impl WgpuBackend {
                     binding: 0,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Uint,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
                         multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -176,10 +176,10 @@ impl WgpuBackend {
                     binding: 1,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Uint,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
                         multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -187,10 +187,10 @@ impl WgpuBackend {
                     binding: 2,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Uint,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
                         multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -198,10 +198,10 @@ impl WgpuBackend {
                     binding: 3,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Uint,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
                         multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -209,10 +209,10 @@ impl WgpuBackend {
                     binding: 4,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Uint,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
                         multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                     },
                 },
             ],
@@ -230,8 +230,9 @@ impl WgpuBackend {
                     visibility: wgpu::ShaderStage::VERTEX
                         | wgpu::ShaderStage::FRAGMENT
                         | wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::UniformBuffer {
-                        dynamic: false,
+                    ty: wgpu::BindingType::Buffer {
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Uniform,
                         min_binding_size: NonZeroU64::new(Self::UNIFORM_CAMERA_SIZE as _),
                     },
                 },
@@ -240,10 +241,10 @@ impl WgpuBackend {
                     binding: 1,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::StorageBuffer {
+                    ty: wgpu::BindingType::Buffer {
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
-                        readonly: true,
-                        dynamic: false,
                     },
                 },
                 wgpu::BindGroupLayoutEntry {
@@ -251,7 +252,10 @@ impl WgpuBackend {
                     binding: 2,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Sampler { comparison: false },
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: false,
+                        comparison: false,
+                    },
                 },
             ],
         })
@@ -311,9 +315,10 @@ impl Backend for WgpuBackend {
             &wgpu::DeviceDescriptor {
                 features: wgpu::Features::PUSH_CONSTANTS
                     | wgpu::Features::SAMPLED_TEXTURE_BINDING_ARRAY
-                    | wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
+                    | wgpu::Features::MAPPABLE_PRIMARY_BUFFERS
+                    | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                 limits: wgpu::Limits::default(),
-                shader_validation: true,
+                label: Some("rfw-device"),
             },
             None,
         ))
@@ -327,7 +332,7 @@ impl Backend for WgpuBackend {
             &wgpu::SwapChainDescriptor {
                 width,
                 height,
-                usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+                usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
                 format: output::WgpuOutput::OUTPUT_FORMAT,
                 present_mode: Self::PRESENT_MODE,
             },
@@ -348,10 +353,10 @@ impl Backend for WgpuBackend {
                     binding: 0,
                     count: None,
                     visibility: wgpu::ShaderStage::VERTEX,
-                    ty: wgpu::BindingType::StorageBuffer {
-                        readonly: true,
+                    ty: wgpu::BindingType::Buffer {
+                        has_dynamic_offset: false,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         min_binding_size: None,
-                        dynamic: false,
                     },
                 }],
                 label: Some("mesh-bind-group-descriptor-layout"),
@@ -379,6 +384,7 @@ impl Backend for WgpuBackend {
             lod_max_clamp: 5.0,
             compare: None,
             anisotropy_clamp: NonZeroU8::new(8),
+            border_color: None,
         });
 
         let uniform_bind_group_layout = Self::create_uniform_bind_group_layout(&device);
@@ -725,6 +731,7 @@ impl Backend for WgpuBackend {
         #[cfg(feature = "imgui-winit")]
         if let Some(imgui) = self.settings.imgui.as_mut() {
             let mut render_pass = d2_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
@@ -770,7 +777,7 @@ impl Backend for WgpuBackend {
                 height: height as u32,
                 present_mode: Self::PRESENT_MODE,
                 format: Self::OUTPUT_FORMAT,
-                usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+                usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
             },
         );
 
@@ -862,6 +869,7 @@ impl WgpuBackend {
         use output::*;
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
             color_attachments: &[
                 d_output.as_descriptor(WgpuView::Albedo),
                 d_output.as_descriptor(WgpuView::Normal),

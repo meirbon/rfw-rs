@@ -19,11 +19,14 @@ impl QuadPass {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("blit-bind-group-layout"),
             entries: &[
-                output.as_sampled_entry(0, wgpu::ShaderStage::FRAGMENT, WgpuView::Output),
+                output.as_sampled_entry(0, wgpu::ShaderStage::FRAGMENT),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler { comparison: false },
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: false,
+                        comparison: false,
+                    },
                     count: None,
                 },
             ],
@@ -38,8 +41,7 @@ impl QuadPass {
             mipmap_filter: wgpu::FilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
-            compare: None,
-            anisotropy_clamp: None,
+            ..Default::default()
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -62,40 +64,48 @@ impl QuadPass {
         let vert_shader: &[u8] = include_bytes!("../shaders/quad.vert.spv");
         let frag_shader: &[u8] = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_shader.as_quad_bytes(),
-        )));
-        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            frag_shader.as_quad_bytes(),
-        )));
+        let vert_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(vert_shader.as_quad_bytes())),
+        });
+        let frag_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(frag_shader.as_quad_bytes())),
+        });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("deferred-quad-pipeline"),
             layout: Some(&pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
+            vertex: wgpu::VertexState {
+                buffers: &[],
                 entry_point: "main",
                 module: &vert_module,
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+            fragment: Some(wgpu::FragmentState {
                 entry_point: "main",
                 module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: WgpuOutput::OUTPUT_FORMAT,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
             }),
-            rasterization_state: None,
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: WgpuOutput::OUTPUT_FORMAT,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[],
+            primitive: wgpu::PrimitiveState {
+                cull_mode: wgpu::CullMode::None,
+                front_face: wgpu::FrontFace::Ccw,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
         Self {
@@ -122,6 +132,7 @@ impl QuadPass {
 
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                 attachment: output,
                 ops: wgpu::Operations {
@@ -174,40 +185,48 @@ impl BlitPass {
         let vert_shader: &[u8] = include_bytes!("../shaders/quad.vert.spv");
         let frag_shader: &[u8] = include_bytes!("../shaders/deferred_blit.frag.spv");
 
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_shader.as_quad_bytes(),
-        )));
-        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            frag_shader.as_quad_bytes(),
-        )));
+        let vert_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(vert_shader.as_quad_bytes())),
+        });
+        let frag_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(frag_shader.as_quad_bytes())),
+        });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("deferred-blit-pipeline"),
             layout: Some(&pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
+            vertex: wgpu::VertexState {
+                buffers: &[],
                 entry_point: "main",
                 module: &vert_module,
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+            fragment: Some(wgpu::FragmentState {
                 entry_point: "main",
                 module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: WgpuOutput::OUTPUT_FORMAT,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
             }),
-            rasterization_state: None,
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: WgpuOutput::OUTPUT_FORMAT,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[],
+            depth_stencil: None,
+            primitive: wgpu::PrimitiveState {
+                cull_mode: wgpu::CullMode::None,
+                front_face: wgpu::FrontFace::Ccw,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
         Self {
@@ -231,6 +250,7 @@ impl BlitPass {
 
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                 attachment: output,
                 ops: wgpu::Operations {
@@ -279,8 +299,7 @@ impl SSAOPass {
             mipmap_filter: wgpu::FilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
-            compare: None,
-            anisotropy_clamp: None,
+            ..Default::default()
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -291,10 +310,13 @@ impl SSAOPass {
                     binding: 1,
                     count: None,
                     visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Sampler { comparison: false },
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: false,
+                        comparison: false,
+                    },
                 },
-                output.as_sampled_entry(2, wgpu::ShaderStage::COMPUTE, WgpuView::ScreenSpace),
-                output.as_sampled_entry(3, wgpu::ShaderStage::COMPUTE, WgpuView::Normal),
+                output.as_sampled_entry(2, wgpu::ShaderStage::COMPUTE),
+                output.as_sampled_entry(3, wgpu::ShaderStage::COMPUTE),
             ],
         });
 
@@ -319,16 +341,16 @@ impl SSAOPass {
         });
 
         let shader: &[u8] = include_bytes!("../shaders/ssao.comp.spv");
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-            Cow::from(shader.as_quad_bytes()),
-        ));
+        let shader_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(shader.as_quad_bytes())),
+        });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("ssao-pipeline"),
             layout: Some(&pipeline_layout),
-            compute_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &shader_module,
-            },
+            entry_point: "main",
+            module: &shader_module,
         });
 
         let filter_bind_group_layout =
@@ -341,9 +363,10 @@ impl SSAOPass {
                         binding: 2,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                 ],
@@ -379,9 +402,7 @@ impl SSAOPass {
                 output.as_binding(1, WgpuView::SSAO),
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer(
-                        filter_uniform_direction_buffer.slice(0..8),
-                    ),
+                    resource: filter_uniform_direction_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -394,9 +415,7 @@ impl SSAOPass {
                 output.as_binding(1, WgpuView::FilteredSSAO),
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer(
-                        filter_uniform_direction_buffer.slice(0..8),
-                    ),
+                    resource: filter_uniform_direction_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -408,16 +427,16 @@ impl SSAOPass {
                 push_constant_ranges: &[],
             });
         let shader: &[u8] = include_bytes!("../shaders/ssao_filter.comp.spv");
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-            Cow::from(shader.as_quad_bytes()),
-        ));
+        let shader_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(shader.as_quad_bytes())),
+        });
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("ssao-filter-pipeline"),
             layout: Some(&filter_pipeline_layout),
-            compute_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &shader_module,
-            },
+            entry_point: "main",
+            module: &shader_module,
         });
 
         Self {
@@ -458,9 +477,7 @@ impl SSAOPass {
                 output.as_binding(1, WgpuView::SSAO),
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer(
-                        self.filter_uniform_direction_buffer.slice(0..8),
-                    ),
+                    resource: self.filter_uniform_direction_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -473,9 +490,7 @@ impl SSAOPass {
                 output.as_binding(1, WgpuView::FilteredSSAO),
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Buffer(
-                        self.filter_uniform_direction_buffer.slice(0..8),
-                    ),
+                    resource: self.filter_uniform_direction_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -497,7 +512,7 @@ impl SSAOPass {
         );
 
         {
-            let mut ssao_pass = encoder.begin_compute_pass();
+            let mut ssao_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             ssao_pass.set_pipeline(&self.pipeline);
             ssao_pass.set_bind_group(0, uniform_bind_group, &[]);
             ssao_pass.set_bind_group(1, &self.bind_group, &[]);
@@ -505,7 +520,7 @@ impl SSAOPass {
         }
 
         {
-            let mut ssao_pass = encoder.begin_compute_pass();
+            let mut ssao_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             ssao_pass.set_pipeline(&self.filter_pipeline);
             ssao_pass.set_bind_group(0, &self.filter_bind_group1, &[]);
             ssao_pass.dispatch(
@@ -524,7 +539,7 @@ impl SSAOPass {
         );
 
         {
-            let mut ssao_pass = encoder.begin_compute_pass();
+            let mut ssao_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             ssao_pass.set_pipeline(&self.filter_pipeline);
             ssao_pass.set_bind_group(0, &self.filter_bind_group2, &[]);
             ssao_pass.dispatch(
@@ -563,8 +578,9 @@ impl RadiancePass {
                         binding: 0,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
-                            dynamic: false,
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: NonZeroU64::new(
                                 super::WgpuBackend::UNIFORM_CAMERA_SIZE,
                             ),
@@ -574,10 +590,10 @@ impl RadiancePass {
                         binding: 1,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::StorageBuffer {
-                            dynamic: false,
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             min_binding_size: None,
-                            readonly: true,
                         },
                     },
                     output.as_storage_entry(
@@ -589,24 +605,21 @@ impl RadiancePass {
                 ],
             });
 
-        let uniform_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &uniform_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(camera_buffer.slice(
-                            0..super::WgpuBackend::UNIFORM_CAMERA_SIZE as wgpu::BufferAddress,
-                        )),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(material_buffer.slice(..)),
-                    },
-                    output.as_binding(2, WgpuView::Radiance),
-                ],
-            });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: material_buffer.as_entire_binding(),
+                },
+                output.as_binding(2, WgpuView::Radiance),
+            ],
+        });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("radiance-bind-group-layout"),
@@ -626,42 +639,48 @@ impl RadiancePass {
                         binding: 1,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::Sampler { comparison: false },
+                        ty: wgpu::BindingType::Sampler {
+                            filtering: false,
+                            comparison: false,
+                        },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 6,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::SampledTexture {
-                            component_type: wgpu::TextureComponentType::Float,
-                            dimension: wgpu::TextureViewDimension::D2Array,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                     },
@@ -669,9 +688,9 @@ impl RadiancePass {
                         binding: 7,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::SampledTexture {
-                            component_type: wgpu::TextureComponentType::Float,
-                            dimension: wgpu::TextureViewDimension::D2Array,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                     },
@@ -679,9 +698,9 @@ impl RadiancePass {
                         binding: 8,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::SampledTexture {
-                            component_type: wgpu::TextureComponentType::Float,
-                            dimension: wgpu::TextureViewDimension::D2Array,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                     },
@@ -689,27 +708,30 @@ impl RadiancePass {
                         binding: 10,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 11,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 12,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                 ],
@@ -760,17 +782,17 @@ impl RadiancePass {
         });
 
         let spirv: &[u8] = include_bytes!("../shaders/lighting.comp.spv");
-        let module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            spirv.as_quad_bytes(),
-        )));
+        let module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(spirv.as_quad_bytes())),
+        });
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("lighting-pipeline"),
             layout: Some(&pipeline_layout),
-            compute_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &module,
-            },
+            entry_point: "main",
+            module: &module,
         });
 
         Self {
@@ -793,24 +815,21 @@ impl RadiancePass {
         camera_buffer: &wgpu::Buffer,
         material_buffer: &wgpu::Buffer,
     ) {
-        self.uniform_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: &self.uniform_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(camera_buffer.slice(
-                            0..super::WgpuBackend::UNIFORM_CAMERA_SIZE as wgpu::BufferAddress,
-                        )),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(material_buffer.slice(..)),
-                    },
-                    output.as_binding(2, WgpuView::Radiance),
-                ],
-            });
+        self.uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: material_buffer.as_entire_binding(),
+                },
+                output.as_binding(2, WgpuView::Radiance),
+            ],
+        });
 
         self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.bind_group_layout,
@@ -847,7 +866,7 @@ impl RadiancePass {
     }
 
     pub fn launch(&self, encoder: &mut wgpu::CommandEncoder, width: u32, height: u32) {
-        let mut compute_pass = encoder.begin_compute_pass();
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
         compute_pass.set_pipeline(&self.pipeline);
         compute_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         compute_pass.set_bind_group(1, &self.bind_group, &[]);

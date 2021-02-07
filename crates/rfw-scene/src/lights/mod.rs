@@ -145,7 +145,7 @@ impl Light for SpotLight {
         let direction = Vec3::from(self.direction);
         let center: Vec3 = Vec3::from(self.position);
         let projection = Mat4::perspective_rh_gl(fov, 1.0, 0.1, self.energy * 2.0);
-        let view = Mat4::look_at_rh(center.into(), (center + direction).into(), up.into());
+        let view = Mat4::look_at_rh(center, center + direction, up);
         projection * view
     }
 
@@ -274,5 +274,15 @@ impl Light for DirectionalLight {
 
     fn get_energy(&self) -> f32 {
         self.energy
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::LightInfo;
+
+    #[test]
+    fn is_aligned() {
+        assert!(std::mem::size_of::<LightInfo>() == 256);
     }
 }

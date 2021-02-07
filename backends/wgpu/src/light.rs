@@ -1,10 +1,10 @@
 use crate::instance::InstanceList;
 use crate::mesh::WgpuMesh;
 use rfw::prelude::{AABB, *};
-use std::borrow::Cow;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::ops::Range;
+use std::{borrow::Cow, num::NonZeroU64};
 use wgpu::util::DeviceExt;
 
 pub struct WgpuLights {
@@ -219,9 +219,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn uniform_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
         wgpu::BindGroupEntry {
             binding,
-            resource: wgpu::BindingResource::Buffer(
-                self.light_buffer.slice(0..self.light_buffer_size),
-            ),
+            resource: self.light_buffer.as_entire_binding(),
         }
     }
 
@@ -235,11 +233,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn infos_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
         wgpu::BindGroupEntry {
             binding,
-            resource: wgpu::BindingResource::Buffer(
-                self.shadow_maps
-                    .uniform_buffer
-                    .slice(0..(self.shadow_maps.len() * ShadowMapArray::UNIFORM_ELEMENT_SIZE) as _),
-            ),
+            resource: self.shadow_maps.uniform_buffer.as_entire_binding(),
         }
     }
 
@@ -302,7 +296,7 @@ impl ShadowMapArray {
     ) -> ShadowMapArray {
         let map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -346,7 +340,7 @@ impl ShadowMapArray {
 
         let filter_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -390,9 +384,8 @@ impl ShadowMapArray {
 
         let depth_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
                 | wgpu::TextureUsage::COPY_DST,
             size: wgpu::Extent3d {
@@ -433,9 +426,10 @@ impl ShadowMapArray {
                 binding: 0,
                 count: None,
                 visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer {
+                ty: wgpu::BindingType::Buffer {
+                    has_dynamic_offset: true,
+                    ty: wgpu::BufferBindingType::Uniform,
                     min_binding_size: None,
-                    dynamic: true,
                 },
             }],
         });
@@ -445,7 +439,11 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-bind-group"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(0..uniform_size)),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(uniform_size),
+                },
             }],
         });
 
@@ -459,63 +457,67 @@ impl ShadowMapArray {
         let regular_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single.frag.spv");
         let linear_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_shader.as_quad_bytes(),
-        )));
-        let frag_module =
-            device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(if linear {
+        let vert_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(vert_shader.as_quad_bytes())),
+        });
+        let frag_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(if linear {
                 linear_frag_shader.as_quad_bytes()
             } else {
                 regular_frag_shader.as_quad_bytes()
-            })));
+            })),
+        });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow-pipeline"),
             layout: Some(&pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &vert_module,
-            },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &frag_module,
-            }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
-                clamp_depth: false,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: Self::FORMAT,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
-                format: Self::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilStateDescriptor::default(),
-            }),
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                    stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
+            vertex: wgpu::VertexState {
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                     step_mode: wgpu::InputStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttributeDescriptor {
+                    attributes: &[wgpu::VertexAttribute {
                         offset: 0,
                         format: wgpu::VertexFormat::Float4,
                         shader_location: 0,
                     }],
                 }],
+                entry_point: "main",
+                module: &vert_module,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            fragment: Some(wgpu::FragmentState {
+                entry_point: "main",
+                module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: Self::FORMAT,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
+            }),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Self::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+            }),
+            primitive: wgpu::PrimitiveState {
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+            },
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
         let filter_bind_group_layout =
@@ -527,9 +529,9 @@ impl ShadowMapArray {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
-                            dimension: wgpu::TextureViewDimension::D2,
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             format: Self::FORMAT,
-                            readonly: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
@@ -537,18 +539,19 @@ impl ShadowMapArray {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
-                            dimension: wgpu::TextureViewDimension::D2,
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             format: Self::DEPTH_FORMAT,
-                            readonly: true,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                 ],
@@ -594,9 +597,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -622,9 +623,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -638,16 +637,16 @@ impl ShadowMapArray {
                 push_constant_ranges: &[],
             });
         let shader: &[u8] = include_bytes!("../shaders/shadow_filter.comp.spv");
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-            Cow::from(shader.as_quad_bytes()),
-        ));
+        let shader_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(shader.as_quad_bytes())),
+        });
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("shadow-filter-pipeline"),
             layout: Some(&filter_pipeline_layout),
-            compute_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &shader_module,
-            },
+            entry_point: "main",
+            module: &shader_module,
         });
 
         Self {
@@ -691,7 +690,7 @@ impl ShadowMapArray {
 
         let map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -736,9 +735,8 @@ impl ShadowMapArray {
         // Create new texture
         let new_depth_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
                 | wgpu::TextureUsage::COPY_DST,
             size: wgpu::Extent3d {
@@ -765,7 +763,7 @@ impl ShadowMapArray {
 
         let filter_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -884,9 +882,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                self.filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: self.filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -911,9 +907,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                self.filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: self.filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -936,7 +930,11 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-bind-group"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(0..new_size)),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: None,
+                },
             }],
         });
 
@@ -981,7 +979,7 @@ impl ShadowMapArray {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: None,
+            ..Default::default()
         })
     }
 
@@ -1004,6 +1002,7 @@ impl ShadowMapArray {
         for v in range.into_iter() {
             let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: &self.views[v as usize],
                     resolve_target: None,
@@ -1024,12 +1023,18 @@ impl ShadowMapArray {
 
             render_pass.set_pipeline(&self.pipeline);
 
+            let dynamic_offset = (v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset;
+            render_pass.set_bind_group(0, &self.bind_group, &[dynamic_offset]);
+            // println!("Dynamic offset {}", dynamic_offset);
+
             for (id, i) in instances.iter() {
                 let m = &meshes[id];
                 let instances = i.len() as usize;
                 if instances == 0 {
                     continue;
                 }
+
+                render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
 
                 if m.supports_skinning() {
                     for instance in 0..instances {
@@ -1046,12 +1051,6 @@ impl ShadowMapArray {
                         };
 
                         render_pass.set_vertex_buffer(0, buffer.slice(..));
-                        render_pass.set_bind_group(
-                            0,
-                            &self.bind_group,
-                            &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
-                        );
-                        render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
 
                         render_pass.draw(
                             m.ranges[0].first..(m.ranges.last().unwrap().last),
@@ -1066,12 +1065,6 @@ impl ShadowMapArray {
                     };
 
                     render_pass.set_vertex_buffer(0, buffer.slice(..));
-                    render_pass.set_bind_group(
-                        0,
-                        &self.bind_group,
-                        &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
-                    );
-                    render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
 
                     // TODO: We should probably do some GPU based culling for huge numbers of instances
                     if instances > 20000 {
@@ -1104,7 +1097,8 @@ impl ShadowMapArray {
         );
 
         for v in start..end {
-            let mut filter_pass = encoder.begin_compute_pass();
+            let mut filter_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             filter_pass.set_pipeline(&self.filter_pipeline);
             filter_pass.set_bind_group(0, &self.filter_bind_groups1[v as usize], &[]);
             filter_pass.dispatch(
@@ -1122,7 +1116,8 @@ impl ShadowMapArray {
             8,
         );
         for v in start..end {
-            let mut filter_pass = encoder.begin_compute_pass();
+            let mut filter_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             filter_pass.set_pipeline(&self.filter_pipeline);
             filter_pass.set_bind_group(0, &self.filter_bind_groups2[v as usize], &[]);
             filter_pass.dispatch(
