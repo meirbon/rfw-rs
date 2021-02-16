@@ -117,21 +117,21 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         60.0,
     );
 
-    // renderer.add_spot_light(
-    //     Vec3::new(0.0, 15.0, 0.0),
-    //     Vec3::new(0.0, -1.0, 0.3),
-    //     Vec3::new(10.0, 105.0, 10.0),
-    //     45.0,
-    //     60.0,
-    // );
+    renderer.add_spot_light(
+        Vec3::new(0.0, 15.0, 0.0),
+        Vec3::new(0.0, -1.0, 0.3),
+        Vec3::new(10.0, 105.0, 10.0),
+        45.0,
+        60.0,
+    );
 
-    // renderer.add_spot_light(
-    //     Vec3::new(-2.5, 15.0, 0.0),
-    //     Vec3::new(0.0, -1.0, 0.3),
-    //     Vec3::new(10.0, 10.0, 105.0),
-    //     45.0,
-    //     60.0,
-    // );
+    renderer.add_spot_light(
+        Vec3::new(-2.5, 15.0, 0.0),
+        Vec3::new(0.0, -1.0, -0.3),
+        Vec3::new(10.0, 10.0, 105.0),
+        45.0,
+        60.0,
+    );
 
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::new(0.6, 0.4, 0.4));
 
@@ -333,8 +333,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     .enumerate()
                     .for_each(|(_, (i, sl))| {
                         let direction = Vec3::from(sl.direction);
-                        let direction = Quat::from_rotation_y((elapsed / 10.0 + (i as f32 * 30.0)).to_radians())
-                            .mul_vec3(direction);
+                        let direction = Quat::from_rotation_y(
+                            (elapsed / 10.0 + (i as f32 * 30.0)).to_radians(),
+                        )
+                        .mul_vec3(direction);
                         sl.direction = direction.into();
                     });
 

@@ -1,10 +1,10 @@
 use crate::instance::InstanceList;
 use crate::mesh::WgpuMesh;
 use rfw::prelude::{AABB, *};
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::ops::Range;
-use std::{borrow::Cow, num::NonZeroU64};
 use wgpu::util::DeviceExt;
 
 pub struct WgpuLights {
@@ -429,7 +429,7 @@ impl ShadowMapArray {
                 ty: wgpu::BindingType::Buffer {
                     has_dynamic_offset: true,
                     ty: wgpu::BufferBindingType::Uniform,
-                    min_binding_size: None,
+                    min_binding_size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
                 },
             }],
         });
@@ -442,7 +442,7 @@ impl ShadowMapArray {
                 resource: wgpu::BindingResource::Buffer {
                     buffer: &uniform_buffer,
                     offset: 0,
-                    size: NonZeroU64::new(uniform_size),
+                    size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
                 },
             }],
         });
@@ -933,7 +933,7 @@ impl ShadowMapArray {
                 resource: wgpu::BindingResource::Buffer {
                     buffer: &uniform_buffer,
                     offset: 0,
-                    size: None,
+                    size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
                 },
             }],
         });
@@ -1022,10 +1022,11 @@ impl ShadowMapArray {
             });
 
             render_pass.set_pipeline(&self.pipeline);
-
-            let dynamic_offset = (v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset;
-            render_pass.set_bind_group(0, &self.bind_group, &[dynamic_offset]);
-            // println!("Dynamic offset {}", dynamic_offset);
+            render_pass.set_bind_group(
+                0,
+                &self.bind_group,
+                &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+            );
 
             for (id, i) in instances.iter() {
                 let m = &meshes[id];

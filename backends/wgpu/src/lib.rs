@@ -148,7 +148,7 @@ impl Display for WgpuError {
 }
 
 impl WgpuBackend {
-    const PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Immediate;
+    const PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Mailbox;
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
     const UNIFORM_CAMERA_SIZE: wgpu::BufferAddress = (std::mem::size_of::<Mat4>()
         + std::mem::size_of::<Mat4>()
