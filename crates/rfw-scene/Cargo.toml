@@ -6,7 +6,7 @@ version = "0.1.0"
 
 [dependencies]
 bitflags = "1.2.1"
-bitvec = "0.20"
+bitvec = "0.21"
 gltf = {version = "0.15", features = ["extras", "names", "utils"]}
 l3d = "0.1"
 rayon = "1.5"
