@@ -73,7 +73,14 @@ impl<T: Sized + Backend> Instance<T> {
         window_size: (u32, u32),
         scale_factor: Option<f64>,
     ) -> Result<Self, Box<dyn Error>> {
+        rfw_utils::log::set_logger(rfw_utils::log::CoutLogger::default());
+
         let renderer = T::init(window, window_size, scale_factor.unwrap_or(1.0))?;
+        rfw_utils::log::success(format!(
+            "initialized renderer: {}",
+            std::any::type_name::<T>()
+        ));
+
         let mut resources = ResourceList::new();
         resources.add_resource(RenderSystem {
             width: window_size.0,
@@ -96,13 +103,20 @@ impl<T: Sized + Backend> Instance<T> {
         window_size: (u32, u32),
         scale_factor: Option<f64>,
     ) -> Result<Self, Box<dyn Error>> {
+        rfw_utils::log::set_logger(rfw_utils::log::CoutLogger::default());
+
         let renderer = T::init(window, window_size, render_size)?;
+        rfw_utils::log::success(format!(
+            "initialized renderer: {}",
+            std::any::type_name::<T>()
+        ));
 
         resources.add_resource(System {
             width: window_size.0,
             height: window_size.1,
             scale_factor: scale_factor.unwrap_or(1.0),
         });
+
         resources.add_resource(Scene::deserialize(scene)?);
 
         Ok(Self {

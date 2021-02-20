@@ -1,5 +1,6 @@
 use crate::resources::ResourceList;
 use rayon::prelude::*;
+use std::any::type_name;
 
 pub trait Plugin {
     fn init(&mut self, resources: &mut ResourceList, scheduler: &mut Scheduler);
@@ -36,6 +37,7 @@ impl Scheduler {
     }
 
     pub fn add_system<S: 'static + System>(&mut self, system: S) {
+        rfw_utils::log::success(format!("created resource: {}", type_name::<S>()));
         self.systems.push(Box::new(system));
     }
 
