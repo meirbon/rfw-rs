@@ -7,12 +7,14 @@ version = "0.1.0"
 [dependencies]
 bitflags = "1.2.1"
 bitvec = "0.21"
-gltf = {version = "0.15", features = ["extras", "names", "utils"]}
+gltf = { version = "0.15", features = ["extras", "names", "utils"] }
 l3d = "0.1"
 rayon = "1.5"
-rfw-backend = {path = "../rfw-backend"}
-rfw-math = {path = "../rfw-math"}
-rfw-utils = {path = "../rfw-utils"}
+rfw-backend = { path = "../rfw-backend" }
+rfw-math = { path = "../rfw-math" }
+rfw-utils = { path = "../rfw-utils" }
 rtbvh = "0.1"
-serde = {version = "1.0", features = ["derive"], optional = true}
+serde = { version = "1.0", features = ["derive"], optional = true }
 tobj = "1.0"
+smallvec = "1.6"
+futures = "0.3"

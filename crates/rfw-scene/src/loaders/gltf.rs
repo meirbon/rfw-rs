@@ -1,9 +1,6 @@
-use crate::{
-    graph::{NodeDescriptor, SceneDescriptor},
-    {LoadResult, MaterialList, Mesh3D, ObjectLoader, SceneError},
-};
+use crate::{GraphDescriptor, LoadResult, MaterialList, Mesh3D, ObjectLoader, SceneError};
+use l3d::load::NodeDescriptor;
 use rfw_backend::MeshId3D;
-use rfw_math::*;
 use rfw_utils::collections::TrackedStorage;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -31,7 +28,7 @@ impl ObjectLoader for GltfLoader {
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
         let loader = l3d::LoadInstance::new().with_default();
-        let scene: l3d::load::SceneDescriptor = match loader.load(l3d::load::LoadOptions {
+        let mut scene: l3d::load::SceneDescriptor = match loader.load(l3d::load::LoadOptions {
             path: path.clone(),
             ..Default::default()
         }) {
@@ -78,44 +75,25 @@ impl ObjectLoader for GltfLoader {
             meshes.push(mesh_storage.push(Mesh3D::from(mesh)) as u32);
         }
 
-        let mut node_descriptors = Vec::with_capacity(scene.nodes.len());
-        node_descriptors.push(load_node(&meshes, &scene.nodes[0]));
+        for node in scene.nodes.iter_mut() {
+            traverse_tree(node, meshes.as_slice());
+        }
 
         let meshes = meshes.iter().map(|i| MeshId3D::from(*i as usize)).collect();
-        Ok(LoadResult::Scene(SceneDescriptor {
+        Ok(LoadResult::Scene(GraphDescriptor {
             meshes,
-            nodes: node_descriptors,
+            nodes: scene.nodes,
             animations: scene.animations,
         }))
     }
 }
 
-fn load_node(meshes: &Vec<u32>, node: &l3d::load::NodeDescriptor) -> NodeDescriptor {
-    let mut node_meshes = vec![];
-    for mesh in node.meshes.iter() {
-        node_meshes.push(meshes[*mesh as usize]);
+fn traverse_tree(desc: &mut NodeDescriptor, meshes: &[u32]) {
+    for mesh in desc.meshes.iter_mut() {
+        *mesh = meshes[*mesh as usize];
     }
 
-    let mut child_nodes = vec![];
-    if !node.child_nodes.is_empty() {
-        child_nodes.reserve(node.child_nodes.len());
-        for child in node.child_nodes.iter() {
-            child_nodes.push(load_node(meshes, child));
-        }
-    }
-
-    NodeDescriptor {
-        name: node.name.clone(),
-        child_nodes,
-
-        translation: Vec3::from(node.translation),
-        rotation: Quat::from(Vec4::from(node.rotation)),
-        scale: Vec3::from(node.scale),
-
-        meshes: node_meshes,
-        skin: node.skin.clone(),
-        weights: node.weights.clone(),
-
-        id: node.id,
+    for child in desc.child_nodes.iter_mut() {
+        traverse_tree(child, meshes);
     }
 }

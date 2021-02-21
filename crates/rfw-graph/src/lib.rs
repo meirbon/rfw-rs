@@ -1,36 +1,28 @@
-use crate::InstanceList3D;
 use futures::{future::BoxFuture, FutureExt};
-use l3d::load::{AnimationDescriptor, NodeDescriptor};
-use rfw_backend::{MeshId3D, SkinData};
+use rfw_ecs::ResourceList;
 use rfw_math::*;
-use rfw_utils::collections::{FlaggedStorage, TrackedStorage};
+use rfw_scene::{InstanceList2D, InstanceList3D};
+use rfw_utils::task::TaskPool;
 use smallvec::{smallvec, SmallVec};
+use std::collections::HashSet;
 use std::{
     cell::UnsafeCell,
     collections::HashMap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use std::{collections::HashSet, ops::Index};
 
 mod node;
-pub use node::*;
+
+pub use node::Node;
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct UnsafeNode(UnsafeCell<Node>);
+struct UnsafeNode(UnsafeCell<Node>);
 
 impl UnsafeNode {
     pub fn new(node: Node) -> Arc<Self> {
         Arc::new(Self(UnsafeCell::new(node)))
-    }
-
-    pub fn get(&self) -> &Node {
-        unsafe { self.0.get().as_ref().unwrap() }
-    }
-
-    pub fn get_mut(&self) -> &mut Node {
-        unsafe { self.0.get().as_mut().unwrap() }
     }
 }
 
@@ -53,7 +45,7 @@ impl Deref for NodeHandle {
     type Target = Node;
 
     fn deref(&self) -> &Self::Target {
-        self.node.get()
+        unsafe { self.node.0.get().as_ref().unwrap() }
     }
 }
 
@@ -68,7 +60,6 @@ pub struct Graph {
     nodes: HashMap<u32, Arc<UnsafeNode>>,
     pointer: u32,
     empty_slots: Vec<u32>,
-    animations:
 }
 
 impl Default for Graph {
@@ -121,7 +112,7 @@ impl Graph {
 
     pub fn get_node(&self, id: u32) -> Option<&Node> {
         if let Some(node) = self.nodes.get(&id) {
-            Some(node.get())
+            Some(unsafe { node.0.get().as_ref().unwrap() })
         } else {
             None
         }
@@ -129,23 +120,20 @@ impl Graph {
 
     pub fn get_node_mut(&mut self, id: u32) -> Option<&mut Node> {
         if let Some(node) = self.nodes.get_mut(&id) {
-            Some(node.get_mut())
+            Some(unsafe { node.0.get().as_mut().unwrap() })
         } else {
             None
         }
     }
 
     fn allocate_index(&mut self) -> u32 {
-        let id = if let Some(id) = self.empty_slots.pop() {
+        if let Some(id) = self.empty_slots.pop() {
             id
         } else {
             let id = self.pointer;
             self.pointer += 1;
             id
-        };
-
-        debug_assert_ne!(id, 0);
-        id
+        }
     }
 
     /// Adds a node to the graph.
@@ -159,7 +147,7 @@ impl Graph {
         let parent = parent.unwrap_or(0);
 
         if let Some(node) = self.nodes.get_mut(&parent) {
-            node.get_mut().add_child(id);
+            unsafe { node.0.get().as_mut().unwrap() }.add_child(id);
         } else {
             return None;
         }
@@ -173,7 +161,7 @@ impl Graph {
 
     fn remove_node_internal(&mut self, id: u32) {
         let (id, node) = self.nodes.remove_entry(&id).unwrap();
-        for child in node.get().children.iter() {
+        for child in unsafe { node.0.get().as_ref().unwrap() }.children.iter() {
             self.remove_node_internal(*child);
         }
         self.empty_slots.push(id);
@@ -190,19 +178,20 @@ impl Graph {
             return false;
         };
 
-        for child in node.get().children.iter() {
+        for child in unsafe { node.0.get().as_ref().unwrap() }.children.iter() {
             self.remove_node_internal(*child);
         }
         self.empty_slots.push(id);
 
-        let parent_id = node.get().parent;
-        let parent: &UnsafeNode = self.nodes.get_mut(&parent_id).unwrap();
-
-        parent.get_mut().remove_child(id);
+        let parent = self
+            .nodes
+            .get_mut(&unsafe { node.0.get().as_ref().unwrap() }.parent)
+            .unwrap();
+        unsafe { parent.0.get().as_mut().unwrap() }.remove_child(id);
         true
     }
 
-    pub fn merge_scene(&mut self, other: Graph) -> (u32, HashMap<u32, NodeHandle>) {
+    pub fn merge_scene(&mut self, mut other: Graph) -> (u32, HashMap<u32, NodeHandle>) {
         let mut mapping = HashMap::new();
         let mut handles = HashMap::new();
 
@@ -240,149 +229,5 @@ impl Graph {
         }
 
         (*mapping.get(&0).unwrap(), handles)
-    }
-
-    pub fn load_descriptor(
-        &mut self,
-        descriptor: &GraphDescriptor,
-        instances: &mut FlaggedStorage<InstanceList3D>,
-        _skins: &mut TrackedStorage<Skin>,
-    ) -> NodeHandle {
-        let mut root_node = Node::default();
-        let root_id = self.allocate_index();
-
-        let mut mapping = HashMap::new();
-        for node in descriptor.nodes.iter() {
-            Self::traverse_desc(node, &mut |_parent, desc| {
-                mapping.insert(desc.id, self.allocate_index());
-                0
-            });
-        }
-
-        for node in descriptor.nodes.iter() {
-            let root_id = Self::traverse_desc(node, &mut |parent, node| {
-                let mut new_node = Node::default().with_parent(*mapping.get(&parent).unwrap());
-                for desc in node.child_nodes.iter() {
-                    new_node.add_child(*mapping.get(&desc.id).unwrap());
-                }
-
-                new_node.set_matrix(Mat4::from_scale_rotation_translation(
-                    Vec3::from(node.scale),
-                    Quat::from(node.rotation),
-                    Vec3::from(node.translation),
-                ));
-
-                for mesh in node.meshes.iter() {
-                    if let Some(mesh) = instances.get_mut(*mesh as usize) {
-                        new_node.add_instance(NodeChild::Instance3D(mesh.allocate()));
-                    }
-                }
-
-                let id = *mapping.get(&node.id).unwrap();
-                self.nodes.insert(id, UnsafeNode::new(new_node));
-                id
-            });
-
-            root_node.add_child(root_id);
-        }
-
-        let handle = UnsafeNode::new(root_node);
-        self.nodes.insert(root_id, handle.clone());
-
-        unsafe { self.nodes.get(&0).unwrap().0.get().as_mut().unwrap() }.add_child(root_id);
-
-        NodeHandle {
-            id: root_id,
-            node: handle,
-        }
-    }
-
-    fn traverse_desc<Cb: FnMut(u32, &NodeDescriptor) -> u32>(
-        desc: &NodeDescriptor,
-        cb: &mut Cb,
-    ) -> u32 {
-        let id = cb(0, desc);
-        for child in desc.child_nodes.iter() {
-            Self::traverse_desc(child, cb);
-        }
-
-        id
-    }
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct Skin {
-    pub name: String,
-    pub joint_nodes: Vec<u32>,
-    pub inverse_bind_matrices: Vec<Mat4>,
-    pub joint_matrices: Vec<Mat4>,
-}
-
-impl Default for Skin {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            joint_nodes: Vec::new(),
-            inverse_bind_matrices: Vec::new(),
-            joint_matrices: Vec::new(),
-        }
-    }
-}
-
-impl<'a> From<&'a Skin> for SkinData<'a> {
-    fn from(skin: &'a Skin) -> Self {
-        Self {
-            name: skin.name.as_str(),
-            inverse_bind_matrices: skin.inverse_bind_matrices.as_slice(),
-            joint_matrices: skin.joint_matrices.as_slice(),
-        }
-    }
-}
-
-impl<'a> From<&'a mut Skin> for SkinData<'a> {
-    fn from(skin: &'a mut Skin) -> Self {
-        Self {
-            name: skin.name.as_str(),
-            inverse_bind_matrices: skin.inverse_bind_matrices.as_slice(),
-            joint_matrices: skin.joint_matrices.as_slice(),
-        }
-    }
-}
-
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
-pub struct GraphDescriptor {
-    pub meshes: Vec<MeshId3D>,
-    pub nodes: Vec<NodeDescriptor>,
-    pub animations: Vec<AnimationDescriptor>,
-}
-
-impl From<MeshId3D> for GraphDescriptor {
-    fn from(m: MeshId3D) -> Self {
-        Self {
-            meshes: vec![m],
-            nodes: vec![NodeDescriptor {
-                name: Default::default(),
-                child_nodes: Default::default(),
-                camera: None,
-                translation: [0.0; 3],
-                rotation: Quat::identity().into(),
-                scale: [1.0; 3],
-                meshes: vec![m.0 as _],
-                skin: None,
-                weights: Default::default(),
-                id: 0,
-            }],
-            animations: Default::default(),
-        }
-    }
-}
-
-impl Index<u32> for Graph {
-    type Output = UnsafeNode;
-
-    fn index(&self, index: u32) -> &Self::Output {
-        self.nodes.get(&index).unwrap()
     }
 }

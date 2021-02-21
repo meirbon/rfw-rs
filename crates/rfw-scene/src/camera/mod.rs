@@ -8,8 +8,6 @@ pub use frustrum::*;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{HasMatrix, HasRotation, HasTranslation, Transform};
-
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Camera3D {
@@ -140,13 +138,7 @@ impl Camera3D {
     }
 
     pub fn get_transform(&mut self) -> Transform<Self> {
-        Transform {
-            translation: self.pos.into(),
-            rotation: Quat::identity(),
-            scale: Vec3::default(),
-            handle: self,
-            changed: false,
-        }
+        Transform::from_trs(self.pos.into(), Quat::identity(), Vec3::default(), self)
     }
 
     pub fn with_position<T: Into<[f32; 3]>>(mut self, position: T) -> Self {
@@ -284,10 +276,25 @@ impl HasMatrix for Camera3D {
         self.pos = t.into();
         self.direction = r.mul_vec3(self.direction.into()).into();
     }
+
+    fn set_matrix(&mut self, matrix: Mat4) {
+        let (_s, r, t) = matrix.to_scale_rotation_translation();
+        self.pos = t.into();
+        self.direction = r.mul_vec3(self.direction.into()).into();
+    }
 }
 
-impl HasTranslation for Camera3D {}
-impl HasRotation for Camera3D {}
+impl HasTranslation for Camera3D {
+    fn get_translation(&self) -> Vec3 {
+        self.pos.into()
+    }
+}
+
+impl HasRotation for Camera3D {
+    fn get_rotation(&self) -> Quat {
+        Quat::identity()
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Fov(f32);

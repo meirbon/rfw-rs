@@ -1,5 +1,4 @@
-use crate::graph::SceneDescriptor;
-use crate::{MaterialList, Mesh3D, SceneError};
+use crate::{GraphDescriptor, MaterialList, Mesh3D, SceneError};
 use rfw_backend::MeshId3D;
 use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
@@ -12,7 +11,7 @@ pub enum LoadResult {
     /// Reference to single mesh
     Object(MeshId3D),
     /// Indices of root nodes of scene
-    Scene(SceneDescriptor),
+    Scene(GraphDescriptor),
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +43,7 @@ impl LoadResult {
         }
     }
 
-    pub fn scene(self) -> Result<SceneDescriptor, Error> {
+    pub fn scene(self) -> Result<GraphDescriptor, Error> {
         match self {
             LoadResult::Scene(scene) => Ok(scene),
             LoadResult::Object(_) => Err(Error::ResultIsMesh),

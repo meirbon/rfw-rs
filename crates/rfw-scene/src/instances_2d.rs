@@ -5,8 +5,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::utils::Transform;
-
 bitflags::bitflags! {
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     #[repr(transparent)]
@@ -184,8 +182,8 @@ impl InstanceList2D {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct List2D {
-    matrices: Vec<Mat4>,
-    flags: Vec<InstanceFlags2D>,
+    pub(crate) matrices: Vec<Mat4>,
+    pub(crate) flags: Vec<InstanceFlags2D>,
 
     ptr: AtomicUsize,
     free_slots: Vec<usize>,
@@ -255,34 +253,14 @@ impl Iterator for InstanceIterator2D {
 
 #[derive(Debug)]
 pub struct InstanceHandle2D {
-    index: usize,
-    ptr: Arc<UnsafeCell<List2D>>,
+    pub(crate) index: usize,
+    pub(crate) ptr: Arc<UnsafeCell<List2D>>,
 }
 
 unsafe impl Send for InstanceHandle2D {}
 unsafe impl Sync for InstanceHandle2D {}
 
 impl InstanceHandle2D {
-    #[inline]
-    pub fn set_matrix(&mut self, matrix: Mat4) {
-        let list = unsafe { self.ptr.get().as_mut().unwrap() };
-        list.matrices[self.index] = matrix;
-        list.flags[self.index] |= InstanceFlags2D::TRANSFORMED;
-    }
-
-    #[inline]
-    pub fn get_transform(&mut self) -> Transform<Self> {
-        let (scale, rotation, translation) = self.get_matrix().to_scale_rotation_translation();
-
-        Transform {
-            translation,
-            rotation,
-            scale,
-            handle: self,
-            changed: false,
-        }
-    }
-
     #[inline]
     pub fn get_matrix(&self) -> Mat4 {
         unsafe { (*self.ptr.get()).matrices[self.index] }

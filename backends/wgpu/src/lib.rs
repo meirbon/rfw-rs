@@ -124,7 +124,6 @@ pub struct WgpuBackend {
     skins: TrackedStorage<WgpuSkin>,
 
     lights_changed: bool,
-    materials_changed: bool,
     instances_changed: bool,
 
     mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
@@ -475,7 +474,6 @@ impl Backend for WgpuBackend {
             skins: TrackedStorage::new(),
 
             lights_changed: true,
-            materials_changed: true,
             instances_changed: true,
 
             mesh_bounds: FlaggedStorage::new(),
@@ -607,8 +605,6 @@ impl Backend for WgpuBackend {
                 },
             ],
         });
-
-        self.materials_changed = true;
     }
 
     fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {

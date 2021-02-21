@@ -1,0 +1,17 @@
+[package]
+name = "rfw-graph"
+version = "0.1.0"
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rfw-math = { path = "../rfw-math" }
+rfw-ecs = { path = "../rfw-ecs" }
+rfw-utils = { path = "../rfw-utils" }
+rfw-scene = { path = "../rfw-scene" }
+mimalloc = "0.1.24"
+smallvec = "1.6"
+tokio = "1.2.0"
+futures = "0.3"

@@ -93,13 +93,13 @@ impl std::fmt::Display for SceneError {
 
 impl std::error::Error for SceneError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Objects {
     pub instances_2d: FlaggedStorage<InstanceList2D>,
     pub instances_3d: FlaggedStorage<InstanceList3D>,
     pub meshes_3d: TrackedStorage<Mesh3D>,
     pub meshes_2d: TrackedStorage<Mesh2D>,
-    pub graph: graph::SceneGraph,
+    pub graph: graph::Graph,
     pub skins: TrackedStorage<graph::Skin>,
 }
 
@@ -139,15 +139,15 @@ impl Default for SceneLights {
 /// Scene optimized for triangles
 /// Does not support objects other than Meshes, but does not require virtual calls because of this.
 #[derive(Debug)]
-pub struct Scene {
+pub struct AssetStore {
     loaders: HashMap<String, Box<dyn ObjectLoader>>,
-    pub objects: Objects,
-    pub lights: SceneLights,
-    pub materials: MaterialList,
+    pub(crate) objects: Objects,
+    pub(crate) lights: SceneLights,
+    pub(crate) materials: MaterialList,
     pub cameras: TrackedStorage<Camera3D>,
 }
 
-impl Default for Scene {
+impl Default for AssetStore {
     fn default() -> Self {
         let loaders = Self::create_loaders();
 
@@ -161,57 +161,57 @@ impl Default for Scene {
     }
 }
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug)]
-struct SerializableScene {
-    instances_3d: FlaggedStorage<InstanceList3D>,
-    instances_2d: FlaggedStorage<InstanceList2D>,
-    meshes_3d: TrackedStorage<Mesh3D>,
-    meshes_2d: TrackedStorage<Mesh2D>,
-    graph: graph::SceneGraph,
-    skins: TrackedStorage<graph::Skin>,
-    lights: SceneLights,
-    materials: MaterialList,
-    cameras: TrackedStorage<Camera3D>,
-}
+// #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+// #[derive(Debug)]
+// struct SerializableScene {
+//     instances_3d: FlaggedStorage<InstanceList3D>,
+//     instances_2d: FlaggedStorage<InstanceList2D>,
+//     meshes_3d: TrackedStorage<Mesh3D>,
+//     meshes_2d: TrackedStorage<Mesh2D>,
+//     graph: graph::Graph,
+//     skins: TrackedStorage<graph::Skin>,
+//     lights: SceneLights,
+//     materials: MaterialList,
+//     cameras: TrackedStorage<Camera3D>,
+// }
 
-impl From<&Scene> for SerializableScene {
-    fn from(scene: &Scene) -> Self {
-        Self {
-            instances_3d: scene.objects.instances_3d.clone(),
-            instances_2d: scene.objects.instances_2d.clone(),
-            meshes_3d: scene.objects.meshes_3d.clone(),
-            meshes_2d: scene.objects.meshes_2d.clone(),
-            graph: scene.objects.graph.clone(),
-            skins: scene.objects.skins.clone(),
-            lights: scene.lights.clone(),
-            materials: scene.materials.clone(),
-            cameras: scene.cameras.clone(),
-        }
-    }
-}
+// impl From<&AssetStore> for SerializableScene {
+//     fn from(scene: &AssetStore) -> Self {
+//         Self {
+//             instances_3d: scene.objects.instances_3d.clone(),
+//             instances_2d: scene.objects.instances_2d.clone(),
+//             meshes_3d: scene.objects.meshes_3d.clone(),
+//             meshes_2d: scene.objects.meshes_2d.clone(),
+//             graph: scene.objects.graph.clone(),
+//             skins: scene.objects.skins.clone(),
+//             lights: scene.lights.clone(),
+//             materials: scene.materials.clone(),
+//             cameras: scene.cameras.clone(),
+//         }
+//     }
+// }
 
-impl From<SerializableScene> for Scene {
-    fn from(s: SerializableScene) -> Self {
-        Scene {
-            loaders: Scene::create_loaders(),
-            objects: Objects {
-                instances_2d: s.instances_2d,
-                instances_3d: s.instances_3d,
-                meshes_3d: s.meshes_3d,
-                meshes_2d: s.meshes_2d,
-                graph: s.graph,
-                skins: s.skins,
-            },
-            lights: s.lights,
-            materials: s.materials,
-            cameras: s.cameras,
-        }
-    }
-}
+// impl From<SerializableScene> for AssetStore {
+//     fn from(s: SerializableScene) -> Self {
+//         AssetStore {
+//             loaders: AssetStore::create_loaders(),
+//             objects: Objects {
+//                 instances_2d: s.instances_2d,
+//                 instances_3d: s.instances_3d,
+//                 meshes_3d: s.meshes_3d,
+//                 meshes_2d: s.meshes_2d,
+//                 graph: s.graph,
+//                 skins: s.skins,
+//             },
+//             lights: s.lights,
+//             materials: s.materials,
+//             cameras: s.cameras,
+//         }
+//     }
+// }
 
 #[allow(dead_code)]
-impl Scene {
+impl AssetStore {
     const FF_EXTENSION: &'static str = ".scenev1";
 
     pub fn new() -> Self {
@@ -261,21 +261,31 @@ impl Scene {
         Err(SceneError::NoFileLoader(extension))
     }
 
-    pub fn add_3d_scene<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
-        self.objects.graph.add_graph(scene.into_scene(
-            &mut self.objects.meshes_3d,
-            &mut self.objects.instances_3d,
-            &mut self.objects.skins,
-        ))
+    pub fn add_node(&mut self, parent: Option<&NodeHandle>) -> NodeHandle {
+        let parent = if let Some(parent) = parent {
+            Some(parent.get_id())
+        } else {
+            None
+        };
+
+        self.objects
+            .graph
+            .add_node(parent, graph::Node::default())
+            .unwrap()
     }
 
-    pub fn remove_3d_scene(&mut self, scene: GraphHandle) {
-        self.objects.graph.remove_graph(
+    pub fn add_3d_scene(&mut self, scene: &GraphDescriptor) -> NodeHandle {
+        self.objects.graph.load_descriptor(
             scene,
-            &mut self.objects.meshes_3d,
             &mut self.objects.instances_3d,
             &mut self.objects.skins,
-        );
+        )
+    }
+
+    pub fn remove_3d_scene(&mut self, node: NodeHandle) {
+        unsafe {
+            self.objects.graph.remove_node(node);
+        }
     }
 
     pub fn add_3d_object<T: ToMesh3D>(&mut self, object: T) -> MeshId3D {
@@ -616,5 +626,29 @@ impl Scene {
 
     pub fn get_cameras_mut(&mut self) -> FlaggedIteratorMut<'_, Camera3D> {
         self.cameras.iter_mut()
+    }
+
+    pub fn get_materials(&self) -> &MaterialList {
+        &self.materials
+    }
+
+    pub fn get_materials_mut(&mut self) -> &mut MaterialList {
+        &mut self.materials
+    }
+
+    pub fn get_lights(&self) -> &SceneLights {
+        &self.lights
+    }
+
+    pub fn get_lights_mut(&mut self) -> &mut SceneLights {
+        &mut self.lights
+    }
+
+    pub fn get_objects(&self) -> &Objects {
+        &self.objects
+    }
+
+    pub fn get_objects_mut(&mut self) -> &mut Objects {
+        &mut self.objects
     }
 }

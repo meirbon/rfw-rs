@@ -40,9 +40,13 @@ impl FontRenderer {
     }
 }
 
-impl Plugin for FontRenderer {
-    fn init(&mut self, resources: &mut ResourceList, scheduler: &mut Scheduler) {
-        let mut scene = resources.get_resource_mut::<Scene>().unwrap();
+impl rfw::ecs::Plugin for FontRenderer {
+    fn init(
+        &mut self,
+        resources: &mut rfw::ecs::ResourceList,
+        scheduler: &mut rfw::ecs::Scheduler,
+    ) {
+        let mut scene = resources.get_resource_mut::<AssetStore>().unwrap();
         let system = resources.get_resource_mut::<RenderSystem>().unwrap();
 
         let (tex_width, tex_height) = self.brush.texture_dimensions();
@@ -104,9 +108,9 @@ impl Plugin for FontRenderer {
     }
 }
 
-impl System for FontSystem {
-    fn run(&mut self, resources: &ResourceList) {
-        let mut scene = resources.get_resource_mut::<Scene>().unwrap();
+impl rfw::ecs::System for FontSystem {
+    fn run(&mut self, resources: &rfw::ecs::ResourceList) {
+        let mut scene = resources.get_resource_mut::<AssetStore>().unwrap();
         let system = resources.get_resource_mut::<RenderSystem>().unwrap();
         let mut font = resources.get_resource_mut::<FontRenderer>().unwrap();
 
@@ -210,7 +214,7 @@ impl System for FontSystem {
         }
 
         if tex_changed {
-            if let Some(tex) = scene.materials.get_texture_mut(font.tex_id) {
+            if let Some(tex) = scene.get_materials_mut().get_texture_mut(font.tex_id) {
                 tex.data = self.tex_data.clone();
                 tex.width = font.tex_width;
                 tex.height = font.tex_height;

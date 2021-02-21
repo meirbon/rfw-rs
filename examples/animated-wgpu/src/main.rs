@@ -135,11 +135,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::new(0.6, 0.4, 0.4));
 
-    let material =
-        renderer
-            .get_scene_mut()
-            .materials
-            .add(Vec3::new(1.0, 0.2, 0.03), 1.0, Vec3::one(), 0.0);
+    let material = renderer.get_scene_mut().get_materials_mut().add(
+        Vec3::new(1.0, 0.2, 0.03),
+        1.0,
+        Vec3::one(),
+        0.0,
+    );
     let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
     let sphere_x = 20 as i32;
@@ -164,15 +165,11 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .scene()?;
 
     let mut cesium_man1 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
-    cesium_man1
-        .get_transform()
-        .set_scale(Vec3::splat(3.0))
-        .rotate_y(180.0_f32.to_radians());
+    cesium_man1.get_transform().set_scale(Vec3::splat(3.0));
     let mut cesium_man2 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
     cesium_man2
         .get_transform()
-        .translate(Vec3::new(-3.0, 0.0, 0.0))
-        .rotate_y(180.0_f32.to_radians());
+        .translate(Vec3::new(-3.0, 0.0, 0.0));
 
     let pica_desc = renderer
         .get_scene_mut()
@@ -237,10 +234,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                         scene_id = None;
                     } else {
                         let mut handle = renderer.get_scene_mut().add_3d_scene(&cesium_man);
-                        handle
-                            .get_transform()
-                            .translate(Vec3::new(-6.0, 0.0, 0.0))
-                            .rotate_y(180.0_f32.to_radians());
+                        handle.get_transform().translate(Vec3::new(-6.0, 0.0, 0.0));
                         scene_id = Some(handle);
                     }
 
@@ -327,7 +321,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
                 renderer
                     .get_scene_mut()
-                    .lights
+                    .get_lights_mut()
                     .spot_lights
                     .iter_mut()
                     .enumerate()
@@ -353,20 +347,21 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     {
                         let scene = renderer.get_scene();
 
-                        for (i, m) in scene.objects.meshes_3d.iter() {
-                            instances_3d += scene.objects.instances_3d[i].len();
-                            vertices += m.vertices.len() * scene.objects.instances_3d[i].len();
+                        for (i, m) in scene.get_objects().meshes_3d.iter() {
+                            instances_3d += scene.get_objects().instances_3d[i].len();
+                            vertices +=
+                                m.vertices.len() * scene.get_objects().instances_3d[i].len();
                         }
                     }
-                    let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
+                    let meshes_3d = renderer.get_scene().get_objects().meshes_3d.len();
                     let instances_2d: usize = renderer
                         .get_scene()
-                        .objects
+                        .get_objects()
                         .instances_2d
                         .iter()
                         .map(|(_, i)| i.len())
                         .sum();
-                    let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
+                    let meshes_2d = renderer.get_scene().get_objects().meshes_2d.len();
 
                     let settings = renderer.get_settings();
                     settings.draw_ui(&window, |ui| {

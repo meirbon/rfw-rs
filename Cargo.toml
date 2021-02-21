@@ -2,19 +2,20 @@
 members = [
     "rfw",
     "examples/animated-wgpu",
-    "examples/animated-metal",
+    # "examples/animated-metal",
     "examples/d2",
     "examples/nphysics",
     "backends/wgpu",
-    "backends/gfx",
-    "backends/metal",
-    "backends/rendy",
+    # "backends/gfx",
+    # "backends/metal",
+    # "backends/rendy",
     "crates/rfw-backend",
-    "crates/rfw-scene",
-    "crates/rfw-math",
-    "crates/rfw-utils",
+    "crates/rfw-ecs",
     "crates/rfw-font",
-    #"renderers/gpu-rt",
+    "crates/rfw-graph",
+    "crates/rfw-math",
+    "crates/rfw-scene",
+    "crates/rfw-utils"
 ]
 
 [profile.release]

@@ -5,8 +5,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::utils::Transform;
-
 bitflags::bitflags! {
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     #[repr(transparent)]
@@ -193,9 +191,9 @@ impl InstanceList3D {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Default)]
 pub struct List3D {
-    matrices: Vec<Mat4>,
-    skin_ids: Vec<SkinID>,
-    flags: Vec<InstanceFlags3D>,
+    pub(crate) matrices: Vec<Mat4>,
+    pub(crate) skin_ids: Vec<SkinID>,
+    pub(crate) flags: Vec<InstanceFlags3D>,
 
     ptr: AtomicUsize,
     free_slots: Vec<usize>,
@@ -266,8 +264,8 @@ impl Iterator for InstanceIterator3D {
 
 #[derive(Debug)]
 pub struct InstanceHandle3D {
-    index: usize,
-    ptr: Arc<UnsafeCell<List3D>>,
+    pub(crate) index: usize,
+    pub(crate) ptr: Arc<UnsafeCell<List3D>>,
 }
 
 unsafe impl Send for InstanceHandle3D {}
@@ -281,28 +279,8 @@ impl InstanceHandle3D {
     }
 
     #[inline]
-    pub fn set_matrix(&mut self, matrix: Mat4) {
-        let list = unsafe { self.ptr.get().as_mut().unwrap() };
-        list.matrices[self.index] = matrix;
-        list.flags[self.index] |= InstanceFlags3D::TRANSFORMED;
-    }
-
-    #[inline]
     pub fn get_matrix(&self) -> Mat4 {
         unsafe { (*self.ptr.get()).matrices[self.index] }
-    }
-
-    #[inline]
-    pub fn get_transform(&mut self) -> Transform<Self> {
-        let (scale, rotation, translation) = self.get_matrix().to_scale_rotation_translation();
-
-        Transform {
-            translation,
-            rotation,
-            scale,
-            handle: self,
-            changed: false,
-        }
     }
 
     #[inline]

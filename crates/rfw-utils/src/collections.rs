@@ -1,8 +1,14 @@
 use bitvec::prelude::*;
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use std::cell::UnsafeCell;
+use std::collections::hash_map::Iter;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::iter::Map;
+use std::sync::Arc;
 
 impl<T: Default + Clone + std::fmt::Debug> Default for FlaggedStorage<T> {
     fn default() -> Self {
@@ -323,7 +329,7 @@ impl<T: Default + Clone + std::fmt::Debug> Index<usize> for FlaggedStorage<T> {
     fn index(&self, index: usize) -> &Self::Output {
         match unsafe { *self.active.get_unchecked(index) } {
             true => unsafe { self.get_unchecked(index) },
-            false => panic!(format!("index {} was not active", index)),
+            false => panic!("index {} was not active", index),
         }
     }
 }
@@ -333,7 +339,7 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
         if unsafe { *self.active.get_unchecked(index) } {
             unsafe { self.get_unchecked_mut(index) }
         } else {
-            panic!(format!("index {} was not active", index))
+            panic!("index {} was not active", index)
         }
     }
 }
@@ -823,5 +829,82 @@ impl<T: Default + Clone + std::fmt::Debug> From<Vec<T>> for TrackedStorage<T> {
             storage: FlaggedStorage::from(v),
             erased: Vec::new(),
         }
+    }
+}
+
+pub struct Handle<T: Debug> {
+    id: u32,
+    handle: Arc<UnsafeCell<T>>,
+}
+
+impl<T: Debug> Handle<T> {
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+}
+
+impl<T: Debug> Deref for Handle<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.handle.get().as_ref().unwrap() }
+    }
+}
+
+impl<T: Debug> DerefMut for Handle<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.handle.get().as_mut().unwrap() }
+    }
+}
+
+#[derive(Debug)]
+pub struct HandleStorage<T: Debug> {
+    storage: HashMap<u32, Arc<UnsafeCell<T>>>,
+    pointer: u32,
+    empty_slots: Vec<u32>,
+}
+
+impl<T: Debug> Default for HandleStorage<T> {
+    fn default() -> Self {
+        Self {
+            storage: HashMap::new(),
+            pointer: 0,
+            empty_slots: Vec::new(),
+        }
+    }
+}
+
+pub type HandleIterator<'a, T: Debug> = Map<
+    std::collections::hash_map::Iter<'a, u32, Arc<UnsafeCell<T>>>,
+    fn((&u32, &Arc<UnsafeCell<T>>)) -> Handle<T>,
+>;
+
+impl<T: Debug> HandleStorage<T> {
+    pub fn push(&mut self, value: T) -> Handle<T> {
+        let id = if let Some(id) = self.empty_slots.pop() {
+            id
+        } else {
+            let id = self.pointer;
+            self.pointer += 1;
+            id
+        };
+
+        let unsafe_value = Arc::new(UnsafeCell::new(value));
+        self.storage.insert(id, unsafe_value.clone());
+        Handle {
+            id,
+            handle: unsafe_value,
+        }
+    }
+
+    pub fn iter(&mut self) -> HandleIterator<'_, T> {
+        self.storage.iter().map(|(k, v)| Handle {
+            id: *k,
+            handle: v.clone(),
+        })
+    }
+
+    pub fn remove(&mut self, handle: Handle<T>) {
+        assert!(self.storage.remove(&handle.id).is_some());
     }
 }

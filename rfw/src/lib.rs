@@ -1,19 +1,18 @@
-mod ecs;
-mod resources;
 mod system;
 
 pub use rfw_backend as backend;
+pub use rfw_ecs as ecs;
 pub use rfw_math as math;
 pub use rfw_scene as scene;
 pub use rfw_utils as utils;
 
-pub use ecs::*;
-pub use resources::*;
+use scene::NodeHandle;
 pub use system::*;
 
 pub mod prelude {
     pub use crate::*;
     pub use rfw_backend::*;
+    pub use rfw_ecs::*;
     pub use rfw_math::*;
     pub use rfw_scene::bvh::*;
     pub use rfw_scene::*;
@@ -24,7 +23,7 @@ pub mod prelude {
 
 use rfw_backend::{Backend, DirectionalLight, PointLight, RenderMode, SpotLight, TextureData};
 use rfw_math::*;
-use rfw_scene::{Camera3D, GraphHandle, Scene, SceneError};
+use rfw_scene::{Camera3D, AssetStore, SceneError};
 use rfw_scene::{Flip, Texture};
 use rfw_utils::BytesConversion;
 use std::error::Error;
@@ -35,7 +34,7 @@ pub struct SpotLightRef(u32);
 pub struct DirectionalLightRef(u32);
 
 pub struct Instance<T: Sized + Backend> {
-    pub resources: ResourceList,
+    pub resources: ecs::ResourceList,
     scheduler: ecs::Scheduler,
     renderer: Box<T>,
 }
@@ -81,13 +80,13 @@ impl<T: Sized + Backend> Instance<T> {
             std::any::type_name::<T>()
         ));
 
-        let mut resources = ResourceList::new();
+        let mut resources = ecs::ResourceList::new();
         resources.add_resource(RenderSystem {
             width: window_size.0,
             height: window_size.1,
             scale_factor: scale_factor.unwrap_or(1.0),
         });
-        resources.add_resource(Scene::new());
+        resources.add_resource(AssetStore::new());
 
         Ok(Self {
             resources,
@@ -117,7 +116,7 @@ impl<T: Sized + Backend> Instance<T> {
             scale_factor: scale_factor.unwrap_or(1.0),
         });
 
-        resources.add_resource(Scene::deserialize(scene)?);
+        resources.add_resource(AssetStore::deserialize(scene)?);
 
         Ok(Self {
             resources,
@@ -126,20 +125,22 @@ impl<T: Sized + Backend> Instance<T> {
         })
     }
 
-    pub fn get_scene(&self) -> LockedValue<'_, Box<dyn ResourceStorage>, Scene> {
-        self.resources.get_resource::<Scene>().unwrap()
+    pub fn get_scene(&self) -> ecs::LockedValue<'_, Box<dyn ecs::ResourceStorage>, AssetStore> {
+        self.resources.get_resource::<AssetStore>().unwrap()
     }
 
-    pub fn get_scene_mut(&mut self) -> LockedValueMut<'_, Box<dyn ResourceStorage>, Scene> {
-        self.resources.get_resource_mut::<Scene>().unwrap()
+    pub fn get_scene_mut(
+        &mut self,
+    ) -> ecs::LockedValueMut<'_, Box<dyn ecs::ResourceStorage>, AssetStore> {
+        self.resources.get_resource_mut::<AssetStore>().unwrap()
     }
 
-    pub fn with_resource<P: resources::Resource>(mut self, resource: P) -> Self {
+    pub fn with_resource<P: ecs::Resource>(mut self, resource: P) -> Self {
         self.resources.add_resource(resource);
         self
     }
 
-    pub fn with_plugin<P: ecs::Plugin + Resource>(mut self, mut plugin: P) -> Self {
+    pub fn with_plugin<P: ecs::Plugin + ecs::Resource>(mut self, mut plugin: P) -> Self {
         plugin.init(&mut self.resources, &mut self.scheduler);
         self.resources.add_resource(plugin);
         self
@@ -172,7 +173,7 @@ impl<T: Sized + Backend> Instance<T> {
     ) -> Result<(), SceneError> {
         self.scheduler.run(&self.resources);
 
-        let mut scene = self.resources.get_resource_mut::<Scene>().unwrap();
+        let mut scene = self.resources.get_resource_mut::<AssetStore>().unwrap();
         let mut system = self.resources.get_resource_mut::<RenderSystem>().unwrap();
         system.synchronize(&mut scene, &mut *self.renderer);
 
@@ -203,13 +204,13 @@ impl<T: Sized + Backend> Instance<T> {
         position: B,
         radiance: B,
     ) -> PointLightRef {
-        let mut scene = self.resources.get_resource_mut::<Scene>().unwrap();
+        let mut scene = self.resources.get_resource_mut::<AssetStore>().unwrap();
 
         let position: Vec3 = Vec3::from(position.into());
         let radiance: Vec3 = Vec3::from(radiance.into());
 
         let light = PointLight::new(position, radiance);
-        let id = scene.lights.point_lights.push(light);
+        let id = scene.get_lights_mut().point_lights.push(light);
 
         PointLightRef(id as u32)
     }
@@ -223,7 +224,7 @@ impl<T: Sized + Backend> Instance<T> {
         inner_degrees: f32,
         outer_degrees: f32,
     ) -> SpotLightRef {
-        let mut scene = self.resources.get_resource_mut::<Scene>().unwrap();
+        let mut scene = self.resources.get_resource_mut::<AssetStore>().unwrap();
 
         let position = Vec3::from(position.into());
         let direction = Vec3::from(direction.into());
@@ -231,7 +232,7 @@ impl<T: Sized + Backend> Instance<T> {
 
         let light = SpotLight::new(position, direction, inner_degrees, outer_degrees, radiance);
 
-        let id = scene.lights.spot_lights.push(light);
+        let id = scene.get_lights_mut().spot_lights.push(light);
         SpotLightRef(id as u32)
     }
 
@@ -241,21 +242,21 @@ impl<T: Sized + Backend> Instance<T> {
         direction: B,
         radiance: B,
     ) -> DirectionalLightRef {
-        let mut scene = self.resources.get_resource_mut::<Scene>().unwrap();
+        let mut scene = self.resources.get_resource_mut::<AssetStore>().unwrap();
         let light =
             DirectionalLight::new(Vec3::from(direction.into()), Vec3::from(radiance.into()));
-        let id = scene.lights.directional_lights.push(light);
+        let id = scene.get_lights_mut().directional_lights.push(light);
         DirectionalLightRef(id as u32)
     }
 
-    pub fn set_animation_time(&mut self, handle: &GraphHandle, time: f32) {
-        let mut scene = self.resources.get_resource_mut::<Scene>().unwrap();
-        scene.objects.graph.set_animation(handle, time);
+    pub fn set_animation_time(&mut self, handle: &NodeHandle, time: f32) {
+        // let mut scene = self.resources.get_resource_mut::<AssetStore>().unwrap();
+        // scene.objects.graph.set_animation(handle, time);
     }
 
     pub fn set_animations_time(&mut self, time: f32) {
-        let mut scene = self.resources.get_resource_mut::<Scene>().unwrap();
-        scene.objects.graph.set_animations(time);
+        // let mut scene = self.resources.get_resource_mut::<AssetStore>().unwrap();
+        // scene.objects.graph.set_animations(time);
     }
 
     pub fn get_settings(&mut self) -> &mut T::Settings {
