@@ -1,351 +1,260 @@
-use super::mesh::WgpuMesh;
-use crate::mesh::WgpuAnimMesh;
-use rfw::{
-    math::*,
-    scene::{Instance, ObjectRef, VertexMesh},
-    scene::bvh::{AABB, Bounds},
-    utils::collections::TrackedStorage,
-};
-use std::num::NonZeroU64;
+use crate::mesh::{SkinningPipeline, WgpuMesh, WgpuSkin};
+use rfw::math::*;
+use rfw::scene::bvh::AABB;
+use rfw::utils::BytesConversion;
+use rfw::{backend::InstancesData3D, prelude::FrustrumPlane};
+use std::sync::Arc;
 
-pub struct DeviceInstances {
-    pub device_matrices: wgpu::Buffer,
-    capacity: usize,
-    pub bind_group: wgpu::BindGroup,
-}
-
-impl DeviceInstances {
-    pub const INSTANCE_SIZE: usize = 256;
-    pub fn new(
-        capacity: usize,
-        device: &wgpu::Device,
-        bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: (capacity * Self::INSTANCE_SIZE) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(buffer.slice(0..256)),
-            }],
-        });
-
-        Self {
-            device_matrices: buffer,
-            capacity,
-            bind_group,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.capacity
-    }
-
-    pub const fn offset_for(instance: usize) -> wgpu::BufferAddress {
-        (Self::INSTANCE_SIZE * instance) as wgpu::BufferAddress
-    }
-
-    pub const fn dynamic_offset_for(instance: usize) -> u32 {
-        (256 * instance) as u32
-    }
-}
-
-pub struct InstanceBounds {
-    pub root_bounds: AABB,
-    pub mesh_bounds: Vec<AABB>,
-    pub changed: bool,
-}
-
-impl InstanceBounds {
-    pub fn new(instance: &Instance, bounds: &(AABB, Vec<VertexMesh>)) -> Self {
-        let transform = instance.get_transform();
-        let root_bounds = instance.bounds();
-        let mesh_bounds: Vec<AABB> = bounds
-            .1
-            .iter()
-            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-            .collect();
-
-        assert_eq!(bounds.1.len(), mesh_bounds.len());
-
-        InstanceBounds {
-            root_bounds,
-            mesh_bounds,
-            changed: true,
-        }
-    }
-}
-
+#[derive(Debug)]
 pub struct InstanceList {
-    pub device_instances: DeviceInstances,
-    pub bind_group_layout: wgpu::BindGroupLayout,
-    pub instances: TrackedStorage<Instance>,
-    pub bounds: Vec<InstanceBounds>,
+    instance_capacity: usize,
+    instances: u32,
+    instance_buffers: Vec<Arc<Option<wgpu::Buffer>>>,
+    instance_matrices: Vec<InstanceMatrices>,
+    pub instances_buffer: Arc<Option<wgpu::Buffer>>,
+    pub instances_bg: Arc<Option<wgpu::BindGroup>>,
+    pub instances_bounds: Vec<AABB>,
+    pub supports_skinning: bool,
+    // pub descriptor: MeshDescriptor,
+    // pub mesh_desc: Option<Arc<wgpu::Buffer>>,
+    // pub draw_buffer: Option<Arc<wgpu::Buffer>>,
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct InstanceMatrices {
+    pub matrix: Mat4,
+    pub normal: Mat4,
+}
+
+impl Default for InstanceList {
+    fn default() -> Self {
+        Self {
+            instance_capacity: 0,
+            instances: 0,
+            instance_buffers: Vec::new(),
+            instance_matrices: Vec::new(),
+            instances_buffer: Arc::new(None),
+            instances_bg: Arc::new(None),
+            instances_bounds: Vec::new(),
+            supports_skinning: false,
+            // descriptor: Default::default(),
+            // mesh_desc: None,
+            // draw_buffer: None,
+        }
+    }
+}
+
+impl Clone for InstanceList {
+    fn clone(&self) -> Self {
+        Self {
+            instance_capacity: self.instance_capacity,
+            instances: self.instances,
+            instance_buffers: self.instance_buffers.clone(),
+            instance_matrices: self.instance_matrices.clone(),
+            instances_buffer: self.instances_buffer.clone(),
+            instances_bg: self.instances_bg.clone(),
+            instances_bounds: self.instances_bounds.clone(),
+            supports_skinning: self.supports_skinning,
+            // descriptor: self.descriptor,
+            // mesh_desc: self.mesh_desc.clone(),
+            // draw_buffer: self.draw_buffer.clone(),
+        }
+    }
 }
 
 #[allow(dead_code)]
 impl InstanceList {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                // Instance matrices
+    const DEFAULT_CAPACITY: usize = 4;
+
+    pub fn new(device: &wgpu::Device, instances_layout: &wgpu::BindGroupLayout) -> Self {
+        let instances_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (Self::DEFAULT_CAPACITY * std::mem::size_of::<Mat4>() * 2) as _,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: false,
+        }));
+
+        let instances_bg = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: instances_layout,
+            entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                count: None,
-                visibility: wgpu::ShaderStage::VERTEX,
-                ty: wgpu::BindingType::UniformBuffer {
-                    min_binding_size: NonZeroU64::new(256),
-                    dynamic: true,
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: instances_buffer.as_ref().unwrap(),
+                    offset: 0,
+                    size: None,
                 },
             }],
-            label: Some("mesh-bind-group-descriptor-layout"),
-        });
-
-        let device_instances = DeviceInstances::new(32, device, &bind_group_layout);
+        }));
 
         Self {
-            device_instances,
-            bind_group_layout,
-            instances: TrackedStorage::new(),
-            bounds: Vec::new(),
-        }
-    }
-
-    pub fn set(
-        &mut self,
-        device: &wgpu::Device,
-        id: usize,
-        instance: Instance,
-        bounds: &(AABB, Vec<VertexMesh>),
-    ) {
-        self.instances.overwrite(id, instance);
-        if id <= self.bounds.len() {
-            self.bounds.push(InstanceBounds::new(&instance, bounds));
-        } else {
-            self.bounds[id] = InstanceBounds::new(&instance, bounds);
-        }
-
-        if self.device_instances.len() <= id {
-            self.device_instances =
-                DeviceInstances::new((id + 1) * 2, device, &self.bind_group_layout);
-            self.instances.trigger_changed_all();
+            instance_capacity: Self::DEFAULT_CAPACITY,
+            instances: 0,
+            instance_buffers: Vec::new(),
+            instance_matrices: Vec::new(),
+            instances_buffer: Arc::new(instances_buffer),
+            instances_bg: Arc::new(instances_bg),
+            instances_bounds: vec![AABB::empty(); Self::DEFAULT_CAPACITY],
+            supports_skinning: false,
+            // descriptor: MeshDescriptor::default(),
+            // mesh_desc: None,
+            // draw_buffer: None,
         }
     }
 
     pub fn update(
         &mut self,
         device: &wgpu::Device,
-        meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
         queue: &wgpu::Queue,
+        mesh: &WgpuMesh,
+        instances: InstancesData3D<'_>,
+        instances_layout: &wgpu::BindGroupLayout,
+        skins: &[WgpuSkin],
+        skinning_pipeline: &SkinningPipeline,
     ) {
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        let device_instances = &self.device_instances;
+        self.instances = instances.len() as _;
+        if instances.len() > self.instance_capacity as usize || self.instances_buffer.is_none() {
+            self.instance_capacity = instances.len().next_power_of_two() as _;
+            self.instances_buffer = Arc::new(Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: (self.instance_capacity as usize * std::mem::size_of::<Mat4>() * 2) as _,
+                usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+                mapped_at_creation: false,
+            })));
 
-        if !self.instances.is_empty() {
-            let instance_copy_size = std::mem::size_of::<Mat4>() * 2;
-            let staging_data = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("instance-staging-mem"),
-                size: (self.instances.len() * instance_copy_size) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsage::COPY_SRC,
-                mapped_at_creation: true,
-            });
-            {
-                let mut data = staging_data
-                    .slice(0..(self.instances.len() * instance_copy_size) as wgpu::BufferAddress)
-                    .get_mapped_range_mut();
-                let data_ptr = data.as_mut_ptr();
-
-                let instances = &self.instances;
-                // let staging_buffer = &self.staging_buffer;
-                instances.iter_changed().for_each(|(i, instance)| unsafe {
-                    let transform = instance.get_transform();
-                    let n_transform = instance.get_normal_transform();
-
-                    std::ptr::copy(
-                        transform.as_ref() as *const [f32; 16],
-                        (data_ptr as *mut [f32; 16]).add(i * 2),
-                        1,
-                    );
-                    std::ptr::copy(
-                        n_transform.as_ref() as *const [f32; 16],
-                        (data_ptr as *mut [f32; 16]).add(i * 2 + 1),
-                        1,
-                    );
-                });
-            }
-
-            staging_data.unmap();
-
-            self.instances.iter_changed().for_each(|(i, _)| {
-                encoder.copy_buffer_to_buffer(
-                    &staging_data,
-                    (i * instance_copy_size) as wgpu::BufferAddress,
-                    &device_instances.device_matrices,
-                    DeviceInstances::offset_for(i),
-                    instance_copy_size as wgpu::BufferAddress,
-                );
-            });
+            self.instances_bg =
+                Arc::new(Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: instances_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: (*self.instances_buffer).as_ref().unwrap().as_entire_binding(),
+                    }],
+                })));
         }
 
-        self.bounds = self.get_bounds(meshes, anim_meshes);
-        queue.submit(std::iter::once(encoder.finish()));
+        self.instance_matrices
+            .resize(instances.len(), Default::default());
+        self.instances_bounds
+            .resize(instances.len(), AABB::default());
+        self.instance_buffers
+            .resize(instances.len(), Arc::new(None));
+
+        instances
+            .matrices
+            .iter()
+            .enumerate()
+            .zip(self.instance_matrices.iter_mut())
+            .zip(self.instance_buffers.iter_mut())
+            .zip(self.instances_bounds.iter_mut())
+            .for_each(|((((i, m), matrices), buffer), bounds)| {
+                *bounds = mesh.bounds.transformed(m.to_cols_array());
+                *buffer = if let Some(skin) = instances.skin_ids[i].as_index() {
+                    Arc::new(Some(
+                        skinning_pipeline
+                            .apply_skin(device, queue, mesh, &skins[skin])
+                            .0,
+                    ))
+                } else {
+                    mesh.buffer.clone()
+                };
+
+                *matrices = InstanceMatrices {
+                    matrix: *m,
+                    normal: m.inverse().transpose(),
+                };
+            });
+
+        queue.write_buffer(
+            (*self.instances_buffer).as_ref().unwrap(),
+            0,
+            self.instance_matrices.as_bytes(),
+        );
+
+        self.supports_skinning = mesh.joints_weights_buffer.is_some();
+
+        // if self.instances > 5000 {
+        //     self.draw_buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+        //         label: None,
+        //         size: self.instances as usize * std::mem::size_of::<DrawCommand>(),
+        //         usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+        //         mapped_at_creation: false,
+        //     })));
+        // }
+
+        // let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        //     label: None,
+        //     size: (std::mem::size_of::<FrustrumPlane>() * 6 + std::mem::size_of::<MeshDescriptor>())
+        //         as _,
+        //     usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
+        //     mapped_at_creation: true,
+        // });
+
+        // let data = unsafe {
+        //     (buffer.slice(..).get_mapped_range_mut().as_mut_ptr() as *mut CullData)
+        //         .as_mut()
+        //         .unwrap()
+        // };
+        // let desc = MeshDescriptor {
+        //     vertex_count: mesh.ranges.last().unwrap().last,
+        //     instance_count: self.instances,
+        //     base_vertex: 0,
+        //     base_instance: 0,
+        //     draw_index: 0,
+        //     bb_min: mesh.bounds.min.into(),
+        //     bb_max: mesh.bounds.max.into(),
+        //     ..Default::default()
+        // };
+
+        // buffer.unmap();
+        // data.desc = desc;
+        // self.mesh_desc = Some(Arc::new(buffer));
     }
 
-    pub fn reset_changed(&mut self) {
-        self.instances.reset_changed();
-    }
-
-    pub fn len(&self) -> usize {
-        self.instances.len()
-    }
-
-    pub fn changed(&self) -> bool {
-        self.instances.any_changed()
-    }
-
-    pub fn get(&self, index: usize) -> Option<(&Instance, &InstanceBounds)> {
-        if let Some(inst) = self.instances.get(index) {
-            Some((inst, &self.bounds[index]))
+    pub fn buffer_for(&self, i: usize) -> Option<&wgpu::Buffer> {
+        if let Some(buffer) = self.instance_buffers.get(i) {
+            buffer.as_ref().as_ref()
         } else {
             None
         }
     }
 
-    pub fn get_mut(&mut self, index: usize) -> Option<(&mut Instance, &mut InstanceBounds)> {
-        if let Some(inst) = self.instances.get_mut(index) {
-            Some((inst, &mut self.bounds[index]))
-        } else {
-            None
-        }
+    pub fn len(&self) -> u32 {
+        self.instances
     }
 
-    fn get_bounds(
-        &self,
-        meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
-    ) -> Vec<InstanceBounds> {
-        (0..self.instances.len())
-            .into_iter()
-            .filter(|i| self.instances.get(*i).is_some())
-            .map(|i| {
-                let instance = &self.instances[i];
-                let root_bounds = instance.bounds();
-                let mesh_bounds = match instance.object_id {
-                    ObjectRef::None => vec![AABB::empty(); 1],
-                    ObjectRef::Static(mesh_id) => {
-                        let mesh = &meshes[mesh_id as usize];
-                        let transform = instance.get_transform();
-                        mesh.sub_meshes
-                            .iter()
-                            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-                            .collect()
-                    }
-                    ObjectRef::Animated(mesh_id) => {
-                        let mesh = &anim_meshes[mesh_id as usize];
-                        let transform = instance.get_transform();
-                        mesh.sub_meshes
-                            .iter()
-                            .map(|m| m.bounds.transformed(transform.to_cols_array()))
-                            .collect()
-                    }
-                };
-
-                InstanceBounds {
-                    root_bounds,
-                    mesh_bounds,
-                    changed: self.instances.get_changed(i),
-                }
-            })
-            .collect()
-    }
-
-    pub fn iter(&self) -> InstanceIterator<'_> {
-        let length = self.instances.len();
-
-        InstanceIterator {
-            instances: &self.instances,
-            bounds: self.bounds.as_slice(),
-            current: 0,
-            length,
-        }
-    }
-
-    pub fn iter_mut(&mut self) -> InstanceIteratorMut<'_> {
-        let length = self.instances.len();
-        InstanceIteratorMut {
-            instances: &mut self.instances,
-            bounds: self.bounds.as_mut_slice(),
-            current: 0,
-            length,
-        }
+    pub fn is_empty(&self) -> bool {
+        self.instances == 0
     }
 }
 
-pub struct InstanceIterator<'a> {
-    instances: &'a TrackedStorage<Instance>,
-    bounds: &'a [InstanceBounds],
-    current: usize,
-    length: usize,
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+struct CullData {
+    pub planes: [FrustrumPlane; 6],
+    pub desc: MeshDescriptor,
 }
 
-impl<'a> Iterator for InstanceIterator<'a> {
-    type Item = (usize, &'a Instance, &'a InstanceBounds);
-    fn next(&mut self) -> Option<Self::Item> {
-        let (instances, bounds) = unsafe { (self.instances.as_ptr(), self.bounds.as_ptr()) };
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+struct MeshDescriptor {
+    pub vertex_count: u32,
+    pub instance_count: u32,
+    pub base_vertex: u32,
+    pub base_instance: u32,
 
-        while self.current < self.length {
-            if let Some(_) = self.instances.get(self.current) {
-                let value = unsafe {
-                    (
-                        self.current,
-                        instances.add(self.current).as_ref().unwrap(),
-                        bounds.add(self.current).as_ref().unwrap(),
-                    )
-                };
-                self.current += 1;
-                return Some(value);
-            }
-        }
-
-        None
-    }
+    pub bb_min: Vec3,
+    pub draw_index: u32,
+    pub bb_max: Vec3,
+    pub _dummy: u32,
 }
 
-pub struct InstanceIteratorMut<'a> {
-    instances: &'a mut TrackedStorage<Instance>,
-    bounds: &'a mut [InstanceBounds],
-    current: usize,
-    length: usize,
-}
-
-impl<'a> Iterator for InstanceIteratorMut<'a> {
-    type Item = (usize, &'a mut Instance, &'a mut InstanceBounds);
-    fn next(&mut self) -> Option<Self::Item> {
-        let (instances, bounds) =
-            unsafe { (self.instances.as_mut_ptr(), self.bounds.as_mut_ptr()) };
-
-        while self.current < self.length {
-            if let Some(_) = self.instances.get(self.current) {
-                let value = unsafe {
-                    (
-                        self.current,
-                        instances.add(self.current).as_mut().unwrap(),
-                        bounds.add(self.current).as_mut().unwrap(),
-                    )
-                };
-                self.current += 1;
-                return Some(value);
-            }
-        }
-
-        None
-    }
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+struct DrawCommand {
+    pub vertex_count: u32,   // The number of vertices to draw.
+    pub instance_count: u32, // The number of instances to draw.
+    pub base_vertex: u32,    // The Index of the first vertex to draw.
+    pub base_instance: u32,  // The instance ID of the first instance to draw.
 }

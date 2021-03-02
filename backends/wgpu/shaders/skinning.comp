@@ -1,0 +1,38 @@
+#version 450
+
+layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct VertexData {
+    vec4 V;
+    vec3 N;
+    uint MatID;
+    vec2 uv;
+    vec4 T;
+};
+
+struct JointData {
+    uvec4 joints;
+    vec4 weights;
+};
+
+layout(std430, set = 0, binding = 0) buffer Data { VertexData VData[]; };
+layout(set = 0, binding = 1) buffer readonly Skin { mat4 M[]; };
+layout(set = 0, binding = 2) buffer readonly JointsWeights { JointData JW[]; };
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    const uvec4 joints = JW[index].joints;
+    const vec4 weights = JW[index].weights;
+
+    const mat4 skinMatrix = (weights.x * M[joints.x]) + (weights.y * M[joints.y]) + (weights.z * M[joints.z]) + (weights.w * M[joints.w]);
+    const mat4 inverseSkinMatrix = transpose(inverse(skinMatrix));
+
+    const vec4 V = skinMatrix * VData[index].V;
+    const vec3 N = normalize(vec3(inverseSkinMatrix * vec4(VData[index].N, 0.0)));
+    const vec3 T = normalize(vec3(inverseSkinMatrix * vec4(VData[index].T.xyz, 0.0)));
+
+    VData[index].V.xyz = V.xyz;
+    VData[index].N = N;
+    VData[index].T.xyz = T;
+}

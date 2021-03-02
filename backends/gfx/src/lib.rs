@@ -11,11 +11,12 @@ use hal::{
 use instances::SceneList;
 use mem::Allocator;
 use rfw::prelude::*;
-use std::{iter, mem::ManuallyDrop, ptr};
+use std::{iter, mem::ManuallyDrop, ptr, unimplemented};
 use window::Extent2D;
 
 mod cmd;
 mod instances;
+#[allow(dead_code)]
 mod light;
 mod mem;
 mod mesh;
@@ -50,9 +51,9 @@ impl std::error::Error for GfxError {}
 pub type GfxBackend = GfxRenderer<backend::Backend>;
 
 pub use cmd::*;
-use rfw::prelude::r2d::{D2Instance, D2Mesh};
-use rfw::prelude::raw_window_handle::HasRawWindowHandle;
+use rfw::prelude::HasRawWindowHandle;
 
+#[allow(dead_code)]
 pub struct GfxRenderer<B: hal::Backend> {
     instance: B::Instance,
     queue: Queue<B>,
@@ -74,20 +75,40 @@ pub struct GfxRenderer<B: hal::Backend> {
     scene_list: SceneList<B>,
     mesh_renderer: mesh::RenderPipeline<B>,
     skins: SkinList<B>,
+
+    point_lights: light::LightList<B>,
+    spot_lights: light::LightList<B>,
+    settings: GfxSettings,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct GfxSettings {
+    scale_factor: f64,
+}
+
+impl Default for GfxSettings {
+    fn default() -> Self {
+        Self { scale_factor: 1.0 }
+    }
 }
 
 impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
+    type Settings = GfxSettings;
+
     fn init<T: HasRawWindowHandle>(
         window: &T,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: f64,
     ) -> Result<Box<Self>, Box<dyn std::error::Error>> {
         let instance: B::Instance = match hal::Instance::create("RFW", 1) {
             Ok(instance) => instance,
             Err(_) => return Err(Box::new(GfxError::UnsupportedBackend)),
         };
 
-        let (render_width, render_height) = render_size;
+        let (render_width, render_height) = (
+            (window_size.0 as f64 * scale_factor) as u32,
+            (window_size.1 as f64 * scale_factor) as u32,
+        );
 
         let mut surface: B::Surface = match unsafe { instance.create_surface(window) } {
             Ok(surface) => surface,
@@ -261,13 +282,35 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
 
         let mesh_renderer = mesh::RenderPipeline::new(
             device.clone(),
-            allocator,
+            allocator.clone(),
             transfer_queue.clone(),
             format,
             render_width as u32,
             render_height as u32,
             &scene_list,
             &skins,
+        );
+
+        // device: Arc<B::Device>,
+        // allocator: Allocator<B>,
+        // instances_desc_layout: &B::DescriptorSetLayout,
+        // skins_desc_layout: &B::DescriptorSetLayout,
+        // capacity: usize,
+
+        let point_lights = light::LightList::new(
+            device.clone(),
+            allocator.clone(),
+            &*scene_list.set_layout,
+            &*skins.desc_layout,
+            32,
+        );
+
+        let spot_lights = light::LightList::new(
+            device.clone(),
+            allocator.clone(),
+            &*scene_list.set_layout,
+            &*skins.desc_layout,
+            32,
         );
 
         Ok(Box::new(Self {
@@ -289,68 +332,56 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
                 height: window_size.1 as u32,
             },
             render_size: Extent2D {
-                width: render_size.0 as u32,
-                height: render_size.1 as u32,
+                width: render_width,
+                height: render_height,
             },
             scene_list,
             mesh_renderer,
             skins,
+            point_lights,
+            spot_lights,
+            settings: GfxSettings { scale_factor },
         }))
     }
 
-    fn set_2d_meshes(&mut self, _meshes: ChangedIterator<'_, D2Mesh>) {
+    fn set_2d_mesh(&mut self, _id: usize, _mesh: MeshData2D) {
         // unimplemented!()
     }
 
-    fn set_2d_instances(&mut self, _instances: ChangedIterator<'_, D2Instance>) {
-        // unimplemented!()
+    fn set_2d_instances(&mut self, _instances: InstancesData2D<'_>) {
+        unimplemented!()
     }
 
-    fn set_meshes(&mut self, meshes: ChangedIterator<'_, Mesh>) {
-        for (i, mesh) in meshes {
-            self.scene_list.set_mesh(i, mesh);
-        }
+    fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
+        self.scene_list.set_mesh(id, mesh);
     }
 
-    fn unload_meshes(&mut self, ids: Vec<usize>) {
-        let mesh = Mesh::default();
+    fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
         for id in ids {
-            self.scene_list.set_mesh(id, &mesh);
+            self.scene_list.remove_mesh(id);
         }
     }
 
-    fn set_animated_meshes(&mut self, meshes: ChangedIterator<'_, AnimatedMesh>) {
-        for (i, mesh) in meshes {
-            self.scene_list.set_anim_mesh(i, mesh);
-        }
+    fn set_3d_instances(&mut self, _instances: InstancesData3D<'_>) {
+        unimplemented!()
+        // for (i, instance) in instances {
+        //     self.scene_list.set_instance(i, instance);
+        // }
     }
 
-    fn unload_animated_meshes(&mut self, ids: Vec<usize>) {
-        let mesh = AnimatedMesh::default();
-        for id in ids {
-            self.scene_list.set_anim_mesh(id, &mesh);
-        }
-    }
-
-    fn set_instances(&mut self, instances: ChangedIterator<'_, rfw::prelude::Instance>) {
-        for (i, instance) in instances {
-            self.scene_list.set_instance(i, instance);
-        }
-    }
-
-    fn unload_instances(&mut self, ids: Vec<usize>) {
-        let instance = rfw::prelude::Instance::default();
+    fn unload_3d_instances(&mut self, ids: Vec<usize>) {
+        let instance = rfw::prelude::Instance3D::default();
         for id in ids {
             self.scene_list.set_instance(id, &instance);
         }
     }
 
-    fn set_materials(&mut self, materials: ChangedIterator<'_, rfw::prelude::DeviceMaterial>) {
-        self.mesh_renderer.set_materials(materials.as_slice());
+    fn set_materials(&mut self, materials: &[DeviceMaterial], _changed: &BitSlice) {
+        self.mesh_renderer.set_materials(materials);
     }
 
-    fn set_textures(&mut self, textures: ChangedIterator<'_, rfw::prelude::Texture>) {
-        self.mesh_renderer.set_textures(textures);
+    fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
+        self.mesh_renderer.set_textures(textures, changed);
     }
 
     fn synchronize(&mut self) {
@@ -358,8 +389,8 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         self.scene_list.synchronize();
     }
 
-    fn render(&mut self, camera: &rfw::prelude::Camera, _mode: rfw::prelude::RenderMode) {
-        self.mesh_renderer.update_camera(camera);
+    fn render(&mut self, camera: CameraView3D, _mode: rfw::prelude::RenderMode) {
+        self.mesh_renderer.update_camera(&camera);
 
         let surface_image = unsafe {
             match self.surface.acquire_image(!0) {
@@ -413,7 +444,7 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
                 &self.viewport,
                 &self.scene_list,
                 &self.skins,
-                &camera.calculate_frustrum(),
+                &FrustrumG::from(&camera),
             );
 
             cmd_buffer.finish();
@@ -447,20 +478,21 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
         self.frame += 1;
     }
 
-    fn resize<T: rfw::prelude::raw_window_handle::HasRawWindowHandle>(
+    fn resize<T: HasRawWindowHandle>(
         &mut self,
         _window: &T,
-        window_size: (usize, usize),
-        render_size: (usize, usize),
+        window_size: (u32, u32),
+        scale_factor: f64,
     ) {
+        self.settings.scale_factor = scale_factor;
         self.device.wait_idle().unwrap();
         self.window_size = Extent2D {
             width: window_size.0 as u32,
             height: window_size.1 as u32,
         };
         self.render_size = Extent2D {
-            width: render_size.0 as u32,
-            height: render_size.1 as u32,
+            width: (window_size.0 as f64 * scale_factor) as u32,
+            height: (window_size.1 as f64 * scale_factor) as u32,
         };
 
         self.recreate_swapchain();
@@ -468,31 +500,26 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxRenderer<B> {
             .resize(self.render_size.width, self.render_size.height);
     }
 
-    fn set_point_lights(&mut self, _lights: ChangedIterator<'_, rfw::prelude::PointLight>) {}
+    fn set_point_lights(&mut self, _lights: &[PointLight], _changed: &BitSlice) {}
+    fn set_spot_lights(&mut self, _lights: &[SpotLight], _changed: &BitSlice) {}
+    fn set_area_lights(&mut self, _lights: &[AreaLight], _changed: &BitSlice) {}
+    fn set_directional_lights(&mut self, _lights: &[DirectionalLight], _changed: &BitSlice) {}
 
-    fn set_spot_lights(&mut self, _lights: ChangedIterator<'_, rfw::prelude::SpotLight>) {}
+    fn set_skybox(&mut self, _skybox: TextureData) {}
 
-    fn set_area_lights(&mut self, _lights: ChangedIterator<'_, rfw::prelude::AreaLight>) {}
+    fn set_skins(&mut self, skins: &[SkinData], changed: &BitSlice) {
+        for i in 0..skins.len() {
+            if !changed[i] {
+                continue;
+            }
 
-    fn set_directional_lights(
-        &mut self,
-        _lights: ChangedIterator<'_, rfw::prelude::DirectionalLight>,
-    ) {
-    }
-
-    fn set_skybox(&mut self, _skybox: rfw::prelude::Texture) {}
-
-    fn set_skins(&mut self, skins: ChangedIterator<'_, rfw::prelude::graph::Skin>) {
-        for (i, skin) in skins {
-            self.skins.set_skin(i, skin);
+            self.skins.set_skin(i, skins[i]);
         }
     }
 
-    fn get_settings(&self) -> Vec<rfw::prelude::Setting> {
-        Vec::new()
+    fn settings(&mut self) -> &mut Self::Settings {
+        &mut self.settings
     }
-
-    fn set_setting(&mut self, _setting: rfw::prelude::Setting) {}
 }
 
 impl<B: hal::Backend> GfxRenderer<B> {

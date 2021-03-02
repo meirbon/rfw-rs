@@ -1,14 +1,10 @@
-use std::io::prelude::*;
+use rfw::prelude::BytesConversion;
+use spirv_compiler::*;
+use std::{collections::HashMap, error::Error, fs::File, io::Write, path::PathBuf};
 
 fn add_to_watch_list(file: &str) {
     println!("cargo:rerun-if-changed={}", file);
 }
-
-use rfw::prelude::*;
-use std::collections::HashMap;
-use std::error::Error;
-use std::fs::File;
-use std::path::PathBuf;
 
 const EXTENSIONS: [&'static str; 15] = [
     "vert", "vs", "frag", "fs", "comp", "geom", "tese", "tesc", "rgen", "chit", "ahit", "miss",
@@ -71,6 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             *extensions
                 .get(entry.path().extension().unwrap().to_str().unwrap())
                 .unwrap(),
+            true,
         ) {
             Ok(shader) => shader,
             Err(e) => {

@@ -1,9 +1,10 @@
+use rfw::prelude::*;
 use std::borrow::Cow;
-use rfw::utils::BytesConversion;
 
+#[derive(Debug)]
 pub struct WgpuOutput {
-    pub width: usize,
-    pub height: usize,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
 
     blit_output_layout: wgpu::BindGroupLayout,
     blit_debug_layout: wgpu::BindGroupLayout,
@@ -49,7 +50,7 @@ pub struct WgpuOutput {
     pub mat_param_view: wgpu::TextureView,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum WgpuView {
     Output = 0,
     Albedo = 1,
@@ -107,7 +108,7 @@ impl WgpuOutput {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
     pub const MAT_PARAM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-    pub fn new(device: &wgpu::Device, width: usize, height: usize) -> Self {
+    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
         let output_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -118,8 +119,7 @@ impl WgpuOutput {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
-            compare: None,
-            anisotropy_clamp: None,
+            ..Default::default()
         });
 
         let blit_output_layout =
@@ -130,9 +130,9 @@ impl WgpuOutput {
                         binding: 0,
                         count: None,
                         visibility: wgpu::ShaderStage::FRAGMENT,
-                        ty: wgpu::BindingType::SampledTexture {
-                            component_type: wgpu::TextureComponentType::Uint,
-                            dimension: wgpu::TextureViewDimension::D2,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Uint,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
                     },
@@ -140,7 +140,10 @@ impl WgpuOutput {
                         binding: 1,
                         count: None,
                         visibility: wgpu::ShaderStage::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler { comparison: false },
+                        ty: wgpu::BindingType::Sampler {
+                            filtering: false,
+                            comparison: false,
+                        },
                     },
                 ],
             });
@@ -151,9 +154,9 @@ impl WgpuOutput {
                     binding: 0,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        component_type: wgpu::TextureComponentType::Float,
-                        dimension: wgpu::TextureViewDimension::D2,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
                 },
@@ -161,7 +164,10 @@ impl WgpuOutput {
                     binding: 1,
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler { comparison: false },
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: false,
+                        comparison: false,
+                    },
                 },
             ],
         });
@@ -182,86 +188,85 @@ impl WgpuOutput {
         let vert_spirv: &[u8] = include_bytes!("../shaders/quad.vert.spv");
         let frag_spirv: &[u8] = include_bytes!("../shaders/quad.frag.spv");
 
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_spirv.as_quad_bytes(),
-        )));
-        let frag_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            frag_spirv.as_quad_bytes(),
-        )));
+        let vert_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(vert_spirv.as_quad_bytes())),
+        });
+        let frag_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(frag_spirv.as_quad_bytes())),
+        });
 
         let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("blit-pipeline"),
             layout: Some(&blit_pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
+            vertex: wgpu::VertexState {
                 module: &vert_module,
                 entry_point: "main",
+                buffers: &[],
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                module: &frag_module,
+            fragment: Some(wgpu::FragmentState {
                 entry_point: "main",
+                module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: Self::OUTPUT_FORMAT,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
             }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
+            primitive: wgpu::PrimitiveState {
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
-                clamp_depth: false,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: Self::OUTPUT_FORMAT,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[],
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
         let blit_debug_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("blit-debug-pipeline"),
             layout: Some(&blit_debug_pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
+            vertex: wgpu::VertexState {
                 module: &vert_module,
+                buffers: &[],
                 entry_point: "main",
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                module: &frag_module,
+            fragment: Some(wgpu::FragmentState {
                 entry_point: "main",
+                module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: Self::OUTPUT_FORMAT,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
             }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
+            primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: wgpu::CullMode::None,
-                clamp_depth: false,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: Self::OUTPUT_FORMAT,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: None,
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[],
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
-        let output_texture = Self::create_texture(device, Self::OUTPUT_FORMAT, width, height);
+        let output_texture =
+            Self::create_output_texture(device, Self::OUTPUT_FORMAT, width, height);
         let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: Some(Self::OUTPUT_FORMAT),
@@ -274,7 +279,7 @@ impl WgpuOutput {
             array_layer_count: None,
         });
 
-        let depth_texture = Self::create_texture(device, Self::DEPTH_FORMAT, width, height);
+        let depth_texture = Self::create_depth_texture(device, Self::DEPTH_FORMAT, width, height);
         let depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: Some(Self::DEPTH_FORMAT),
@@ -354,7 +359,7 @@ impl WgpuOutput {
         });
 
         let intermediate_texture =
-            Self::create_texture(device, super::WgpuBackend::OUTPUT_FORMAT, width, height);
+            Self::create_output_texture(device, super::WgpuBackend::OUTPUT_FORMAT, width, height);
         let intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: Some(Self::OUTPUT_FORMAT),
@@ -476,34 +481,77 @@ impl WgpuOutput {
         }
     }
 
-    fn create_texture(
+    fn create_output_texture(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-        width: usize,
-        height: usize,
+        width: u32,
+        height: u32,
     ) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: width as u32,
-                height: height as u32,
+                width,
+                height,
                 depth: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
+        })
+    }
+
+    fn create_texture(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE,
         })
     }
 
-    pub fn resize(&mut self, device: &wgpu::Device, width: usize, height: usize) {
+    fn create_depth_texture(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+        })
+    }
+
+    pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         self.width = width;
         self.height = height;
 
-        let output_texture = Self::create_texture(device, Self::OUTPUT_FORMAT, width, height);
+        let output_texture =
+            Self::create_output_texture(device, Self::OUTPUT_FORMAT, width, height);
         self.output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: Some(Self::OUTPUT_FORMAT),
@@ -517,13 +565,12 @@ impl WgpuOutput {
         });
         self.output_texture = output_texture;
 
-        let depth_texture = Self::create_texture(device, Self::DEPTH_FORMAT, width, height);
+        let depth_texture = Self::create_depth_texture(device, Self::DEPTH_FORMAT, width, height);
         self.depth_texture_view = depth_texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: Some(Self::DEPTH_FORMAT),
             dimension: None,
             aspect: wgpu::TextureAspect::All,
-
             base_mip_level: 0,
             level_count: None,
             base_array_layer: 0,
@@ -603,7 +650,7 @@ impl WgpuOutput {
         self.screen_space_texture = screen_space_texture;
 
         let intermediate_texture =
-            Self::create_texture(device, super::WgpuBackend::OUTPUT_FORMAT, width, height);
+            Self::create_output_texture(device, super::WgpuBackend::OUTPUT_FORMAT, width, height);
         self.intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
             label: None,
             format: Some(Self::OUTPUT_FORMAT),
@@ -732,18 +779,14 @@ impl WgpuOutput {
         &self,
         binding: usize,
         visibility: wgpu::ShaderStage,
-        view: WgpuView,
     ) -> wgpu::BindGroupLayoutEntry {
         wgpu::BindGroupLayoutEntry {
             binding: binding as u32,
             count: None,
             visibility,
-            ty: wgpu::BindingType::SampledTexture {
-                component_type: match view {
-                    WgpuView::Output => wgpu::TextureComponentType::Uint,
-                    _ => wgpu::TextureComponentType::Float,
-                },
-                dimension: wgpu::TextureViewDimension::D2,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Uint,
+                view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
         }
@@ -756,6 +799,12 @@ impl WgpuOutput {
         view: WgpuView,
         readonly: bool,
     ) -> wgpu::BindGroupLayoutEntry {
+        let access = if readonly {
+            wgpu::StorageTextureAccess::ReadOnly
+        } else {
+            wgpu::StorageTextureAccess::ReadWrite
+        };
+
         wgpu::BindGroupLayoutEntry {
             binding: binding as u32,
             count: None,
@@ -766,8 +815,8 @@ impl WgpuOutput {
                     WgpuView::SSAO | WgpuView::FilteredSSAO => Self::SSAO_FORMAT,
                     _ => Self::STORAGE_FORMAT,
                 },
-                readonly,
-                dimension: wgpu::TextureViewDimension::D2,
+                access,
+                view_dimension: wgpu::TextureViewDimension::D2,
             },
         }
     }
@@ -796,6 +845,7 @@ impl WgpuOutput {
         view: WgpuView,
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                 attachment: output,
                 ops: wgpu::Operations {
@@ -813,18 +863,7 @@ impl WgpuOutput {
             render_pass.set_pipeline(&self.blit_debug_pipeline);
         }
 
-        let bind_group = match view {
-            WgpuView::Output => &self.debug_bind_groups[0],
-            WgpuView::Albedo => &self.debug_bind_groups[1],
-            WgpuView::Normal => &self.debug_bind_groups[2],
-            WgpuView::WorldPos => &self.debug_bind_groups[3],
-            WgpuView::Radiance => &self.debug_bind_groups[4],
-            WgpuView::ScreenSpace => &self.debug_bind_groups[5],
-            WgpuView::SSAO => &self.debug_bind_groups[6],
-            WgpuView::FilteredSSAO => &self.debug_bind_groups[7],
-            WgpuView::MatParams => &self.debug_bind_groups[8],
-        };
-
+        let bind_group = &self.debug_bind_groups[view as usize];
         render_pass.set_bind_group(0, bind_group, &[]);
         render_pass.draw(0..6, 0..1);
     }

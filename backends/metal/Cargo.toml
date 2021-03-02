@@ -1,0 +1,13 @@
+[package]
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+name = "rfw-backend-metal"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# metal = "0.20"
+metal = { git = "https://github.com/gfx-rs/metal-rs.git", rev = "27bd31c6e7beb470a8a5bc88007399e39df19486" }
+cocoa = "0.24"
+rfw = { path = "../../rfw" }

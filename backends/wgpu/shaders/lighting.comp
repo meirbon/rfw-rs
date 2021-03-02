@@ -13,6 +13,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform Locals {
     mat4 VP;
     mat4 P;
+    mat4 matrix_2d;
     uvec4 light_count;
     vec4 cam_pos;
 };
@@ -244,9 +245,6 @@ float fetch_dir_shadow(uint light_id, float bias, vec4 ls_coords) {
     const vec2 s_uv = coords.xy + 0.5;
     float depth = coords.z - BIAS;
     const vec3 p = vec3(s_uv, light_id);
-    if (depth > 1.0) {
-        return 0.0;
-    }
 
     const vec2 moments = texture(sampler2DArray(DirShadowMaps, ShadowSampler), p).xy;
     if (depth < moments.x) {

@@ -1,6 +1,6 @@
-use crate::hal;
 use crate::instances::{RenderBuffers, SceneList};
 use crate::skinning::SkinList;
+use crate::{hal, DeviceHandle};
 use hal::*;
 use hal::{command::CommandBuffer, device::Device, pso::DescriptorPool};
 use rfw::prelude::*;
@@ -16,7 +16,7 @@ pub struct Array<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> {
 
 impl<B: hal::Backend, T: Sized + Light + Clone + Debug + Default> Array<B, T> {
     pub fn new(
-        device: Arc<B::Device>,
+        device: DeviceHandle<B>,
         allocator: crate::mem::Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
         pipeline_layout: &B::PipelineLayout,
@@ -48,7 +48,7 @@ pub enum DepthType {
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ShadowMapArray<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
 
     pub map: ManuallyDrop<B::Image>,
     render_views: Vec<ManuallyDrop<B::ImageView>>,
@@ -68,7 +68,6 @@ pub struct ShadowMapArray<B: hal::Backend> {
     filter_pipeline: Arc<FilterPipeline<B>>,
     render_pass: ManuallyDrop<B::RenderPass>,
     pipeline: ManuallyDrop<B::GraphicsPipeline>,
-    anim_pipeline: ManuallyDrop<B::GraphicsPipeline>,
     light_infos: Vec<LightInfo>,
 }
 
@@ -79,7 +78,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
     pub const DEPTH_FORMAT: format::Format = format::Format::D32Sfloat;
 
     pub fn new(
-        device: Arc<B::Device>,
+        device: DeviceHandle<B>,
         allocator: crate::mem::Allocator<B>,
         filter_pipeline: Arc<FilterPipeline<B>>,
         pipeline_layout: &B::PipelineLayout,
@@ -230,15 +229,11 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 .unwrap();
 
             let vert_shader: &[u8] = include_bytes!("../../shaders/shadow_mesh.vert");
-            let anim_vert_shader: &[u8] = include_bytes!("../../shaders/shadow_mesh_anim.vert");
             let frag_linear: &[u8] = include_bytes!("../../shaders/shadow_linear.frag");
             let frag_perspective: &[u8] = include_bytes!("../../shaders/shadow_perspective.frag");
 
             let vert_module = device
                 .create_shader_module(vert_shader.as_quad_bytes())
-                .unwrap();
-            let anim_vert_module = device
-                .create_shader_module(anim_vert_shader.as_quad_bytes())
                 .unwrap();
             let frag_module = match depth_type {
                 DepthType::Linear => device
@@ -289,7 +284,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                         primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
                             buffers: &[pso::VertexBufferDesc {
                                 binding: 0 as pso::BufferIndex,
-                                stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
+                                stride: std::mem::size_of::<Vertex3D>() as pso::ElemStride,
                                 rate: pso::VertexInputRate::Vertex,
                             }],
                             /// Vertex attributes (IA)
@@ -312,120 +307,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                             vertex: pso::EntryPoint {
                                 specialization: pso::Specialization::EMPTY,
                                 module: &vert_module,
-                                entry: "main",
-                            },
-                            tessellation: None,
-                            geometry: None,
-                        },
-                        fragment: Some(pso::EntryPoint {
-                            specialization: pso::Specialization::EMPTY,
-                            module: &frag_module,
-                            entry: "main",
-                        }),
-                        rasterizer: pso::Rasterizer {
-                            polygon_mode: pso::PolygonMode::Fill,
-                            cull_face: pso::Face::BACK,
-                            front_face: pso::FrontFace::CounterClockwise,
-                            depth_clamping: false,
-                            depth_bias: None,
-                            conservative: false,
-                            line_width: pso::State::Static(1.0),
-                        },
-                        blender: Default::default(),
-                        depth_stencil: pso::DepthStencilDesc {
-                            depth: Some(pso::DepthTest {
-                                fun: pso::Comparison::LessEqual,
-                                write: true,
-                            }),
-                            depth_bounds: false,
-                            stencil: None,
-                        },
-                        multisampling: None,
-                        baked_states: pso::BakedStates {
-                            blend_color: None,
-                            depth_bounds: Some(0.0_f32..1.0_f32),
-                            scissor: Some(pso::Rect {
-                                x: 0,
-                                y: 0,
-                                w: Self::WIDTH as _,
-                                h: Self::HEIGHT as _,
-                            }),
-                            viewport: Some(pso::Viewport {
-                                depth: 0.0..1.0,
-                                rect: pso::Rect {
-                                    x: 0,
-                                    y: 0,
-                                    w: Self::WIDTH as _,
-                                    h: Self::HEIGHT as _,
-                                },
-                            }),
-                        },
-                        layout: pipeline_layout,
-                        subpass: pass::Subpass {
-                            index: 0,
-                            main_pass: &render_pass,
-                        },
-                        flags: pso::PipelineCreationFlags::empty(),
-                        parent: pso::BasePipeline::None,
-                    },
-                    None,
-                )
-                .unwrap();
-
-            let anim_pipeline = device
-                .create_graphics_pipeline(
-                    &pso::GraphicsPipelineDesc {
-                        primitive_assembler: pso::PrimitiveAssemblerDesc::Vertex {
-                            buffers: &[
-                                pso::VertexBufferDesc {
-                                    binding: 0 as pso::BufferIndex,
-                                    stride: std::mem::size_of::<VertexData>() as pso::ElemStride,
-                                    rate: pso::VertexInputRate::Vertex,
-                                },
-                                pso::VertexBufferDesc {
-                                    binding: 1 as pso::BufferIndex,
-                                    stride: std::mem::size_of::<AnimVertexData>()
-                                        as pso::ElemStride,
-                                    rate: pso::VertexInputRate::Vertex,
-                                },
-                            ],
-                            attributes: &[
-                                pso::AttributeDesc {
-                                    location: 0 as pso::Location,
-                                    binding: 0 as pso::BufferIndex,
-                                    element: pso::Element {
-                                        format: hal::format::Format::Rgba32Sfloat,
-                                        offset: 0,
-                                    },
-                                },
-                                pso::AttributeDesc {
-                                    /// Vertex array location
-                                    location: 1 as pso::Location,
-                                    /// Binding number of the associated vertex mem.
-                                    binding: 1 as pso::BufferIndex,
-                                    /// Attribute element description.
-                                    element: pso::Element {
-                                        format: hal::format::Format::Rgba32Uint,
-                                        offset: 0,
-                                    },
-                                },
-                                pso::AttributeDesc {
-                                    location: 2 as pso::Location,
-                                    binding: 1 as pso::BufferIndex,
-                                    element: pso::Element {
-                                        format: hal::format::Format::Rgba32Sfloat,
-                                        offset: 16,
-                                    },
-                                },
-                            ],
-                            input_assembler: pso::InputAssemblerDesc {
-                                primitive: pso::Primitive::TriangleList,
-                                with_adjacency: false,
-                                restart_index: None,
-                            },
-                            vertex: pso::EntryPoint {
-                                specialization: pso::Specialization::EMPTY,
-                                module: &anim_vert_module,
                                 entry: "main",
                             },
                             tessellation: None,
@@ -526,7 +407,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                 filter_pipeline,
                 render_pass: ManuallyDrop::new(render_pass),
                 pipeline: ManuallyDrop::new(pipeline),
-                anim_pipeline: ManuallyDrop::new(anim_pipeline),
                 light_infos: Vec::new(),
             }
         }
@@ -538,7 +418,7 @@ impl<B: hal::Backend> ShadowMapArray<B> {
         pipeline_layout: &B::PipelineLayout,
         desc_set: &B::DescriptorSet,
         scene: &SceneList<B>,
-        skins: &SkinList<B>,
+        _skins: &SkinList<B>,
     ) {
         for i in 0..self.light_infos.len() {
             let frustrum = FrustrumG::from_matrix(self.light_infos[i].pm);
@@ -600,62 +480,6 @@ impl<B: hal::Backend> ShadowMapArray<B> {
                                         std::iter::once((buffer.buffer(), buffer::SubRange::WHOLE)),
                                     );
                                 }
-                                RenderBuffers::Animated(buffer, anim_offset) => {
-                                    if let Some(skin_id) = instance.skin_id {
-                                        let skin_id = skin_id as usize;
-                                        if let Some(skin_set) = skins.get_set(skin_id) {
-                                            cmd_buffer.bind_graphics_pipeline(&self.anim_pipeline);
-                                            cmd_buffer.bind_graphics_descriptor_sets(
-                                                pipeline_layout,
-                                                1,
-                                                vec![&scene.desc_set, skin_set],
-                                                &[],
-                                            );
-
-                                            cmd_buffer.bind_vertex_buffers(
-                                                0,
-                                                std::iter::once((
-                                                    buffer.buffer(),
-                                                    buffer::SubRange {
-                                                        size: Some(*anim_offset as buffer::Offset),
-                                                        offset: 0,
-                                                    },
-                                                )),
-                                            );
-                                            cmd_buffer.bind_vertex_buffers(
-                                                1,
-                                                std::iter::once((
-                                                    buffer.buffer(),
-                                                    buffer::SubRange {
-                                                        size: Some(
-                                                            (buffer.size_in_bytes - *anim_offset)
-                                                                as buffer::Offset,
-                                                        ),
-                                                        offset: *anim_offset as _,
-                                                    },
-                                                )),
-                                            );
-                                        } else {
-                                            cmd_buffer.bind_graphics_pipeline(&self.pipeline);
-                                            cmd_buffer.bind_vertex_buffers(
-                                                0,
-                                                std::iter::once((
-                                                    buffer.buffer(),
-                                                    buffer::SubRange::WHOLE,
-                                                )),
-                                            );
-                                        }
-                                    } else {
-                                        cmd_buffer.bind_graphics_pipeline(&self.pipeline);
-                                        cmd_buffer.bind_vertex_buffers(
-                                            0,
-                                            std::iter::once((
-                                                buffer.buffer(),
-                                                buffer::SubRange::WHOLE,
-                                            )),
-                                        );
-                                    }
-                                }
                             }
                             first = false;
                         }
@@ -699,10 +523,6 @@ impl<B: hal::Backend> Drop for ShadowMapArray<B> {
                 .destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(
                     &self.pipeline,
                 )));
-            self.device
-                .destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(
-                    &self.anim_pipeline,
-                )));
 
             self.device
                 .destroy_render_pass(ManuallyDrop::into_inner(std::ptr::read(&self.render_pass)));
@@ -712,7 +532,7 @@ impl<B: hal::Backend> Drop for ShadowMapArray<B> {
 
 #[derive(Debug)]
 pub struct FilterPipeline<B: hal::Backend> {
-    device: Arc<B::Device>,
+    device: DeviceHandle<B>,
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     desc_layout: ManuallyDrop<B::DescriptorSetLayout>,
     pipeline_layout: ManuallyDrop<B::PipelineLayout>,
@@ -746,7 +566,7 @@ impl<'a> FilterPushConstant {
 }
 
 impl<B: hal::Backend> FilterPipeline<B> {
-    pub fn new(device: Arc<B::Device>) -> Self {
+    pub fn new(device: DeviceHandle<B>) -> Self {
         unsafe {
             // 4 Types of lights, thus max 4 sets
             let desc_pool = device

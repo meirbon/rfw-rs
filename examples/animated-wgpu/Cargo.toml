@@ -1,0 +1,15 @@
+[package]
+name = "animated"
+version = "0.1.0"
+authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
+edition = "2018"
+
+[dependencies]
+winit = "0.24"
+futures = "0.3"
+clap = "2.33"
+rayon = "1.5"
+rfw = { path = "../../rfw" }
+rfw-backend-wgpu = { path = "../../backends/wgpu", features = ["imgui-winit"] }
+rfw-font = { path = "../../crates/rfw-font" }
+rand = "0.8"

@@ -1,14 +1,23 @@
 [workspace]
 members = [
     "rfw",
-    "examples/animated",
+    "examples/animated-wgpu",
+    "examples/animated-metal",
     "examples/d2",
     "examples/nphysics",
-    "examples/simple",
     "backends/wgpu",
     "backends/gfx",
+    "backends/metal",
+    "crates/rfw-backend",
+    "crates/rfw-scene",
+    "crates/rfw-math",
+    "crates/rfw-utils",
+    "crates/rfw-font",
     #"renderers/gpu-rt",
 ]
+
+[profile.release]
+debug = true
 
 [profile.dev.package."*"]
 opt-level = 1

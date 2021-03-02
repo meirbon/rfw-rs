@@ -57,68 +57,28 @@ vec3 BSDFEval(ShadingData data, const vec3 N, const vec3 wo, const vec3 wi)
 	vec3 Cspec0 = mix(data.specular * .08f * mix(vec3(1.0f), Ctint, data.specular_tint), Cdlin, data.metallic);
 	vec3 bsdf = vec3(0);
 	vec3 brdf = vec3(0);
-	if (data.transmission > 0.0f)
-	{
-		// evaluate BSDF
-		if (NDotL <= 0)
-		{
-			// transmission Fresnel
-			float F = Fr(NDotV, data.eta);
-			bsdf = vec3((1.0f - F) / abs(NDotL) * (1.0f - data.metallic) * data.transmission);
-		}
-		else
-		{
-			// specular lobe
-			float a = data.roughness;
-			float Ds = GTR2(NDotH, a);
 
-			// Fresnel term with the microfacet normal
-			float FH = Fr(LDotH, data.eta);
-			vec3 Fs = mix(Cspec0, vec3(1.0f), FH);
-			float Gs = SmithGGX(NDotV, a) * SmithGGX(NDotL, a);
-			bsdf = (Gs * Ds) * Fs;
-		}
-	}
-	if (data.transmission < 1.0f)
-	{
-		// evaluate BRDF
-		if (NDotL <= 0)
-		{
-			if (data.subsurface > 0.0f)
-			{
-				// take sqrt to account for entry/exit of the ray through the medium
-				// this ensures transmitted light corresponds to the diffuse model
-				vec3 s = sqrt(data.color.xyz);
-				float FL = SchlickFresnel(abs(NDotL)), FV = SchlickFresnel(NDotV);
-				float Fd = (1.0f - 0.5f * FL) * (1.0f - 0.5f * FV);
-				brdf = INVPI * s * data.subsurface * Fd * (1.0f - data.metallic);
-			}
-		}
-		else
-		{
-			// specular
-			float a = data.roughness;
-			float Ds = GTR2(NDotH, a);
+	// specular
+	float a = data.roughness;
+	float Ds = GTR2(NDotH, a);
 
-			// Fresnel term with the microfacet normal
-			float FH = SchlickFresnel(LDotH);
-			vec3 Fs = mix(Cspec0, vec3(1), FH);
-			float Gs = SmithGGX(NDotV, a) * SmithGGX(NDotL, a);
+	// Fresnel term with the microfacet normal
+	float FH = SchlickFresnel(LDotH);
+	vec3 Fs = mix(Cspec0, vec3(1), FH);
+	float Gs = SmithGGX(NDotV, a) * SmithGGX(NDotL, a);
 
-			// Diffuse fresnel - go from 1 at normal incidence to .5 at grazing
-			// and mix in diffuse retro-reflection based on roughness
-			float FL = SchlickFresnel(NDotL), FV = SchlickFresnel(NDotV);
-			float Fd90 = 0.5 + 2.0f * LDotH * LDotH * a;
-			float Fd = mix(1.0f, Fd90, FL) * mix(1.0f, Fd90, FV);
+	// Diffuse fresnel - go from 1 at normal incidence to .5 at grazing
+	// and mix in diffuse retro-reflection based on roughness
+	float FL = SchlickFresnel(NDotL), FV = SchlickFresnel(NDotV);
+	float Fd90 = 0.5 + 2.0f * LDotH * LDotH * a;
+	float Fd = mix(1.0f, Fd90, FL) * mix(1.0f, Fd90, FV);
 
-			// clearcoat (ior = 1.5 -> F0 = 0.04)
-			float Dr = GTR1(NDotH, mix(.1, .001, data.clearcoat_gloss));
-			float Fc = mix(.04f, 1.0f, FH);
-			float Gr = SmithGGX(NDotL, .25) * SmithGGX(NDotV, .25);
+	// clearcoat (ior = 1.5 -> F0 = 0.04)
+	float Dr = GTR1(NDotH, mix(.1, .001, data.clearcoat_gloss));
+	float Fc = mix(.04f, 1.0f, FH);
+	float Gr = SmithGGX(NDotL, .25) * SmithGGX(NDotV, .25);
 
-			brdf = INVPI * Fd * Cdlin * (1.0f - data.metallic) * (1.0f - data.subsurface) + Gs * Fs * Ds + data.clearcoat * Gr * Fc * Dr;
-		}
-	}
+	brdf = INVPI * Fd * Cdlin * (1.0f - data.metallic) * (1.0f - data.subsurface) + Gs * Fs * Ds + data.clearcoat * Gr * Fc * Dr;
 
 	return mix(brdf, bsdf, data.transmission);
 }

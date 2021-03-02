@@ -1,11 +1,6 @@
-use super::{instance::InstanceList, mesh::WgpuMesh};
-use crate::instance::DeviceInstances;
-use crate::mesh::WgpuAnimMesh;
-use crate::skin::WgpuSkin;
-use bitvec::prelude::BitVec;
-use rfw::scene::bvh::AABB;
-use rfw::scene::{lights::*, AnimVertexData, FrustrumG, FrustrumResult, ObjectRef, VertexData};
-use rfw::utils::{collections::TrackedStorage, BytesConversion};
+use crate::instance::InstanceList;
+use crate::mesh::WgpuMesh;
+use rfw::prelude::{AABB, *};
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
@@ -24,28 +19,14 @@ impl WgpuLights {
         capacity: usize,
         device: &wgpu::Device,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
-        skin_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         Self {
             // point_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
-            spot_lights: LightShadows::new(
-                device,
-                instance_bind_group_layout,
-                skin_bind_group_layout,
-                capacity,
-                false,
-            ),
-            area_lights: LightShadows::new(
-                device,
-                instance_bind_group_layout,
-                skin_bind_group_layout,
-                capacity,
-                false,
-            ),
+            spot_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
+            area_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
             directional_lights: LightShadows::new(
                 device,
                 instance_bind_group_layout,
-                skin_bind_group_layout,
                 capacity,
                 true,
             ),
@@ -61,17 +42,27 @@ impl WgpuLights {
         ]
     }
 
-    pub fn set_spot_lights(&mut self, changed: &BitVec, lights: &[SpotLight], scene_bounds: &AABB) {
+    pub fn set_spot_lights(
+        &mut self,
+        changed: &BitSlice,
+        lights: &[SpotLight],
+        scene_bounds: &AABB,
+    ) {
         self.spot_lights.set(changed, lights, scene_bounds);
     }
 
-    pub fn set_area_lights(&mut self, changed: &BitVec, lights: &[AreaLight], scene_bounds: &AABB) {
+    pub fn set_area_lights(
+        &mut self,
+        changed: &BitSlice,
+        lights: &[AreaLight],
+        scene_bounds: &AABB,
+    ) {
         self.area_lights.set(changed, lights, scene_bounds);
     }
 
     pub fn set_directional_lights(
         &mut self,
-        changed: &BitVec,
+        changed: &BitSlice,
         lights: &[DirectionalLight],
         scene_bounds: &AABB,
     ) {
@@ -79,33 +70,35 @@ impl WgpuLights {
     }
 
     pub fn synchronize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
+        if !self.spot_lights.needs_update()
+            && !self.area_lights.needs_update()
+            && !self.directional_lights.needs_update()
+        {
+            return false;
+        }
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("light-mem-copy"),
         });
-        let changed1 = self.spot_lights.synchronize(&mut encoder, device, queue);
-        let changed2 = self.area_lights.synchronize(&mut encoder, device, queue);
-        let changed3 = self
-            .directional_lights
+
+        self.spot_lights.synchronize(&mut encoder, device, queue);
+        self.area_lights.synchronize(&mut encoder, device, queue);
+        self.directional_lights
             .synchronize(&mut encoder, device, queue);
 
         queue.submit(std::iter::once(encoder.finish()));
-        changed1 || changed2 || changed3
+        true
     }
 
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &InstanceList,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
-        skins: &TrackedStorage<WgpuSkin>,
     ) {
-        self.area_lights
-            .render(encoder, instances, meshes, anim_meshes, skins);
-        self.spot_lights
-            .render(encoder, instances, meshes, anim_meshes, skins);
-        self.directional_lights
-            .render(encoder, instances, meshes, anim_meshes, skins);
+        self.area_lights.render(encoder, instances, meshes);
+        self.spot_lights.render(encoder, instances, meshes);
+        self.directional_lights.render(encoder, instances, meshes);
     }
 }
 
@@ -121,7 +114,6 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn new(
         device: &wgpu::Device,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
-        skin_bind_group_layout: &wgpu::BindGroupLayout,
         capacity: usize,
         linear: bool,
     ) -> Self {
@@ -138,17 +130,11 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             light_buffer,
             light_buffer_size,
             info: Vec::new(),
-            shadow_maps: ShadowMapArray::new(
-                device,
-                capacity,
-                instance_bind_group_layout,
-                skin_bind_group_layout,
-                linear,
-            ),
+            shadow_maps: ShadowMapArray::new(device, capacity, instance_bind_group_layout, linear),
         }
     }
 
-    pub fn set(&mut self, changed: &BitVec, lights: &[T], scene_bounds: &AABB) {
+    pub fn set(&mut self, changed: &BitSlice, lights: &[T], scene_bounds: &AABB) {
         self.lights = TrackedStorage::from(lights);
         self.lights.reset_changed();
         (0..lights.len())
@@ -162,8 +148,13 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             Some(val) => *val,
             None => false,
         }) {
-            self.info[i] = self.lights[i].get_light_info(scene_bounds);
+            let info = self.lights[i].get_light_info(scene_bounds);
+            self.info[i] = info;
         }
+    }
+
+    pub fn needs_update(&self) -> bool {
+        !self.is_empty() && self.lights.any_changed()
     }
 
     pub fn synchronize(
@@ -172,7 +163,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> bool {
-        if self.len() == 0 || !self.lights.any_changed() {
+        if self.is_empty() || !self.lights.any_changed() {
             return false;
         }
 
@@ -221,12 +212,14 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         self.lights.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.lights.is_empty()
+    }
+
     pub fn uniform_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
         wgpu::BindGroupEntry {
             binding,
-            resource: wgpu::BindingResource::Buffer(
-                self.light_buffer.slice(0..self.light_buffer_size),
-            ),
+            resource: self.light_buffer.as_entire_binding(),
         }
     }
 
@@ -240,42 +233,18 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn infos_binding(&self, binding: u32) -> wgpu::BindGroupEntry {
         wgpu::BindGroupEntry {
             binding,
-            resource: wgpu::BindingResource::Buffer(
-                self.shadow_maps
-                    .uniform_buffer
-                    .slice(0..(self.shadow_maps.len() * ShadowMapArray::UNIFORM_ELEMENT_SIZE) as _),
-            ),
+            resource: self.shadow_maps.uniform_buffer.as_entire_binding(),
         }
     }
 
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &InstanceList,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
-        skins: &TrackedStorage<WgpuSkin>,
     ) {
-        if instances.changed() {
-            self.shadow_maps.render(
-                0..self.lights.len() as u32,
-                encoder,
-                instances,
-                meshes,
-                anim_meshes,
-                skins,
-            );
-        } else {
-            if !self.lights.any_changed() {
-                return;
-            }
-
-            for (i, _) in self.lights.iter_changed() {
-                let i = i as u32;
-                self.shadow_maps
-                    .render(i..(i + 1), encoder, instances, meshes, anim_meshes, skins);
-            }
-        };
+        self.shadow_maps
+            .render(0..self.lights.len() as u32, encoder, instances, meshes);
 
         self.lights.reset_changed();
     }
@@ -301,9 +270,6 @@ pub struct ShadowMapArray {
     pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
 
-    anim_pipeline_layout: wgpu::PipelineLayout,
-    anim_pipeline: wgpu::RenderPipeline,
-
     filter_uniform_direction_buffer: wgpu::Buffer,
     filter_direction_x: wgpu::Buffer,
     filter_direction_y: wgpu::Buffer,
@@ -326,12 +292,11 @@ impl ShadowMapArray {
         device: &wgpu::Device,
         count: usize,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
-        skin_bind_group_layout: &wgpu::BindGroupLayout,
         linear: bool,
     ) -> ShadowMapArray {
         let map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -375,7 +340,7 @@ impl ShadowMapArray {
 
         let filter_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -419,9 +384,8 @@ impl ShadowMapArray {
 
         let depth_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
                 | wgpu::TextureUsage::COPY_DST,
             size: wgpu::Extent3d {
@@ -462,9 +426,10 @@ impl ShadowMapArray {
                 binding: 0,
                 count: None,
                 visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer {
-                    min_binding_size: None,
-                    dynamic: true,
+                ty: wgpu::BindingType::Buffer {
+                    has_dynamic_offset: true,
+                    ty: wgpu::BufferBindingType::Uniform,
+                    min_binding_size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
                 },
             }],
         });
@@ -474,7 +439,11 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-bind-group"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(0..uniform_size)),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
+                },
             }],
         });
 
@@ -488,143 +457,67 @@ impl ShadowMapArray {
         let regular_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single.frag.spv");
         let linear_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_shader.as_quad_bytes(),
-        )));
-        let frag_module =
-            device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(match linear {
-                true => linear_frag_shader.as_quad_bytes(),
-                false => regular_frag_shader.as_quad_bytes(),
-            })));
+        let vert_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(vert_shader.as_quad_bytes())),
+        });
+        let frag_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(if linear {
+                linear_frag_shader.as_quad_bytes()
+            } else {
+                regular_frag_shader.as_quad_bytes()
+            })),
+        });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow-pipeline"),
             layout: Some(&pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &vert_module,
-            },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &frag_module,
-            }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
-                clamp_depth: false,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: Self::FORMAT,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
-                format: Self::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilStateDescriptor::default(),
-            }),
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                    stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
+            vertex: wgpu::VertexState {
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
                     step_mode: wgpu::InputStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttributeDescriptor {
+                    attributes: &[wgpu::VertexAttribute {
                         offset: 0,
                         format: wgpu::VertexFormat::Float4,
                         shader_location: 0,
                     }],
                 }],
-            },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
-        });
-
-        let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
-        let vert_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(Cow::from(
-            vert_shader.as_quad_bytes(),
-        )));
-
-        let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[
-                &bind_group_layout,
-                instance_bind_group_layout,
-                skin_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-        let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow-anim-pipeline"),
-            layout: Some(&anim_pipeline_layout),
-            vertex_stage: wgpu::ProgrammableStageDescriptor {
                 entry_point: "main",
                 module: &vert_module,
             },
-            fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+            fragment: Some(wgpu::FragmentState {
                 entry_point: "main",
                 module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: Self::FORMAT,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
             }),
-            rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
-                clamp_depth: false,
-                depth_bias: 0,
-                depth_bias_slope_scale: 0.0,
-                depth_bias_clamp: 0.0,
-            }),
-            primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-            color_states: &[wgpu::ColorStateDescriptor {
-                format: Self::FORMAT,
-                alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                color_blend: wgpu::BlendDescriptor::REPLACE,
-                write_mask: wgpu::ColorWrite::ALL,
-            }],
-            depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+            depth_stencil: Some(wgpu::DepthStencilState {
                 format: Self::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilStateDescriptor::default(),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
             }),
-            vertex_state: wgpu::VertexStateDescriptor {
-                index_format: wgpu::IndexFormat::Uint32,
-                vertex_buffers: &[
-                    wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<VertexData>() as wgpu::BufferAddress,
-                        step_mode: wgpu::InputStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttributeDescriptor {
-                            offset: 0,
-                            format: wgpu::VertexFormat::Float4,
-                            shader_location: 0,
-                        }],
-                    },
-                    wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<AnimVertexData>() as wgpu::BufferAddress,
-                        step_mode: wgpu::InputStepMode::Vertex,
-                        attributes: &[
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 0,
-                                format: wgpu::VertexFormat::Uint4,
-                                shader_location: 1,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 16,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 2,
-                            },
-                        ],
-                    },
-                ],
+            primitive: wgpu::PrimitiveState {
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
             },
-            sample_count: 1,
-            sample_mask: !0,
-            alpha_to_coverage_enabled: false,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
         });
 
         let filter_bind_group_layout =
@@ -636,9 +529,9 @@ impl ShadowMapArray {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
-                            dimension: wgpu::TextureViewDimension::D2,
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             format: Self::FORMAT,
-                            readonly: false,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
@@ -646,18 +539,19 @@ impl ShadowMapArray {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::StorageTexture {
-                            dimension: wgpu::TextureViewDimension::D2,
+                            access: wgpu::StorageTextureAccess::ReadOnly,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             format: Self::DEPTH_FORMAT,
-                            readonly: true,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
-                        ty: wgpu::BindingType::UniformBuffer {
+                        ty: wgpu::BindingType::Buffer {
+                            has_dynamic_offset: false,
+                            ty: wgpu::BufferBindingType::Uniform,
                             min_binding_size: None,
-                            dynamic: false,
                         },
                     },
                 ],
@@ -703,9 +597,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -731,9 +623,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -747,16 +637,16 @@ impl ShadowMapArray {
                 push_constant_ranges: &[],
             });
         let shader: &[u8] = include_bytes!("../shaders/shadow_filter.comp.spv");
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-            Cow::from(shader.as_quad_bytes()),
-        ));
+        let shader_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(shader.as_quad_bytes())),
+        });
         let filter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("shadow-filter-pipeline"),
             layout: Some(&filter_pipeline_layout),
-            compute_stage: wgpu::ProgrammableStageDescriptor {
-                entry_point: "main",
-                module: &shader_module,
-            },
+            entry_point: "main",
+            module: &shader_module,
         });
 
         Self {
@@ -773,8 +663,6 @@ impl ShadowMapArray {
             bind_group,
             pipeline_layout,
             pipeline,
-            anim_pipeline_layout,
-            anim_pipeline,
             filter_uniform_direction_buffer,
             filter_direction_x,
             filter_direction_y,
@@ -802,7 +690,7 @@ impl ShadowMapArray {
 
         let map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -847,9 +735,8 @@ impl ShadowMapArray {
         // Create new texture
         let new_depth_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
                 | wgpu::TextureUsage::COPY_DST,
             size: wgpu::Extent3d {
@@ -876,7 +763,7 @@ impl ShadowMapArray {
 
         let filter_map = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::COPY_SRC
@@ -995,9 +882,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                self.filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: self.filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -1022,9 +907,7 @@ impl ShadowMapArray {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Buffer(
-                                self.filter_uniform_direction_buffer.slice(0..8),
-                            ),
+                            resource: self.filter_uniform_direction_buffer.as_entire_binding(),
                         },
                     ],
                 })
@@ -1047,7 +930,11 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-bind-group"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(0..new_size)),
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
+                },
             }],
         });
 
@@ -1092,7 +979,7 @@ impl ShadowMapArray {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: None,
+            ..Default::default()
         })
     }
 
@@ -1105,19 +992,17 @@ impl ShadowMapArray {
         &self,
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &super::instance::InstanceList,
+        instances: &TrackedStorage<InstanceList>,
         meshes: &TrackedStorage<WgpuMesh>,
-        anim_meshes: &TrackedStorage<WgpuAnimMesh>,
-        skins: &TrackedStorage<WgpuSkin>,
     ) {
         let start = range.start;
         let end = range.end;
 
-        // TODO: Use anim meshes
         assert!(range.end as usize <= self.views.len());
         for v in range.into_iter() {
             let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: &self.views[v as usize],
                     resolve_target: None,
@@ -1136,135 +1021,72 @@ impl ShadowMapArray {
                 }),
             });
 
-            let device_instance = &instances.device_instances;
+            render_pass.set_pipeline(&self.pipeline);
+            render_pass.set_bind_group(
+                0,
+                &self.bind_group,
+                &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
+            );
 
-            (0..instances.len())
-                .into_iter()
-                .filter(|i| match instances.instances.get(*i) {
-                    None => false,
-                    Some(_) => true,
-                })
-                .for_each(|i| {
-                    let instance = &instances.instances[i];
-                    let bounds = &instances.bounds[i];
+            for (id, i) in instances.iter() {
+                let m = &meshes[id];
+                let instances = i.len() as usize;
+                if instances == 0 {
+                    continue;
+                }
 
-                    if frustrum.aabb_in_frustrum(&bounds.root_bounds) == FrustrumResult::Outside {
-                        return;
+                render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
+
+                if m.supports_skinning() {
+                    for instance in 0..instances {
+                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance])
+                            == FrustrumResult::Outside
+                        {
+                            continue;
+                        }
+
+                        let buffer = if let Some(b) = i.buffer_for(instance) {
+                            b
+                        } else {
+                            continue;
+                        };
+
+                        render_pass.set_vertex_buffer(0, buffer.slice(..));
+
+                        render_pass.draw(
+                            m.ranges[0].first..(m.ranges.last().unwrap().last),
+                            (instance as u32)..(instance as u32 + 1),
+                        );
                     }
-
-                    match instance.object_id {
-                        ObjectRef::None => {}
-                        ObjectRef::Static(mesh_id) => {
-                            let mesh = &meshes[mesh_id as usize];
-                            let buffer = mesh.buffer.as_ref().unwrap();
-                            render_pass.set_pipeline(&self.pipeline);
-                            render_pass.set_vertex_buffer(0, buffer.slice(0..mesh.buffer_size));
-
-                            render_pass.set_bind_group(
-                                0,
-                                &self.bind_group,
-                                &[
-                                    (v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                        as wgpu::DynamicOffset,
-                                ],
-                            );
-                            render_pass.set_bind_group(
-                                1,
-                                &device_instance.bind_group,
-                                &[DeviceInstances::dynamic_offset_for(i) as u32],
-                            );
-
-                            for j in 0..mesh.sub_meshes.len() {
-                                if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                    if frustrum.aabb_in_frustrum(bounds) == FrustrumResult::Outside
-                                    {
-                                        continue;
-                                    }
-                                }
-
-                                let sub_mesh = &mesh.sub_meshes[j];
-                                render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                            }
-                        }
-                        ObjectRef::Animated(mesh_id) => {
-                            let mesh = &anim_meshes[mesh_id as usize];
-                            if let Some(skin_id) = instance.skin_id {
-                                let buffer = mesh.buffer.as_ref().unwrap();
-                                render_pass.set_pipeline(&self.anim_pipeline);
-                                render_pass.set_vertex_buffer(
-                                    0,
-                                    buffer.slice(mesh.buffer_start..mesh.buffer_end),
-                                );
-                                render_pass.set_vertex_buffer(
-                                    1,
-                                    buffer.slice(mesh.anim_start..mesh.anim_end),
-                                );
-
-                                render_pass.set_bind_group(
-                                    0,
-                                    &self.bind_group,
-                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                        as wgpu::DynamicOffset],
-                                );
-                                render_pass.set_bind_group(
-                                    1,
-                                    &device_instance.bind_group,
-                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                );
-                                render_pass.set_bind_group(
-                                    2,
-                                    skins[skin_id as usize].bind_group.as_ref().unwrap(),
-                                    &[],
-                                );
-
-                                for j in 0..mesh.sub_meshes.len() {
-                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                        if frustrum.aabb_in_frustrum(bounds)
-                                            == FrustrumResult::Outside
-                                        {
-                                            continue;
-                                        }
-                                    }
-
-                                    let sub_mesh = &mesh.sub_meshes[j];
-                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                }
-                            } else {
-                                let buffer = mesh.buffer.as_ref().unwrap();
-                                render_pass.set_pipeline(&self.pipeline);
-                                render_pass.set_bind_group(
-                                    0,
-                                    &self.bind_group,
-                                    &[(v as usize * Self::UNIFORM_ELEMENT_SIZE)
-                                        as wgpu::DynamicOffset],
-                                );
-                                render_pass.set_bind_group(
-                                    1,
-                                    &device_instance.bind_group,
-                                    &[DeviceInstances::dynamic_offset_for(i) as u32],
-                                );
-
-                                render_pass.set_vertex_buffer(
-                                    0,
-                                    buffer.slice(mesh.buffer_start..mesh.buffer_end),
-                                );
-
-                                for j in 0..mesh.sub_meshes.len() {
-                                    if let Some(bounds) = bounds.mesh_bounds.get(i) {
-                                        if frustrum.aabb_in_frustrum(bounds)
-                                            == FrustrumResult::Outside
-                                        {
-                                            continue;
-                                        }
-                                    }
-
-                                    let sub_mesh = &mesh.sub_meshes[j];
-                                    render_pass.draw(sub_mesh.first..sub_mesh.last, 0..1);
-                                }
-                            }
-                        }
+                } else {
+                    let buffer = if let Some(b) = m.buffer() {
+                        b
+                    } else {
+                        continue;
                     };
-                });
+
+                    render_pass.set_vertex_buffer(0, buffer.slice(..));
+
+                    // TODO: We should probably do some GPU based culling for huge numbers of instances
+                    if instances > 20000 {
+                        render_pass.draw(
+                            m.ranges[0].first..(m.ranges.last().unwrap().last),
+                            0..(instances as u32),
+                        );
+                    } else {
+                        for instance in 0..(instances as u32) {
+                            if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
+                                != FrustrumResult::Outside
+                            {
+                                render_pass.draw(
+                                    m.ranges[0].first..(m.ranges.last().unwrap().last),
+                                    instance..(instance + 1),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         encoder.copy_buffer_to_buffer(
@@ -1276,7 +1098,8 @@ impl ShadowMapArray {
         );
 
         for v in start..end {
-            let mut filter_pass = encoder.begin_compute_pass();
+            let mut filter_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             filter_pass.set_pipeline(&self.filter_pipeline);
             filter_pass.set_bind_group(0, &self.filter_bind_groups1[v as usize], &[]);
             filter_pass.dispatch(
@@ -1294,7 +1117,8 @@ impl ShadowMapArray {
             8,
         );
         for v in start..end {
-            let mut filter_pass = encoder.begin_compute_pass();
+            let mut filter_pass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             filter_pass.set_pipeline(&self.filter_pipeline);
             filter_pass.set_bind_group(0, &self.filter_bind_groups2[v as usize], &[]);
             filter_pass.dispatch(

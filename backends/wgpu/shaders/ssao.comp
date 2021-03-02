@@ -7,6 +7,7 @@ layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform Locals {
     mat4 View;
     mat4 Proj;
+    mat4 matrix_2d;
     uvec4 light_count;
     vec4 cam_pos;
 };
@@ -16,7 +17,7 @@ layout(set = 1, binding = 1) uniform sampler Sampler;
 layout(set = 1, binding = 2) uniform texture2D ScreenSpace;
 layout(set = 1, binding = 3) uniform texture2D Normal;
 
-#define SAMPLES 16
+#define SAMPLES 4
 #define BIAS 0.05
 #define RADIUS 0.5
 

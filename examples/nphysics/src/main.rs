@@ -1,15 +1,7 @@
 #![allow(dead_code)]
 
-use rfw::{
-    backend::Setting,
-    backend::SettingValue,
-    math::*,
-    prelude::*,
-    scene::Camera,
-    scene::{Plane, Sphere},
-    utils::Timer,
-};
-use std::collections::HashMap;
+use rfw::{math::*, prelude::*, utils::Timer};
+use rfw_backend_wgpu::WgpuView;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -19,63 +11,8 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub struct KeyHandler {
-    states: HashMap<VirtualKeyCode, bool>,
-}
-
-impl KeyHandler {
-    pub fn new() -> KeyHandler {
-        Self {
-            states: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, key: KeyCode, state: ElementState) {
-        self.states.insert(
-            key,
-            match state {
-                ElementState::Pressed => true,
-                _ => false,
-            },
-        );
-    }
-
-    pub fn pressed(&self, key: KeyCode) -> bool {
-        if let Some(state) = self.states.get(&key) {
-            return *state;
-        }
-        false
-    }
-}
-
-pub struct MouseButtonHandler {
-    states: HashMap<MouseButtonCode, bool>,
-}
-
-impl MouseButtonHandler {
-    pub fn new() -> MouseButtonHandler {
-        Self {
-            states: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, key: MouseButtonCode, state: ElementState) {
-        self.states.insert(
-            key,
-            match state {
-                ElementState::Pressed => true,
-                _ => false,
-            },
-        );
-    }
-
-    pub fn pressed(&self, key: MouseButtonCode) -> bool {
-        if let Some(state) = self.states.get(&key) {
-            return *state;
-        }
-        false
-    }
-}
+type KeyHandler = rfw::utils::input::ButtonState<VirtualKeyCode>;
+type MouseButtonHandler = rfw::utils::input::ButtonState<MouseButtonCode>;
 
 use nphysics3d::{
     algebra::{Force3, ForceType},
@@ -114,13 +51,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build(&event_loop)
         .unwrap();
 
-    width = window.inner_size().width as usize;
-    height = window.inner_size().height as usize;
+    width = window.inner_size().width as u32;
+    height = window.inner_size().height as u32;
+
+    let scale_factor: f64 = window
+        .current_monitor()
+        .and_then(|m| Some(1.0 / m.scale_factor()))
+        .unwrap_or(1.0);
 
     use rfw_backend_wgpu::WgpuBackend as Renderer;
 
-    let mut renderer: RenderSystem<Renderer> =
-        RenderSystem::new(&window, (width, height), (width, height))?;
+    let mut renderer: rfw::Instance<Renderer> =
+        rfw::Instance::new(&window, (width, height), Some(scale_factor))?;
 
     let mut mechanical_world = DefaultMechanicalWorld::new(Vector3::new(0.0_f32, -9.81, 0.0));
     let mut geometrical_world = DefaultGeometricalWorld::new();
@@ -129,9 +71,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut joint_constraints = DefaultJointConstraintSet::new();
     let mut force_generators = DefaultForceGeneratorSet::new();
 
-    let cam_id = renderer.create_camera(width as u32, height as u32);
-    *renderer.get_camera_mut(cam_id).unwrap() =
-        Camera::new(width as u32, height as u32).with_position(Vec3::new(0.0, 1.0, -4.0));
+    let camera_2d = Camera2D::from_width_height(width, height, Some(scale_factor));
+    let mut camera_3d = Camera3D::new()
+        .with_aspect_ratio(width as f32 / height as f32)
+        .with_position(Vec3::new(0.0, 1.0, -4.0));
     let mut timer = Timer::new();
     let mut timer2 = Timer::new();
     let mut fps = Averager::new();
@@ -143,10 +86,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::splat(1.0));
 
     // Ground
-    let plane_material = renderer.add_material([1.0, 0.3, 0.3], 1.0, [1.0; 3], 0.0);
-    let plane = Plane::new([0.0; 3], [0.0, 1.0, 0.0], [50.0; 2], plane_material);
-    let plane = renderer.add_object(plane)?;
-    let _plane_inst = renderer.create_instance(plane)?;
+    let plane_material =
+        renderer
+            .get_scene_mut()
+            .materials
+            .add(Vec3::new(0.3, 0.4, 0.6), 1.0, Vec3::one(), 0.0);
+    let plane = Quad3D::new(
+        Vec3::unit_y(),
+        Vec3::zero(),
+        50.0,
+        50.0,
+        plane_material as _,
+    );
+
+    let plane = renderer.get_scene_mut().add_3d_object(plane);
+    let _plane_inst = renderer.get_scene_mut().add_3d_instance(plane).unwrap();
 
     let ground_shape = ShapeHandle::new(nphysics3d::ncollide3d::shape::Plane::new(
         Unit::new_normalize(Vector3::new(0.0_f32, 1.0, 0.0)),
@@ -164,16 +118,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     colliders.insert(ground_collider);
 
-    let sphere_material = renderer.add_material([0.0, 0.5, 1.0], 1.0, [1.0; 3], 0.0);
+    let sphere_material =
+        renderer
+            .get_scene_mut()
+            .materials
+            .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
     let sphere_radius = 0.5_f32;
     let sphere_center: [f32; 3] = [0.0, 5.0, 0.0];
-    let sphere = Sphere::new([0.0; 3], sphere_radius, sphere_material);
-    let sphere = renderer.add_object(sphere)?;
-    let sphere_inst = renderer.create_instance(sphere)?;
-    renderer
-        .get_instance_mut(sphere_inst)
-        .unwrap()
-        .set_translation(sphere_center);
+    let sphere = Sphere::new([0.0; 3], sphere_radius, sphere_material as _);
+    let sphere = renderer.get_scene_mut().add_3d_object(sphere);
+    let mut sphere_inst = renderer.get_scene_mut().add_3d_instance(sphere)?;
+    sphere_inst
+        .get_transform()
+        .set_translation(sphere_center.into());
 
     let sphere = ShapeHandle::new(Ball::new(sphere_radius));
 
@@ -199,10 +156,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     geometrical_world.maintain(&mut bodies, &mut colliders);
 
-    let settings: Vec<Setting> = renderer.get_settings().unwrap();
-
     timer2.reset();
-    renderer.synchronize();
     synchronize.add_sample(timer2.elapsed_in_millis());
 
     let mut first = true;
@@ -218,7 +172,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 window_id,
             } if window_id == window.id() => {
                 if let Some(key) = input.virtual_keycode {
-                    key_handler.insert(key, input.state);
+                    key_handler.insert(key, input.state == ElementState::Pressed);
                 }
             }
             Event::WindowEvent {
@@ -236,37 +190,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut pos_change = Vec3::zero();
                 let mut sphere_forces = Vec3::zero();
 
-                if !settings.is_empty() {
-                    let mut value = None;
+                {
+                    let settings = renderer.get_settings();
                     if key_handler.pressed(KeyCode::Key0) {
-                        value = Some(0);
+                        settings.view = WgpuView::Output;
                     }
                     if key_handler.pressed(KeyCode::Key1) {
-                        value = Some(1);
+                        settings.view = WgpuView::Albedo;
                     }
                     if key_handler.pressed(KeyCode::Key2) {
-                        value = Some(2);
+                        settings.view = WgpuView::Normal;
                     }
                     if key_handler.pressed(KeyCode::Key3) {
-                        value = Some(3);
+                        settings.view = WgpuView::WorldPos;
                     }
                     if key_handler.pressed(KeyCode::Key4) {
-                        value = Some(4);
+                        settings.view = WgpuView::Radiance;
                     }
                     if key_handler.pressed(KeyCode::Key5) {
-                        value = Some(5);
+                        settings.view = WgpuView::ScreenSpace;
                     }
                     if key_handler.pressed(KeyCode::Key6) {
-                        value = Some(6);
+                        settings.view = WgpuView::SSAO;
                     }
                     if key_handler.pressed(KeyCode::Key7) {
-                        value = Some(7);
-                    }
-
-                    if let Some(value) = value {
-                        let mut setting: Setting = settings[0].clone();
-                        setting.set(SettingValue::Int(value));
-                        renderer.set_setting(setting).unwrap();
+                        settings.view = WgpuView::FilteredSSAO;
                     }
                 }
 
@@ -357,21 +305,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let view_change = view_change * camera_elapsed * 0.001;
                 let pos_change = pos_change * camera_elapsed * 0.01;
 
-                if let Some(camera) = renderer.get_camera_mut(cam_id) {
-                    if view_change != [0.0; 3].into() {
-                        camera.translate_target(view_change);
-                    }
-                    if pos_change != [0.0; 3].into() {
-                        camera.translate_relative(pos_change);
-                    }
-
-                    if resized {
-                        camera.resize(width as u32, height as u32);
-                    }
-                }
+                camera_3d.translate_target(view_change);
+                camera_3d.translate_relative(pos_change);
 
                 if resized {
-                    renderer.resize(&window, (width, height), (width, height));
+                    renderer.resize(&window, (width, height), None);
+                    camera_3d.set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
                 }
 
@@ -411,25 +350,25 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 physics.add_sample(timer2.elapsed_in_millis());
 
-                if let Some(instance) = renderer.get_instance_mut(sphere_inst) {
-                    let translation =
-                        Vec3::new(data.translation.x, data.translation.y, data.translation.z);
-                    instance.set_translation(translation);
-                    let rotation = Quat::from(Vec4::new(
+                sphere_inst
+                    .get_transform()
+                    .set_translation(Vec3::new(
+                        data.translation.x,
+                        data.translation.y,
+                        data.translation.z,
+                    ))
+                    .set_rotation(Quat::from(Vec4::new(
                         data.rotation.i,
                         data.rotation.j,
                         data.rotation.k,
                         data.rotation.w,
-                    ));
-                    instance.set_rotation_quat(rotation);
-                }
+                    )));
 
                 timer2.reset();
-                renderer.synchronize();
                 synchronize.add_sample(timer2.elapsed_in_millis());
 
                 timer2.reset();
-                if let Err(e) = renderer.render(cam_id, RenderMode::Reset) {
+                if let Err(e) = renderer.render(&camera_2d, &camera_3d, RenderMode::Reset) {
                     eprintln!("Error while rendering: {}", e);
                     *control_flow = ControlFlow::Exit;
                 }
@@ -439,8 +378,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::Resized(size),
                 window_id,
             } if window_id == window.id() => {
-                width = size.width as usize;
-                height = size.height as usize;
+                width = size.width;
+                height = size.height;
 
                 resized = true;
             }
@@ -469,7 +408,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 event: WindowEvent::MouseInput { state, button, .. },
                 window_id,
             } if window_id == window.id() => {
-                mouse_button_handler.insert(button, state);
+                mouse_button_handler.insert(button, state == ElementState::Pressed);
             }
             _ => (),
         }

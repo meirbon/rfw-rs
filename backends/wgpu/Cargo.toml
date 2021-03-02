@@ -1,19 +1,30 @@
 [package]
-name = "rfw-backend-wgpu"
-version = "0.1.0"
 authors = ["meir"]
-edition = "2018"
 build = "build.rs"
 description = "A wgpu-based backend for rfw."
+edition = "2018"
 license = "Apache-2.0"
+name = "rfw-backend-wgpu"
 repository = "https://github.com/meirbon/rfw-rs"
+version = "0.1.0"
 
 [dependencies]
-num_cpus = "1.13"
-wgpu = "0.6"
 futures = "0.3"
-rfw = "0.1"
-bitvec = "0.19"
+num_cpus = "1.13"
+rfw = { path = "../../rfw" }
+wgpu = "0.7"
+rayon = "1.5"
+imgui = { version = "0.7", optional = true }
+imgui-wgpu = { version = "0.14", optional = true }
+imgui-winit-support = { version = "0.7", optional = true }
+winit = { version = "0.24", optional = true }
+# rfw = "0.1"
 
 [build-dependencies]
-rfw = "0.1"
+rfw = { path = "../../rfw" }
+# rfw = "0.1"
+spirv-compiler = "0.1"
+
+[features]
+default = []
+imgui-winit = ["imgui", "imgui-wgpu", "imgui-winit-support", "winit"]
