@@ -43,12 +43,18 @@ impl System for FpsSystem {
                 Section::default()
                     .with_screen_position((0.0, 0.0))
                     .add_text(
-                        Text::new(
-                            format!("FPS: {:.2}\nFrametime: {:.2} ms", 1000.0 / average, average)
-                                .as_str(),
-                        )
-                        .with_scale(32.0)
-                        .with_color([1.0; 4]),
+                        Text::new(format!("FPS: {:.2}", 1000.0 / average).as_str())
+                            .with_scale(32.0)
+                            .with_color([1.0; 4]),
+                    ),
+            );
+            font.draw(
+                Section::default()
+                    .with_screen_position((0.0, 32.0))
+                    .add_text(
+                        Text::new(format!("FRAMETIME: {:.2} ms", average).as_str())
+                            .with_scale(32.0)
+                            .with_color([1.0; 4]),
                     ),
             );
         }
@@ -143,12 +149,12 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
         .scene()
         .unwrap();
 
-    let mut cesium_man1 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
+    let mut cesium_man1 = renderer.get_scene_mut().add_3d(&cesium_man);
     cesium_man1
         .get_transform()
         .set_scale(Vec3::splat(3.0))
         .rotate_y(180.0_f32.to_radians());
-    let mut cesium_man2 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
+    let mut cesium_man2 = renderer.get_scene_mut().add_3d(&cesium_man);
     cesium_man2
         .get_transform()
         .translate(Vec3::new(-3.0, 0.0, 0.0))
@@ -159,7 +165,7 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
         .load("assets/models/pica/scene.gltf")?
         .scene()
         .unwrap();
-    renderer.get_scene_mut().add_3d_scene(&pica_desc);
+    renderer.get_scene_mut().add_3d(&pica_desc);
 
     let app_time = utils::Timer::new();
 
@@ -181,10 +187,10 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
 
                 if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
                     if let Some(handle) = scene_id.take() {
-                        renderer.get_scene_mut().remove_3d_scene(handle);
+                        renderer.get_scene_mut().remove_3d(handle);
                         scene_id = None;
                     } else {
-                        let mut handle = renderer.get_scene_mut().add_3d_scene(&cesium_man);
+                        let mut handle = renderer.get_scene_mut().add_3d(&cesium_man);
                         handle
                             .get_transform()
                             .translate(Vec3::new(-6.0, 0.0, 0.0))

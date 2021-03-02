@@ -261,15 +261,15 @@ impl Scene {
         Err(SceneError::NoFileLoader(extension))
     }
 
-    pub fn add_3d_scene<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
-        self.objects.graph.add_graph(scene.into_scene(
+    pub fn add_3d<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
+        self.objects.graph.add_graph(scene.to_scene(
             &mut self.objects.meshes_3d,
             &mut self.objects.instances_3d,
             &mut self.objects.skins,
         ))
     }
 
-    pub fn remove_3d_scene(&mut self, scene: GraphHandle) {
+    pub fn remove_3d(&mut self, scene: GraphHandle) {
         self.objects.graph.remove_graph(
             scene,
             &mut self.objects.meshes_3d,
@@ -302,7 +302,7 @@ impl Scene {
         }
     }
 
-    pub fn add_2d_object<T: ToMesh2D>(&mut self, object: T) -> MeshId2D {
+    pub fn add_2d<T: ToMesh2D>(&mut self, object: T) -> MeshId2D {
         let id = self.objects.meshes_2d.push(object.into_mesh_2d());
         self.objects
             .instances_2d

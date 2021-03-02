@@ -34,9 +34,9 @@ impl From<List2D> for InstanceList2D {
     }
 }
 
-impl Into<List2D> for InstanceList2D {
-    fn into(self) -> List2D {
-        self.clone_inner()
+impl From<InstanceList2D> for List2D {
+    fn from(l: InstanceList2D) -> Self {
+        l.clone_inner()
     }
 }
 

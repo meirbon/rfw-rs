@@ -61,7 +61,7 @@ impl Plugin for FontRenderer {
         );
 
         let tex_id = scene.add_texture(texture);
-        let mesh_id = scene.add_2d_object(Mesh2D::new(
+        let mesh_id = scene.add_2d(Mesh2D::new(
             vec![
                 [-0.5, -0.5, 0.5],
                 [0.5, -0.5, 0.5],

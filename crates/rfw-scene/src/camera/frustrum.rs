@@ -105,15 +105,15 @@ impl From<[Vec3; 3]> for FrustrumPlane {
 }
 
 impl From<(f32, f32, f32, f32)> for FrustrumPlane {
-    fn from(coeffs: (f32, f32, f32, f32)) -> Self {
-        let (a, b, c, d) = coeffs;
+    fn from(coefficients: (f32, f32, f32, f32)) -> Self {
+        let (a, b, c, d) = coefficients;
         Self::from_coefficients(a, b, c, d)
     }
 }
 
 impl From<[f32; 4]> for FrustrumPlane {
-    fn from(coeffs: [f32; 4]) -> Self {
-        let [a, b, c, d] = coeffs;
+    fn from(coefficients: [f32; 4]) -> Self {
+        let [a, b, c, d] = coefficients;
         Self::from_coefficients(a, b, c, d)
     }
 }

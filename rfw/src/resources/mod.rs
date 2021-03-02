@@ -1,5 +1,3 @@
-mod storage;
-
 use crossbeam::sync::ShardedLock;
 use downcast_rs::{impl_downcast, Downcast};
 use std::any::TypeId;
@@ -7,7 +5,9 @@ use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::fmt::*;
 use std::sync::Arc;
-pub use storage::{LockedValue, LockedValueMut};
+pub use storage::*;
+
+mod storage;
 
 pub trait Resource: 'static {}
 
@@ -17,7 +17,7 @@ pub trait ResourceStorage: Downcast {}
 impl_downcast!(ResourceStorage);
 struct ResourceData<T: 'static> {
     value: UnsafeCell<T>,
-    mutated: UnsafeCell<bool>,
+    _mutated: UnsafeCell<bool>,
 }
 
 impl<T: 'static> ResourceStorage for ResourceData<T> {}
@@ -52,7 +52,7 @@ impl ResourceList {
             TypeId::of::<T>(),
             Arc::new(ShardedLock::new(Box::new(ResourceData {
                 value: UnsafeCell::new(resource),
-                mutated: UnsafeCell::new(true),
+                _mutated: UnsafeCell::new(true),
             }))),
         );
     }
@@ -79,7 +79,7 @@ impl ResourceList {
         if let Some(r) = self.resources.get(&TypeId::of::<T>()) {
             let mut lock = r.write().unwrap();
             if let Some(data) = lock.downcast_mut::<ResourceData<T>>() {
-                data.mutated = UnsafeCell::new(true);
+                data._mutated = UnsafeCell::new(true);
                 return Some(LockedValueMut {
                     data: data.value.get(),
                     _lock: lock,
@@ -108,7 +108,7 @@ mod tests {
         // scheduler.run(&resources, &world);
 
         // if let Some(resource) = resources.get_resource::<ScoreBoard>() {
-            // assert_eq!(resource.0, system_count * additions_per_thread);
+        // assert_eq!(resource.0, system_count * additions_per_thread);
         // };
     }
 }

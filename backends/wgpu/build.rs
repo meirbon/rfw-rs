@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ) {
             Ok(shader) => shader,
             Err(e) => {
-                panic!(format!("compile error: {}", e));
+                panic!("compile error: {}", e);
             }
         };
 

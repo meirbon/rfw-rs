@@ -46,7 +46,7 @@ impl System for FpsSystem {
                     .with_screen_position((0.0, 0.0))
                     .add_text(
                         Text::new(
-                            format!("FPS: {:.2}\nFrametime: {:.2} ms", 1000.0 / average, average)
+                            format!("FPS: {:.2}\nFRAMETIME: {:.2} MS", 1000.0 / average, average)
                                 .as_str(),
                         )
                         .with_scale(32.0)
@@ -150,8 +150,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         let mut scene = renderer.get_scene_mut();
         for x in -sphere_x..=sphere_x {
             for z in -sphere_z..=sphere_z {
-                let mut instance = scene.add_3d_instance(sphere).unwrap();
-                instance.set_matrix(Mat4::from_translation(Vec3::new(x as f32, 0.3, z as f32)));
+                let mut instance = scene.add_3d(&sphere);
+                instance
+                    .get_transform()
+                    .set_matrix(Mat4::from_translation(Vec3::new(x as f32, 0.3, z as f32)));
                 handles.push(instance);
             }
         }
@@ -163,12 +165,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .load("assets/models/CesiumMan/CesiumMan.gltf")?
         .scene()?;
 
-    let mut cesium_man1 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
+    let mut cesium_man1 = renderer.get_scene_mut().add_3d(&cesium_man);
     cesium_man1
         .get_transform()
         .set_scale(Vec3::splat(3.0))
         .rotate_y(180.0_f32.to_radians());
-    let mut cesium_man2 = renderer.get_scene_mut().add_3d_scene(&cesium_man);
+    let mut cesium_man2 = renderer.get_scene_mut().add_3d(&cesium_man);
     cesium_man2
         .get_transform()
         .translate(Vec3::new(-3.0, 0.0, 0.0))
@@ -179,7 +181,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .load("assets/models/pica/scene.gltf")?
         .scene()
         .unwrap();
-    renderer.get_scene_mut().add_3d_scene(&pica_desc);
+    renderer.get_scene_mut().add_3d(&pica_desc);
 
     let app_time = utils::Timer::new();
 
@@ -233,10 +235,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
                 if scene_timer.elapsed_in_millis() >= 500.0 && key_handler.pressed(KeyCode::Space) {
                     if let Some(handle) = scene_id.take() {
-                        renderer.get_scene_mut().remove_3d_scene(handle);
+                        renderer.get_scene_mut().remove_3d(handle);
                         scene_id = None;
                     } else {
-                        let mut handle = renderer.get_scene_mut().add_3d_scene(&cesium_man);
+                        let mut handle = renderer.get_scene_mut().add_3d(&cesium_man);
                         handle
                             .get_transform()
                             .translate(Vec3::new(-6.0, 0.0, 0.0))
@@ -330,13 +332,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     .lights
                     .spot_lights
                     .iter_mut()
-                    .enumerate()
-                    .for_each(|(_, (i, sl))| {
+                    .for_each(|(_, sl)| {
                         let direction = Vec3::from(sl.direction);
-                        let direction = Quat::from_rotation_y(
-                            (elapsed / 10.0 + (i as f32 * 30.0)).to_radians(),
-                        )
-                        .mul_vec3(direction);
+                        let direction = Quat::from_rotation_y((elapsed / 10.0).to_radians())
+                            .mul_vec3(direction);
                         sl.direction = direction.into();
                     });
 
@@ -398,11 +397,12 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     let _z = (((z + sphere_z) as f32) + t).sin();
                     let height = (_z + _x) * 0.5 + 1.0;
 
-                    h.set_matrix(Mat4::from_translation(Vec3::new(
-                        x as f32,
-                        0.3 + height,
-                        z as f32,
-                    )));
+                    h.get_transform()
+                        .set_matrix(Mat4::from_translation(Vec3::new(
+                            x as f32,
+                            0.3 + height,
+                            z as f32,
+                        )));
                 });
 
                 if let Err(e) = renderer.render(&camera_2d, &camera_3d, RenderMode::Reset) {

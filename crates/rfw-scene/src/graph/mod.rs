@@ -1,6 +1,6 @@
 use crate::{
     utils::{HasMatrix, HasRotation, HasScale, HasTranslation, Transform},
-    InstanceList3D, Mesh3D, SkinID,
+    InstanceList3D, LoadResult, Mesh3D, SkinID, ToMesh3D,
 };
 use l3d::load::{Animation, AnimationDescriptor, AnimationNode, SkinDescriptor};
 use rayon::prelude::*;
@@ -24,9 +24,9 @@ pub enum NodeFlags {
     Morphed = 2,
 }
 
-impl Into<u8> for NodeFlags {
-    fn into(self) -> u8 {
-        self as u8
+impl From<NodeFlags> for u8 {
+    fn from(f: NodeFlags) -> Self {
+        f as u8
     }
 }
 
@@ -101,7 +101,6 @@ pub struct Node {
     pub(crate) translation: Vec3,
     pub(crate) rotation: Quat,
     pub(crate) scale: Vec3,
-    pub(crate) matrix: Mat4,
     pub(crate) local_matrix: Mat4,
     pub combined_matrix: Mat4,
     pub skin: Option<u32>,
@@ -196,7 +195,7 @@ impl AnimationNode for Node {
     fn update_matrix(&mut self) {
         let trs =
             Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation);
-        self.local_matrix = trs * self.matrix;
+        self.local_matrix = trs;
         self.changed = false;
     }
 }
@@ -207,7 +206,6 @@ impl Default for Node {
             translation: Vec3::zero(),
             rotation: Quat::identity(),
             scale: Vec3::splat(1.0),
-            matrix: Mat4::identity(),
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
             skin: None,
@@ -244,12 +242,20 @@ impl Node {
     }
 
     pub fn set_matrix<T: Into<[f32; 16]>>(&mut self, matrix: T) {
-        self.matrix = Mat4::from_cols_array(&matrix.into());
+        let matrix = Mat4::from_cols_array(&matrix.into());
+        let (s, r, t) = matrix.to_scale_rotation_translation();
+        self.scale = s;
+        self.rotation = r;
+        self.translation = t;
         self.changed = true;
     }
 
     pub fn set_matrix_cols<T: Into<[[f32; 4]; 4]>>(&mut self, matrix: T) {
-        self.matrix = Mat4::from_cols_array_2d(&matrix.into());
+        let matrix = Mat4::from_cols_array_2d(&matrix.into());
+        let (s, r, t) = matrix.to_scale_rotation_translation();
+        self.scale = s;
+        self.rotation = r;
+        self.translation = t;
         self.changed = true;
     }
 
@@ -319,7 +325,7 @@ impl Node {
 }
 
 pub trait ToScene {
-    fn into_scene(
+    fn to_scene(
         &self,
         meshes: &mut TrackedStorage<Mesh3D>,
         instances: &mut FlaggedStorage<InstanceList3D>,
@@ -337,8 +343,51 @@ pub struct NodeGraph {
     pub active_animation: Option<usize>,
 }
 
+impl ToScene for LoadResult {
+    fn to_scene(
+        &self,
+        meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
+        skins: &mut TrackedStorage<Skin>,
+    ) -> NodeGraph {
+        match self {
+            LoadResult::Object(mesh) => mesh.to_scene(meshes, instances, skins),
+            LoadResult::Scene(scene) => scene.to_scene(meshes, instances, skins),
+        }
+    }
+}
+
+impl<T: ToMesh3D + Clone> ToScene for T {
+    fn to_scene(
+        &self,
+        meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
+        skins: &mut TrackedStorage<Skin>,
+    ) -> NodeGraph {
+        let mesh = self.clone().into_mesh_3d();
+        let id = MeshId3D(meshes.push(mesh) as _);
+        id.to_scene(meshes, instances, skins)
+    }
+}
+
+impl ToScene for MeshId3D {
+    fn to_scene(
+        &self,
+        _meshes: &mut TrackedStorage<Mesh3D>,
+        instances: &mut FlaggedStorage<InstanceList3D>,
+        _skins: &mut TrackedStorage<Skin>,
+    ) -> NodeGraph {
+        let mut graph = NodeGraph::new();
+        graph.nodes[graph.root_node as usize].meshes.push(NodeMesh {
+            object_id: self.0 as _,
+            instance_id: Some(instances[self.0 as usize].allocate().get_id() as _),
+        });
+        graph
+    }
+}
+
 impl ToScene for SceneDescriptor {
-    fn into_scene(
+    fn to_scene(
         &self,
         meshes: &mut TrackedStorage<Mesh3D>,
         instances: &mut FlaggedStorage<InstanceList3D>,
@@ -726,7 +775,6 @@ impl NodeGraph {
             translation: descriptor.translation,
             rotation: descriptor.rotation,
             scale: descriptor.scale,
-            matrix: Mat4::identity(),
             local_matrix: Mat4::identity(),
             combined_matrix: Mat4::identity(),
             skin: skin_id,
@@ -858,7 +906,6 @@ impl SceneGraph {
         let changed: u32 = self
             .sub_graphs
             .iter()
-            .filter(|(i, _)| times.get_changed(*i))
             .par_bridge()
             .map(|(i, graph)| {
                 if let Ok(mut graph) = graph.lock() {

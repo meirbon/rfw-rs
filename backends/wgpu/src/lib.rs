@@ -1,4 +1,3 @@
-use crate::light::WgpuLights;
 use crate::mesh::{SkinningPipeline, WgpuSkin};
 pub use crate::output::WgpuView;
 use futures::executor::block_on;
@@ -26,7 +25,6 @@ use mat::*;
 #[cfg(feature = "imgui-winit")]
 mod gui;
 
-use crate::instance::InstanceList;
 #[cfg(feature = "imgui-winit")]
 pub use gui::*;
 pub use output::WgpuOutput;
@@ -124,7 +122,6 @@ pub struct WgpuBackend {
     skins: TrackedStorage<WgpuSkin>,
 
     lights_changed: bool,
-    materials_changed: bool,
     instances_changed: bool,
 
     mesh_bounds: FlaggedStorage<(AABB, Vec<VertexMesh>)>,
@@ -475,7 +472,6 @@ impl Backend for WgpuBackend {
             skins: TrackedStorage::new(),
 
             lights_changed: true,
-            materials_changed: true,
             instances_changed: true,
 
             mesh_bounds: FlaggedStorage::new(),
@@ -607,8 +603,6 @@ impl Backend for WgpuBackend {
                 },
             ],
         });
-
-        self.materials_changed = true;
     }
 
     fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
@@ -673,26 +667,15 @@ impl Backend for WgpuBackend {
             });
 
         if self.instances_changed {
-            Self::render_lights(
-                &mut encoder,
-                &mut self.lights,
-                &self.instances,
-                &self.meshes,
-            );
+            encoder.insert_debug_marker("lights");
+            self.render_lights(&mut encoder);
             self.instances_changed = false;
         }
 
-        Self::render_scene(
+        encoder.insert_debug_marker("render");
+        self.render_scene(
             &mut encoder,
             FrustrumG::from_matrix(camera_3d.get_rh_matrix()),
-            &self.pipeline,
-            &self.instances,
-            &self.meshes,
-            &self.output,
-            &self.uniform_bind_group,
-            self.material_bind_groups.as_slice(),
-            &self.ssao_pass,
-            &self.radiance_pass,
         );
 
         let mut output_pass = self
@@ -845,46 +828,30 @@ impl Backend for WgpuBackend {
 }
 
 impl WgpuBackend {
-    fn render_lights(
-        encoder: &mut wgpu::CommandEncoder,
-        lights: &mut WgpuLights,
-        instances: &TrackedStorage<InstanceList>,
-        meshes: &TrackedStorage<WgpuMesh>,
-    ) {
-        lights.render(encoder, instances, meshes);
+    fn render_lights(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        self.lights.render(encoder, &self.instances, &self.meshes);
     }
 
-    fn render_scene(
-        encoder: &mut wgpu::CommandEncoder,
-        frustrum: FrustrumG,
-        pipeline: &pipeline::RenderPipeline,
-        instances: &TrackedStorage<InstanceList>,
-        meshes: &TrackedStorage<WgpuMesh>,
-        d_output: &output::WgpuOutput,
-        uniform_bind_group: &wgpu::BindGroup,
-        material_bind_groups: &[WgpuBindGroup],
-        ssao_pass: &pass::SSAOPass,
-        radiance_pass: &pass::RadiancePass,
-    ) {
+    fn render_scene(&self, encoder: &mut wgpu::CommandEncoder, frustrum: FrustrumG) {
         use output::*;
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[
-                d_output.as_descriptor(WgpuView::Albedo),
-                d_output.as_descriptor(WgpuView::Normal),
-                d_output.as_descriptor(WgpuView::WorldPos),
-                d_output.as_descriptor(WgpuView::ScreenSpace),
-                d_output.as_descriptor(WgpuView::MatParams),
+                self.output.as_descriptor(WgpuView::Albedo),
+                self.output.as_descriptor(WgpuView::Normal),
+                self.output.as_descriptor(WgpuView::WorldPos),
+                self.output.as_descriptor(WgpuView::ScreenSpace),
+                self.output.as_descriptor(WgpuView::MatParams),
             ],
-            depth_stencil_attachment: Some(d_output.as_depth_descriptor()),
+            depth_stencil_attachment: Some(self.output.as_depth_descriptor()),
         });
 
-        render_pass.set_pipeline(&pipeline.pipeline);
-        render_pass.set_bind_group(0, uniform_bind_group, &[]);
+        render_pass.set_pipeline(&self.pipeline.pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
-        for (id, i) in instances.iter() {
-            let m = &meshes[id];
+        for (id, i) in self.instances.iter() {
+            let m = &self.meshes[id];
             let instances = i.len() as usize;
             if instances == 0 {
                 continue;
@@ -913,7 +880,7 @@ impl WgpuBackend {
                     render_pass.set_vertex_buffer(4, buffer_slice);
 
                     for r in m.ranges.iter() {
-                        let bind_group = &material_bind_groups[r.mat_id as usize];
+                        let bind_group = &self.material_bind_groups[r.mat_id as usize];
                         render_pass.set_bind_group(
                             2,
                             bind_group.group.deref().as_ref().unwrap(),
@@ -943,7 +910,7 @@ impl WgpuBackend {
                         != FrustrumResult::Outside
                 }) {
                     for r in m.ranges.iter() {
-                        let bind_group = &material_bind_groups[r.mat_id as usize];
+                        let bind_group = &self.material_bind_groups[r.mat_id as usize];
                         render_pass.set_bind_group(
                             2,
                             bind_group.group.deref().as_ref().unwrap(),
@@ -957,13 +924,14 @@ impl WgpuBackend {
 
         drop(render_pass);
 
-        ssao_pass.launch(
+        self.ssao_pass.launch(
             encoder,
-            d_output.width,
-            d_output.height,
-            &uniform_bind_group,
+            self.output.width,
+            self.output.height,
+            &self.uniform_bind_group,
         );
 
-        radiance_pass.launch(encoder, d_output.width, d_output.height);
+        self.radiance_pass
+            .launch(encoder, self.output.width, self.output.height);
     }
 }

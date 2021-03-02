@@ -202,6 +202,18 @@ impl<T: HasMatrix> Transform<'_, T> {
         self.changed = true;
         self
     }
+
+    pub fn set_matrix(&mut self, matrix: Mat4) -> &mut Self
+    where
+        T: HasTranslation + HasRotation + HasScale,
+    {
+        let (s, r, t) = matrix.to_scale_rotation_translation();
+        self.scale = s;
+        self.rotation = r;
+        self.translation = t;
+        self.changed = true;
+        self
+    }
 }
 
 impl<T: HasMatrix> Drop for Transform<'_, T> {

@@ -323,7 +323,7 @@ impl<T: Default + Clone + std::fmt::Debug> Index<usize> for FlaggedStorage<T> {
     fn index(&self, index: usize) -> &Self::Output {
         match unsafe { *self.active.get_unchecked(index) } {
             true => unsafe { self.get_unchecked(index) },
-            false => panic!(format!("index {} was not active", index)),
+            false => panic!("index {} was not active", index),
         }
     }
 }
@@ -333,7 +333,7 @@ impl<T: Default + Clone + std::fmt::Debug> IndexMut<usize> for FlaggedStorage<T>
         if unsafe { *self.active.get_unchecked(index) } {
             unsafe { self.get_unchecked_mut(index) }
         } else {
-            panic!(format!("index {} was not active", index))
+            panic!("index {} was not active", index)
         }
     }
 }
