@@ -5,16 +5,18 @@ This project is a playground for me ([@MeirBon](https://github.com/MeirBon)) to 
 It is heavily based on my similarly named C++ project [rendering-fw](https://github.com/meirbon/rendering-fw).
 
 ## Features
-The project currently contains the following working apps
-- Deferred wgpu renderer
-- WIP gfx-based renderer
-- GPU Path tracer using wgpu
+- A powerful scene component that lets you efficiently manage 3D and 2D objects with included instancing support.
+- A wgpu backend that support spot-lights, directional lights and area lights.
+- Decent performance, even with >=10k instances.
+- Anything that [l3d](https://github.com/meirbon/l3d) supports (currently gltf and obj files).
+- Backend-agnostic font rendering powered by [glyph_brush](https://github.com/alexheretic/glyph-brush).
 
-### scene crate
-The scene library implements quads, triangle meshes, spheres and planes.
-Scenes can be serialized and deserialized using [serde](https://serde.rs).
-Components such as BVHs can be serialized as well allowing for quick startup times.
+## TODO
+- [ ] ray casting support (should be relatively easy using [rtbvh](https://github.com/MeirBon/rtbvh))
+- [ ] physics support (ideally using [rapier](https://rapier.rs/))
+- [ ] point light support in wgpu backend
+- [ ] easy-to-use ecs architecture
 
 ![deferred.png](docs/deferred-gif.gif)
+![deferred-2.png](docs/deferred-2.png)
 ![gpu-rt](docs/gpu-rt.png)
-![cpu-rt](docs/cpu-rt.png) 
