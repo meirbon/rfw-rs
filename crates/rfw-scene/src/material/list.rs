@@ -1,6 +1,7 @@
-use crate::{material::DeviceMaterial, MaterialFlags, MaterialProps};
+use crate::{MaterialFlags, MaterialProps};
 use bitvec::prelude::*;
 use l3d::mat::{Flip, Material, Texture, TextureSource};
+use rfw_backend::DeviceMaterial;
 use rfw_math::*;
 use rfw_utils::collections::{
     ChangedIterator, FlaggedIterator, FlaggedIteratorMut, FlaggedStorage, TrackedStorage,
@@ -490,7 +491,7 @@ impl MaterialList {
 
     pub fn push(&mut self, mat: Material) -> usize {
         let i = self.materials.len();
-        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any();
+        let is_light = Vec4::from(mat.color).truncate().cmpgt(Vec3::ONE).any();
 
         if mat.diffuse_tex >= 0 {
             self.tex_material_mapping[mat.diffuse_tex as usize].insert(i as u32);
@@ -554,7 +555,7 @@ impl MaterialList {
         if let Some(mat) = self.materials.get_mut(index) {
             self.light_flags.set(
                 index,
-                Vec4::from(mat.color).truncate().cmpgt(Vec3::one()).any(),
+                Vec4::from(mat.color).truncate().cmpgt(Vec3::ONE).any(),
             );
 
             if mat.diffuse_tex >= 0 {
@@ -585,7 +586,7 @@ impl MaterialList {
             index,
             Vec4::from(self.materials[index].color)
                 .truncate()
-                .cmpgt(Vec3::one())
+                .cmpgt(Vec3::ONE)
                 .any(),
         );
     }

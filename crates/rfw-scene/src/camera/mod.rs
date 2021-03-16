@@ -110,6 +110,7 @@ impl Camera3D {
             fov: self.fov.to_radians(),
             near_plane: self.near_plane,
             far_plane: self.far_plane,
+            ..Default::default()
         }
     }
 
@@ -142,7 +143,7 @@ impl Camera3D {
     pub fn get_transform(&mut self) -> Transform<Self> {
         Transform {
             translation: self.pos.into(),
-            rotation: Quat::identity(),
+            rotation: Quat::IDENTITY,
             scale: Vec3::default(),
             handle: self,
             changed: false,

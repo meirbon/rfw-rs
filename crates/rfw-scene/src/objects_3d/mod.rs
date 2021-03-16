@@ -166,8 +166,8 @@ impl Mesh3D {
         let mut bounds = AABB::new();
         let mut vertex_data = vec![Vertex3D::default(); vertices.len()];
 
-        let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
-            let mut normals = vec![Vec3::zero(); vertices.len()];
+        let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::ZERO).all() {
+            let mut normals = vec![Vec3::ZERO; vertices.len()];
             for i in (0..vertices.len()).step_by(3) {
                 let v0 = vertices[i + 0];
                 let v1 = vertices[i + 1];
@@ -196,8 +196,8 @@ impl Mesh3D {
             Vec::from(normals)
         };
 
-        let mut tangents: Vec<Vec4> = vec![Vec4::zero(); vertices.len()];
-        let mut bitangents: Vec<Vec3> = vec![Vec3::zero(); vertices.len()];
+        let mut tangents: Vec<Vec4> = vec![Vec4::ZERO; vertices.len()];
+        let mut bitangents: Vec<Vec3> = vec![Vec3::ZERO; vertices.len()];
 
         for i in (0..vertices.len()).step_by(3) {
             let v0: Vec3 = vertices[i];
@@ -648,8 +648,8 @@ impl From<MeshDescriptor> for Mesh3D {
 
         let material_ids: Vec<u32> = desc.material_ids.chunks(3).map(|c| c[0] as u32).collect();
 
-        let normals: Vec<Vec3> = if Vec3::from(desc.normals[0]).cmpeq(Vec3::zero()).all() {
-            let mut normals = vec![Vec3::zero(); desc.vertices.len()];
+        let normals: Vec<Vec3> = if Vec3::from(desc.normals[0]).cmpeq(Vec3::ZERO).all() {
+            let mut normals = vec![Vec3::ZERO; desc.vertices.len()];
             for i in (0..desc.vertices.len()).step_by(3) {
                 let v0: Vec3 = Vec4::from(desc.vertices[i + 0]).truncate();
                 let v1: Vec3 = Vec4::from(desc.vertices[i + 1]).truncate();
@@ -822,28 +822,33 @@ impl From<MeshDescriptor> for Mesh3D {
             (Vec::new(), Vec::new())
         };
 
-        let mut joints_weights = vec![JointData::default(); vertex_data.len()];
-        joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
-            let joints = if let Some(j) = joints.get(0) {
-                *j.get(i).unwrap_or(&[0; 4])
-            } else {
-                [0; 4]
-            };
+        let joints_weights = if !joints.is_empty() && !weights.is_empty() {
+            let mut joints_weights = vec![JointData::default(); vertex_data.len()];
+            joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
+                let joints = if let Some(j) = joints.get(0) {
+                    *j.get(i).unwrap_or(&[0; 4])
+                } else {
+                    [0; 4]
+                };
 
-            let mut weights = if let Some(w) = weights.get(0) {
-                *w.get(i).unwrap_or(&[0.0; 4])
-            } else {
-                [0.25; 4]
-            };
+                let mut weights = if let Some(w) = weights.get(0) {
+                    *w.get(i).unwrap_or(&[0.0; 4])
+                } else {
+                    [0.25; 4]
+                };
 
-            // Ensure weights sum up to 1.0
-            let total = weights[0] + weights[1] + weights[2] + weights[3];
-            for i in 0..4 {
-                weights[i] = weights[i] / total;
-            }
+                // Ensure weights sum up to 1.0
+                let total = weights[0] + weights[1] + weights[2] + weights[3];
+                for i in 0..4 {
+                    weights[i] = weights[i] / total;
+                }
 
-            *v = JointData::from((joints, weights));
-        });
+                *v = JointData::from((joints, weights));
+            });
+            joints_weights
+        } else {
+            Vec::new()
+        };
 
         Mesh3D {
             triangles,

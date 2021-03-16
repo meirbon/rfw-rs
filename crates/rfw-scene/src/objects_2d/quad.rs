@@ -21,9 +21,9 @@ impl Default for Quad2D {
             top_right: Vec2::new(0.5, 0.5),
             layer: 0.0,
             texture: None,
-            color: Vec4::one(),
-            bottom_left_uv: Vec2::zero(),
-            top_right_uv: Vec2::one(),
+            color: Vec4::ONE,
+            bottom_left_uv: Vec2::ZERO,
+            top_right_uv: Vec2::ONE,
         }
     }
 }

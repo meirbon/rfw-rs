@@ -119,6 +119,67 @@ impl LogOutput for FileLogger {
     }
 }
 
+pub struct BufferLogger {
+    buffer: Vec<String>,
+    capacity: usize,
+    ptr: usize,
+}
+
+impl Default for BufferLogger {
+    fn default() -> Self {
+        Self::with_capacity(1000)
+    }
+}
+
+impl BufferLogger {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buffer: Vec::with_capacity(capacity),
+            capacity,
+            ptr: 0,
+        }
+    }
+
+    pub fn push(&mut self, log: String) {
+        if self.ptr >= self.capacity {
+            self.ptr = 1;
+            self.buffer[0] = log;
+        } else {
+            let index = self.ptr;
+            self.ptr += 1;
+            self.buffer[index] = log;
+        }
+    }
+
+    pub fn print(&self) {
+        for i in 0..self.ptr {
+            println!("{}", self.buffer[i]);
+        }
+
+        for i in self.ptr..(self.capacity.min(self.buffer.len())) {
+            println!("{}", self.buffer[i]);
+        }
+    }
+}
+
+impl LogOutput for BufferLogger {
+    fn log(&mut self, log: &str) {
+        self.push(log.to_string());
+    }
+
+    fn success(&mut self, success: &str) {
+        self.push(success.to_string());
+    }
+
+    fn error(&mut self, error: &str) {
+        self.push(error.to_string());
+    }
+
+    fn warning(&mut self, warning: &str) {
+        self.push(warning.to_string());
+    }
+}
+
 static mut LOGGER: Option<Mutex<Box<dyn LogOutput>>> = None;
 
 pub fn set_logger<T: 'static + LogOutput>(output: T) {

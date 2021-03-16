@@ -8,6 +8,7 @@ members = [
     "backends/wgpu",
     "backends/gfx",
     "backends/metal",
+    "backends/vulkan",
     "crates/rfw-backend",
     "crates/rfw-scene",
     "crates/rfw-math",

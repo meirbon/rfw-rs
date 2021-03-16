@@ -2,7 +2,6 @@ pub mod list;
 
 use l3d::mat::Material;
 pub use list::*;
-use rfw_backend::DeviceMaterial;
 use rfw_math::*;
 use std::fmt::Display;
 
@@ -80,6 +79,6 @@ pub trait Emissive {
 impl Emissive for Material {
     fn is_emissive(&self) -> bool {
         let color: Vec3A = Vec4::from(self.color).into();
-        color.cmpgt(Vec3A::one()).any()
+        color.cmpgt(Vec3A::ONE).any()
     }
 }

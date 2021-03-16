@@ -92,7 +92,7 @@ impl InstanceList2D {
         }
         list.ptr.store(id + 1, Ordering::Release);
         list.flags[id] = InstanceFlags2D::all();
-        list.matrices[id] = Mat4::identity();
+        list.matrices[id] = Mat4::IDENTITY;
 
         InstanceHandle2D {
             index: id,
@@ -102,7 +102,7 @@ impl InstanceList2D {
 
     pub fn make_invalid(&mut self, handle: InstanceHandle2D) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
-        list.matrices[handle.index] = Mat4::identity();
+        list.matrices[handle.index] = Mat4::IDENTITY;
         list.flags[handle.index] = InstanceFlags2D::all();
         list.free_slots.push(handle.index);
         list.removed.push(handle.index);
@@ -110,7 +110,7 @@ impl InstanceList2D {
 
     pub fn resize(&mut self, new_size: usize) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
-        list.matrices.resize(new_size, Mat4::zero());
+        list.matrices.resize(new_size, Mat4::ZERO);
         list.flags.resize(new_size, InstanceFlags2D::empty());
     }
 
@@ -306,7 +306,7 @@ impl InstanceHandle2D {
     #[inline]
     pub fn make_invalid(self) {
         let list = unsafe { self.ptr.get().as_mut().unwrap() };
-        list.matrices[self.index] = Mat4::zero();
+        list.matrices[self.index] = Mat4::ZERO;
         list.flags[self.index] = InstanceFlags2D::all();
         list.free_slots.push(self.index);
         list.removed.push(self.index);

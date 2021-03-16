@@ -445,15 +445,15 @@ pub struct CameraView2D {
 
 #[derive(Default, Debug, Copy, Clone)]
 pub struct CameraView3D {
-    pub pos: [f32; 3],
+    pub pos: Vec3,
     // 12
-    pub right: [f32; 3],
+    pub right: Vec3,
     // 24
-    pub up: [f32; 3],
+    pub up: Vec3,
     // 36
-    pub p1: [f32; 3],
+    pub p1: Vec3,
     //48
-    pub direction: [f32; 3],
+    pub direction: Vec3,
     // 60
     pub lens_size: f32,
     // 64
@@ -468,6 +468,11 @@ pub struct CameraView3D {
     // FOV in radians
     pub fov: f32,
     // 96
+    pub custom0: Vec4,
+    // 112
+    pub custom1: Vec4,
+    // 128
+    // add dummy to align to 128
 }
 
 #[allow(dead_code)]
@@ -554,7 +559,7 @@ impl CameraView3D {
             (Vec4::from(x), Vec4::from(y))
         };
 
-        let blade_param = (blade + Vec4::one()) * pi_over_4dot5;
+        let blade_param = (blade + Vec4::ONE) * pi_over_4dot5;
         let (x2, y2) = {
             let mut x = [0.0 as f32; 4];
             let mut y = [0.0 as f32; 4];
@@ -568,10 +573,10 @@ impl CameraView3D {
         };
 
         let (r2, r3) = {
-            let mask: Vec4Mask = (r2 + r3).cmpgt(Vec4::one());
+            let mask: BVec4A = (r2 + r3).cmpgt(Vec4::ONE);
             (
-                mask.select(Vec4::one() - r2, r2),
-                mask.select(Vec4::one() - r3, r3),
+                Vec4::select(mask, Vec4::ONE - r2, r2),
+                Vec4::select(mask, Vec4::ONE - r3, r3),
             )
         };
 
@@ -598,7 +603,7 @@ impl CameraView3D {
 
         let length = vec4_sqrt(length_squared);
 
-        let inv_length = Vec4::one() / length;
+        let inv_length = Vec4::ONE / length;
 
         let direction_x = (direction_x * inv_length).into();
         let direction_y = (direction_y * inv_length).into();
@@ -663,7 +668,7 @@ impl CameraView3D {
 
         let length = vec4_sqrt(length_squared);
 
-        let inv_length = Vec4::one() / length;
+        let inv_length = Vec4::ONE / length;
 
         let direction_x = (direction_x * inv_length).into();
         let direction_y = (direction_y * inv_length).into();
@@ -896,23 +901,23 @@ impl Default for RTTriangle {
     fn default() -> Self {
         // assert_eq!(std::mem::size_of::<RTTriangle>() % 16, 0);
         Self {
-            vertex0: Vec3::zero(),
+            vertex0: Vec3::ZERO,
             u0: 0.0,
-            vertex1: Vec3::zero(),
+            vertex1: Vec3::ZERO,
             u1: 0.0,
-            vertex2: Vec3::zero(),
+            vertex2: Vec3::ZERO,
             u2: 0.0,
-            normal: Vec3::zero(),
+            normal: Vec3::ZERO,
             v0: 0.0,
-            n0: Vec3::zero(),
+            n0: Vec3::ZERO,
             v1: 0.0,
-            n1: Vec3::zero(),
+            n1: Vec3::ZERO,
             v2: 0.0,
-            n2: Vec3::zero(),
+            n2: Vec3::ZERO,
             id: 0,
-            tangent0: Vec4::zero(),
-            tangent1: Vec4::zero(),
-            tangent2: Vec4::zero(),
+            tangent0: Vec4::ZERO,
+            tangent1: Vec4::ZERO,
+            tangent2: Vec4::ZERO,
             light_id: 0,
             mat_id: 0,
             lod: 0.0,
@@ -1144,8 +1149,8 @@ impl RTTriangle {
     // #[inline(always)]
     // pub fn intersect4(&self, packet: &mut RayPacket4, t_min: &[f32; 4]) -> Option<[i32; 4]> {
     //     #[allow(single)]
-    //     let zero = Vec4::zero();
-    //     let one = Vec4::one();
+    //     let zero = Vec4::ZERO;
+    //     let one = Vec4::ONE;
 
     //     let org_x = Vec4::from(packet.origin_x);
     //     let org_y = Vec4::from(packet.origin_y);

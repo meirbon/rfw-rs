@@ -1,5 +1,4 @@
 use clap::{App, Arg};
-use rayon::prelude::*;
 use std::error::Error;
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
@@ -81,6 +80,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_backend() -> Result<(), Box<dyn Error>> {
+    #[cfg(feature = "vulkan")]
+    use rfw_backend_vulkan::VkBackend as RfwBackend;
+
+    #[cfg(feature = "metal")]
+    use rfw_backend_metal::MetalBackend as RfwBackend;
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
@@ -97,7 +102,7 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
         .unwrap_or(1.0);
 
     let font = include_bytes!("../../../assets/good-times-rg.ttf");
-    let mut renderer: Instance<rfw_backend_metal::MetalBackend> =
+    let mut renderer: Instance<RfwBackend> =
         Instance::new(&window, (width, height), Some(scale_factor as f64))
             .unwrap()
             .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
@@ -127,8 +132,8 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
             .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
     let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::High);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    let sphere_x = 50_i32;
-    let sphere_z = 50_i32;
+    let sphere_x = 100_i32;
+    let sphere_z = 100_i32;
 
     let mut handles = {
         let mut handles = Vec::new();
@@ -297,6 +302,8 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
                 if let Some(cesium_man3) = &scene_id {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
                 }
+
+                use rayon::prelude::*;
                 let t = app_time.elapsed_in_millis() / 1000.0;
                 handles.par_iter_mut().enumerate().for_each(|(i, h)| {
                     let x = (i as i32 % (sphere_x * 2)) - sphere_x;

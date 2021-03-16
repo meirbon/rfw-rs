@@ -75,9 +75,9 @@ impl Default for NodeDescriptor {
             name: Default::default(),
             child_nodes: Default::default(),
 
-            translation: Vec3::zero(),
-            rotation: Quat::identity(),
-            scale: Vec3::one(),
+            translation: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+            scale: Vec3::ONE,
 
             meshes: Default::default(),
             skin: None,
@@ -203,11 +203,11 @@ impl AnimationNode for Node {
 impl Default for Node {
     fn default() -> Self {
         Self {
-            translation: Vec3::zero(),
-            rotation: Quat::identity(),
+            translation: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
             scale: Vec3::splat(1.0),
-            local_matrix: Mat4::identity(),
-            combined_matrix: Mat4::identity(),
+            local_matrix: Mat4::IDENTITY,
+            combined_matrix: Mat4::IDENTITY,
             skin: None,
             weights: Vec::new(),
             meshes: Vec::new(),
@@ -489,7 +489,7 @@ impl NodeGraph {
 
         changed |= Self::traverse_children(
             id,
-            Mat4::identity(),
+            Mat4::IDENTITY,
             &mut self.nodes,
             meshes,
             instances,
@@ -659,9 +659,9 @@ impl NodeGraph {
             &NodeDescriptor {
                 name: String::new(),
                 child_nodes: Vec::new(),
-                translation: Vec3::zero(),
-                rotation: Quat::identity(),
-                scale: Vec3::one(),
+                translation: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+                scale: Vec3::ONE,
                 meshes: Default::default(),
                 skin: None,
                 weights: Default::default(),
@@ -749,7 +749,7 @@ impl NodeGraph {
                         .iter()
                         .map(|m| Mat4::from_cols_array(m))
                         .collect(),
-                    joint_matrices: vec![Mat4::identity(); s.inverse_bind_matrices.len()],
+                    joint_matrices: vec![Mat4::IDENTITY; s.inverse_bind_matrices.len()],
                 })
             })
             .map(|id| id as u32);
@@ -775,8 +775,8 @@ impl NodeGraph {
             translation: descriptor.translation,
             rotation: descriptor.rotation,
             scale: descriptor.scale,
-            local_matrix: Mat4::identity(),
-            combined_matrix: Mat4::identity(),
+            local_matrix: Mat4::IDENTITY,
+            combined_matrix: Mat4::IDENTITY,
             skin: skin_id,
             weights: descriptor.weights.clone(),
             meshes,

@@ -1,3 +1,4 @@
+*.cap
 .run/
 target
 .idea

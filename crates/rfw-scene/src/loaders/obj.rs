@@ -87,7 +87,7 @@ impl ObjectLoader for ObjLoader {
                         }
 
                         let mut value: Vec3A = Vec3A::from(f_values);
-                        if !value.cmpeq(Vec3A::zero()).all() && value.cmple(Vec3A::one()).all() {
+                        if !value.cmpeq(Vec3A::ZERO).all() && value.cmple(Vec3A::ONE).all() {
                             value = value * Vec3A::splat(10.0);
                         }
 
@@ -182,7 +182,7 @@ impl ObjectLoader for ObjLoader {
             material_indices.push(mat_manager.add(
                 Vec3A::new(1.0, 0.0, 0.0),
                 1.0,
-                Vec3A::zero(),
+                Vec3A::ZERO,
                 1.0,
             ));
         }
