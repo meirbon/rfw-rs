@@ -8,9 +8,9 @@ use rfw::backend::{
     PointLight, RenderMode, SkinData, SkinID, SpotLight, TextureData, Vertex2D, Vertex3D,
 };
 use rfw::math::*;
-use std::error::Error;
 use std::ffi::CString;
 use std::os::raw::c_char;
+use std::{error::Error, fmt::Display};
 
 mod list;
 mod memory;
@@ -23,6 +23,25 @@ pub use memory::*;
 pub use pipeline::*;
 pub use structs::*;
 use util::*;
+
+#[derive(Debug)]
+pub enum VkError {
+    NoSupportedDevice,
+}
+
+impl Display for VkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "VkError({})",
+            match self {
+                Self::NoSupportedDevice => String::from("NoSupportedDevice"),
+            }
+        )
+    }
+}
+
+impl Error for VkError {}
 
 pub struct VkBackend {
     entry: Entry,
@@ -153,41 +172,68 @@ impl rfw::backend::Backend for VkBackend {
             let surface = ash_window::create_surface(&entry, &instance, window, None)?;
             let pdevices = instance.enumerate_physical_devices()?;
             let surface_loader = Surface::new(&entry, &instance);
-            let (pdevice, queue_family_index) = pdevices
-                .iter()
-                .map(|device| {
-                    instance
-                        .get_physical_device_queue_family_properties(*device)
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(index, info)| {
-                            let supports_graphics_and_surface =
-                                info.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                                    && surface_loader
-                                        .get_physical_device_surface_support(
-                                            *device,
-                                            index as u32,
-                                            surface,
-                                        )
-                                        .unwrap();
-                            if supports_graphics_and_surface {
-                                Some((*device, index))
-                            } else {
-                                None
-                            }
-                        })
-                        .next()
-                })
-                .filter_map(|v| v)
-                .next()
-                .unwrap();
+
+            let mut pdevice = None;
+            for device in pdevices.iter() {
+                let results = instance
+                    .get_physical_device_queue_family_properties(*device)
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, info)| {
+                        let supports_graphics_and_surface = info
+                            .queue_flags
+                            .contains(vk::QueueFlags::GRAPHICS)
+                            && surface_loader
+                                .get_physical_device_surface_support(*device, index as u32, surface)
+                                .unwrap();
+                        if supports_graphics_and_surface {
+                            Some((*device, index))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let target = vk::PhysicalDeviceType::DISCRETE_GPU;
+                for (device, index) in results.iter() {
+                    let properties = instance.get_physical_device_properties(*device);
+                    if properties.device_type == target {
+                        pdevice = Some((*device, *index));
+                        break;
+                    }
+                }
+
+                if pdevice.is_none() {
+                    let target = vk::PhysicalDeviceType::INTEGRATED_GPU;
+                    for (device, index) in results.iter() {
+                        let properties = instance.get_physical_device_properties(*device);
+                        if properties.device_type == target {
+                            pdevice = Some((*device, *index));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            let (pdevice, queue_family_index) = if let Some((pdevice, queue_family_index)) = pdevice
+            {
+                (pdevice, queue_family_index)
+            } else {
+                return Err(Box::new(VkError::NoSupportedDevice));
+            };
 
             let queue_family_index = queue_family_index as u32;
-            let device_extension_names_raw = [Swapchain::name().as_ptr()];
+            let device_extension_names_raw = [
+                Swapchain::name().as_ptr(),
+                #[cfg(target_os = "macos")]
+                vk::KhrPortabilitySubsetFn::name().as_ptr(),
+            ];
+
             let features = vk::PhysicalDeviceFeatures {
                 shader_clip_distance: 1,
                 ..Default::default()
             };
+
             let priorities = [1.0];
 
             let queue_info = [vk::DeviceQueueCreateInfo::builder()
@@ -286,10 +332,10 @@ impl rfw::backend::Backend for VkBackend {
                         .view_type(vk::ImageViewType::TYPE_2D)
                         .format(surface_format.format)
                         .components(vk::ComponentMapping {
-                            r: vk::ComponentSwizzle::R,
-                            g: vk::ComponentSwizzle::G,
-                            b: vk::ComponentSwizzle::B,
-                            a: vk::ComponentSwizzle::A,
+                            r: vk::ComponentSwizzle::IDENTITY,
+                            g: vk::ComponentSwizzle::IDENTITY,
+                            b: vk::ComponentSwizzle::IDENTITY,
+                            a: vk::ComponentSwizzle::IDENTITY,
                         })
                         .subresource_range(vk::ImageSubresourceRange {
                             aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -712,21 +758,12 @@ impl rfw::backend::Backend for VkBackend {
             mapping[0].projection = view_3d.get_rh_projection();
             mapping[0].view_projection = mapping[0].view * mapping[0].projection;
             mapping[0].light_count = UVec4::new(
-                self.area_lights
-                    .as_ref()
-                    .and_then(|l| Some(l.len()))
-                    .unwrap_or(0) as u32,
-                self.spot_lights
-                    .as_ref()
-                    .and_then(|l| Some(l.len()))
-                    .unwrap_or(0) as u32,
-                self.area_lights
-                    .as_ref()
-                    .and_then(|l| Some(l.len()))
-                    .unwrap_or(0) as u32,
+                self.area_lights.as_ref().map(|l| l.len()).unwrap_or(0) as u32,
+                self.spot_lights.as_ref().map(|l| l.len()).unwrap_or(0) as u32,
+                self.area_lights.as_ref().map(|l| l.len()).unwrap_or(0) as u32,
                 self.directional_lights
                     .as_ref()
-                    .and_then(|l| Some(l.len()))
+                    .map(|l| l.len())
                     .unwrap_or(0) as u32,
             );
         }
@@ -763,9 +800,10 @@ impl rfw::backend::Backend for VkBackend {
                 &[self.rendering_complete_semaphore],
                 |device, cmd_buffer| {
                     // Descriptor set might still be in use in last frame, only update it once we know the previous frame finished rendering.
-                    match (uniform_camera.as_ref(), instance_matrices_3d.get_buffer()) {
-                        (Some(c), Some(i)) => pipeline.update_descriptor_set(device, c.buffer, i),
-                        _ => {}
+                    if let (Some(c), Some(i)) =
+                        (uniform_camera.as_ref(), instance_matrices_3d.get_buffer())
+                    {
+                        pipeline.update_descriptor_set(device, c.buffer, i)
                     }
 
                     pipeline.render(

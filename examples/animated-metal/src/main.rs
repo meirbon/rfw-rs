@@ -129,11 +129,11 @@ fn run_backend() -> Result<(), Box<dyn Error>> {
         renderer
             .get_scene_mut()
             .materials
-            .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::one(), 0.0);
-    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::High);
+            .add(Vec3::new(1.0, 0.0, 0.0), 1.0, Vec3::ONE, 0.0);
+    let sphere = Sphere::new(Vec3::ZERO, 0.2, material as u32).with_quality(Quality::High);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    let sphere_x = 100_i32;
-    let sphere_z = 100_i32;
+    let sphere_x = 50_i32;
+    let sphere_z = 50_i32;
 
     let mut handles = {
         let mut handles = Vec::new();
