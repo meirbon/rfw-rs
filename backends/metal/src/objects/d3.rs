@@ -9,6 +9,15 @@ pub struct Matrices {
     pub normal_transform: Mat4,
 }
 
+impl Matrices {
+    pub fn new(matrix: Mat4) -> Self {
+        Self {
+            transform: matrix,
+            normal_transform: matrix.inverse().transpose(),
+        }
+    }
+}
+
 pub struct MetalMesh3D {
     pub(crate) buffer: Buffer,
     pub(crate) skin_buffer: Option<Buffer>,

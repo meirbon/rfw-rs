@@ -11,3 +11,4 @@ version = "0.1.0"
 metal = { git = "https://github.com/gfx-rs/metal-rs.git", rev = "27bd31c6e7beb470a8a5bc88007399e39df19486" }
 cocoa = "0.24"
 rfw = { path = "../../rfw" }
+num-integer = "0.1"

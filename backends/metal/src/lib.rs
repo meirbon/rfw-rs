@@ -1,3 +1,4 @@
+mod list;
 mod mem;
 mod objects;
 
@@ -7,11 +8,12 @@ use cocoa::{
     base::{id as cocoa_id, YES},
 };
 use core::panic;
+use list::*;
 use mem::ManagedBuffer;
 use metal::*;
-use objects::MetalMesh3D;
+use objects::{Matrices, MetalMesh3D};
 use rfw::prelude::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 #[derive(Default)]
 #[repr(C)]
@@ -26,8 +28,13 @@ pub struct CameraUniform {
 pub struct MetalBackend {
     device: Device,
     queue: CommandQueue,
-    meshes_3d: HashMap<usize, MetalMesh3D>,
-    meshes_2d: HashMap<usize, MetalMesh2D>,
+    vertex_3d_list: VertexList<Vertex3D, JointData>,
+    vertex_2d_list: VertexList<Vertex2D>,
+    mesh_2d_textures: Vec<Option<usize>>,
+    instance_3d_matrices: Vec<Rc<Vec<Matrices>>>,
+    instance_3d_list: InstanceList<Matrices>,
+    instance_2d_list: InstanceList<Mat4>,
+
     textures: Vec<metal::Texture>,
     camera: ManagedBuffer<CameraUniform>,
     state: RenderPipelineState,
@@ -40,6 +47,11 @@ pub struct MetalBackend {
     settings: MetalSettings,
     window_size: (u32, u32),
     render_size: (u32, u32),
+
+    update_2d: bool,
+    update_3d: bool,
+    update_2d_instances: bool,
+    update_3d_instances: bool,
 }
 
 pub struct MetalSettings {}
@@ -148,7 +160,7 @@ impl Backend for MetalBackend {
         desc.set_pixel_format(Self::DEPTH_FORMAT);
         desc.set_width(render_size.0 as _);
         desc.set_height(render_size.1 as _);
-        desc.set_depth(1 as _);
+        desc.set_depth(1_u64);
         desc.set_texture_type(MTLTextureType::D2);
         desc.set_storage_mode(MTLStorageMode::Private);
 
@@ -167,8 +179,12 @@ impl Backend for MetalBackend {
         Ok(Box::new(Self {
             device,
             queue,
-            meshes_3d: HashMap::new(),
-            meshes_2d: HashMap::new(),
+            vertex_3d_list: Default::default(),
+            vertex_2d_list: Default::default(),
+            mesh_2d_textures: Default::default(),
+            instance_3d_matrices: Default::default(),
+            instance_3d_list: Default::default(),
+            instance_2d_list: Default::default(),
             textures: Vec::new(),
             camera,
             state,
@@ -182,43 +198,120 @@ impl Backend for MetalBackend {
             settings: MetalSettings {},
             window_size,
             render_size,
+            update_2d: false,
+            update_3d: false,
+            update_2d_instances: false,
+            update_3d_instances: false,
         }))
     }
 
     fn set_2d_mesh(&mut self, id: usize, data: MeshData2D<'_>) {
-        if let Some(mesh) = self.meshes_2d.get_mut(&id) {
-            mesh.set_data(&self.device, data);
-        } else {
-            self.meshes_2d
-                .insert(id, MetalMesh2D::new(&self.device, data));
+        if id >= self.mesh_2d_textures.len() {
+            self.mesh_2d_textures.resize(id + 1, Default::default());
         }
+
+        self.mesh_2d_textures[id] = data.tex_id;
+
+        if self.vertex_2d_list.has(id) {
+            self.vertex_2d_list.update_pointer(
+                id,
+                data.vertices.as_ptr(),
+                None,
+                data.vertices.len() as u32,
+            );
+        } else {
+            self.vertex_2d_list.add_pointer(
+                id,
+                data.vertices.as_ptr(),
+                None,
+                data.vertices.len() as u32,
+            );
+        }
+
+        self.update_2d = true;
     }
 
     fn set_2d_instances(&mut self, mesh: usize, instances: InstancesData2D<'_>) {
-        if let Some(mesh) = self.meshes_2d.get_mut(&mesh) {
-            mesh.set_instances(&self.device, instances);
+        if self.instance_2d_list.has(mesh) {
+            self.instance_2d_list.update_instances_list(
+                mesh,
+                instances.matrices.as_ptr(),
+                instances.len() as u32,
+            );
+        } else {
+            self.instance_2d_list.add_instances_list(
+                mesh,
+                instances.matrices.as_ptr(),
+                instances.len() as u32,
+            );
         }
+
+        self.update_2d_instances = true;
     }
 
     fn set_3d_mesh(&mut self, id: usize, data: MeshData3D<'_>) {
-        if let Some(mesh) = self.meshes_3d.get_mut(&id) {
-            mesh.set_data(&self.device, data);
+        if self.vertex_3d_list.has(id) {
+            self.vertex_3d_list.update_pointer(
+                id,
+                data.vertices.as_ptr(),
+                if !data.skin_data.is_empty() {
+                    Some(data.skin_data.as_ptr())
+                } else {
+                    None
+                },
+                data.vertices.len() as u32,
+            );
         } else {
-            self.meshes_3d
-                .insert(id, MetalMesh3D::new(&self.device, data));
+            self.vertex_3d_list.add_pointer(
+                id,
+                data.vertices.as_ptr(),
+                if !data.skin_data.is_empty() {
+                    Some(data.skin_data.as_ptr())
+                } else {
+                    None
+                },
+                data.vertices.len() as u32,
+            );
         }
+
+        self.update_3d = true;
     }
 
     fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
         for id in ids {
-            self.meshes_3d.remove(&id);
+            self.instance_3d_list.remove_instances_list(id);
+            self.vertex_3d_list.remove_pointer(id);
         }
     }
 
     fn set_3d_instances(&mut self, mesh: usize, instances: InstancesData3D<'_>) {
-        if let Some(mesh) = self.meshes_3d.get_mut(&mesh) {
-            mesh.set_instances(&self.device, instances);
+        if mesh >= self.instance_3d_matrices.len() {
+            self.instance_3d_matrices
+                .resize(mesh + 1, Default::default());
         }
+
+        let mut vec = vec![Default::default(); instances.len()];
+        vec.iter_mut().enumerate().for_each(|(i, m)| {
+            *m = Matrices::new(instances.matrices[i]);
+        });
+
+        self.instance_3d_matrices[mesh] = Rc::new(vec);
+
+        if self.instance_3d_list.has(mesh) {
+            self.instance_3d_list.update_instances_list(
+                mesh,
+                self.instance_3d_matrices[mesh].as_ptr(),
+                instances.len() as u32,
+            );
+        } else {
+            self.instance_3d_list.add_instances_list(
+                mesh,
+                self.instance_3d_matrices[mesh].as_ptr(),
+                instances.len() as u32,
+            );
+        }
+
+        self.update_3d_instances = true;
     }
 
     fn set_materials(&mut self, materials: &[DeviceMaterial], _changed: &BitSlice) {
@@ -233,35 +326,38 @@ impl Backend for MetalBackend {
 
     fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice) {
         if self.textures.len() != textures.len() {
-            self.textures = textures.iter().map(|tex| {
-                let texture_desc = metal::TextureDescriptor::new();
-                texture_desc.set_width(tex.width as _);
-                texture_desc.set_height(tex.height as _);
-                texture_desc.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
-                texture_desc.set_mipmap_level_count(tex.mip_levels as _);
-                texture_desc.set_sample_count(1);
-                texture_desc.set_storage_mode(MTLStorageMode::Managed);
-                texture_desc.set_texture_type(MTLTextureType::D2);
-                texture_desc.set_usage(MTLTextureUsage::ShaderRead);
-                let texture = self.device.new_texture(&texture_desc);
-                for m in 0..tex.mip_levels {
-                    let (width, height) = tex.mip_level_width_height(m as _);
-                    texture.replace_region(
-                        MTLRegion {
-                            origin: MTLOrigin { x: 0, y: 0, z: 0 },
-                            size: MTLSize {
-                                width: width as _,
-                                height: height as _,
-                                depth: 1,
+            self.textures = textures
+                .iter()
+                .map(|tex| {
+                    let texture_desc = metal::TextureDescriptor::new();
+                    texture_desc.set_width(tex.width as _);
+                    texture_desc.set_height(tex.height as _);
+                    texture_desc.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+                    texture_desc.set_mipmap_level_count(tex.mip_levels as _);
+                    texture_desc.set_sample_count(1);
+                    texture_desc.set_storage_mode(MTLStorageMode::Managed);
+                    texture_desc.set_texture_type(MTLTextureType::D2);
+                    texture_desc.set_usage(MTLTextureUsage::ShaderRead);
+                    let texture = self.device.new_texture(&texture_desc);
+                    for m in 0..tex.mip_levels {
+                        let (width, height) = tex.mip_level_width_height(m as _);
+                        texture.replace_region(
+                            MTLRegion {
+                                origin: MTLOrigin { x: 0, y: 0, z: 0 },
+                                size: MTLSize {
+                                    width: width as _,
+                                    height: height as _,
+                                    depth: 1,
+                                },
                             },
-                        },
-                        m as _,
-                        tex.bytes.as_ptr() as _,
-                        (width * std::mem::size_of::<u32>()) as _,
-                    );
-                }
-                texture
-            }).collect();
+                            m as _,
+                            tex.bytes.as_ptr() as _,
+                            (width * std::mem::size_of::<u32>()) as _,
+                        );
+                    }
+                    texture
+                })
+                .collect();
         } else {
             for i in 0..textures.len() {
                 if !changed[i] {
@@ -301,7 +397,32 @@ impl Backend for MetalBackend {
         }
     }
 
-    fn synchronize(&mut self) {}
+    fn synchronize(&mut self) {
+        if self.update_3d {
+            self.vertex_3d_list.update_ranges();
+            self.vertex_3d_list.update_data(&self.device);
+        }
+
+        if self.update_2d {
+            self.vertex_2d_list.update_ranges();
+            self.vertex_2d_list.update_data(&self.device);
+        }
+
+        if self.update_3d_instances {
+            self.instance_3d_list.update_ranges();
+            self.instance_3d_list.update_data(&self.device);
+        }
+
+        if self.update_2d_instances {
+            self.instance_2d_list.update_ranges();
+            self.instance_2d_list.update_data(&self.device);
+        }
+
+        self.update_2d = false;
+        self.update_3d = false;
+        self.update_2d_instances = false;
+        self.update_3d_instances = false;
+    }
 
     fn render(&mut self, camera_2d: CameraView2D, camera: CameraView3D, _mode: RenderMode) {
         self.camera.as_mut(|c| {
@@ -351,53 +472,80 @@ impl Backend for MetalBackend {
         encoder.set_front_facing_winding(MTLWinding::CounterClockwise);
         encoder.set_triangle_fill_mode(MTLTriangleFillMode::Fill);
         encoder.set_cull_mode(MTLCullMode::Back);
-        for (_, mesh) in self.meshes_3d.iter() {
-            if mesh.instances == 0 {
-                continue;
-            }
 
-            encoder.set_vertex_buffer(0, Some(&mesh.buffer), 0);
+        let vertex_buffer = self.vertex_3d_list.get_vertex_buffer();
+        let instance_buffer = self.instance_3d_list.get_buffer();
+
+        if let (Some(vertex_buffer), Some(instance_buffer)) = (vertex_buffer, instance_buffer) {
+            encoder.set_vertex_buffer(0, Some(&*vertex_buffer), 0);
             encoder.set_vertex_buffer(1, Some(&self.camera), 0);
-            encoder.set_vertex_buffer(2, Some(&mesh.instance_buffer), 0);
+            encoder.set_vertex_buffer(2, Some(&*instance_buffer), 0);
 
+            let ranges = self.vertex_3d_list.get_ranges();
+            let instances = self.instance_3d_list.get_ranges();
             encoder.set_fragment_buffer(0, Some(&self.materials), 0);
             encoder.set_fragment_textures(0, textures.as_slice());
 
-            encoder.draw_primitives_instanced(
-                MTLPrimitiveType::Triangle,
-                0,
-                mesh.vertices as _,
-                mesh.instances as _,
-            );
+            for (i, range) in ranges.iter() {
+                let instances = if let Some(i) = instances.get(i) {
+                    i
+                } else {
+                    continue;
+                };
+                if instances.count == 0 {
+                    continue;
+                }
+
+                encoder.draw_primitives_instanced_base_instance(
+                    MTLPrimitiveType::Triangle,
+                    range.start as u64,
+                    (range.end - range.start) as u64,
+                    instances.count as u64,
+                    instances.start as u64,
+                );
+            }
         }
 
-        for (_, mesh) in self.meshes_2d.iter() {
-            if mesh.instances == 0 || mesh.vertices == 0 {
-                continue;
-            }
+        let vertex_buffer = self.vertex_2d_list.get_vertex_buffer();
+        let instance_buffer = self.instance_2d_list.get_buffer();
+
+        if let (Some(vertex_buffer), Some(instance_buffer)) = (vertex_buffer, instance_buffer) {
+            encoder.set_vertex_buffer(0, Some(&*vertex_buffer), 0);
+            encoder.set_vertex_buffer(1, Some(&*instance_buffer), 0);
+            encoder.set_vertex_buffer(2, Some(&self.camera), 0);
+
+            let ranges = self.vertex_2d_list.get_ranges();
+            let instances = self.instance_2d_list.get_ranges();
 
             encoder.set_render_pipeline_state(&self.state_2d);
             encoder.set_depth_stencil_state(&self.depth_state_2d);
             encoder.set_front_facing_winding(MTLWinding::CounterClockwise);
             encoder.set_triangle_fill_mode(MTLTriangleFillMode::Fill);
             encoder.set_cull_mode(MTLCullMode::None);
-            encoder.set_vertex_buffer(0, Some(&mesh.buffer), 0);
-            encoder.set_vertex_buffer(1, Some(&mesh.instance_buffer), 0);
-            encoder.set_vertex_buffer(2, Some(&self.camera), 0);
-            encoder.set_fragment_texture(
-                0,
-                Some(if let Some(texture) = mesh.tex_id {
-                    &self.textures[texture]
+
+            for (i, range) in ranges.iter() {
+                let instances = if let Some(i) = instances.get(i) {
+                    i
                 } else {
-                    &self.textures[0]
-                }),
-            );
-            encoder.draw_primitives_instanced(
-                MTLPrimitiveType::Triangle,
-                0,
-                mesh.vertices as _,
-                mesh.instances as _,
-            );
+                    continue;
+                };
+
+                if instances.count == 0 {
+                    continue;
+                }
+
+                encoder.set_fragment_texture(
+                    0,
+                    Some(&self.textures[self.mesh_2d_textures[*i].unwrap_or(0)]),
+                );
+                encoder.draw_primitives_instanced_base_instance(
+                    MTLPrimitiveType::Triangle,
+                    range.start as u64,
+                    (range.end - range.start) as u64,
+                    instances.count as u64,
+                    instances.start as u64,
+                );
+            }
         }
 
         encoder.end_encoding();
