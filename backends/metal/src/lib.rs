@@ -292,7 +292,7 @@ impl Backend for MetalBackend {
 
         let mut vec = vec![Default::default(); instances.len()];
         vec.iter_mut().enumerate().for_each(|(i, m)| {
-            *m = Matrices::new(instances.matrices[i]);
+            *m = InstanceMatrices::new(instances.matrices[i]);
         });
 
         self.instance_3d_matrices[mesh] = Rc::new(vec);

@@ -933,14 +933,10 @@ impl SceneGraph {
     }
 
     pub fn get_graph(&self, id: usize) -> Option<GraphHandle> {
-        if let Some(graph) = self.sub_graphs.get(id) {
-            Some(GraphHandle {
-                id,
-                data: graph.clone(),
-            })
-        } else {
-            None
-        }
+        self.sub_graphs.get(id).map(|graph| GraphHandle {
+            id,
+            data: graph.clone(),
+        })
     }
 
     pub fn remove_graph(

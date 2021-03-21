@@ -15,13 +15,17 @@ use std::{error::Error, fmt::Display};
 mod list;
 mod memory;
 mod pipeline;
+mod pipeline_2d;
 mod structs;
+mod texture_list;
 mod util;
 
-pub use list::*;
-pub use memory::*;
-pub use pipeline::*;
-pub use structs::*;
+use list::*;
+use memory::*;
+use pipeline::*;
+use pipeline_2d::*;
+use structs::*;
+use texture_list::*;
 use util::*;
 
 #[derive(Debug)]
@@ -95,8 +99,10 @@ pub struct VkBackend {
     point_lights: Option<VkBuffer<PointLight>>,
     spot_lights: Option<VkBuffer<SpotLight>>,
     directional_lights: Option<VkBuffer<DirectionalLight>>,
+    textures: TextureList,
 
     pipeline: RenderPipeline,
+    // pipeline_2d: RenderPipeline2D,
     settings: VkSettings,
     // TODO: use bitflags for this
     update_set: bool,
@@ -531,6 +537,10 @@ impl rfw::backend::Backend for VkBackend {
 
             let pipeline =
                 RenderPipeline::new(&device, window_size.0, window_size.1, surface_format.format);
+            // let pipeline_2d =
+            //     RenderPipeline2D::new(&device, window_size.0, window_size.1, surface_format.format);
+
+            let textures = TextureList::new(&device, &allocator);
 
             Ok(Box::new(Self {
                 entry,
@@ -575,8 +585,10 @@ impl rfw::backend::Backend for VkBackend {
                 point_lights: None,
                 spot_lights: None,
                 directional_lights: None,
+                textures,
 
                 pipeline,
+                // pipeline_2d,
                 settings: VkSettings::default(),
                 update_set: false,
                 update_2d: false,
@@ -698,7 +710,21 @@ impl rfw::backend::Backend for VkBackend {
 
     fn set_materials(&mut self, materials: &[DeviceMaterial], changed: &BitSlice<Lsb0, usize>) {}
 
-    fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice<Lsb0, usize>) {}
+    fn set_textures(&mut self, textures: &[TextureData<'_>], changed: &BitSlice<Lsb0, usize>) {
+        let t = &mut self.textures;
+        let allocator = self.allocator.as_ref().unwrap();
+
+        record_submit_commandbuffer(
+            &self.device,
+            self.setup_command_buffer,
+            self.setup_commands_reuse_fence,
+            self.present_queue,
+            &[vk::PipelineStageFlags::BOTTOM_OF_PIPE],
+            &[],
+            &[],
+            |device, cmd_buffer| t.update(device, cmd_buffer, allocator, textures, changed),
+        );
+    }
 
     fn synchronize(&mut self) {
         let update_2d = self.update_2d;
@@ -750,7 +776,11 @@ impl rfw::backend::Backend for VkBackend {
     }
 
     fn render(&mut self, view_2d: CameraView2D, view_3d: CameraView3D, _mode: RenderMode) {
-        if let Some(mut mapping) = self.uniform_camera.as_mut().and_then(|c| c.map_memory()) {
+        if let Some(mut mapping) = self
+            .uniform_camera
+            .as_mut()
+            .and_then(|c| unsafe { c.map_memory() })
+        {
             mapping[0].view_2d = view_2d;
             mapping[0].view_3d = view_3d;
             mapping[0].view =
@@ -1083,7 +1113,7 @@ impl rfw::backend::Backend for VkBackend {
             self.point_lights.as_mut().unwrap()
         };
 
-        if let Some(mut mapping) = l.map_memory() {
+        if let Some(mut mapping) = unsafe { l.map_memory() } {
             mapping[0..lights.len()].copy_from_slice(lights);
         }
     }
@@ -1120,7 +1150,7 @@ impl rfw::backend::Backend for VkBackend {
             self.spot_lights.as_mut().unwrap()
         };
 
-        if let Some(mut mapping) = l.map_memory() {
+        if let Some(mut mapping) = unsafe { l.map_memory() } {
             mapping[0..lights.len()].copy_from_slice(lights);
         }
     }
@@ -1157,7 +1187,7 @@ impl rfw::backend::Backend for VkBackend {
             self.area_lights.as_mut().unwrap()
         };
 
-        if let Some(mut mapping) = l.map_memory() {
+        if let Some(mut mapping) = unsafe { l.map_memory() } {
             mapping[0..lights.len()].copy_from_slice(lights);
         }
     }
@@ -1198,7 +1228,7 @@ impl rfw::backend::Backend for VkBackend {
             self.directional_lights.as_mut().unwrap()
         };
 
-        if let Some(mut mapping) = l.map_memory() {
+        if let Some(mut mapping) = unsafe { l.map_memory() } {
             mapping[0..lights.len()].copy_from_slice(lights);
         }
     }

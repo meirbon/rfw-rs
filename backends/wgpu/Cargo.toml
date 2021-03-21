@@ -18,6 +18,8 @@ imgui = { version = "0.7", optional = true }
 imgui-wgpu = { version = "0.14", optional = true }
 imgui-winit-support = { version = "0.7", optional = true }
 winit = { version = "0.24", optional = true }
+num-integer = "0.1"
+bitflags = "1.2"
 # rfw = "0.1"
 
 [build-dependencies]

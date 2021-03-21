@@ -15,11 +15,7 @@ layout(location = 6) in vec3 B;
 layout(std430, set = 0, binding = 1) buffer readonly Materials { Material materials[]; };
 layout(set = 0, binding = 2) uniform sampler Sampler;
 
-layout(set = 2, binding = 0) uniform texture2D AlbedoT;
-layout(set = 2, binding = 1) uniform texture2D NormalT;
-layout(set = 2, binding = 2) uniform texture2D MetallicRoughnessT;
-layout(set = 2, binding = 3) uniform texture2D EmissiveT;
-layout(set = 2, binding = 4) uniform texture2D SheenT;
+layout(set = 1, binding = 0) uniform texture2D textures[1024];
 
 layout(location = 0) out vec4 Albedo;
 layout(location = 1) out vec4 Normal;
@@ -35,7 +31,7 @@ void main() {
     vec4 params = vec4(0);
 
     if (HAS_DIFFUSE_MAP(flags)) {
-        vec4 t_color = texture(sampler2D(AlbedoT, Sampler), TUV).rgba;
+        vec4 t_color = texture(sampler2D(textures[materials[MID].diffuse_map], Sampler), TUV).rgba;
         if (t_color.a < 0.5) {
             discard;
         }
@@ -43,16 +39,16 @@ void main() {
     }
 
     if (HAS_NORMAL_MAP(flags)) {
-        const vec3 n = (texture(sampler2D(NormalT, Sampler), TUV).rgb - 0.5) * 2.0;
+        const vec3 n = (texture(sampler2D(textures[materials[MID].normal_map], Sampler), TUV).rgb - 0.5) * 2.0;
         normal = normalize(mat3(T, B, normal) * n);
     }
 
     if (HAS_METAL_ROUGH_MAP(flags)) {
-        params.xy = texture(sampler2D(MetallicRoughnessT, Sampler), TUV).gb;
+        params.xy = texture(sampler2D(textures[materials[MID].metallic_roughness_map], Sampler), TUV).gb;
     }
 
     if (HAS_SHEEN_MAP(flags)) {
-        params.z = texture(sampler2D(SheenT, Sampler), TUV).r;
+        params.z = texture(sampler2D(textures[materials[MID].sheen_map], Sampler), TUV).r;
     }
 
     Albedo = vec4(color, MID);

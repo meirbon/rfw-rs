@@ -47,7 +47,7 @@ impl LogOutput for CoutLogger {
             time.hour(),
             time.minute(),
             time.second(),
-            tcb::new().fg().hex("d70000").text_str(error).print()
+            tcb::new().fg().hex("dd0000").text_str(error).print()
         );
     }
 

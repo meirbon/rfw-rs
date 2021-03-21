@@ -1,4 +1,7 @@
-use crate::WgpuTexture;
+use crate::{
+    list::{InstanceList, VertexList},
+    WgpuTexture,
+};
 use rfw::prelude::*;
 use std::sync::Arc;
 
@@ -7,7 +10,6 @@ pub struct InstanceList2D {
     instance_capacity: usize,
     instances: u32,
     pub instances_buffer: Arc<Option<wgpu::Buffer>>,
-    pub instances_bg: Arc<Option<wgpu::BindGroup>>,
 }
 
 impl Default for InstanceList2D {
@@ -16,7 +18,6 @@ impl Default for InstanceList2D {
             instance_capacity: 0,
             instances: 0,
             instances_buffer: Arc::new(None),
-            instances_bg: Arc::new(None),
         }
     }
 }
@@ -27,7 +28,6 @@ impl Clone for InstanceList2D {
             instance_capacity: self.instance_capacity,
             instances: self.instances,
             instances_buffer: self.instances_buffer.clone(),
-            instances_bg: self.instances_bg.clone(),
         }
     }
 }
@@ -36,7 +36,7 @@ impl Clone for InstanceList2D {
 impl InstanceList2D {
     const DEFAULT_CAPACITY: usize = 4;
 
-    pub fn new(device: &wgpu::Device, instances_layout: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(device: &wgpu::Device) -> Self {
         let instances_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: (Self::DEFAULT_CAPACITY * std::mem::size_of::<Mat4>()) as _,
@@ -44,62 +44,10 @@ impl InstanceList2D {
             mapped_at_creation: false,
         }));
 
-        let instances_bg = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: instances_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: instances_buffer.as_ref().unwrap().as_entire_binding(),
-            }],
-        }));
-
         Self {
             instance_capacity: Self::DEFAULT_CAPACITY as _,
             instances: 0,
             instances_buffer: Arc::new(instances_buffer),
-            instances_bg: Arc::new(instances_bg),
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        instances: InstancesData2D<'_>,
-        instances_layout: &wgpu::BindGroupLayout,
-    ) {
-        self.instances = instances.len() as _;
-        if instances.len() > self.instance_capacity || self.instances_buffer.is_none() {
-            self.instance_capacity = instances.len().next_power_of_two();
-            let instances_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: (self.instance_capacity * std::mem::size_of::<Mat4>()) as _,
-                usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-                mapped_at_creation: true,
-            });
-
-            instances_buffer
-                .slice(..)
-                .get_mapped_range_mut()
-                .copy_from_slice(instances.matrices.as_bytes());
-            instances_buffer.unmap();
-            self.instances_bg =
-                Arc::new(Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: None,
-                    layout: instances_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: instances_buffer.as_entire_binding(),
-                    }],
-                })));
-
-            self.instances_buffer = Arc::new(Some(instances_buffer));
-        } else {
-            queue.write_buffer(
-                (*self.instances_buffer).as_ref().unwrap(),
-                0,
-                instances.matrices.as_bytes(),
-            );
         }
     }
 
@@ -114,55 +62,26 @@ impl InstanceList2D {
 
 #[derive(Debug)]
 pub struct Renderer {
-    pipeline: wgpu::RenderPipeline,
-    layout: wgpu::PipelineLayout,
-    bind_group_layout: wgpu::BindGroupLayout,
-    meshes: TrackedStorage<Mesh>,
-    instances: FlaggedStorage<InstanceList2D>,
-    matrices_buffer: wgpu::Buffer,
-    matrices_buffer_size: wgpu::BufferAddress,
-    sampler: wgpu::Sampler,
+    // pipeline: wgpu::RenderPipeline,
+    pipeline_list: wgpu::RenderPipeline,
+    // layout: wgpu::PipelineLayout,
+    layout_list: wgpu::PipelineLayout,
 }
 
 impl Renderer {
     pub fn new(
         device: &wgpu::Device,
         camera_layout: &wgpu::BindGroupLayout,
-        instance_layout: &wgpu::BindGroupLayout,
+        textures_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("2d-bind-group-layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Uint,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
-                        filtering: false,
-                        comparison: false,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let layout_list = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("2d-layout"),
-            bind_group_layouts: &[camera_layout, instance_layout, &bind_group_layout],
+            bind_group_layouts: &[camera_layout, &textures_bind_group_layout],
             push_constant_ranges: &[],
         });
 
-        let vert = include_bytes!("../shaders/2d.vert.spv");
-        let frag = include_bytes!("../shaders/2d.frag.spv");
+        let vert = include_bytes!("../shaders/2d_list.vert.spv");
+        let frag = include_bytes!("../shaders/2d_list.frag.spv");
         let vert = &vert[0..vert.len()];
         let frag = &frag[0..frag.len()];
 
@@ -177,9 +96,9 @@ impl Renderer {
             source: wgpu::ShaderSource::SpirV(frag.as_quad_bytes().into()),
         };
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline_list = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("2d-pipeline"),
-            layout: Some(&layout),
+            layout: Some(&layout_list),
             vertex: wgpu::VertexState {
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex2D>() as wgpu::BufferAddress,
@@ -246,51 +165,24 @@ impl Renderer {
             },
         });
 
-        let matrices_buffer_size =
-            512 * std::mem::size_of::<InstanceDescriptor>() as wgpu::BufferAddress;
-        let matrices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("2d-instances-buffer"),
-            size: matrices_buffer_size,
-            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: None,
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            lod_min_clamp: 0.0,
-            lod_max_clamp: 5.0,
-            ..Default::default()
-        });
-
         Self {
-            pipeline,
-            layout,
-            bind_group_layout,
-            meshes: Default::default(),
-            instances: Default::default(),
-            matrices_buffer,
-            matrices_buffer_size,
-            sampler,
+            // pipeline,
+            pipeline_list,
+            // layout,
+            layout_list,
         }
     }
 
-    pub fn render(
+    pub fn render_list(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         camera_bg: &wgpu::BindGroup,
+        textures_bg: &wgpu::BindGroup,
+        list: &VertexList<Vertex2D>,
+        instances: &InstanceList<Mat4>,
         output: &wgpu::TextureView,
         depth_view: &wgpu::TextureView,
     ) {
-        if self.meshes.is_empty() {
-            return;
-        }
-
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
             color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -311,78 +203,17 @@ impl Renderer {
             }),
         });
 
-        render_pass.set_pipeline(&self.pipeline);
-        for (i, mesh) in self.meshes.iter() {
-            let (buffer, bg, instance_bg) = match (
-                mesh.buffer.as_ref(),
-                mesh.bind_group.as_ref(),
-                self.instances[i].instances_bg.as_ref(),
-            ) {
-                (Some(a), Some(b), Some(c)) => (a, b, c),
-                _ => continue,
-            };
+        render_pass.set_pipeline(&self.pipeline_list);
+        render_pass.set_vertex_buffer(0, list.get_vertex_buffer().buffer().slice(..));
+        render_pass.set_bind_group(0, camera_bg, &[]);
+        render_pass.set_bind_group(1, textures_bg, &[]);
 
-            render_pass.set_vertex_buffer(0, buffer.slice(..));
-            render_pass.set_bind_group(0, camera_bg, &[]);
-            render_pass.set_bind_group(1, instance_bg, &[]);
-            render_pass.set_bind_group(2, bg, &[]);
-            render_pass.draw(0..mesh.vertex_count, 0..self.instances[i].instances);
-        }
-    }
+        let v_ranges = list.get_ranges();
+        let ranges = instances.get_ranges();
 
-    pub fn set_instances(
-        &mut self,
-        id: usize,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        data: InstancesData2D<'_>,
-        instances_layout: &wgpu::BindGroupLayout,
-    ) {
-        let instances = if let Some(instances) = self.instances.get_mut(id) {
-            instances
-        } else {
-            self.instances
-                .overwrite_val(id, InstanceList2D::new(device, instances_layout));
-            self.instances.get_mut(id).unwrap()
-        };
-
-        instances.update(device, queue, data, instances_layout)
-    }
-
-    pub fn update_bind_groups(
-        &mut self,
-        device: &wgpu::Device,
-        textures: &[WgpuTexture],
-        changed: &BitSlice,
-    ) {
-        let bind_group_layout = &self.bind_group_layout;
-        let sampler = &self.sampler;
-
-        for (_, m) in self.meshes.iter_mut() {
-            let texture = if let Some(id) = m.tex_id {
-                if !changed[id] && m.bind_group.is_some() {
-                    continue;
-                }
-                textures[id].view.as_ref().as_ref().unwrap()
-            } else {
-                textures[0].view.as_ref().as_ref().unwrap()
-            };
-
-            m.update_bind_group(device, bind_group_layout, texture, sampler);
-        }
-    }
-
-    pub fn set_mesh(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        id: usize,
-        mesh: MeshData2D,
-    ) {
-        if let Some(m) = self.meshes.get_mut(id) {
-            m.update(device, queue, mesh);
-        } else {
-            self.meshes.overwrite(id, Mesh::new(device, mesh));
+        for (i, r) in ranges.iter() {
+            let v = v_ranges.get(i).unwrap();
+            render_pass.draw(v.start..v.end, r.start..r.end);
         }
     }
 }
@@ -416,22 +247,14 @@ impl InstanceDescriptor {
 
 #[derive(Debug)]
 pub struct Mesh {
-    pub buffer: Option<Arc<wgpu::Buffer>>,
-    pub buffer_size: wgpu::BufferAddress,
-    pub vertex_count: u32,
     pub tex_id: Option<usize>,
-    pub instances: u32,
     pub bind_group: Option<Arc<wgpu::BindGroup>>,
 }
 
 impl Clone for Mesh {
     fn clone(&self) -> Self {
         Self {
-            buffer: self.buffer.clone(),
-            buffer_size: self.buffer_size,
-            vertex_count: self.vertex_count,
             tex_id: self.tex_id,
-            instances: self.instances,
             bind_group: self.bind_group.clone(),
         }
     }
@@ -440,11 +263,7 @@ impl Clone for Mesh {
 impl Default for Mesh {
     fn default() -> Self {
         Self {
-            buffer: None,
-            buffer_size: 0,
-            vertex_count: 0,
             tex_id: None,
-            instances: 0,
             bind_group: None,
         }
     }
@@ -452,56 +271,11 @@ impl Default for Mesh {
 
 #[allow(dead_code)]
 impl Mesh {
-    pub fn new(device: &wgpu::Device, mesh: MeshData2D) -> Self {
-        let bytes = mesh.vertices.as_bytes();
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: bytes.len() as _,
-            usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: true,
-        });
-        buffer
-            .slice(..)
-            .get_mapped_range_mut()
-            .copy_from_slice(bytes);
-        buffer.unmap();
-
-        let buffer_size = bytes.len() as wgpu::BufferAddress;
-        let vertex_count = mesh.vertices.len() as u32;
-
+    pub fn new(mesh: MeshData2D) -> Self {
         Self {
-            buffer: Some(Arc::new(buffer)),
-            buffer_size,
-            vertex_count,
             tex_id: mesh.tex_id,
-            instances: 0,
             bind_group: None,
         }
-    }
-
-    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, mesh: MeshData2D) {
-        let bytes = mesh.vertices.as_bytes();
-        if self.buffer.is_none() || self.buffer_size < (bytes.len() as wgpu::BufferAddress) {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: bytes.len() as _,
-                usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
-                mapped_at_creation: true,
-            });
-
-            buffer
-                .slice(..)
-                .get_mapped_range_mut()
-                .copy_from_slice(bytes);
-            buffer.unmap();
-
-            self.buffer = Some(Arc::new(buffer));
-        } else {
-            queue.write_buffer(self.buffer.as_ref().unwrap(), 0, bytes);
-        }
-
-        self.buffer_size = bytes.len() as wgpu::BufferAddress;
-        self.vertex_count = mesh.vertices.len() as u32;
     }
 
     pub fn update_bind_group(
@@ -527,12 +301,5 @@ impl Mesh {
                 ],
             },
         )));
-    }
-
-    pub fn free(&mut self) {
-        self.buffer = None;
-        self.buffer_size = 0;
-        self.tex_id = None;
-        self.vertex_count = 0;
     }
 }

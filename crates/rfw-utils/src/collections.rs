@@ -708,7 +708,7 @@ mod tests {
         assert_eq!(storage.push(2), 2);
         assert_eq!(storage.push(3), 3);
 
-        let release = storage.release(1);
+        let release = storage.erase(1);
         assert!(release.is_ok());
         release.unwrap();
 
@@ -734,7 +734,7 @@ mod tests {
         assert_eq!(storage.push(2), 2);
         assert_eq!(storage.push(3), 3);
 
-        let release = storage.release(1);
+        let release = storage.erase(1);
         assert!(release.is_ok());
         release.unwrap();
 
@@ -742,7 +742,7 @@ mod tests {
         assert!(release.is_ok());
         release.unwrap();
 
-        let release = storage.release(1);
+        let release = storage.erase(1);
         assert!(release.is_err());
 
         let release = storage.erase(0);

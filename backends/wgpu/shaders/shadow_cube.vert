@@ -8,12 +8,17 @@ layout(set = 0, binding = 0) uniform Locals {
     mat4 VP[6];
 };
 
-layout(set = 1, binding = 0) buffer readonly I {
-    mat4 Transform[];
+struct Transform {
+    mat4 M;
+    mat4 IM;
+};
+
+layout(set = 1, binding = 4) buffer readonly Instances {
+    Transform transforms[];
 };
 
 void main() {
-    const vec4 V = Transform[gl_InstanceIndex] * Vertex;
+    const vec4 V = transforms[gl_InstanceIndex].M * Vertex;
     for (int face = 0; face < 6; ++face)
     {
         gl_Layer = face;

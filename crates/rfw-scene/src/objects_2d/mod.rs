@@ -1,4 +1,3 @@
-use rayon::prelude::*;
 use rfw_backend::*;
 use rfw_math::*;
 
@@ -44,7 +43,7 @@ impl Mesh2D {
             .zip(uvs.iter())
             .map(|(v, t)| Vertex2D {
                 vertex: *v,
-                has_tex: tex,
+                tex,
                 uv: *t,
                 color,
             })
@@ -54,17 +53,13 @@ impl Mesh2D {
     }
 
     pub fn set_tex_id(&mut self, id: u32) {
-        let has_tex = match id {
-            0 => 0,
-            _ => 1,
-        };
-        self.vertices.par_iter_mut().for_each(|v| {
-            v.has_tex = has_tex;
+        self.vertices.iter_mut().for_each(|v| {
+            v.tex = id;
         });
     }
 
     pub fn set_color(&mut self, color: [f32; 4]) {
-        self.vertices.par_iter_mut().for_each(|v| {
+        self.vertices.iter_mut().for_each(|v| {
             v.color = color;
         });
     }
