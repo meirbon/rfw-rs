@@ -1,6 +1,5 @@
 use rfw_backend::{
-    Backend, DataFormat, MeshData2D, MeshData3D, SkinData,
-    TextureData,
+    Backend, DataFormat, InstancesData3D, MeshData2D, MeshData3D, SkinData, TextureData,
 };
 use rfw_utils::BytesConversion;
 
@@ -125,7 +124,14 @@ impl RenderSystem {
             }
 
             changed = true;
-            renderer.set_3d_instances(i, instances.into());
+            renderer.set_3d_instances(
+                i,
+                InstancesData3D {
+                    matrices: instances.matrices(),
+                    skin_ids: instances.skin_ids(),
+                    local_aabb: scene.objects.meshes_3d[i].bounds,
+                },
+            );
 
             instances.reset_changed();
         }

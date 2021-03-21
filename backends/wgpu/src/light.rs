@@ -1,7 +1,4 @@
-use crate::{
-    list::{InstanceList, VertexList},
-    mesh::WgpuSkin,
-};
+use crate::{InstanceExtra, list::{InstanceList, VertexList}, mesh::WgpuSkin};
 use crate::{InstanceMatrices, WgpuSettings};
 use rfw::prelude::{AABB, *};
 use std::borrow::Cow;
@@ -112,7 +109,7 @@ impl WgpuLights {
         encoder: &mut wgpu::CommandEncoder,
         uniform_bind_group: &wgpu::BindGroup,
         vertices: &VertexList<Vertex3D, JointData>,
-        instances: &InstanceList<InstanceMatrices, Vec<Option<u16>>>,
+        instances: &InstanceList<InstanceMatrices, InstanceExtra>,
         skins: &[WgpuSkin],
         settings: &WgpuSettings,
     ) {
@@ -290,7 +287,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         encoder: &mut wgpu::CommandEncoder,
         uniform_bind_group: &wgpu::BindGroup,
         vertices: &VertexList<Vertex3D, JointData>,
-        instances: &InstanceList<InstanceMatrices, Vec<Option<u16>>>,
+        instances: &InstanceList<InstanceMatrices, InstanceExtra>,
         skins: &[WgpuSkin],
         settings: &WgpuSettings,
     ) {
@@ -602,27 +599,33 @@ impl ShadowMapArray {
             label: Some("shadow-pipeline"),
             layout: Some(&anim_pipeline_layout),
             vertex: wgpu::VertexState {
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
-                    step_mode: wgpu::InputStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttribute {
-                        offset: 0,
-                        format: wgpu::VertexFormat::Float4,
-                        shader_location: 0,
-                    }],
-                }, wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<JointData>() as wgpu::BufferAddress,
-                    step_mode: wgpu::InputStepMode::Vertex,
-                    attributes: &[wgpu::VertexAttribute {
-                        offset: 0,
-                        format: wgpu::VertexFormat::Uint4,
-                        shader_location: 1,
-                    }, wgpu::VertexAttribute {
-                        offset: 16,
-                        format: wgpu::VertexFormat::Float4,
-                        shader_location: 2,
-                    }],
-                }],
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute {
+                            offset: 0,
+                            format: wgpu::VertexFormat::Float4,
+                            shader_location: 0,
+                        }],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<JointData>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[
+                            wgpu::VertexAttribute {
+                                offset: 0,
+                                format: wgpu::VertexFormat::Uint4,
+                                shader_location: 1,
+                            },
+                            wgpu::VertexAttribute {
+                                offset: 16,
+                                format: wgpu::VertexFormat::Float4,
+                                shader_location: 2,
+                            },
+                        ],
+                    },
+                ],
                 entry_point: "main",
                 module: &anim_vert_module,
             },
@@ -1134,7 +1137,7 @@ impl ShadowMapArray {
         encoder: &mut wgpu::CommandEncoder,
         uniform_bind_group: &wgpu::BindGroup,
         vertices: &VertexList<Vertex3D, JointData>,
-        instances: &InstanceList<InstanceMatrices, Vec<Option<u16>>>,
+        instances: &InstanceList<InstanceMatrices, InstanceExtra>,
         skins: &[WgpuSkin],
         settings: &WgpuSettings,
     ) {
@@ -1187,7 +1190,7 @@ impl ShadowMapArray {
                 }
 
                 let v = v_ranges.get(i).unwrap();
-                let skin_ids = r.extra.as_slice();
+                let skin_ids = r.extra.skin_ids.as_slice();
 
                 if settings.enable_skinning
                     && (v.jw_end - v.jw_start) > 0
@@ -1220,7 +1223,8 @@ impl ShadowMapArray {
                                 .draw(0..(v.end - v.start), (r.start + i)..(r.start + i + 1));
                         } else {
                             render_pass.set_pipeline(&self.pipeline);
-                            render_pass.draw(v.start..v.end, r.start..r.end);
+                            render_pass
+                                .draw(0..(v.end - v.start), (r.start + i)..(r.start + i + 1));
                         }
                     }
 

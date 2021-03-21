@@ -103,6 +103,12 @@ pub struct InstanceMatrices {
     pub normal: Mat4,
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct InstanceExtra {
+    skin_ids: Vec<Option<u16>>,
+    local_aabb: AABB,
+}
+
 pub struct WgpuBackend {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
@@ -111,8 +117,7 @@ pub struct WgpuBackend {
 
     vertices_3d: VertexList<Vertex3D, JointData>,
     instances_3d_storage: Vec<Rc<Vec<InstanceMatrices>>>,
-    instances_3d: InstanceList<InstanceMatrices, Vec<Option<u16>>>,
-    mesh_2d_textures: Vec<Option<usize>>,
+    instances_3d: InstanceList<InstanceMatrices, InstanceExtra>,
     vertices_2d: VertexList<Vertex2D, u32>,
     instances_2d: InstanceList<Mat4>,
 
@@ -164,7 +169,7 @@ impl Display for WgpuError {
 
 impl WgpuBackend {
     const TEXTURE_CAPACITY: usize = 128;
-    const PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Mailbox;
+    const PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Immediate;
     const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
     const UNIFORM_CAMERA_SIZE: wgpu::BufferAddress = (std::mem::size_of::<Mat4>()
         + std::mem::size_of::<Mat4>()
@@ -375,7 +380,7 @@ impl Backend for WgpuBackend {
         let vertices_3d = VertexList::new(&device, &queue);
         let instances_3d_storage = Default::default();
         let instances_3d = InstanceList::new(&device, &queue);
-        let mesh_2d_textures = Default::default();
+
         let vertices_2d = VertexList::new(&device, &queue);
         let instances_2d = InstanceList::new(&device, &queue);
 
@@ -454,7 +459,6 @@ impl Backend for WgpuBackend {
             vertices_3d,
             instances_3d_storage,
             instances_3d,
-            mesh_2d_textures,
             vertices_2d,
             instances_2d,
             update_flags: Default::default(),
@@ -489,12 +493,6 @@ impl Backend for WgpuBackend {
     }
 
     fn set_2d_mesh(&mut self, id: usize, mesh: MeshData2D) {
-        if id >= self.mesh_2d_textures.len() {
-            self.mesh_2d_textures.resize(id + 1, Default::default());
-        }
-
-        self.mesh_2d_textures[id] = mesh.tex_id;
-
         if self.vertices_2d.has(id) {
             self.vertices_2d
                 .update_pointer(id, mesh.vertices.to_vec(), Vec::new());
@@ -508,19 +506,11 @@ impl Backend for WgpuBackend {
 
     fn set_2d_instances(&mut self, id: usize, instances: InstancesData2D<'_>) {
         if self.instances_2d.has(id) {
-            self.instances_2d.update_instances_list(
-                id,
-                instances.matrices.as_ptr(),
-                instances.len() as u32,
-                (),
-            );
+            self.instances_2d
+                .update_instances_list(id, instances.matrices, ());
         } else {
-            self.instances_2d.add_instances_list(
-                id,
-                instances.matrices.as_ptr(),
-                instances.len() as u32,
-                (),
-            );
+            self.instances_2d
+                .add_instances_list(id, instances.matrices.to_vec(), ());
         }
 
         self.instances_changed = true;
@@ -552,38 +542,29 @@ impl Backend for WgpuBackend {
                 .resize(mesh + 1, Default::default());
         }
 
-        let mut vec = vec![Default::default(); instances.len()];
-        vec.iter_mut().enumerate().for_each(|(i, m)| {
-            *m = InstanceMatrices {
-                matrix: instances.matrices[i],
-                normal: instances.matrices[i].inverse().transpose(),
-            }
-        });
+        let vec: Vec<InstanceMatrices> = instances
+            .matrices
+            .iter()
+            .copied()
+            .map(|m| InstanceMatrices {
+                matrix: m,
+                normal: m.inverse().transpose(),
+            })
+            .collect();
 
-        self.instances_3d_storage[mesh] = Rc::new(vec);
+        let extra = InstanceExtra {
+            skin_ids: instances
+                .skin_ids
+                .iter()
+                .map(|i| if i.0 >= 0 { Some(i.0 as u16) } else { None })
+                .collect(),
+            local_aabb: instances.local_aabb,
+        };
 
         if self.instances_3d.has(mesh) {
-            self.instances_3d.update_instances_list(
-                mesh,
-                self.instances_3d_storage[mesh].as_ptr(),
-                instances.len() as u32,
-                instances
-                    .skin_ids
-                    .iter()
-                    .map(|i| if i.0 >= 0 { Some(i.0 as u16) } else { None })
-                    .collect(),
-            );
+            self.instances_3d.update_instances_list(mesh, &vec, extra);
         } else {
-            self.instances_3d.add_instances_list(
-                mesh,
-                self.instances_3d_storage[mesh].as_ptr(),
-                instances.len() as u32,
-                instances
-                    .skin_ids
-                    .iter()
-                    .map(|i| if i.0 >= 0 { Some(i.0 as u16) } else { None })
-                    .collect(),
-            );
+            self.instances_3d.add_instances_list(mesh, vec, extra);
         }
 
         self.update_flags.insert(UpdateFlags::UPDATE_3D_INSTANCES);
@@ -732,7 +713,7 @@ impl Backend for WgpuBackend {
             cam.proj = camera_3d.get_rh_projection();
             cam.matrix_2d = camera_2d.matrix;
             cam.light_count = self.lights.counts();
-            cam.position = Vec3::from(camera_3d.pos).extend(1.0);
+            cam.position = camera_3d.pos.extend(1.0);
         }
         self.camera_buffer.copy_to_device();
 
@@ -944,7 +925,7 @@ impl WgpuBackend {
             }
 
             let v = v_ranges.get(i).unwrap();
-            let skins = r.extra.as_slice();
+            let skins = r.extra.skin_ids.as_slice();
 
             if self.settings.enable_skinning
                 && (v.jw_end - v.jw_start) > 0
@@ -978,7 +959,7 @@ impl WgpuBackend {
                         render_pass.draw(0..(v.end - v.start), (r.start + i)..(r.start + i + 1));
                     } else {
                         render_pass.set_pipeline(&self.pipeline.pipeline);
-                        render_pass.draw(v.start..v.end, r.start..r.end);
+                        render_pass.draw(0..(v.end - v.start), (r.start + i)..(r.start + i + 1));
                     }
                 }
 

@@ -1,6 +1,6 @@
 #version 450
 
-layout(location = 0) in vec3 UvTex;
+layout(location = 0) in vec2 UvTex;
 layout(location = 1) in flat uint TexID;
 layout(location = 2) in vec4 Color;
 
@@ -11,7 +11,7 @@ layout(location = 0) out vec4 C;
 
 void main() {
     vec4 color = Color;
-    if (UvTex.z > 0.0) {
+    if (TexID > 0) {
         color = color * textureLod(sampler2D(textures[TexID], Sampler), UvTex.xy, 0.0).rgba;
     }
 

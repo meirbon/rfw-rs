@@ -377,6 +377,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                             .position([900.0, 25.0], imgui::Condition::FirstUseEver)
                             .build(&ui, || {
                                 ui.checkbox(imgui::im_str!("Skinning"), &mut enable_skinning);
+                                ui.text(imgui::im_str!("FPS: {}", ui.io().framerate));
                                 ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
                                 ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
@@ -400,7 +401,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     let _x = (((x + sphere_x) as f32) + t).sin();
                     let _z = (((z + sphere_z) as f32) + t).sin();
                     let height = (_z + _x) * 0.5 + 1.0;
-                
+
                     h.get_transform()
                         .set_matrix(Mat4::from_translation(Vec3::new(
                             x as f32,

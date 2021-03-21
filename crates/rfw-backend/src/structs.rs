@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 use rfw_math::*;
 use rtbvh::{spatial_sah::SpatialTriangle, Ray, RayPacket4, AABB};
-use std::{fmt::Debug, write};
+use std::{fmt::{Debug, Display}, write};
 
 #[derive(Debug, Copy, Clone)]
 pub struct SkinData<'a> {
@@ -29,6 +29,7 @@ impl InstancesData2D<'_> {
 pub struct InstancesData3D<'a> {
     pub matrices: &'a [Mat4],
     pub skin_ids: &'a [SkinID],
+    pub local_aabb: AABB,
 }
 
 impl InstancesData3D<'_> {

@@ -41,7 +41,7 @@ impl WgpuTexture {
 
         let mut width = tex.width;
         let mut height = tex.height;
-        let mut local_offset = 0 as wgpu::BufferAddress;
+        let mut local_offset = 0_u64;
         for i in 0..tex.mip_levels {
             let offset = local_offset * std::mem::size_of::<u32>() as u64;
 

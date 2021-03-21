@@ -37,10 +37,7 @@ layout(location = 6) out vec3 B;
 
 void main() {
     const mat4 skinMatrix = (weights.x * M[joints.x]) + (weights.y * M[joints.y]) + (weights.z * M[joints.z]) + (weights.w * M[joints.w]);
-//    const mat4 skinMatrix = (weights.x * mat4(1.0)) + (weights.y * mat4(1.0)) + (weights.z * mat4(1.0)) + (weights.w * mat4(1.0));
     const mat4 inverseSkinMatrix = transpose(inverse(skinMatrix));
-//    const mat4 skinMatrix = mat4(1.0f);
-//    const mat4 inverseSkinMatrix = mat4(1.0f);
 
     const vec4 vertex = transforms[gl_InstanceIndex].M *  skinMatrix * Vertex;
     const vec4 cVertex = View * vec4(vertex.xyz, 1.0);

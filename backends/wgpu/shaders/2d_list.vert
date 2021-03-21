@@ -17,13 +17,13 @@ layout(set = 0, binding = 3) buffer readonly Instances {
     mat4 matrices[];
 };
 
-layout(location = 0) out vec3 UvTex;
+layout(location = 0) out vec2 UvTex;
 layout(location = 1) out uint TexID;
 layout(location = 2) out vec4 Color;
 
 void main() {
     gl_Position = matrix_2d * matrices[gl_InstanceIndex] * vec4(V.xyz, 1.0);
-    UvTex = vec3(UV, TID > 0 ? 1.0 : -1.0);
+    UvTex = UV;
     TexID = TID;
     Color = C;
 }

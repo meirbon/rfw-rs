@@ -42,6 +42,7 @@ pub struct VertexList<T: Debug + Copy + Sized + Default, JW: Debug + Copy + Size
     update_flags: VertexListFlags,
 }
 
+#[allow(dead_code)]
 impl<T: Debug + Copy + Sized + Default, JW: Debug + Copy + Sized + Default> VertexList<T, JW> {
     pub fn new(device: &Arc<wgpu::Device>, queue: &Arc<wgpu::Queue>) -> Self {
         Self {
@@ -116,7 +117,6 @@ impl<T: Debug + Copy + Sized + Default, JW: Debug + Copy + Sized + Default> Vert
 
         if data.len() as u32 > reference.capacity {
             // if we're out of capacity, we need to recalculate the range of each mesh
-            self.update_flags = VertexListFlags::CALCULATE_RANGES;
             reference.capacity = (data.len() as u32).next_multiple_of(&512);
         }
 
@@ -126,7 +126,7 @@ impl<T: Debug + Copy + Sized + Default, JW: Debug + Copy + Sized + Default> Vert
         reference.changed = 1;
         draw_range.end = draw_range.start + reference.count;
 
-        self.update_flags = VertexListFlags::UPDATE_DATA;
+        self.update_flags = VertexListFlags::CALCULATE_RANGES | VertexListFlags::UPDATE_DATA;
     }
 
     pub fn remove_pointer(&mut self, id: usize) -> bool {
@@ -246,7 +246,7 @@ pub struct InstanceRange<
     T: Debug + Copy + Sized + Default,
     Ex: Debug + Clone + Sized + Default = (),
 > {
-    ptr: *const T,
+    data: Vec<T>,
     pub start: u32,
     pub end: u32,
     pub count: u32,
@@ -282,11 +282,12 @@ impl<T: Debug + Copy + Sized + Default, Ex: Debug + Clone + Sized + Default> Ins
         self.lists.get(&id).is_some()
     }
 
-    pub fn add_instances_list(&mut self, id: usize, ptr: *const T, count: u32, extra: Ex) {
+    pub fn add_instances_list(&mut self, id: usize, data: Vec<T>, extra: Ex) {
+        let count = data.len() as u32;
         self.lists.insert(
             id,
             InstanceRange {
-                ptr,
+                data,
                 start: 0,
                 end: 0,
                 count,
@@ -296,15 +297,16 @@ impl<T: Debug + Copy + Sized + Default, Ex: Debug + Clone + Sized + Default> Ins
         );
     }
 
-    pub fn update_instances_list(&mut self, id: usize, ptr: *const T, count: u32, extra: Ex) {
+    pub fn update_instances_list(&mut self, id: usize, data: &[T], extra: Ex) {
         let list = self.lists.get_mut(&id).unwrap();
 
-        if count > list.capacity {
+        if (data.len() as u32) > list.capacity {
             self.recalculate_ranges = true;
         }
-        list.ptr = ptr;
-        list.count = count;
-        list.capacity = count.next_multiple_of(&4);
+        list.data.resize(data.len(), Default::default());
+        list.data.copy_from_slice(data);
+        list.count = data.len() as _;
+        list.capacity = list.count.next_multiple_of(&4);
         list.extra = extra;
     }
 
@@ -354,9 +356,8 @@ impl<T: Debug + Copy + Sized + Default, Ex: Debug + Clone + Sized + Default> Ins
                 let offset = desc.start as usize;
                 let offset_plus_count = offset + desc.count as usize;
 
-                self.device_buffer.as_mut_slice()[offset..offset_plus_count].copy_from_slice(
-                    unsafe { std::slice::from_raw_parts(desc.ptr, desc.count as usize) },
-                );
+                self.device_buffer.as_mut_slice()[offset..offset_plus_count]
+                    .copy_from_slice(&desc.data);
             }
         }
 

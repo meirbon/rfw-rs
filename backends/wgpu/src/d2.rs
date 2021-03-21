@@ -1,7 +1,4 @@
-use crate::{
-    list::{InstanceList, VertexList},
-    WgpuTexture,
-};
+use crate::list::{InstanceList, VertexList};
 use rfw::prelude::*;
 use std::sync::Arc;
 
