@@ -110,40 +110,40 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut resized = false;
 
     renderer.add_spot_light(
-        Vec3::new(2.5, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 10.0, 10.0),
+        vec3(2.5, 15.0, 0.0),
+        vec3(0.0, -1.0, 0.3),
+        vec3(105.0, 10.0, 10.0),
         45.0,
         60.0,
     );
 
     renderer.add_spot_light(
-        Vec3::new(0.0, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(10.0, 105.0, 10.0),
+        vec3(0.0, 15.0, 0.0),
+        vec3(0.0, -1.0, 0.3),
+        vec3(10.0, 105.0, 10.0),
         45.0,
         60.0,
     );
 
     renderer.add_spot_light(
-        Vec3::new(-2.5, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, -0.3),
-        Vec3::new(10.0, 10.0, 105.0),
+        vec3(-2.5, 15.0, 0.0),
+        vec3(0.0, -1.0, -0.3),
+        vec3(10.0, 10.0, 105.0),
         45.0,
         60.0,
     );
 
-    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::new(0.6, 0.4, 0.4));
+    renderer.add_directional_light(vec3(0.0, -1.0, 0.5), vec3(0.6, 0.4, 0.4));
 
     let material =
         renderer
             .get_scene_mut()
             .materials
-            .add(Vec3::new(1.0, 0.2, 0.03), 1.0, Vec3::one(), 0.0);
-    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
+            .add(vec3(1.0, 0.2, 0.03), 1.0, Vec3::ONE, 0.0);
+    let sphere = Sphere::new(Vec3::ZERO, 0.2, material as u32).with_quality(Quality::Medium);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    let sphere_x = 20 as i32;
-    let sphere_z = 15 as i32;
+    let sphere_x = 20_i32;
+    let sphere_z = 15_i32;
 
     let mut handles = {
         let mut handles = Vec::new();
@@ -194,6 +194,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
 
     let mut fullscreen_timer = 0.0;
     let mut scale_factor_changed = false;
+    let mut enable_skinning = true;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
@@ -375,6 +376,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                             .size([350.0, 250.0], imgui::Condition::FirstUseEver)
                             .position([900.0, 25.0], imgui::Condition::FirstUseEver)
                             .build(&ui, || {
+                                ui.checkbox(imgui::im_str!("Skinning"), &mut enable_skinning);
                                 ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
                                 ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
@@ -387,6 +389,8 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                                 scale_factor = scale_factor.max(0.1).min(2.0);
                             });
                     });
+
+                    settings.enable_skinning = enable_skinning;
                 }
 
                 let t = app_time.elapsed_in_millis() / 1000.0;
@@ -396,7 +400,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     let _x = (((x + sphere_x) as f32) + t).sin();
                     let _z = (((z + sphere_z) as f32) + t).sin();
                     let height = (_z + _x) * 0.5 + 1.0;
-
+                
                     h.get_transform()
                         .set_matrix(Mat4::from_translation(Vec3::new(
                             x as f32,

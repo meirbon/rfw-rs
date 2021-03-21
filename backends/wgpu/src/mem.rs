@@ -1,8 +1,12 @@
 use rfw::utils::BytesConversion;
-use std::{num::NonZeroU64, ops::{Index, IndexMut, Range}};
 use std::sync::Arc;
+use std::{
+    num::NonZeroU64,
+    ops::{Index, IndexMut, Range},
+};
 
-pub struct ManagedBuffer<T: Sized> {
+#[derive(Debug)]
+pub struct ManagedBuffer<T: Sized + std::fmt::Debug> {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     host_buffer: Vec<T>,
@@ -11,7 +15,7 @@ pub struct ManagedBuffer<T: Sized> {
 }
 
 #[allow(dead_code)]
-impl<T: Sized> ManagedBuffer<T> {
+impl<T: Sized + std::fmt::Debug> ManagedBuffer<T> {
     pub fn new_with_buffer(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
@@ -111,6 +115,14 @@ impl<T: Sized> ManagedBuffer<T> {
         &self.buffer
     }
 
+    pub fn copy_to_device_ranged(&self, start: usize, end: usize) {
+        self.queue.write_buffer(
+            &self.buffer,
+            (start * std::mem::size_of::<T>()) as _,
+            (&self.host_buffer[start..end]).as_bytes(),
+        );
+    }
+
     pub fn copy_to_device(&self) {
         self.queue
             .write_buffer(&self.buffer, 0, self.host_buffer.as_bytes());
@@ -177,7 +189,7 @@ impl<T: Sized> ManagedBuffer<T> {
     }
 }
 
-impl<T: Sized> Index<usize> for ManagedBuffer<T> {
+impl<T: Sized + std::fmt::Debug> Index<usize> for ManagedBuffer<T> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -185,7 +197,7 @@ impl<T: Sized> Index<usize> for ManagedBuffer<T> {
     }
 }
 
-impl<T: Sized> IndexMut<usize> for ManagedBuffer<T> {
+impl<T: Sized + std::fmt::Debug> IndexMut<usize> for ManagedBuffer<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.host_buffer[index]
     }

@@ -154,7 +154,7 @@ impl System for FontSystem {
             to_vertex,
         ) {
             Ok(BrushAction::Draw(vertices)) => {
-                let has_tex = font.tex_id as u32;
+                let tex = font.tex_id as u32;
                 let mut verts = Vec::with_capacity(vertices.len() * 6);
                 let vertices: Vec<_> = vertices
                     .iter()
@@ -162,25 +162,25 @@ impl System for FontSystem {
                         let v0 = Vertex2D {
                             vertex: [v.min_x, v.min_y, 0.5],
                             uv: [v.uv_min_x, v.uv_min_y],
-                            has_tex,
+                            tex,
                             color: v.color,
                         };
                         let v1 = Vertex2D {
                             vertex: [v.max_x, v.min_y, 0.5],
                             uv: [v.uv_max_x, v.uv_min_y],
-                            has_tex,
+                            tex,
                             color: v.color,
                         };
                         let v2 = Vertex2D {
                             vertex: [v.max_x, v.max_y, 0.5],
                             uv: [v.uv_max_x, v.uv_max_y],
-                            has_tex,
+                            tex,
                             color: v.color,
                         };
                         let v3 = Vertex2D {
                             vertex: [v.min_x, v.max_y, 0.5],
                             uv: [v.uv_min_x, v.uv_max_y],
-                            has_tex,
+                            tex,
                             color: v.color,
                         };
 

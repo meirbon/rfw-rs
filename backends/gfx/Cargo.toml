@@ -7,11 +7,11 @@ version = "0.1.0"
 
 [dependencies]
 futures = "0.3"
-gfx-backend-vulkan = {version = "0.6", features = ["x11"]}
-gfx-hal = "0.6"
-nalgebra = "0.23"
-rfw = {path = "../../rfw"}
+rendy = { version = "0.5", features = ["base", "vulkan"], default-features = false }
+nalgebra = "0.25"
+rfw = { path = "../../rfw" }
+num-integer = "0.1"
 
 [build-dependencies]
-rfw = {path = "../../rfw"}
+rfw = { path = "../../rfw" }
 spirv-compiler = "0.1"

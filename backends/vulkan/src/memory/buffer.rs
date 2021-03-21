@@ -22,9 +22,9 @@ impl<T: Debug + Copy + Sized + Default> Debug for VkBuffer<T> {
 }
 
 pub struct Mapping<'a, T: Debug + Copy + Sized> {
-    allocator: &'a vk_mem::Allocator,
-    info: &'a mut vk_mem::Allocation,
-    ptr: &'a mut [T],
+    pub(crate) allocator: &'a vk_mem::Allocator,
+    pub(crate) info: &'a vk_mem::Allocation,
+    pub(crate) ptr: &'a mut [T],
 }
 
 impl<T: Debug + Copy + Sized> Mapping<'_, T> {
@@ -83,22 +83,20 @@ impl<T: Debug + Copy + Sized + Default> VkBuffer<T> {
         })
     }
 
-    pub fn map_memory(&mut self) -> Option<Mapping<T>> {
-        unsafe {
-            let ptr = self.allocator.map_memory(&self.allocation).unwrap();
-            if ptr.is_null() {
-                return None;
-            }
-
-            Some(Mapping {
-                allocator: &self.allocator,
-                info: &mut self.allocation,
-                ptr: std::slice::from_raw_parts_mut(
-                    ptr as *mut T,
-                    self.info.get_size() / std::mem::size_of::<T>(),
-                ),
-            })
+    pub unsafe fn map_memory(&self) -> Option<Mapping<T>> {
+        let ptr = self.allocator.map_memory(&self.allocation).unwrap();
+        if ptr.is_null() {
+            return None;
         }
+
+        Some(Mapping {
+            allocator: &self.allocator,
+            info: &self.allocation,
+            ptr: std::slice::from_raw_parts_mut(
+                ptr as *mut T,
+                self.info.get_size() / std::mem::size_of::<T>(),
+            ),
+        })
     }
 
     pub fn len(&self) -> usize {

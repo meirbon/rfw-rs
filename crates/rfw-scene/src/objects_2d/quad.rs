@@ -31,9 +31,10 @@ impl Default for Quad2D {
 impl ToMesh2D for Quad2D {
     fn into_mesh_2d(self) -> crate::Mesh2D {
         let mut vertices = Vec::with_capacity(6);
+        let tex = self.texture.unwrap_or(0) as u32;
         vertices.push(Vertex2D {
             vertex: self.bottom_left.extend(self.layer).into(),
-            has_tex: self.texture.unwrap_or(0) as u32,
+            tex,
             uv: self.bottom_left_uv.into(),
             color: self.color.into(),
         });
@@ -41,25 +42,25 @@ impl ToMesh2D for Quad2D {
             vertex: Vec2::new(self.top_right.x, self.bottom_left.y)
                 .extend(self.layer)
                 .into(),
-            has_tex: self.texture.unwrap_or(0) as u32,
+            tex,
             uv: Vec2::new(self.top_right_uv.x, self.bottom_left_uv.y).into(),
             color: self.color.into(),
         });
         vertices.push(Vertex2D {
             vertex: self.top_right.extend(self.layer).into(),
-            has_tex: self.texture.unwrap_or(0) as u32,
+            tex,
             uv: self.top_right_uv.into(),
             color: self.color.into(),
         });
         vertices.push(Vertex2D {
             vertex: self.bottom_left.extend(self.layer).into(),
-            has_tex: self.texture.unwrap_or(0) as u32,
+            tex,
             uv: self.bottom_left_uv.into(),
             color: self.color.into(),
         });
         vertices.push(Vertex2D {
             vertex: self.top_right.extend(self.layer).into(),
-            has_tex: self.texture.unwrap_or(0) as u32,
+            tex,
             uv: self.top_right_uv.into(),
             color: self.color.into(),
         });
@@ -67,7 +68,7 @@ impl ToMesh2D for Quad2D {
             vertex: Vec2::new(self.bottom_left.x, self.top_right.y)
                 .extend(self.layer)
                 .into(),
-            has_tex: self.texture.unwrap_or(0) as u32,
+            tex,
             uv: Vec2::new(self.bottom_left_uv.x, self.top_right_uv.y).into(),
             color: self.color.into(),
         });

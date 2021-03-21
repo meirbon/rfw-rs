@@ -102,7 +102,7 @@ impl InstanceList2D {
 
     pub fn make_invalid(&mut self, handle: InstanceHandle2D) {
         let list = unsafe { self.list.get().as_mut().unwrap() };
-        list.matrices[handle.index] = Mat4::IDENTITY;
+        list.matrices[handle.index] = Mat4::ZERO;
         list.flags[handle.index] = InstanceFlags2D::all();
         list.free_slots.push(handle.index);
         list.removed.push(handle.index);

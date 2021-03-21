@@ -317,7 +317,7 @@ impl<'a> MeshData3D<'a> {
 #[repr(C)]
 pub struct Vertex2D {
     pub vertex: [f32; 3],
-    pub has_tex: u32,
+    pub tex: u32,
     pub uv: [f32; 2],
     pub color: [f32; 4],
 }
