@@ -2,254 +2,19 @@ use rfw::prelude::*;
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub struct WgpuMesh {
-    pub(crate) buffer: Arc<Option<wgpu::Buffer>>,
-    pub buffer_size: wgpu::BufferAddress,
-    pub(crate) joints_weights_buffer: Arc<Option<wgpu::Buffer>>,
-    pub ranges: Vec<VertexMesh>,
-    pub bounds: AABB,
-}
-
-impl Default for WgpuMesh {
-    fn default() -> Self {
-        Self {
-            buffer: Arc::new(None),
-            buffer_size: 0,
-            joints_weights_buffer: Arc::new(None),
-            ranges: Default::default(),
-            bounds: AABB::empty(),
-        }
-    }
-}
-
-impl Clone for WgpuMesh {
-    fn clone(&self) -> Self {
-        Self {
-            buffer: self.buffer.clone(),
-            buffer_size: self.buffer_size,
-            joints_weights_buffer: self.joints_weights_buffer.clone(),
-            ranges: self.ranges.clone(),
-            bounds: self.bounds.clone(),
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl WgpuMesh {
-    pub fn new(
-        device: &wgpu::Device,
-        name: String,
-        vertices: Vec<Vertex3D>,
-        ranges: Vec<VertexMesh>,
-        skin_data: Vec<JointData>,
-        bounds: AABB,
-    ) -> Self {
-        let buffer_size = (vertices.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress;
-        assert!(buffer_size > 0);
-
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(name.as_str()),
-            size: buffer_size,
-            usage: if !skin_data.is_empty() {
-                wgpu::BufferUsage::VERTEX
-                    | wgpu::BufferUsage::COPY_SRC
-                    | wgpu::BufferUsage::COPY_DST
-            } else {
-                wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST
-            },
-            mapped_at_creation: true,
-        });
-
-        buffer
-            .slice(0..buffer_size)
-            .get_mapped_range_mut()
-            .copy_from_slice(vertices.as_bytes());
-        buffer.unmap();
-
-        let joints_weights_buffer = if !skin_data.is_empty() {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(name.as_str()),
-                size: ((skin_data.len() + (64 - skin_data.len() % 64))
-                    * std::mem::size_of::<JointData>())
-                    as wgpu::BufferAddress,
-                usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
-                mapped_at_creation: true,
-            });
-
-            buffer
-                .slice(0..(skin_data.as_bytes().len()) as wgpu::BufferAddress)
-                .get_mapped_range_mut()
-                .copy_from_slice(skin_data.as_bytes());
-            buffer.unmap();
-            Some(buffer)
-        } else {
-            None
-        };
-
-        Self {
-            buffer: Arc::new(Some(buffer)),
-            buffer_size,
-            joints_weights_buffer: Arc::new(joints_weights_buffer),
-            ranges,
-            bounds,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.buffer_size as usize / std::mem::size_of::<Vertex3D>()
-    }
-
-    pub fn supports_skinning(&self) -> bool {
-        self.joints_weights_buffer.is_some()
-    }
-
-    pub fn buffer(&self) -> Option<&wgpu::Buffer> {
-        self.buffer.as_ref().as_ref()
-    }
-}
-
-pub struct SkinningPipeline {
-    pipeline: wgpu::ComputePipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
-}
-
-impl SkinningPipeline {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let shader = include_bytes!("../shaders/skinning.comp.spv");
-        let module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            flags: Default::default(),
-            label: None,
-            source: wgpu::util::make_spirv(&shader[..]),
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("skinning-bind-group-layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        has_dynamic_offset: false,
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        has_dynamic_offset: false,
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStage::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        has_dynamic_offset: false,
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("skinning-layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            entry_point: "main",
-            module: &module,
-            label: Some("skinning-pipeline"),
-            layout: Some(&pipeline_layout),
-        });
-
-        Self {
-            pipeline,
-            bind_group_layout,
-        }
-    }
-
-    pub fn apply_skin(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mesh: &WgpuMesh,
-        skin: &WgpuSkin,
-    ) -> (wgpu::Buffer, wgpu::BufferAddress) {
-        let len = mesh.len() + (64 - mesh.len() % 64);
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("skinned-vertices"),
-            size: (len * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
-            usage: wgpu::BufferUsage::VERTEX
-                | wgpu::BufferUsage::STORAGE
-                | wgpu::BufferUsage::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.copy_buffer_to_buffer(
-            (*mesh.buffer).as_ref().unwrap(),
-            0,
-            &buffer,
-            0,
-            (mesh.len() * std::mem::size_of::<Vertex3D>()) as wgpu::BufferAddress,
-        );
-
-        if mesh.buffer.is_some() && mesh.joints_weights_buffer.is_some() && skin.buffer.is_some() {
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("skinning-bind-group"),
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: skin.buffer.as_ref().unwrap().as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: (*mesh.joints_weights_buffer)
-                            .as_ref()
-                            .unwrap()
-                            .as_entire_binding(),
-                    },
-                ],
-            });
-
-            let mut compute_pass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.pipeline);
-            compute_pass.set_bind_group(0, &bind_group, &[]);
-            compute_pass.dispatch(len as u32 / 64, 1, 1);
-        }
-
-        queue.submit(std::iter::once(encoder.finish()));
-
-        (buffer, len as wgpu::BufferAddress)
-    }
-}
-
-#[derive(Debug)]
 pub struct WgpuSkin {
+    pub bind_group: Option<Arc<wgpu::BindGroup>>,
     pub joint_matrices: Vec<Mat4>,
-    pub buffer: Option<wgpu::Buffer>,
+    pub buffer: Option<Arc<wgpu::Buffer>>,
     pub buffer_size: wgpu::BufferAddress,
 }
 
 impl Clone for WgpuSkin {
     fn clone(&self) -> Self {
         Self {
+            bind_group: self.bind_group.clone(),
             joint_matrices: self.joint_matrices.clone(),
-            buffer: None,
+            buffer: self.buffer.clone(),
             buffer_size: 0,
         }
     }
@@ -258,6 +23,7 @@ impl Clone for WgpuSkin {
 impl Default for WgpuSkin {
     fn default() -> Self {
         Self {
+            bind_group: None,
             joint_matrices: Default::default(),
             buffer: None,
             buffer_size: 0,
@@ -266,7 +32,23 @@ impl Default for WgpuSkin {
 }
 
 impl WgpuSkin {
-    pub fn new(device: &wgpu::Device, skin: SkinData) -> Self {
+    pub fn create_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("skin-bg-layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        })
+    }
+
+    pub fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, skin: SkinData) -> Self {
         // Make sure number of matrices does not exceed shader maximum
         assert!(skin.joint_matrices.len() < 1024);
 
@@ -284,26 +66,46 @@ impl WgpuSkin {
             .copy_from_slice(skin.joint_matrices.as_bytes());
         buffer.unmap();
 
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("skinning-bg"),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer {
+                    buffer: &buffer,
+                    offset: 0,
+                    size: None,
+                },
+            }],
+        });
+
         Self {
+            bind_group: Some(Arc::new(bind_group)),
             joint_matrices: skin.joint_matrices.to_vec(),
-            buffer: Some(buffer),
+            buffer: Some(Arc::new(buffer)),
             buffer_size: size,
         }
     }
 
-    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, skin: SkinData) {
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        skin: SkinData,
+    ) {
         // Make sure number of matrices does not exceed shader maximum
         assert!(skin.joint_matrices.len() < 1024);
         self.joint_matrices = skin.joint_matrices.to_vec();
 
         let size = (std::mem::size_of::<Mat4>() * self.joint_matrices.len()) as wgpu::BufferAddress;
         if size > self.buffer_size {
-            self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            self.buffer = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("skin-matrices"),
                 size,
                 usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
                 mapped_at_creation: true,
-            }));
+            })));
 
             self.buffer
                 .as_ref()
@@ -312,6 +114,21 @@ impl WgpuSkin {
                 .get_mapped_range_mut()
                 .copy_from_slice(self.joint_matrices.as_bytes());
             self.buffer.as_ref().unwrap().unmap();
+
+            self.bind_group = Some(Arc::new(device.create_bind_group(
+                &wgpu::BindGroupDescriptor {
+                    label: Some("skinning-bg"),
+                    layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer {
+                            buffer: &self.buffer.as_ref().unwrap(),
+                            offset: 0,
+                            size: None,
+                        },
+                    }],
+                },
+            )));
         } else {
             queue.write_buffer(
                 self.buffer.as_ref().unwrap(),

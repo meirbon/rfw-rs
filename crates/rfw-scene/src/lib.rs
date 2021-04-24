@@ -262,14 +262,23 @@ impl Scene {
     }
 
     pub fn add_3d<T: ToScene>(&mut self, scene: &T) -> GraphHandle {
-        self.objects.graph.add_graph(scene.to_scene(
+        let scene = scene.to_scene(
             &mut self.objects.meshes_3d,
             &mut self.objects.instances_3d,
             &mut self.objects.skins,
-        ))
+        );
+
+        let name = scene.get(scene.root_node()).unwrap().name.clone();
+
+        let handle = self.objects.graph.add_graph(scene);
+
+        rfw_utils::log::info!("added graph \"{}\" with id {}", name, handle.get_id());
+
+        handle
     }
 
     pub fn remove_3d(&mut self, scene: GraphHandle) {
+        rfw_utils::log::info!("removed graph with id {}", scene.get_id());
         self.objects.graph.remove_graph(
             scene,
             &mut self.objects.meshes_3d,
@@ -279,10 +288,13 @@ impl Scene {
     }
 
     pub fn add_3d_object<T: ToMesh3D>(&mut self, object: T) -> MeshId3D {
-        let id = self.objects.meshes_3d.push(object.into_mesh_3d());
+        let mesh = object.into_mesh_3d();
+        let name = mesh.name.clone();
+        let id = self.objects.meshes_3d.push(mesh);
         self.objects
             .instances_3d
             .overwrite_val(id, InstanceList3D::default());
+        rfw_utils::log::info!("added 3d mesh \"{}\" with id {}", name, id);
         MeshId3D(id as _)
     }
 
@@ -303,7 +315,9 @@ impl Scene {
     }
 
     pub fn add_2d<T: ToMesh2D>(&mut self, object: T) -> MeshId2D {
-        let id = self.objects.meshes_2d.push(object.into_mesh_2d());
+        let mesh = object.into_mesh_2d();
+        let id = self.objects.meshes_2d.push(mesh);
+        rfw_utils::log::info!("added 2d mesh with id {}", id);
         self.objects
             .instances_2d
             .overwrite_val(id, InstanceList2D::default());
@@ -332,10 +346,16 @@ impl Scene {
         let index = if let Some(index) = index.as_index() {
             index
         } else {
+            rfw_utils::log::warn!("3d mesh id {} was invalid", index.0);
             return Err(SceneError::InvalidObjectIndex(index.into()));
         };
 
         if self.objects.meshes_3d.get(index).is_none() {
+            rfw_utils::log::warn!(
+                "could not update 3d mesh with id {}, invalid object index {}",
+                index,
+                index
+            );
             return Err(SceneError::InvalidObjectIndex(index));
         }
 
@@ -349,10 +369,16 @@ impl Scene {
         let index = if let Some(index) = index.as_index() {
             index
         } else {
+            rfw_utils::log::warn!("2d mesh id {} was invalid", index.0);
             return Err(SceneError::InvalidObjectIndex(index.into()));
         };
 
         if self.objects.meshes_2d.get(index).is_none() {
+            rfw_utils::log::warn!(
+                "could not update 2d mesh with id {}, invalid object index {}",
+                index,
+                index
+            );
             Err(SceneError::InvalidObjectIndex(index))
         } else {
             self.objects.meshes_2d[index] = object;
@@ -364,15 +390,23 @@ impl Scene {
         let index = if let Some(index) = index.as_index() {
             index
         } else {
+            rfw_utils::log::warn!("3d mesh id {} was invalid", index.0);
             return Err(SceneError::InvalidObjectIndex(index.into()));
         };
 
         match self.objects.meshes_3d.erase(index as usize) {
-            Ok(_) => {
+            Ok(m) => {
+                rfw_utils::log::info!("removed 3d mesh \"{}\" with id {}", m.name, index);
                 self.objects.instances_3d.erase(index).unwrap();
                 Ok(())
             }
-            Err(_) => Err(SceneError::InvalidObjectIndex(index as _)),
+            Err(_) => {
+                rfw_utils::log::warn!(
+                    "could not remove 3d mesh with id {}, mesh did not exist",
+                    index
+                );
+                Err(SceneError::InvalidObjectIndex(index as _))
+            }
         }
     }
 
@@ -380,12 +414,21 @@ impl Scene {
         if let Some(index) = index.as_index() {
             match self.objects.meshes_2d.erase(index) {
                 Ok(_) => {
+                    rfw_utils::log::info!("removed 2d mesh with id {}", index);
                     self.objects.instances_2d.erase(index).unwrap();
                     return Ok(());
                 }
-                Err(_) => return Err(SceneError::InvalidObjectIndex(index)),
+                Err(_) => {
+                    rfw_utils::log::warn!(
+                        "could not remove 2d mesh with id {}, mesh did not exist",
+                        index
+                    );
+                    return Err(SceneError::InvalidObjectIndex(index));
+                }
             }
         }
+
+        rfw_utils::log::warn!("2d mesh id {} was invalid", index.0);
         Err(SceneError::InvalidObjectIndex(index.0 as usize))
     }
 
@@ -393,31 +436,40 @@ impl Scene {
         let id = if let Some(id) = mesh.as_index() {
             id
         } else {
+            rfw_utils::log::warn!("3d mesh id {} was invalid", mesh.0);
             return Err(SceneError::InvalidObjectIndex(mesh.0 as usize));
         };
 
         if self.objects.meshes_3d.get(id).is_none() {
+            rfw_utils::log::warn!("3d mesh id {} did not exist", id);
             return Err(SceneError::InvalidObjectIndex(id));
         }
 
-        Ok(self.objects.instances_3d[id].allocate())
+        let id = self.objects.instances_3d[id].allocate();
+        rfw_utils::log::info!("allocated instance {} for 3d mesh {}", id.get_id(), mesh.0,);
+        Ok(id)
     }
 
     pub fn add_2d_instance(&mut self, mesh: MeshId2D) -> Result<InstanceHandle2D, SceneError> {
         let id = if let Some(id) = mesh.as_index() {
             id
         } else {
+            rfw_utils::log::warn!("2d mesh id {} was invalid", mesh.0);
             return Err(SceneError::InvalidObjectIndex(mesh.0 as usize));
         };
 
         if self.objects.meshes_2d.get(id).is_none() {
+            rfw_utils::log::warn!("2d mesh id {} did not exist", id);
             return Err(SceneError::InvalidObjectIndex(id));
         }
 
-        Ok(self.objects.instances_2d[id].allocate())
+        let id = self.objects.instances_2d[id].allocate();
+        rfw_utils::log::info!("allocated instance {} for 2d mesh {}", id.get_id(), mesh.0,);
+        Ok(id)
     }
 
     pub fn remove_2d_instance(&mut self, handle: InstanceHandle2D) {
+        rfw_utils::log::info!("invalidated instance {}", handle.get_id());
         handle.make_invalid();
     }
 

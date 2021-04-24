@@ -4,7 +4,7 @@ use rtbvh::AABB;
 use std::fmt::Display;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct AreaLight {
     pub position: [f32; 3],
@@ -97,7 +97,7 @@ impl AreaLight {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, align(32))]
 pub struct PointLight {
     pub position: [f32; 3],
@@ -193,7 +193,7 @@ impl PointLight {
 } // 32 Bytes
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct SpotLight {
     pub position: [f32; 3],
@@ -290,7 +290,7 @@ impl SpotLight {
 }
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct DirectionalLight {
     pub direction: [f32; 3],

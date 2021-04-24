@@ -82,40 +82,40 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut resized = false;
 
     renderer.add_spot_light(
-        Vec3::new(2.5, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(105.0, 10.0, 10.0),
+        vec3(2.5, 15.0, 0.0),
+        vec3(0.0, -1.0, 0.3),
+        vec3(105.0, 10.0, 10.0),
         45.0,
         60.0,
     );
 
     renderer.add_spot_light(
-        Vec3::new(0.0, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.3),
-        Vec3::new(10.0, 105.0, 10.0),
+        vec3(0.0, 15.0, 0.0),
+        vec3(0.0, -1.0, 0.3),
+        vec3(10.0, 105.0, 10.0),
         45.0,
         60.0,
     );
 
     renderer.add_spot_light(
-        Vec3::new(-2.5, 15.0, 0.0),
-        Vec3::new(0.0, -1.0, -0.3),
-        Vec3::new(10.0, 10.0, 105.0),
+        vec3(-2.5, 15.0, 0.0),
+        vec3(0.0, -1.0, -0.3),
+        vec3(10.0, 10.0, 105.0),
         45.0,
         60.0,
     );
 
-    renderer.add_directional_light(Vec3::new(0.0, -1.0, 0.5), Vec3::new(0.6, 0.4, 0.4));
+    renderer.add_directional_light(vec3(0.0, -1.0, 0.5), vec3(0.6, 0.4, 0.4));
 
     let material =
         renderer
             .get_scene_mut()
             .materials
-            .add(Vec3::new(1.0, 0.2, 0.03), 1.0, Vec3::one(), 0.0);
-    let sphere = Sphere::new(Vec3::zero(), 0.2, material as u32).with_quality(Quality::Medium);
+            .add(vec3(1.0, 0.2, 0.03), 1.0, Vec3::ONE, 0.0);
+    let sphere = Sphere::new(Vec3::ZERO, 0.2, material as u32).with_quality(Quality::Medium);
     let sphere = renderer.get_scene_mut().add_3d_object(sphere);
-    let sphere_x = 20 as i32;
-    let sphere_z = 15 as i32;
+    let sphere_x = 20_i32;
+    let sphere_z = 15_i32;
 
     let mut handles = {
         let mut handles = Vec::new();
@@ -311,7 +311,57 @@ fn main() -> Result<(), Box<dyn Error>> {
                 if let Some(cesium_man3) = &scene_id {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
                 }
-
+//
+// <<<<<<< HEAD
+// =======
+//                 {
+//                     let mut instances_3d = 0;
+//                     let mut vertices = 0;
+//                     {
+//                         let scene = renderer.get_scene();
+//
+//                         for (i, m) in scene.objects.meshes_3d.iter() {
+//                             instances_3d += scene.objects.instances_3d[i].len();
+//                             vertices += m.vertices.len() * scene.objects.instances_3d[i].len();
+//                         }
+//                     }
+//                     let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
+//                     let instances_2d: usize = renderer
+//                         .get_scene()
+//                         .objects
+//                         .instances_2d
+//                         .iter()
+//                         .map(|(_, i)| i.len())
+//                         .sum();
+//                     let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
+//
+//                     let settings = renderer.get_settings();
+//                     settings.draw_ui(&window, |ui| {
+//                         use rfw_backend_wgpu::imgui;
+//                         let window = imgui::Window::new(imgui::im_str!("RFW"));
+//                         window
+//                             .size([350.0, 250.0], imgui::Condition::FirstUseEver)
+//                             .position([900.0, 25.0], imgui::Condition::FirstUseEver)
+//                             .build(&ui, || {
+//                                 ui.checkbox(imgui::im_str!("Skinning"), &mut enable_skinning);
+//                                 ui.text(imgui::im_str!("FPS: {}", ui.io().framerate));
+//                                 ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
+//                                 ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
+//                                 ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
+//                                 ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
+//                                 ui.text(imgui::im_str!("2D Mesh count: {}", meshes_2d));
+//                                 scale_factor_changed = ui
+//                                     .input_float(imgui::im_str!("Scale factor"), &mut scale_factor)
+//                                     .step(0.05)
+//                                     .build();
+//                                 scale_factor = scale_factor.max(0.1).min(2.0);
+//                             });
+//                     });
+//
+//                     settings.enable_skinning = enable_skinning;
+//                 }
+//
+// >>>>>>> vulkan-backend
                 let t = app_time.elapsed_in_millis() / 1000.0;
                 handles.par_iter_mut().enumerate().for_each(|(i, h)| {
                     let x = (i as i32 % (sphere_x * 2)) - sphere_x;

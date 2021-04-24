@@ -231,7 +231,6 @@ fn update_fonts(
     let mut tex_changed = false;
     let tex_width = font.tex_width;
     let brush = &mut font.brush;
-    let tex_data = this.tex_data.as_mut_slice();
     match brush.process_queued(
         |rect, t_data| {
             let offset: [u32; 2] = [rect.min[0], rect.min[1]];
@@ -248,7 +247,7 @@ fn update_fonts(
                     let index =
                         (x + offset[0] as usize) + (offset[1] as usize + y) * tex_width as usize;
 
-                    tex_data[index] = (alpha << 24) | 0xFFFFFF;
+                    this.tex_data[index] = (alpha << 24) | 0xFFFFFF;
                 }
             }
 
@@ -257,51 +256,45 @@ fn update_fonts(
         to_vertex,
     ) {
         Ok(BrushAction::Draw(vertices)) => {
-            let has_tex = font.tex_id as u32;
-            let mut verts = Vec::with_capacity(vertices.len() * 6);
-            let vertices: Vec<_> = vertices
-                .iter()
-                .map(|v| {
-                    let v0 = Vertex2D {
-                        vertex: [v.min_x, v.min_y, 0.5],
-                        uv: [v.uv_min_x, v.uv_min_y],
-                        has_tex,
-                        color: v.color,
-                    };
-                    let v1 = Vertex2D {
-                        vertex: [v.max_x, v.min_y, 0.5],
-                        uv: [v.uv_max_x, v.uv_min_y],
-                        has_tex,
-                        color: v.color,
-                    };
-                    let v2 = Vertex2D {
-                        vertex: [v.max_x, v.max_y, 0.5],
-                        uv: [v.uv_max_x, v.uv_max_y],
-                        has_tex,
-                        color: v.color,
-                    };
-                    let v3 = Vertex2D {
-                        vertex: [v.min_x, v.max_y, 0.5],
-                        uv: [v.uv_min_x, v.uv_max_y],
-                        has_tex,
-                        color: v.color,
-                    };
+            let tex = font.tex_id as u32;
+            let font_object = scene.get_2d_object_mut(font.mesh_id).unwrap();
+            font_object
+                .vertices
+                .resize(vertices.len() * 6, Default::default());
 
-                    (v0, v1, v2, v3, v0, v2)
-                })
-                .collect();
-            vertices.into_iter().for_each(|vs| {
-                verts.push(vs.0);
-                verts.push(vs.1);
-                verts.push(vs.2);
-                verts.push(vs.3);
-                verts.push(vs.4);
-                verts.push(vs.5);
-            });
+            for (i, v) in vertices.into_iter().enumerate() {
+                let v0 = Vertex2D {
+                    vertex: [v.min_x, v.min_y, 0.5],
+                    uv: [v.uv_min_x, v.uv_min_y],
+                    tex,
+                    color: v.color,
+                };
+                let v1 = Vertex2D {
+                    vertex: [v.max_x, v.min_y, 0.5],
+                    uv: [v.uv_max_x, v.uv_min_y],
+                    tex,
+                    color: v.color,
+                };
+                let v2 = Vertex2D {
+                    vertex: [v.max_x, v.max_y, 0.5],
+                    uv: [v.uv_max_x, v.uv_max_y],
+                    tex,
+                    color: v.color,
+                };
+                let v3 = Vertex2D {
+                    vertex: [v.min_x, v.max_y, 0.5],
+                    uv: [v.uv_min_x, v.uv_max_y],
+                    tex,
+                    color: v.color,
+                };
 
-            let mut mesh = Mesh2D::from(verts);
-            mesh.tex_id = Some(font.tex_id);
-            scene.set_2d_object(font.mesh_id, mesh).unwrap();
+                font_object.vertices[i * 6] = v0;
+                font_object.vertices[i * 6 + 1] = v1;
+                font_object.vertices[i * 6 + 2] = v2;
+                font_object.vertices[i * 6 + 3] = v3;
+                font_object.vertices[i * 6 + 4] = v0;
+                font_object.vertices[i * 6 + 5] = v2;
+            }
         }
         Ok(BrushAction::ReDraw) => {}
         Err(BrushError::TextureTooSmall { suggested }) => {
@@ -309,12 +302,14 @@ fn update_fonts(
                 .resize((suggested.0 * suggested.1) as usize, 0);
             font.tex_width = suggested.0;
             font.tex_height = suggested.1;
+            tex_changed = true;
         }
     }
 
     if tex_changed {
         if let Some(tex) = scene.materials.get_texture_mut(font.tex_id) {
-            tex.data = this.tex_data.clone();
+            tex.data.resize(this.tex_data.len(), 0);
+            tex.data.copy_from_slice(&this.tex_data);
             tex.width = font.tex_width;
             tex.height = font.tex_height;
             tex.mip_levels = 1;

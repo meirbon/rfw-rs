@@ -1,7 +1,5 @@
-use clap::{App, Arg};
-use rfw::prelude::*;
-use rfw_font::{FontRenderer, Section, Text};
 use std::error::Error;
+
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::window::Fullscreen;
@@ -12,70 +10,43 @@ use winit::{
     window::WindowBuilder,
 };
 
+use rfw::prelude::*;
+use rfw_font::{FontRenderer, Section, Text};
+
 type KeyHandler = rfw::utils::input::ButtonState<VirtualKeyCode>;
 type MouseButtonHandler = rfw::utils::input::ButtonState<MouseButtonCode>;
 
+#[derive(Debug, Default)]
 struct FpsSystem {
     timer: Timer,
     average: Averager<f32>,
 }
 
-impl Default for FpsSystem {
-    fn default() -> Self {
-        Self {
-            timer: Timer::new(),
-            average: Averager::with_capacity(250),
-        }
-    }
-}
+fn fps_system(mut font_renderer: ResMut<FontRenderer>, mut fps_component: Query<&mut FpsSystem>) {
+    for mut c in fps_component.iter_mut() {
+        let elapsed = c.timer.elapsed_in_millis();
+        c.timer.reset();
+        c.average.add_sample(elapsed);
+        let average = c.average.get_average();
 
-impl System for FpsSystem {
-    fn run(&mut self, resources: &ResourceList) {
-        let elapsed = self.timer.elapsed_in_millis();
-        self.timer.reset();
-        self.average.add_sample(elapsed);
-        let average = self.average.get_average();
-
-        if let Some(mut font) = resources.get_resource_mut::<FontRenderer>() {
-            font.draw(
-                Section::default()
-                    .with_screen_position((0.0, 0.0))
-                    .add_text(
-                        Text::new(
-                            format!("FPS: {:.2}\nFrametime: {:.2} ms", 1000.0 / average, average)
-                                .as_str(),
-                        )
-                        .with_scale(32.0)
-                        .with_color([1.0; 4]),
-                    ),
-            );
-        }
+        font_renderer.draw(
+            Section::default()
+                .with_screen_position((0.0, 0.0))
+                .add_text(
+                    Text::new(
+                        format!("FPS: {:.2}\nFRAMETIME: {:.2} MS", 1000.0 / average, average)
+                            .as_str(),
+                    )
+                    .with_scale(32.0)
+                    .with_color([1.0; 4]),
+                ),
+        );
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let matches = App::new("rfw-animated")
-        .about("Example with animated meshes for the rfw framework.")
-        .arg(
-            Arg::with_name("renderer")
-                .short("r")
-                .long("renderer")
-                .takes_value(true)
-                .help("Which renderer to use (current options are: gpu-rt, deferred)"),
-        )
-        .get_matches();
-
     use rfw_backend_wgpu::WgpuBackend;
-    // use rfw_gpu_rt::RayTracer;
 
-    match matches.value_of("renderer") {
-        // Some("gpu-rt") => run_application::<RayTracer>(),
-        // Some("gfx") => run_application::<GfxBackend>(),
-        _ => run_application::<WgpuBackend>(),
-    }
-}
-
-fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>> {
     let mut width = 1280;
     let mut height = 720;
 
@@ -95,20 +66,20 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
         .unwrap_or(1.0);
 
     let font = include_bytes!("../../../assets/good-times-rg.ttf");
-    let mut renderer: Instance<T> = Instance::new(&window, (width, height), Some(scale_factor))
-        .unwrap()
-        .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
-        .with_system(FpsSystem::default());
+    let mut renderer: Instance = Instance::new(
+        WgpuBackend::init(&window, (width, height), scale_factor)?,
+        (width, height),
+        Some(scale_factor),
+    )?
+    .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
+    .with_system(fps_system.system());
+
+    renderer.spawn().insert(FpsSystem::default());
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let mut camera_2d = Camera2D::from_width_height(width, height, Some(scale_factor));
-    let mut camera = Camera3D::new()
-        .with_aspect_ratio(1280.0 / 720.0)
-        .with_fov(60.0);
-
-    let quad = renderer.get_scene_mut().add_2d_object(Quad2D {
+    let quad = renderer.get_scene_mut().add_2d(Quad2D {
         bottom_left: Vec2::splat(-40.0),
         top_right: Vec2::splat(40.0),
         ..Default::default()
@@ -142,21 +113,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                     *control_flow = ControlFlow::Exit;
                 }
 
-                let mut view_change = Vec3::new(0.0, 0.0, 0.0);
                 let mut pos_change = Vec3::new(0.0, 0.0, 0.0);
-
-                if key_handler.pressed(KeyCode::Up) {
-                    view_change += (0.0, 1.0, 0.0).into();
-                }
-                if key_handler.pressed(KeyCode::Down) {
-                    view_change -= (0.0, 1.0, 0.0).into();
-                }
-                if key_handler.pressed(KeyCode::Left) {
-                    view_change -= (1.0, 0.0, 0.0).into();
-                }
-                if key_handler.pressed(KeyCode::Right) {
-                    view_change += (1.0, 0.0, 0.0).into();
-                }
 
                 if key_handler.pressed(KeyCode::W) {
                     pos_change += (0.0, 0.0, 1.0).into();
@@ -181,7 +138,7 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                     && key_handler.pressed(KeyCode::LControl)
                     && key_handler.pressed(KeyCode::F)
                 {
-                    if let None = window.fullscreen() {
+                    if window.fullscreen().is_none() {
                         window
                             .set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
                     } else {
@@ -201,14 +158,9 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                     elapsed
                 };
 
-                let view_change = view_change * elapsed * 0.001;
                 let pos_change = pos_change * elapsed * 0.01;
 
-                if view_change != Vec3::zero() {
-                    camera.translate_target(view_change);
-                }
-                if pos_change != Vec3::zero() {
-                    camera.translate_relative(pos_change);
+                if pos_change != Vec3::ZERO {
                     quad_instance.get_transform().translate(Vec3::new(
                         pos_change.x,
                         pos_change.z,
@@ -217,15 +169,13 @@ fn run_application<T: 'static + Sized + Backend>() -> Result<(), Box<dyn Error>>
                 }
 
                 if resized {
-                    camera.set_aspect_ratio(width as f32 / height as f32);
-                    camera_2d = Camera2D::from_width_height(width, height, Some(scale_factor));
-                    renderer.resize(&window, (width, height), None);
+                    *renderer.get_camera_2d() =
+                        Camera2D::from_width_height(width, height, Some(scale_factor));
+                    renderer.resize((width, height), None);
                     resized = false;
                 }
 
-                renderer
-                    .render(&camera_2d, &camera, RenderMode::Reset)
-                    .unwrap();
+                renderer.render();
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),

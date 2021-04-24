@@ -1,9 +1,22 @@
+use std::fmt::Debug;
+
 use metal::{Buffer, BufferRef, DeviceRef, MTLResourceOptions};
 
 pub struct ManagedBuffer<T> {
     buffer: Buffer,
     count: usize,
     _default: T,
+}
+
+impl<T> Debug for ManagedBuffer<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ManagedBuffer(buffer: {}, count: {})",
+            self.buffer.label(),
+            self.count
+        )
+    }
 }
 
 impl<T: Sized> std::ops::Deref for ManagedBuffer<T> {

@@ -163,7 +163,7 @@ impl BlitPass {
             entries: &[
                 output.as_storage_entry(0, wgpu::ShaderStage::FRAGMENT, WgpuView::Albedo, true),
                 output.as_storage_entry(1, wgpu::ShaderStage::FRAGMENT, WgpuView::Radiance, true),
-                output.as_storage_entry(2, wgpu::ShaderStage::FRAGMENT, WgpuView::SSAO, true),
+                output.as_storage_entry(2, wgpu::ShaderStage::FRAGMENT, WgpuView::Ssao, true),
             ],
         });
 
@@ -173,7 +173,7 @@ impl BlitPass {
             entries: &[
                 output.as_binding(0, WgpuView::Albedo),
                 output.as_binding(1, WgpuView::Radiance),
-                output.as_binding(2, WgpuView::SSAO),
+                output.as_binding(2, WgpuView::Ssao),
             ],
         });
 
@@ -243,7 +243,7 @@ impl BlitPass {
             entries: &[
                 output.as_binding(0, WgpuView::Albedo),
                 output.as_binding(1, WgpuView::Radiance),
-                output.as_binding(2, WgpuView::SSAO),
+                output.as_binding(2, WgpuView::Ssao),
             ],
         });
     }
@@ -268,7 +268,7 @@ impl BlitPass {
     }
 }
 
-pub struct SSAOPass {
+pub struct SsaoPass {
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
@@ -283,7 +283,7 @@ pub struct SSAOPass {
     filter_pipeline: wgpu::ComputePipeline,
 }
 
-impl SSAOPass {
+impl SsaoPass {
     pub fn new(
         device: &wgpu::Device,
         uniform_bind_group_layout: &wgpu::BindGroupLayout,
@@ -305,7 +305,7 @@ impl SSAOPass {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ssao-bind-group-layout"),
             entries: &[
-                output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, WgpuView::SSAO, false),
+                output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, WgpuView::Ssao, false),
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     count: None,
@@ -324,7 +324,7 @@ impl SSAOPass {
             label: Some("ssao-bind-group"),
             layout: &bind_group_layout,
             entries: &[
-                output.as_binding(0, WgpuView::SSAO),
+                output.as_binding(0, WgpuView::Ssao),
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
@@ -357,8 +357,8 @@ impl SSAOPass {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("filter-bind-group-layout"),
                 entries: &[
-                    output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, WgpuView::SSAO, false),
-                    output.as_storage_entry(1, wgpu::ShaderStage::COMPUTE, WgpuView::SSAO, true),
+                    output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, WgpuView::Ssao, false),
+                    output.as_storage_entry(1, wgpu::ShaderStage::COMPUTE, WgpuView::Ssao, true),
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         count: None,
@@ -398,8 +398,8 @@ impl SSAOPass {
             label: Some("filter-bind-group"),
             layout: &filter_bind_group_layout,
             entries: &[
-                output.as_binding(0, WgpuView::FilteredSSAO),
-                output.as_binding(1, WgpuView::SSAO),
+                output.as_binding(0, WgpuView::FilteredSsao),
+                output.as_binding(1, WgpuView::Ssao),
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: filter_uniform_direction_buffer.as_entire_binding(),
@@ -411,8 +411,8 @@ impl SSAOPass {
             label: Some("filter-bind-group"),
             layout: &filter_bind_group_layout,
             entries: &[
-                output.as_binding(0, WgpuView::SSAO),
-                output.as_binding(1, WgpuView::FilteredSSAO),
+                output.as_binding(0, WgpuView::Ssao),
+                output.as_binding(1, WgpuView::FilteredSsao),
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: filter_uniform_direction_buffer.as_entire_binding(),
@@ -459,7 +459,7 @@ impl SSAOPass {
             label: Some("ssao-bind-group"),
             layout: &self.bind_group_layout,
             entries: &[
-                output.as_binding(0, WgpuView::SSAO),
+                output.as_binding(0, WgpuView::Ssao),
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
@@ -473,8 +473,8 @@ impl SSAOPass {
             label: Some("filter-bind-group"),
             layout: &self.filter_bind_group_layout,
             entries: &[
-                output.as_binding(0, WgpuView::FilteredSSAO),
-                output.as_binding(1, WgpuView::SSAO),
+                output.as_binding(0, WgpuView::FilteredSsao),
+                output.as_binding(1, WgpuView::Ssao),
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: self.filter_uniform_direction_buffer.as_entire_binding(),
@@ -486,8 +486,8 @@ impl SSAOPass {
             label: Some("filter-bind-group"),
             layout: &self.filter_bind_group_layout,
             entries: &[
-                output.as_binding(0, WgpuView::SSAO),
-                output.as_binding(1, WgpuView::FilteredSSAO),
+                output.as_binding(0, WgpuView::Ssao),
+                output.as_binding(1, WgpuView::FilteredSsao),
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: self.filter_uniform_direction_buffer.as_entire_binding(),
@@ -626,7 +626,7 @@ impl RadiancePass {
             entries: &[
                 output.as_storage_entry(0, wgpu::ShaderStage::COMPUTE, WgpuView::Albedo, true),
                 output.as_storage_entry(1, wgpu::ShaderStage::COMPUTE, WgpuView::Normal, true),
-                output.as_storage_entry(2, wgpu::ShaderStage::COMPUTE, WgpuView::WorldPos, true),
+                output.as_storage_entry(2, wgpu::ShaderStage::COMPUTE, WgpuView::GBuffer, true),
                 output.as_storage_entry(3, wgpu::ShaderStage::COMPUTE, WgpuView::MatParams, true),
             ],
         });
@@ -744,7 +744,7 @@ impl RadiancePass {
             entries: &[
                 output.as_binding(0, WgpuView::Albedo),
                 output.as_binding(1, WgpuView::Normal),
-                output.as_binding(2, WgpuView::WorldPos),
+                output.as_binding(2, WgpuView::GBuffer),
                 output.as_binding(3, WgpuView::MatParams),
             ],
         });
@@ -837,7 +837,7 @@ impl RadiancePass {
             entries: &[
                 output.as_binding(0, WgpuView::Albedo),
                 output.as_binding(1, WgpuView::Normal),
-                output.as_binding(2, WgpuView::WorldPos),
+                output.as_binding(2, WgpuView::GBuffer),
                 output.as_binding(3, WgpuView::MatParams),
             ],
         });

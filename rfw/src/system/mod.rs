@@ -1,8 +1,9 @@
+use crate::backend::RenderMode;
 use crate::ecs::*;
+use crate::prelude::InstancesData3D;
 use rfw_backend::{Backend, DataFormat, MeshData2D, MeshData3D, SkinData, TextureData};
 use rfw_scene::Scene;
 use rfw_utils::BytesConversion;
-use crate::backend::RenderMode;
 
 pub struct RenderSystem {
     pub(crate) width: u32,
@@ -110,7 +111,14 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         }
 
         changed = true;
-        system.renderer.set_3d_instances(i, instances.into());
+        system.renderer.set_3d_instances(
+            i,
+            InstancesData3D {
+                matrices: instances.matrices(),
+                skin_ids: instances.skin_ids(),
+                local_aabb: meshes_3d[i].bounds,
+            },
+        );
 
         instances.reset_changed();
     }

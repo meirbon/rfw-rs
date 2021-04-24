@@ -14,7 +14,8 @@ num_cpus = "1.13"
 rfw = { path = "../../rfw" }
 wgpu = "0.7"
 rayon = "1.5"
-winit = { version = "0.24", optional = true }
+num-integer = "0.1"
+bitflags = "1.2"
 # rfw = "0.1"
 
 [build-dependencies]

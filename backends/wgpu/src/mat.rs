@@ -1,9 +1,5 @@
-use rfw::{
-    prelude::{DeviceMaterial, TextureData},
-    utils::collections::FlaggedStorage,
-};
+use rfw::prelude::TextureData;
 use std::num::NonZeroU32;
-use std::ops::Deref;
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -41,7 +37,7 @@ impl WgpuTexture {
 
         let mut width = tex.width;
         let mut height = tex.height;
-        let mut local_offset = 0 as wgpu::BufferAddress;
+        let mut local_offset = 0_u64;
         for i in 0..tex.mip_levels {
             let offset = local_offset * std::mem::size_of::<u32>() as u64;
 
@@ -89,7 +85,7 @@ impl WgpuTexture {
 
         let mut width = tex.width;
         let mut height = tex.height;
-        let mut local_offset = 0 as wgpu::BufferAddress;
+        let mut local_offset = 0_u64;
         for i in 0..tex.mip_levels {
             let offset = local_offset * std::mem::size_of::<u32>() as u64;
 
@@ -142,128 +138,6 @@ impl Clone for WgpuTexture {
             dims: self.dims,
             texture: self.texture.clone(),
             view: self.view.clone(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct WgpuBindGroup {
-    pub group: Arc<Option<wgpu::BindGroup>>,
-}
-
-impl WgpuBindGroup {
-    pub fn new(
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        material: &DeviceMaterial,
-        textures: &FlaggedStorage<WgpuTexture>,
-    ) -> Self {
-        let albedo_tex = material.diffuse_map.max(0) as usize;
-        let normal_tex = material.normal_map.max(0) as usize;
-        let roughness_tex = material.metallic_roughness_map.max(0) as usize;
-        let emissive_tex = material.emissive_map.max(0) as usize;
-        let sheen_tex = material.sheen_map.max(0) as usize;
-
-        let albedo_view = textures[albedo_tex].view.deref().as_ref().unwrap();
-        let normal_view = textures[normal_tex].view.deref().as_ref().unwrap();
-        let roughness_view = textures[roughness_tex].view.deref().as_ref().unwrap();
-        let emissive_view = textures[emissive_tex].view.deref().as_ref().unwrap();
-        let sheen_view = textures[sheen_tex].view.deref().as_ref().unwrap();
-
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(albedo_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(normal_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(roughness_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(emissive_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(sheen_view),
-                },
-            ],
-            layout,
-        });
-
-        Self {
-            group: Arc::new(Some(group)),
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        material: &DeviceMaterial,
-        textures: &FlaggedStorage<WgpuTexture>,
-    ) {
-        let albedo_tex = material.diffuse_map.max(0) as usize;
-        let normal_tex = material.normal_map.max(0) as usize;
-        let roughness_tex = material.metallic_roughness_map.max(0) as usize;
-        let emissive_tex = material.emissive_map.max(0) as usize;
-        let sheen_tex = material.sheen_map.max(0) as usize;
-
-        let albedo_view = textures[albedo_tex].view.deref().as_ref().unwrap();
-        let normal_view = textures[normal_tex].view.deref().as_ref().unwrap();
-        let roughness_view = textures[roughness_tex].view.deref().as_ref().unwrap();
-        let emissive_view = textures[emissive_tex].view.deref().as_ref().unwrap();
-        let sheen_view = textures[sheen_tex].view.deref().as_ref().unwrap();
-
-        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(albedo_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(normal_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(roughness_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(emissive_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(sheen_view),
-                },
-            ],
-            layout,
-        });
-
-        self.group = Arc::new(Some(group));
-    }
-}
-
-impl Default for WgpuBindGroup {
-    fn default() -> Self {
-        Self {
-            group: Arc::new(None),
-        }
-    }
-}
-
-impl Clone for WgpuBindGroup {
-    fn clone(&self) -> Self {
-        Self {
-            group: self.group.clone(),
         }
     }
 }

@@ -59,7 +59,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
             self.storage.resize((index + 1) * 2, T::default());
             self.storage_ptr = index + 1;
 
-            for i in last_len..new_len {
+            for i in last_len..self.storage_ptr {
                 self.empty_slots.push(i as u32);
             }
         }
@@ -95,7 +95,7 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         let index = self.storage_ptr;
         self.storage_ptr += 1;
 
-        if self.storage.len() <= self.storage_ptr {
+        if self.storage_ptr >= self.storage.len() {
             let new_size = self.storage_ptr * 2;
             self.storage.resize(new_size, T::default());
             self.active.resize(new_size.max(self.active.len()), false);
@@ -105,34 +105,18 @@ impl<T: Default + Clone + std::fmt::Debug> FlaggedStorage<T> {
         index
     }
 
-    /// Releases index but does not overwrite memory at index
-    pub fn release(&mut self, index: usize) -> Result<(), ()> {
-        let is_some = self.active.get(index).is_some();
-        match is_some {
-            false => Err(()),
-            true => {
-                if unsafe { *self.active.get_unchecked(index) } {
-                    self.active.set(index, false);
-                    self.empty_slots.push(index as u32);
-                    Ok(())
-                } else {
-                    Err(())
-                }
-            }
-        }
-    }
-
     /// Releases index and resets memory at index
-    pub fn erase(&mut self, index: usize) -> Result<(), ()> {
+    pub fn erase(&mut self, index: usize) -> Result<T, ()> {
         let is_some = self.active.get(index).is_some();
         match is_some {
             false => Err(()),
             true => {
                 if unsafe { *self.active.get_unchecked(index) } {
                     self.active.set(index, false);
-                    self.storage[index] = T::default();
+                    let mut t = T::default();
+                    std::mem::swap(&mut self.storage[index], &mut t);
                     self.empty_slots.push(index as u32);
-                    Ok(())
+                    Ok(t)
                 } else {
                     Err(())
                 }
@@ -386,12 +370,12 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
     }
 
     /// Releases index and resets memory at index
-    pub fn erase(&mut self, index: usize) -> Result<(), ()> {
+    pub fn erase(&mut self, index: usize) -> Result<T, ()> {
         match self.storage.erase(index) {
-            Ok(_) => {
+            Ok(t) => {
                 self.changed.set(index, true);
                 self.erased.push(index);
-                Ok(())
+                Ok(t)
             }
             Err(_) => Err(()),
         }
@@ -724,7 +708,7 @@ mod tests {
         assert_eq!(storage.push(2), 2);
         assert_eq!(storage.push(3), 3);
 
-        let release = storage.release(1);
+        let release = storage.erase(1);
         assert!(release.is_ok());
         release.unwrap();
 
@@ -750,7 +734,7 @@ mod tests {
         assert_eq!(storage.push(2), 2);
         assert_eq!(storage.push(3), 3);
 
-        let release = storage.release(1);
+        let release = storage.erase(1);
         assert!(release.is_ok());
         release.unwrap();
 
@@ -758,7 +742,7 @@ mod tests {
         assert!(release.is_ok());
         release.unwrap();
 
-        let release = storage.release(1);
+        let release = storage.erase(1);
         assert!(release.is_err());
 
         let release = storage.erase(0);

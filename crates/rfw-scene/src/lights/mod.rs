@@ -29,12 +29,12 @@ pub trait Light {
 impl Default for LightInfo {
     fn default() -> Self {
         Self {
-            pm: Mat4::identity(),
+            pm: Mat4::IDENTITY,
             pos: [0.0; 3],
             range: 0.0,
-            _padding0: [Vec4::zero(); 3],
-            _padding1: Mat4::identity(),
-            _padding2: Mat4::identity(),
+            _padding0: [Vec4::ZERO; 3],
+            _padding1: Mat4::IDENTITY,
+            _padding2: Mat4::IDENTITY,
         }
     }
 }
@@ -68,9 +68,9 @@ impl Light for AreaLight {
     fn get_matrix(&self, _: &AABB) -> Mat4 {
         let direction = Vec3::from(self.normal);
         let up = if direction.y.abs() > 0.99 {
-            Vec3::unit_z()
+            Vec3::Z
         } else {
-            Vec3::unit_y()
+            Vec3::Y
         };
         let center: Vec3 = Vec3::from(self.position);
         let l = self.energy * self.area;
@@ -96,9 +96,9 @@ impl Light for AreaLight {
         let normal = Vec3::from(self.normal);
 
         let up = if normal.y.abs() > 0.99 {
-            Vec3::unit_z()
+            Vec3::Z
         } else {
-            Vec3::unit_y()
+            Vec3::Y
         };
 
         let right = normal.cross(up).normalize();
@@ -109,12 +109,12 @@ impl Light for AreaLight {
         let range_y = Vec3::new(0.0, l, 0.0) * normal;
         let range_z = Vec3::new(0.0, 0.0, l) * up;
 
-        AABB::from_points(&[
-            pos.into(),
-            (pos + range_x).into(),
-            (pos + range_y).into(),
-            (pos + range_z).into(),
-        ])
+        let mut aabb = AABB::new();
+        aabb.grow(pos);
+        aabb.grow(pos + range_x);
+        aabb.grow(pos + range_y);
+        aabb.grow(pos + range_z);
+        aabb
     }
 
     fn get_radiance(&self) -> Vec3 {
@@ -136,9 +136,9 @@ impl Light for SpotLight {
     fn get_matrix(&self, _: &AABB) -> Mat4 {
         let direction = Vec3::from(self.direction);
         let up = if direction.y.abs() > 0.99 {
-            Vec3::unit_z()
+            Vec3::Z
         } else {
-            Vec3::unit_y()
+            Vec3::Y
         };
         let fov = self.cos_outer.acos() * 2.0;
 
@@ -162,9 +162,9 @@ impl Light for SpotLight {
         let pos: Vec3 = self.position.into();
         let direction: Vec3 = self.direction.into();
         let up = if direction.y.abs() > 0.99 {
-            Vec3::unit_z()
+            Vec3::Z
         } else {
-            Vec3::unit_y()
+            Vec3::Y
         };
 
         let right = direction.cross(up).normalize();
@@ -177,14 +177,14 @@ impl Light for SpotLight {
         let width: Vec3 = right * width;
         let height: Vec3 = up * width;
 
-        AABB::from_points(&[
-            pos.into(),
-            (extent).into(),
-            (extent + width).into(),
-            (extent - width).into(),
-            (extent + height).into(),
-            (extent - height).into(),
-        ])
+        let mut aabb = AABB::new();
+        aabb.grow(pos);
+        aabb.grow(extent);
+        aabb.grow(extent + width);
+        aabb.grow(extent - width);
+        aabb.grow(extent + height);
+        aabb.grow(extent - height);
+        aabb
     }
 
     fn get_radiance(&self) -> Vec3 {
@@ -206,9 +206,9 @@ impl Light for DirectionalLight {
     fn get_matrix(&self, scene_bounds: &AABB) -> Mat4 {
         let direction = Vec3::from(self.direction);
         let up = if direction.y.abs() > 0.99 {
-            Vec3::unit_z()
+            Vec3::Z
         } else {
-            Vec3::unit_y()
+            Vec3::Y
         };
 
         let lengths: Vec3 = scene_bounds.lengths::<Vec3>();
@@ -242,9 +242,9 @@ impl Light for DirectionalLight {
     fn get_range(&self, scene_bounds: &AABB) -> AABB {
         let direction: Vec3 = self.direction.into();
         let up = if direction.y.abs() > 0.99 {
-            Vec3::unit_z()
+            Vec3::Z
         } else {
-            Vec3::unit_y()
+            Vec3::Y
         };
 
         let lengths: Vec3 = scene_bounds.lengths::<Vec3>();
@@ -258,14 +258,14 @@ impl Light for DirectionalLight {
         let right = direction.cross(up).normalize();
         let up = right.cross(direction).normalize();
 
-        AABB::from_points(&[
-            center.into(),
-            (center + w * right).into(),
-            (center - w * right).into(),
-            (center + h * up).into(),
-            (center - h * up).into(),
-            (center + l * direction).into(),
-        ])
+        let mut aabb = AABB::new();
+        aabb.grow(center);
+        aabb.grow(center + w * right);
+        aabb.grow(center - w * right);
+        aabb.grow(center + h * up);
+        aabb.grow(center - h * up);
+        aabb.grow(center + l * direction);
+        aabb
     }
 
     fn get_radiance(&self) -> Vec3 {

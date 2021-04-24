@@ -1,5 +1,5 @@
-use crate::instance::InstanceList;
-use crate::mesh::WgpuMesh;
+use crate::{InstanceExtra, list::{InstanceList, VertexList}, mesh::WgpuSkin};
+use crate::{InstanceMatrices, WgpuSettings};
 use rfw::prelude::{AABB, *};
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -19,14 +19,28 @@ impl WgpuLights {
         capacity: usize,
         device: &wgpu::Device,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
+        skin_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         Self {
             // point_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
-            spot_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
-            area_lights: LightShadows::new(device, instance_bind_group_layout, capacity, false),
+            spot_lights: LightShadows::new(
+                device,
+                instance_bind_group_layout,
+                skin_layout,
+                capacity,
+                false,
+            ),
+            area_lights: LightShadows::new(
+                device,
+                instance_bind_group_layout,
+                skin_layout,
+                capacity,
+                false,
+            ),
             directional_lights: LightShadows::new(
                 device,
                 instance_bind_group_layout,
+                skin_layout,
                 capacity,
                 true,
             ),
@@ -93,12 +107,36 @@ impl WgpuLights {
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &TrackedStorage<InstanceList>,
-        meshes: &TrackedStorage<WgpuMesh>,
+        uniform_bind_group: &wgpu::BindGroup,
+        vertices: &VertexList<Vertex3D, JointData>,
+        instances: &InstanceList<InstanceMatrices, InstanceExtra>,
+        skins: &[WgpuSkin],
+        settings: &WgpuSettings,
     ) {
-        self.area_lights.render(encoder, instances, meshes);
-        self.spot_lights.render(encoder, instances, meshes);
-        self.directional_lights.render(encoder, instances, meshes);
+        self.area_lights.render(
+            encoder,
+            uniform_bind_group,
+            vertices,
+            instances,
+            skins,
+            settings,
+        );
+        self.spot_lights.render(
+            encoder,
+            uniform_bind_group,
+            vertices,
+            instances,
+            skins,
+            settings,
+        );
+        self.directional_lights.render(
+            encoder,
+            uniform_bind_group,
+            vertices,
+            instances,
+            skins,
+            settings,
+        );
     }
 }
 
@@ -114,6 +152,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn new(
         device: &wgpu::Device,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
+        skin_layout: &wgpu::BindGroupLayout,
         capacity: usize,
         linear: bool,
     ) -> Self {
@@ -130,7 +169,13 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             light_buffer,
             light_buffer_size,
             info: Vec::new(),
-            shadow_maps: ShadowMapArray::new(device, capacity, instance_bind_group_layout, linear),
+            shadow_maps: ShadowMapArray::new(
+                device,
+                capacity,
+                instance_bind_group_layout,
+                skin_layout,
+                linear,
+            ),
         }
     }
 
@@ -240,11 +285,21 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &TrackedStorage<InstanceList>,
-        meshes: &TrackedStorage<WgpuMesh>,
+        uniform_bind_group: &wgpu::BindGroup,
+        vertices: &VertexList<Vertex3D, JointData>,
+        instances: &InstanceList<InstanceMatrices, InstanceExtra>,
+        skins: &[WgpuSkin],
+        settings: &WgpuSettings,
     ) {
-        self.shadow_maps
-            .render(0..self.lights.len() as u32, encoder, instances, meshes);
+        self.shadow_maps.render(
+            0..self.lights.len() as u32,
+            encoder,
+            uniform_bind_group,
+            vertices,
+            instances,
+            skins,
+            settings,
+        );
 
         self.lights.reset_changed();
     }
@@ -270,6 +325,9 @@ pub struct ShadowMapArray {
     pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
 
+    anim_pipeline_layout: wgpu::PipelineLayout,
+    anim_pipeline: wgpu::RenderPipeline,
+
     filter_uniform_direction_buffer: wgpu::Buffer,
     filter_direction_x: wgpu::Buffer,
     filter_direction_y: wgpu::Buffer,
@@ -292,6 +350,7 @@ impl ShadowMapArray {
         device: &wgpu::Device,
         count: usize,
         instance_bind_group_layout: &wgpu::BindGroupLayout,
+        skin_layout: &wgpu::BindGroupLayout,
         linear: bool,
     ) -> ShadowMapArray {
         let map = device.create_texture(&wgpu::TextureDescriptor {
@@ -454,6 +513,9 @@ impl ShadowMapArray {
         });
 
         let vert_shader: &[u8] = include_bytes!("../shaders/shadow_single.vert.spv",);
+        // let anim_vert_shader: &[u8] = include_bytes!("../shaders/shadow_single.vert.spv",);
+        let anim_vert_shader: &[u8] = include_bytes!("../shaders/shadow_single_anim.vert.spv",);
+
         let regular_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single.frag.spv");
         let linear_frag_shader: &[u8] = include_bytes!("../shaders/shadow_single_linear.frag.spv");
 
@@ -462,6 +524,13 @@ impl ShadowMapArray {
             label: None,
             source: wgpu::ShaderSource::SpirV(Cow::from(vert_shader.as_quad_bytes())),
         });
+
+        let anim_vert_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            flags: Default::default(),
+            label: None,
+            source: wgpu::ShaderSource::SpirV(Cow::from(anim_vert_shader.as_quad_bytes())),
+        });
+
         let frag_module = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             flags: Default::default(),
             label: None,
@@ -487,6 +556,78 @@ impl ShadowMapArray {
                 }],
                 entry_point: "main",
                 module: &vert_module,
+            },
+            fragment: Some(wgpu::FragmentState {
+                entry_point: "main",
+                module: &frag_module,
+                targets: &[wgpu::ColorTargetState {
+                    format: Self::FORMAT,
+                    alpha_blend: wgpu::BlendState::REPLACE,
+                    color_blend: wgpu::BlendState::REPLACE,
+                    write_mask: wgpu::ColorWrite::ALL,
+                }],
+            }),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Self::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+                clamp_depth: false,
+            }),
+            primitive: wgpu::PrimitiveState {
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: wgpu::CullMode::None,
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                strip_index_format: None,
+            },
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+        });
+
+        let anim_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&bind_group_layout, instance_bind_group_layout, skin_layout],
+            push_constant_ranges: &[],
+        });
+
+        let anim_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow-pipeline"),
+            layout: Some(&anim_pipeline_layout),
+            vertex: wgpu::VertexState {
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex3D>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[wgpu::VertexAttribute {
+                            offset: 0,
+                            format: wgpu::VertexFormat::Float4,
+                            shader_location: 0,
+                        }],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<JointData>() as wgpu::BufferAddress,
+                        step_mode: wgpu::InputStepMode::Vertex,
+                        attributes: &[
+                            wgpu::VertexAttribute {
+                                offset: 0,
+                                format: wgpu::VertexFormat::Uint4,
+                                shader_location: 1,
+                            },
+                            wgpu::VertexAttribute {
+                                offset: 16,
+                                format: wgpu::VertexFormat::Float4,
+                                shader_location: 2,
+                            },
+                        ],
+                    },
+                ],
+                entry_point: "main",
+                module: &anim_vert_module,
             },
             fragment: Some(wgpu::FragmentState {
                 entry_point: "main",
@@ -663,6 +804,8 @@ impl ShadowMapArray {
             bind_group,
             pipeline_layout,
             pipeline,
+            anim_pipeline_layout,
+            anim_pipeline,
             filter_uniform_direction_buffer,
             filter_direction_x,
             filter_direction_y,
@@ -988,19 +1131,27 @@ impl ShadowMapArray {
         queue.write_buffer(&self.uniform_buffer, 0, infos.as_bytes());
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         range: Range<u32>,
         encoder: &mut wgpu::CommandEncoder,
-        instances: &TrackedStorage<InstanceList>,
-        meshes: &TrackedStorage<WgpuMesh>,
+        uniform_bind_group: &wgpu::BindGroup,
+        vertices: &VertexList<Vertex3D, JointData>,
+        instances: &InstanceList<InstanceMatrices, InstanceExtra>,
+        skins: &[WgpuSkin],
+        settings: &WgpuSettings,
     ) {
         let start = range.start;
         let end = range.end;
 
+        let v_ranges = vertices.get_ranges();
+        let i_ranges = instances.get_ranges();
+
         assert!(range.end as usize <= self.views.len());
         for v in range.into_iter() {
-            let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
+            // let frustrum = FrustrumG::from_matrix(self.light_infos[v as usize].pm);
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -1021,70 +1172,68 @@ impl ShadowMapArray {
                 }),
             });
 
+            let jw_buffer = vertices.get_jw_buffer().buffer();
+            let vertex_buffer = vertices.get_vertex_buffer().buffer();
+
+            render_pass.set_bind_group(0, uniform_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_bind_group(
                 0,
                 &self.bind_group,
                 &[(v as usize * Self::UNIFORM_ELEMENT_SIZE) as wgpu::DynamicOffset],
             );
+            render_pass.set_bind_group(1, uniform_bind_group, &[]);
 
-            for (id, i) in instances.iter() {
-                let m = &meshes[id];
-                let instances = i.len() as usize;
-                if instances == 0 {
+            for (i, r) in i_ranges.iter() {
+                if r.count == 0 {
                     continue;
                 }
 
-                render_pass.set_bind_group(1, (*i.instances_bg).as_ref().unwrap(), &[]);
+                let v = v_ranges.get(i).unwrap();
+                let skin_ids = r.extra.skin_ids.as_slice();
 
-                if m.supports_skinning() {
-                    for instance in 0..instances {
-                        if frustrum.aabb_in_frustrum(&i.instances_bounds[instance])
-                            == FrustrumResult::Outside
-                        {
-                            continue;
-                        }
-
-                        let buffer = if let Some(b) = i.buffer_for(instance) {
-                            b
+                if settings.enable_skinning
+                    && (v.jw_end - v.jw_start) > 0
+                    && skin_ids.len() >= (r.count as usize)
+                {
+                    for i in 0..r.count {
+                        if let Some(skin) = skin_ids.get(i as usize).and_then(|i| {
+                            i.and_then(|i| {
+                                skins.get(i as usize).and_then(|s| s.bind_group.as_ref())
+                            })
+                        }) {
+                            // animated mesh
+                            render_pass.set_pipeline(&self.anim_pipeline);
+                            render_pass.set_vertex_buffer(
+                                0,
+                                vertex_buffer.slice(
+                                    ((v.start as usize * std::mem::size_of::<Vertex3D>())
+                                        as wgpu::BufferAddress)..,
+                                ),
+                            );
+                            render_pass.set_vertex_buffer(
+                                1,
+                                jw_buffer.slice(
+                                    ((v.jw_start as usize * std::mem::size_of::<JointData>())
+                                        as wgpu::BufferAddress)..,
+                                ),
+                            );
+                            render_pass.set_bind_group(2, skin, &[]);
+                            render_pass
+                                .draw(0..(v.end - v.start), (r.start + i)..(r.start + i + 1));
                         } else {
-                            continue;
-                        };
-
-                        render_pass.set_vertex_buffer(0, buffer.slice(..));
-
-                        render_pass.draw(
-                            m.ranges[0].first..(m.ranges.last().unwrap().last),
-                            (instance as u32)..(instance as u32 + 1),
-                        );
-                    }
-                } else {
-                    let buffer = if let Some(b) = m.buffer() {
-                        b
-                    } else {
-                        continue;
-                    };
-
-                    render_pass.set_vertex_buffer(0, buffer.slice(..));
-
-                    // TODO: We should probably do some GPU based culling for huge numbers of instances
-                    if instances > 20000 {
-                        render_pass.draw(
-                            m.ranges[0].first..(m.ranges.last().unwrap().last),
-                            0..(instances as u32),
-                        );
-                    } else {
-                        for instance in 0..(instances as u32) {
-                            if frustrum.aabb_in_frustrum(&i.instances_bounds[instance as usize])
-                                != FrustrumResult::Outside
-                            {
-                                render_pass.draw(
-                                    m.ranges[0].first..(m.ranges.last().unwrap().last),
-                                    instance..(instance + 1),
-                                );
-                            }
+                            render_pass.set_pipeline(&self.pipeline);
+                            render_pass
+                                .draw(0..(v.end - v.start), (r.start + i)..(r.start + i + 1));
                         }
                     }
+
+                    render_pass.set_pipeline(&self.pipeline);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                } else {
+                    // static mesh
+                    render_pass.draw(v.start..v.end, r.start..r.end);
                 }
             }
         }

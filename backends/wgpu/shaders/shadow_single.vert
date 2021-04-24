@@ -13,7 +13,7 @@ struct Transform {
     mat4 IM;
 };
 
-layout(set = 1, binding = 0) buffer readonly Instances {
+layout(set = 1, binding = 4) buffer readonly Instances {
     Transform transforms[];
 };
 

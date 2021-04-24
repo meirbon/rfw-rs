@@ -166,10 +166,10 @@ impl Mesh3D {
         let mut bounds = AABB::new();
         let mut vertex_data = vec![Vertex3D::default(); vertices.len()];
 
-        let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::zero()).all() {
-            let mut normals = vec![Vec3::zero(); vertices.len()];
+        let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::ZERO).all() {
+            let mut normals = vec![Vec3::ZERO; vertices.len()];
             for i in (0..vertices.len()).step_by(3) {
-                let v0 = vertices[i + 0];
+                let v0 = vertices[i];
                 let v1 = vertices[i + 1];
                 let v2 = vertices[i + 2];
 
@@ -185,7 +185,7 @@ impl Mesh3D {
                 let area = (s * (s - a) * (s - b) * (s - c)).sqrt();
                 let normal = normal * area;
 
-                normals[i + 0] += normal;
+                normals[i] += normal;
                 normals[i + 1] += normal;
                 normals[i + 2] += normal;
             }
@@ -193,11 +193,11 @@ impl Mesh3D {
             normals.par_iter_mut().for_each(|n| *n = n.normalize());
             normals
         } else {
-            Vec::from(normals)
+            normals
         };
 
-        let mut tangents: Vec<Vec4> = vec![Vec4::zero(); vertices.len()];
-        let mut bitangents: Vec<Vec3> = vec![Vec3::zero(); vertices.len()];
+        let mut tangents: Vec<Vec4> = vec![Vec4::ZERO; vertices.len()];
+        let mut bitangents: Vec<Vec3> = vec![Vec3::ZERO; vertices.len()];
 
         for i in (0..vertices.len()).step_by(3) {
             let v0: Vec3 = vertices[i];
@@ -231,11 +231,11 @@ impl Mesh3D {
                 (tangent.extend(0.0), bitangent)
             };
 
-            tangents[i + 0] += t;
+            tangents[i] += t;
             tangents[i + 1] += t;
             tangents[i + 2] += t;
 
-            bitangents[i + 0] += b;
+            bitangents[i] += b;
             bitangents[i + 1] += b;
             bitangents[i + 2] += b;
         }
@@ -263,8 +263,8 @@ impl Mesh3D {
                 vertex,
                 normal,
                 mat_id: material_ids[i / 3],
-                uv: uvs[i].into(),
-                tangent: tangents[i].into(),
+                uv: uvs[i],
+                tangent: tangents[i],
             };
         });
 
@@ -285,7 +285,7 @@ impl Mesh3D {
                     first: start * 3,
                     last: (start + range) * 3,
                     mat_id: last_id,
-                    bounds: v_bounds.clone(),
+                    bounds: v_bounds,
                 });
 
                 v_bounds = AABB::new();
@@ -301,7 +301,7 @@ impl Mesh3D {
                 first: 0,
                 last: vertices.len() as u32,
                 mat_id: material_ids[0],
-                bounds: bounds.clone(),
+                bounds,
             });
         } else if (start + range) != (material_ids.len() as u32 - 1) {
             // Add last mesh to list
@@ -351,15 +351,15 @@ impl Mesh3D {
                 u2: uv2.x,
                 normal,
                 v0: uv0.y,
-                n0: n0.into(),
+                n0,
                 v1: uv1.y,
-                n1: n1.into(),
+                n1,
                 v2: uv2.y,
-                n2: n2.into(),
+                n2,
                 id: i as i32,
-                tangent0: tangent0.into(),
-                tangent1: tangent1.into(),
-                tangent2: tangent2.into(),
+                tangent0,
+                tangent1,
+                tangent2,
                 light_id: -1,
                 mat_id: material_ids[i] as i32,
                 lod,
@@ -367,7 +367,7 @@ impl Mesh3D {
             };
         });
 
-        let mut joints_weights = vec![JointData::default(); vertices.len()];
+        let mut joints_weights = vec![JointData::default(); joints.len()];
         joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
             let joints = if let Some(j) = joints.get(0) {
                 *j.get(i).unwrap_or(&[0; 4])
@@ -383,9 +383,7 @@ impl Mesh3D {
 
             // Ensure weights sum up to 1.0
             let total = weights[0] + weights[1] + weights[2] + weights[3];
-            for i in 0..4 {
-                weights[i] = weights[i] / total;
-            }
+            weights.iter_mut().for_each(|w| *w /= total);
 
             *v = JointData::from((joints, weights));
         });
@@ -393,7 +391,7 @@ impl Mesh3D {
         Mesh3D {
             triangles,
             vertices: vertex_data,
-            materials: Vec::from(material_ids),
+            materials: material_ids,
             skin_data: joints_weights,
             ranges: meshes,
             bounds,
@@ -414,16 +412,20 @@ impl Mesh3D {
             let vertex1 = scaling * Vec4::new(t.vertex1[0], t.vertex1[1], t.vertex1[2], 1.0);
             let vertex2 = scaling * Vec4::new(t.vertex2[0], t.vertex2[1], t.vertex2[2], 1.0);
 
-            t.vertex0 = vertex0.truncate().into();
-            t.vertex1 = vertex1.truncate().into();
-            t.vertex2 = vertex2.truncate().into();
+            t.vertex0 = vertex0.truncate();
+            t.vertex1 = vertex1.truncate();
+            t.vertex2 = vertex2.truncate();
         });
 
         new_self.vertices.iter_mut().for_each(|v| {
-            v.vertex = (scaling * Vec4::new(v.vertex[0], v.vertex[1], v.vertex[2], 1.0)).into();
+            v.vertex = scaling * Vec4::new(v.vertex[0], v.vertex[1], v.vertex[2], 1.0);
         });
 
         new_self
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty()
     }
 
     pub fn len(&self) -> usize {
@@ -476,7 +478,7 @@ impl Mesh3D {
 
 impl Bounds for Mesh3D {
     fn bounds(&self) -> rfw_backend::AABB {
-        self.bounds.clone()
+        self.bounds
     }
 }
 
@@ -648,10 +650,10 @@ impl From<MeshDescriptor> for Mesh3D {
 
         let material_ids: Vec<u32> = desc.material_ids.chunks(3).map(|c| c[0] as u32).collect();
 
-        let normals: Vec<Vec3> = if Vec3::from(desc.normals[0]).cmpeq(Vec3::zero()).all() {
-            let mut normals = vec![Vec3::zero(); desc.vertices.len()];
+        let normals: Vec<Vec3> = if Vec3::from(desc.normals[0]).cmpeq(Vec3::ZERO).all() {
+            let mut normals = vec![Vec3::ZERO; desc.vertices.len()];
             for i in (0..desc.vertices.len()).step_by(3) {
-                let v0: Vec3 = Vec4::from(desc.vertices[i + 0]).truncate();
+                let v0: Vec3 = Vec4::from(desc.vertices[i]).truncate();
                 let v1: Vec3 = Vec4::from(desc.vertices[i + 1]).truncate();
                 let v2: Vec3 = Vec4::from(desc.vertices[i + 2]).truncate();
 
@@ -667,7 +669,7 @@ impl From<MeshDescriptor> for Mesh3D {
                 let area = (s * (s - a) * (s - b) * (s - c)).sqrt();
                 let normal = normal * area;
 
-                normals[i + 0] += normal;
+                normals[i] += normal;
                 normals[i + 1] += normal;
                 normals[i + 2] += normal;
             }
@@ -707,7 +709,7 @@ impl From<MeshDescriptor> for Mesh3D {
         let mut meshes: Vec<VertexMesh> = Vec::new();
         let mut v_bounds = AABB::new();
 
-        for i in 0..material_ids.len() {
+        (0..material_ids.len()).into_iter().for_each(|i| {
             range += 1;
             for j in 0..3 {
                 v_bounds.grow([
@@ -722,7 +724,7 @@ impl From<MeshDescriptor> for Mesh3D {
                     first: start * 3,
                     last: (start + range) * 3,
                     mat_id: last_id as _,
-                    bounds: v_bounds.clone(),
+                    bounds: v_bounds,
                 });
 
                 v_bounds = AABB::new();
@@ -730,7 +732,7 @@ impl From<MeshDescriptor> for Mesh3D {
                 start = i as u32;
                 range = 1;
             }
-        }
+        });
 
         if meshes.is_empty() {
             // There only is 1 mesh available
@@ -738,7 +740,7 @@ impl From<MeshDescriptor> for Mesh3D {
                 first: 0,
                 last: desc.vertices.len() as u32,
                 mat_id: material_ids[0],
-                bounds: bounds.clone(),
+                bounds,
             });
         } else if (start + range) != (material_ids.len() as u32 - 1) {
             // Add last mesh to list
@@ -792,23 +794,23 @@ impl From<MeshDescriptor> for Mesh3D {
             let lod = 0.0_f32.max((0.5 * (ta / pa).log2()).sqrt());
 
             *triangle = RTTriangle {
-                vertex0: vertex0.into(),
+                vertex0,
                 u0: uv0.x,
-                vertex1: vertex1.into(),
+                vertex1,
                 u1: uv1.x,
-                vertex2: vertex2.into(),
+                vertex2,
                 u2: uv2.x,
-                normal: normal.into(),
+                normal,
                 v0: uv0.y,
-                n0: n0.into(),
+                n0,
                 v1: uv1.y,
-                n1: n1.into(),
+                n1,
                 v2: uv2.y,
-                n2: n2.into(),
+                n2,
                 id: i as i32,
-                tangent0: tangent0.into(),
-                tangent1: tangent1.into(),
-                tangent2: tangent2.into(),
+                tangent0,
+                tangent1,
+                tangent2,
                 light_id: -1,
                 mat_id: material_ids[i] as i32,
                 lod,
@@ -822,34 +824,37 @@ impl From<MeshDescriptor> for Mesh3D {
             (Vec::new(), Vec::new())
         };
 
-        let mut joints_weights = vec![JointData::default(); vertex_data.len()];
-        joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
-            let joints = if let Some(j) = joints.get(0) {
-                *j.get(i).unwrap_or(&[0; 4])
-            } else {
-                [0; 4]
-            };
+        let joints_weights = if !joints.is_empty() && !weights.is_empty() {
+            let mut joints_weights = vec![JointData::default(); vertex_data.len()];
+            joints_weights.iter_mut().enumerate().for_each(|(i, v)| {
+                let joints = if let Some(j) = joints.get(0) {
+                    *j.get(i).unwrap_or(&[0; 4])
+                } else {
+                    [0; 4]
+                };
 
-            let mut weights = if let Some(w) = weights.get(0) {
-                *w.get(i).unwrap_or(&[0.0; 4])
-            } else {
-                [0.25; 4]
-            };
+                let mut weights = if let Some(w) = weights.get(0) {
+                    *w.get(i).unwrap_or(&[0.0; 4])
+                } else {
+                    [0.25; 4]
+                };
 
-            // Ensure weights sum up to 1.0
-            let total = weights[0] + weights[1] + weights[2] + weights[3];
-            for i in 0..4 {
-                weights[i] = weights[i] / total;
-            }
+                // Ensure weights sum up to 1.0
+                let total = weights[0] + weights[1] + weights[2] + weights[3];
+                weights.iter_mut().for_each(|w| *w /= total);
 
-            *v = JointData::from((joints, weights));
-        });
+                *v = JointData::from((joints, weights));
+            });
+            joints_weights
+        } else {
+            Vec::new()
+        };
 
         Mesh3D {
             triangles,
             vertices: vertex_data,
             skin_data: joints_weights,
-            materials: Vec::from(material_ids),
+            materials: material_ids,
             ranges: meshes,
             bounds,
             name: desc.name,
