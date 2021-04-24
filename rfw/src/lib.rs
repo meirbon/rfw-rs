@@ -28,9 +28,7 @@ use crate::resources::Resource;
 use ecs::*;
 use rfw_backend::{Backend, DirectionalLight, PointLight, RenderMode, SpotLight};
 use rfw_math::*;
-use rfw_scene::{Camera2D, Camera3D, GraphHandle, Scene, SceneError};
-use rfw_scene::{Flip, Texture};
-use rfw_utils::track::Tracked;
+use rfw_scene::{Camera2D, Camera3D, GraphHandle, Scene};
 use std::error::Error;
 use system::RenderSystem;
 
@@ -109,7 +107,7 @@ impl Instance {
     }
 
     #[cfg(feature = "serde")]
-    pub fn from_scene<T: 'static + Sized + Backend, P: AsRef<Path>>(
+    pub fn from_scene<T: 'static + Sized + Backend, P: AsRef<std::path::Path>>(
         scene: P,
         renderer: T,
         window_size: (u32, u32),

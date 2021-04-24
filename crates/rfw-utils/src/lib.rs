@@ -1,7 +1,7 @@
 pub mod collections;
-pub mod task;
 pub mod input;
 pub mod log;
+pub mod task;
 pub mod track;
 
 pub use bitvec::prelude::*;
@@ -11,6 +11,12 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Timer {
     moment: Instant,
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Timer {

@@ -1,7 +1,6 @@
 use rayon::prelude::*;
 use std::error::Error;
 
-use clap::{App, Arg};
 pub use winit::event::MouseButton as MouseButtonCode;
 pub use winit::event::VirtualKeyCode as KeyCode;
 use winit::{
@@ -12,25 +11,17 @@ use winit::{
 };
 
 use rfw::prelude::*;
-use rfw_backend_wgpu::{WgpuBackend, WgpuView};
+use rfw_backend_wgpu::WgpuBackend;
 use rfw_font::*;
 use winit::window::Fullscreen;
 
 type KeyHandler = rfw::utils::input::ButtonState<VirtualKeyCode>;
 type MouseButtonHandler = rfw::utils::input::ButtonState<MouseButtonCode>;
 
+#[derive(Debug, Default)]
 struct FpsSystem {
     timer: Timer,
     average: Averager<f32>,
-}
-
-impl Default for FpsSystem {
-    fn default() -> Self {
-        Self {
-            timer: Timer::new(),
-            average: Averager::with_capacity(250),
-        }
-    }
 }
 
 fn fps_system(mut font_renderer: ResMut<FontRenderer>, mut fps_component: Query<&mut FpsSystem>) {
@@ -56,25 +47,6 @@ fn fps_system(mut font_renderer: ResMut<FontRenderer>, mut fps_component: Query<
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let matches = App::new("rfw-animated")
-        .about("Example with animated meshes for the rfw framework.")
-        .arg(
-            Arg::with_name("renderer")
-                .short("r")
-                .long("renderer")
-                .takes_value(true)
-                .help("Which renderer to use (current options are: gpu-rt, deferred)"),
-        )
-        .get_matches();
-
-    match matches.value_of("renderer") {
-        // Some("gpu-rt") => run_application::<RayTracer>(),
-        // Some("gfx") => run_application::<GfxBackend>(),
-        _ => run_wgpu_backend(),
-    }
-}
-
-fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("rfw-rs")
@@ -190,14 +162,10 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut scene_timer = Timer::new();
     let mut scene_id = None;
 
-    // renderer.get_settings().setup_imgui(&window);
-
     let mut fullscreen_timer = 0.0;
     let mut scale_factor_changed = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
-
-        // renderer.get_settings().update_ui(&window, &event);
 
         match &event {
             Event::MainEventsCleared => {
@@ -342,49 +310,6 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 renderer.set_animation_time(&cesium_man2, time / 2.0);
                 if let Some(cesium_man3) = &scene_id {
                     renderer.set_animation_time(cesium_man3, time / 3.0);
-                }
-
-                {
-                    let mut instances_3d = 0;
-                    let mut vertices = 0;
-                    {
-                        let scene = renderer.get_scene();
-
-                        for (i, m) in scene.objects.meshes_3d.iter() {
-                            instances_3d += scene.objects.instances_3d[i].len();
-                            vertices += m.vertices.len() * scene.objects.instances_3d[i].len();
-                        }
-                    }
-                    let meshes_3d = renderer.get_scene().objects.meshes_3d.len();
-                    let instances_2d: usize = renderer
-                        .get_scene()
-                        .objects
-                        .instances_2d
-                        .iter()
-                        .map(|(_, i)| i.len())
-                        .sum();
-                    let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
-
-                    // let settings = renderer.get_settings();
-                    // settings.draw_ui(&window, |ui| {
-                    //     use rfw_backend_wgpu::imgui;
-                    //     let window = imgui::Window::new(imgui::im_str!("RFW"));
-                    //     window
-                    //         .size([350.0, 250.0], imgui::Condition::FirstUseEver)
-                    //         .position([900.0, 25.0], imgui::Condition::FirstUseEver)
-                    //         .build(&ui, || {
-                    //             ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
-                    //             ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
-                    //             ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
-                    //             ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
-                    //             ui.text(imgui::im_str!("2D Mesh count: {}", meshes_2d));
-                    //             scale_factor_changed = ui
-                    //                 .input_float(imgui::im_str!("Scale factor"), &mut scale_factor)
-                    //                 .step(0.05)
-                    //                 .build();
-                    //             scale_factor = scale_factor.max(0.1).min(2.0);
-                    //         });
-                    // });
                 }
 
                 let t = app_time.elapsed_in_millis() / 1000.0;
