@@ -33,27 +33,25 @@ impl Default for FpsSystem {
     }
 }
 
-impl System for FpsSystem {
-    fn run(&mut self, resources: &rfw::prelude::ResourceList) {
-        let elapsed = self.timer.elapsed_in_millis();
-        self.timer.reset();
-        self.average.add_sample(elapsed);
-        let average = self.average.get_average();
+fn fps_system(mut font_renderer: ResMut<FontRenderer>, mut fps_component: Query<&mut FpsSystem>) {
+    for mut c in fps_component.iter_mut() {
+        let elapsed = c.timer.elapsed_in_millis();
+        c.timer.reset();
+        c.average.add_sample(elapsed);
+        let average = c.average.get_average();
 
-        if let Some(mut font) = resources.get_resource_mut::<FontRenderer>() {
-            font.draw(
-                Section::default()
-                    .with_screen_position((0.0, 0.0))
-                    .add_text(
-                        Text::new(
-                            format!("FPS: {:.2}\nFRAMETIME: {:.2} MS", 1000.0 / average, average)
-                                .as_str(),
-                        )
-                        .with_scale(32.0)
-                        .with_color([1.0; 4]),
-                    ),
-            );
-        }
+        font_renderer.draw(
+            Section::default()
+                .with_screen_position((0.0, 0.0))
+                .add_text(
+                    Text::new(
+                        format!("FPS: {:.2}\nFRAMETIME: {:.2} MS", 1000.0 / average, average)
+                            .as_str(),
+                    )
+                    .with_scale(32.0)
+                    .with_color([1.0; 4]),
+                ),
+        );
     }
 }
 
@@ -87,25 +85,27 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
     let mut width = window.inner_size().width;
     let mut height = window.inner_size().height;
 
-    let mut scale_factor: f32 = window
+    let scale_factor: f32 = window
         .current_monitor()
         .map(|m| 1.0 / m.scale_factor() as f32)
         .unwrap_or(1.0);
 
     let font = include_bytes!("../../../assets/good-times-rg.ttf");
-    let mut renderer: Instance<WgpuBackend> =
-        Instance::new(&window, (width, height), Some(scale_factor as f64))
-            .unwrap()
-            .with_plugin(FontRenderer::from_bytes(&font[0..font.len()]))
-            .with_system(FpsSystem::default());
+    let mut renderer: Instance = Instance::new(
+        WgpuBackend::init(&window, (width, height), scale_factor as f64).unwrap(),
+        (width, height),
+        Some(scale_factor as f64),
+    )
+    .unwrap()
+    .with_plugin(FontRenderer::from_bytes(font))
+    .with_system(fps_system.system());
+
+    renderer.spawn().insert(FpsSystem::default());
 
     let mut key_handler = KeyHandler::new();
     let mut mouse_button_handler = MouseButtonHandler::new();
 
-    let mut camera_2d = Camera2D::from_width_height(width, height, Some(scale_factor as f64));
-    let mut camera_3d = Camera3D::new().with_aspect_ratio(width as f32 / height as f32);
-
-    let mut timer = utils::Timer::new();
+    let mut timer = Timer::new();
 
     let mut resized = false;
 
@@ -183,21 +183,21 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
         .unwrap();
     renderer.get_scene_mut().add_3d(&pica_desc);
 
-    let app_time = utils::Timer::new();
+    let app_time = Timer::new();
 
     renderer.set_animations_time(0.0);
 
-    let mut scene_timer = utils::Timer::new();
+    let mut scene_timer = Timer::new();
     let mut scene_id = None;
 
-    renderer.get_settings().setup_imgui(&window);
+    // renderer.get_settings().setup_imgui(&window);
 
     let mut fullscreen_timer = 0.0;
     let mut scale_factor_changed = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
 
-        renderer.get_settings().update_ui(&window, &event);
+        // renderer.get_settings().update_ui(&window, &event);
 
         match &event {
             Event::MainEventsCleared => {
@@ -205,31 +205,27 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                     *control_flow = ControlFlow::Exit;
                 }
 
-                {
-                    let settings = renderer.get_settings();
+                if let Some(mut system) = renderer.get_resource_mut::<RenderSystem>() {
                     if key_handler.pressed(KeyCode::Key0) {
-                        settings.view = WgpuView::Output;
+                        system.mode = RenderMode::Default;
                     }
                     if key_handler.pressed(KeyCode::Key1) {
-                        settings.view = WgpuView::Albedo;
+                        system.mode = RenderMode::Albedo;
                     }
                     if key_handler.pressed(KeyCode::Key2) {
-                        settings.view = WgpuView::Normal;
+                        system.mode = RenderMode::Normal;
                     }
                     if key_handler.pressed(KeyCode::Key3) {
-                        settings.view = WgpuView::WorldPos;
-                    }
-                    if key_handler.pressed(KeyCode::Key4) {
-                        settings.view = WgpuView::Radiance;
+                        system.mode = RenderMode::GBuffer;
                     }
                     if key_handler.pressed(KeyCode::Key5) {
-                        settings.view = WgpuView::ScreenSpace;
+                        system.mode = RenderMode::ScreenSpace;
                     }
                     if key_handler.pressed(KeyCode::Key6) {
-                        settings.view = WgpuView::SSAO;
+                        system.mode = RenderMode::SSAO;
                     }
                     if key_handler.pressed(KeyCode::Key7) {
-                        settings.view = WgpuView::FilteredSSAO;
+                        system.mode = RenderMode::FilteredSSAO;
                     }
                 }
 
@@ -312,17 +308,19 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                 let pos_change = pos_change * elapsed * 0.01;
 
                 if view_change != [0.0; 3].into() {
-                    camera_3d.translate_target(view_change);
+                    renderer.get_camera_3d().translate_target(view_change);
                 }
                 if pos_change != [0.0; 3].into() {
-                    camera_3d.translate_relative(pos_change);
+                    renderer.get_camera_3d().translate_relative(pos_change);
                 }
 
                 if resized || scale_factor_changed {
-                    renderer.resize(&window, (width, height), Some(scale_factor as f64));
-                    camera_2d =
+                    renderer.resize((width, height), Some(scale_factor as f64));
+                    *renderer.get_camera_2d() =
                         Camera2D::from_width_height(width, height, Some(scale_factor as f64));
-                    camera_3d.set_aspect_ratio(width as f32 / height as f32);
+                    renderer
+                        .get_camera_3d()
+                        .set_aspect_ratio(width as f32 / height as f32);
                     resized = false;
                     scale_factor_changed = false;
                 }
@@ -367,26 +365,26 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                         .sum();
                     let meshes_2d = renderer.get_scene().objects.meshes_2d.len();
 
-                    let settings = renderer.get_settings();
-                    settings.draw_ui(&window, |ui| {
-                        use rfw_backend_wgpu::imgui;
-                        let window = imgui::Window::new(imgui::im_str!("RFW"));
-                        window
-                            .size([350.0, 250.0], imgui::Condition::FirstUseEver)
-                            .position([900.0, 25.0], imgui::Condition::FirstUseEver)
-                            .build(&ui, || {
-                                ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
-                                ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
-                                ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
-                                ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
-                                ui.text(imgui::im_str!("2D Mesh count: {}", meshes_2d));
-                                scale_factor_changed = ui
-                                    .input_float(imgui::im_str!("Scale factor"), &mut scale_factor)
-                                    .step(0.05)
-                                    .build();
-                                scale_factor = scale_factor.max(0.1).min(2.0);
-                            });
-                    });
+                    // let settings = renderer.get_settings();
+                    // settings.draw_ui(&window, |ui| {
+                    //     use rfw_backend_wgpu::imgui;
+                    //     let window = imgui::Window::new(imgui::im_str!("RFW"));
+                    //     window
+                    //         .size([350.0, 250.0], imgui::Condition::FirstUseEver)
+                    //         .position([900.0, 25.0], imgui::Condition::FirstUseEver)
+                    //         .build(&ui, || {
+                    //             ui.text(imgui::im_str!("3D Vertex count: {}", vertices));
+                    //             ui.text(imgui::im_str!("3D Instance count: {}", instances_3d));
+                    //             ui.text(imgui::im_str!("3D Mesh count: {}", meshes_3d));
+                    //             ui.text(imgui::im_str!("2D Instance count: {}", instances_2d));
+                    //             ui.text(imgui::im_str!("2D Mesh count: {}", meshes_2d));
+                    //             scale_factor_changed = ui
+                    //                 .input_float(imgui::im_str!("Scale factor"), &mut scale_factor)
+                    //                 .step(0.05)
+                    //                 .build();
+                    //             scale_factor = scale_factor.max(0.1).min(2.0);
+                    //         });
+                    // });
                 }
 
                 let t = app_time.elapsed_in_millis() / 1000.0;
@@ -405,10 +403,7 @@ fn run_wgpu_backend() -> Result<(), Box<dyn Error>> {
                         )));
                 });
 
-                if let Err(e) = renderer.render(&camera_2d, &camera_3d, RenderMode::Reset) {
-                    eprintln!("Error while rendering: {}", e);
-                    *control_flow = ControlFlow::Exit;
-                }
+                renderer.render();
             }
             Event::WindowEvent {
                 event: WindowEvent::KeyboardInput { input, .. },

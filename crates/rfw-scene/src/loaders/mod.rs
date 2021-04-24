@@ -52,7 +52,7 @@ impl LoadResult {
     }
 }
 
-pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug {
+pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug + Send + Sync {
     fn load(
         &self,
         path: PathBuf,

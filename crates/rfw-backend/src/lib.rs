@@ -10,8 +10,12 @@ mod structs;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RenderMode {
     Default = 0,
-    Reset = 1,
-    Accumulate = 2,
+    Normal = 1,
+    Albedo = 2,
+    GBuffer = 3,
+    ScreenSpace = 4,
+    SSAO = 5,
+    FilteredSSAO = 6,
 }
 
 impl Default for RenderMode {
@@ -21,15 +25,6 @@ impl Default for RenderMode {
 }
 
 pub trait Backend {
-    type Settings;
-
-    /// Initializes renderer with surface given through a raw window handle
-    fn init<T: HasRawWindowHandle>(
-        window: &T,
-        window_size: (u32, u32),
-        scale_factor: f64,
-    ) -> Result<Box<Self>, Box<dyn std::error::Error>>;
-
     fn set_2d_mesh(&mut self, id: usize, data: MeshData2D<'_>);
 
     /// Sets an instance with a 4x4 transformation matrix in column-major format
@@ -57,12 +52,7 @@ pub trait Backend {
     fn render(&mut self, view_2d: CameraView2D, view_3d: CameraView3D, mode: RenderMode);
 
     /// Resizes framebuffer, uses scale factor provided in init function.
-    fn resize<T: HasRawWindowHandle>(
-        &mut self,
-        window: &T,
-        window_size: (u32, u32),
-        scale_factor: f64,
-    );
+    fn resize(&mut self, window_size: (u32, u32), scale_factor: f64);
 
     /// Updates point lights, only lights with their 'changed' flag set to true have changed
     fn set_point_lights(&mut self, lights: &[PointLight], changed: &BitSlice);
@@ -81,7 +71,4 @@ pub trait Backend {
 
     // Sets skins
     fn set_skins(&mut self, skins: &[SkinData<'_>], changed: &BitSlice);
-
-    // Access backend settings
-    fn settings(&mut self) -> &mut Self::Settings;
 }

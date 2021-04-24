@@ -29,7 +29,6 @@ const KINDS: [ShaderKind; 15] = [
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=shaders");
     let mut extensions: HashMap<&str, ShaderKind> = HashMap::new();
     EXTENSIONS.iter().enumerate().for_each(|(i, ext)| {
         extensions.insert(ext, KINDS[i]);

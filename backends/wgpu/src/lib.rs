@@ -2,6 +2,7 @@ use crate::mesh::{SkinningPipeline, WgpuSkin};
 pub use crate::output::WgpuView;
 use futures::executor::block_on;
 use mesh::WgpuMesh;
+use rfw::backend::RenderMode;
 use rfw::prelude::*;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -22,11 +23,6 @@ mod pipeline;
 use crate::mem::ManagedBuffer;
 use mat::*;
 
-#[cfg(feature = "imgui-winit")]
-mod gui;
-
-#[cfg(feature = "imgui-winit")]
-pub use gui::*;
 pub use output::WgpuOutput;
 use rfw::scene::FrustrumResult;
 
@@ -42,42 +38,6 @@ pub struct WgpuSettings {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     scale_factor: f64,
-    #[cfg(feature = "imgui-winit")]
-    pub imgui: Option<WgpuImGuiContext>,
-}
-
-#[cfg(feature = "imgui-winit")]
-impl WgpuSettings {
-    pub fn setup_imgui(&mut self, window: &winit::window::Window) {
-        if self.imgui.is_some() {
-            return;
-        }
-
-        self.imgui = Some(gui::WgpuImGuiContext::from_winit(
-            window,
-            &self.device,
-            &self.queue,
-        ));
-    }
-
-    pub fn update_ui<T: 'static>(
-        &mut self,
-        window: &winit::window::Window,
-        event: &winit::event::Event<T>,
-    ) {
-        if let Some(gui) = self.imgui.as_mut() {
-            gui.update_ui(window, event);
-        }
-    }
-
-    pub fn draw_ui<CB>(&mut self, window: &winit::window::Window, draw: CB)
-    where
-        CB: FnMut(&mut imgui::Ui<'_>),
-    {
-        if let Some(gui) = self.imgui.as_mut() {
-            gui.draw_ui(window, draw);
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -281,14 +241,12 @@ impl WgpuBackend {
     }
 }
 
-impl Backend for WgpuBackend {
-    type Settings = WgpuSettings;
-
-    fn init<T: HasRawWindowHandle>(
+impl WgpuBackend {
+    pub fn init<T: HasRawWindowHandle>(
         window: &T,
         window_size: (u32, u32),
         scale_factor: f64,
-    ) -> Result<Box<Self>, Box<dyn Error>> {
+    ) -> Result<Self, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
 
@@ -436,13 +394,11 @@ impl Backend for WgpuBackend {
             device: device.clone(),
             queue: queue.clone(),
             scale_factor,
-            #[cfg(feature = "imgui-winit")]
-            imgui: None,
         };
 
         let skinning_pipeline = SkinningPipeline::new(&device);
 
-        Ok(Box::new(Self {
+        Ok(Self {
             device,
             queue,
             surface,
@@ -478,9 +434,11 @@ impl Backend for WgpuBackend {
             task_pool: ManagedTaskPool::default(),
             d2_renderer,
             settings,
-        }))
+        })
     }
+}
 
+impl Backend for WgpuBackend {
     fn set_2d_mesh(&mut self, id: usize, mesh: MeshData2D) {
         self.d2_renderer
             .set_mesh(&self.device, &self.queue, id, mesh);
@@ -644,7 +602,7 @@ impl Backend for WgpuBackend {
         self.meshes.reset_changed();
     }
 
-    fn render(&mut self, camera_2d: CameraView2D, camera_3d: CameraView3D, _mode: RenderMode) {
+    fn render(&mut self, camera_2d: CameraView2D, camera_3d: CameraView3D, mode: RenderMode) {
         let output = match self.swap_chain.get_current_frame() {
             Ok(output) => output,
             Err(_) => return,
@@ -678,20 +636,23 @@ impl Backend for WgpuBackend {
             FrustrumG::from_matrix(camera_3d.get_rh_matrix()),
         );
 
-        let mut output_pass = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("output-pass"),
-            });
-
-        if self.settings.view == WgpuView::Output {
+        encoder.insert_debug_marker("output");
+        if mode == RenderMode::Default {
             self.blit_pass
-                .render(&mut output_pass, &self.output.output_texture_view);
+                .render(&mut encoder, &self.output.output_texture_view);
         } else {
             self.output.blit_debug(
                 &self.output.output_texture_view,
-                &mut output_pass,
-                self.settings.view,
+                &mut encoder,
+                match mode {
+                    RenderMode::Default => WgpuView::Output,
+                    RenderMode::Normal => WgpuView::Normal,
+                    RenderMode::Albedo => WgpuView::Albedo,
+                    RenderMode::GBuffer => WgpuView::WorldPos,
+                    RenderMode::ScreenSpace => WgpuView::ScreenSpace,
+                    RenderMode::SSAO => WgpuView::SSAO,
+                    RenderMode::FilteredSSAO => WgpuView::FilteredSSAO,
+                },
             );
         }
 
@@ -708,44 +669,17 @@ impl Backend for WgpuBackend {
         self.output_pass
             .render(&mut d2_encoder, &output.output.view);
 
-        self.queue
-            .submit(vec![encoder.finish(), output_pass.finish()]);
+        self.queue.submit(vec![
+            encoder.finish(),
+            // output_pass.finish(),
+            d2_encoder.finish(),
+        ]);
 
-        #[cfg(feature = "imgui-winit")]
-        if let Some(imgui) = self.settings.imgui.as_mut() {
-            let mut render_pass = d2_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                    attachment: &output.output.view,
-                    resolve_target: None,
-                }],
-                depth_stencil_attachment: None,
-            });
-
-            let render = imgui.draw_data.take();
-            if let Some(ui) = render {
-                let draw_data = unsafe { ui.as_ref() }.unwrap();
-                imgui
-                    .renderer
-                    .render(draw_data, &self.queue, &self.device, &mut render_pass)
-                    .expect("Could not render imgui.");
-            }
-        }
-
-        self.queue.submit(Some(d2_encoder.finish()));
         self.lights_changed = false;
     }
 
-    fn resize<T: HasRawWindowHandle>(
-        &mut self,
-        _window: &T,
-        window_size: (u32, u32),
-        scale_factor: f64,
-    ) {
+    fn resize(&mut self, window_size: (u32, u32), scale_factor: f64) {
+        self.device.poll(wgpu::Maintain::Wait);
         self.settings.scale_factor = scale_factor;
         let (width, height) = window_size;
         let (render_width, render_height) = (
@@ -820,10 +754,6 @@ impl Backend for WgpuBackend {
                     .overwrite(i, WgpuSkin::new(&self.device, skins[i]));
             }
         }
-    }
-
-    fn settings(&mut self) -> &mut Self::Settings {
-        &mut self.settings
     }
 }
 

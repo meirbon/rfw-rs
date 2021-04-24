@@ -626,7 +626,6 @@ impl WgpuOutput {
             format: Some(Self::STORAGE_FORMAT),
             dimension: None,
             aspect: wgpu::TextureAspect::All,
-
             base_mip_level: 0,
             level_count: None,
             base_array_layer: 0,

@@ -10,6 +10,6 @@ futures = "0.3"
 clap = "2.33"
 rayon = "1.5"
 rfw = { path = "../../rfw" }
-rfw-backend-wgpu = { path = "../../backends/wgpu", features = ["imgui-winit"] }
+rfw-backend-wgpu = { path = "../../backends/wgpu" }
 rfw-font = { path = "../../crates/rfw-font" }
 rand = "0.8"

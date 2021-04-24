@@ -17,3 +17,4 @@ rfw-scene = { path = "../crates/rfw-scene" }
 rfw-utils = { path = "../crates/rfw-utils" }
 serde = { version = "1.0", features = ["derive"], optional = true }
 crossbeam = "0.8"
+bevy_ecs = "0.5"
