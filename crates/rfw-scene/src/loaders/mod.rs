@@ -1,5 +1,5 @@
 use crate::graph::SceneDescriptor;
-use crate::{MaterialList, Mesh3D, SceneError};
+use crate::{Materials, Mesh3D, SceneError};
 use rfw_backend::MeshId3D;
 use rfw_utils::collections::TrackedStorage;
 use std::path::PathBuf;
@@ -56,7 +56,7 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug + Send + Sync {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &mut MaterialList,
+        mat_manager: &mut Materials,
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError>;
 }

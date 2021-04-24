@@ -14,14 +14,23 @@ pub enum RenderMode {
     Albedo = 2,
     GBuffer = 3,
     ScreenSpace = 4,
-    SSAO = 5,
-    FilteredSSAO = 6,
+    Ssao = 5,
+    FilteredSsao = 6,
 }
 
 impl Default for RenderMode {
     fn default() -> Self {
         RenderMode::Default
     }
+}
+
+pub trait FromWindowHandle {
+    fn init<W: HasRawWindowHandle>(
+        window: &W,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<Box<Self>, Box<dyn std::error::Error>>;
 }
 
 pub trait Backend {

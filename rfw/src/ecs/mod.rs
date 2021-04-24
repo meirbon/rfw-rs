@@ -1,9 +1,14 @@
-use crate::ecs::schedule::SystemDescriptor;
 use crate::schedule::RunOnce;
+use crate::{ecs::schedule::SystemDescriptor, Instance};
 pub use bevy_ecs::{prelude::*, *};
+pub use bevy_tasks::ComputeTaskPool;
+
+pub trait Bundle {
+    fn init(self, instance: &mut Instance);
+}
 
 pub trait Plugin: Send + Sync {
-    fn init(&mut self, resources: &mut World, scheduler: &mut Scheduler);
+    fn init(&mut self, instance: &mut crate::Instance);
 }
 
 pub struct Scheduler {
@@ -30,7 +35,6 @@ impl Default for Scheduler {
         schedule.add_stage(CoreStage::PreUpdate, SystemStage::parallel());
         schedule.add_stage(CoreStage::Update, SystemStage::parallel());
         schedule.add_stage(CoreStage::PostUpdate, SystemStage::parallel());
-        schedule.add_stage(CoreStage::Last, SystemStage::parallel());
 
         Self { schedule }
     }
@@ -53,7 +57,6 @@ pub enum CoreStage {
     /// Runs once at the beginning of the app.
     Startup,
     /// Name of app stage that runs before all other app stages
-    First,
     /// Name of app stage responsible for performing setup before an update. Runs before UPDATE.
     PreUpdate,
     /// Name of app stage responsible for doing most app logic. Systems should be registered here
@@ -61,14 +64,23 @@ pub enum CoreStage {
     Update,
     /// Name of app stage responsible for processing the results of UPDATE. Runs after UPDATE.
     PostUpdate,
-    /// Name of app stage that runs after all other app stages
-    Last,
 }
 
 #[allow(dead_code)]
 impl Scheduler {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn add_startup_system(
+        &mut self,
+        stage_label: impl StageLabel,
+        system: impl Into<SystemDescriptor>,
+    ) {
+        self.schedule
+            .stage(CoreStage::Startup, |schedule: &mut Schedule| {
+                schedule.add_system_to_stage(stage_label, system)
+            });
     }
 
     pub fn add_system(

@@ -18,3 +18,5 @@ rfw-utils = { path = "../crates/rfw-utils" }
 serde = { version = "1.0", features = ["derive"], optional = true }
 crossbeam = "0.8"
 bevy_ecs = "0.5"
+bevy_tasks = "0.5"
+winit = "0.24"

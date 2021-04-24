@@ -27,7 +27,7 @@ impl ObjectLoader for ObjLoader {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &mut MaterialList,
+        mat_manager: &mut Materials,
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
         let object = tobj::load_obj(&path);

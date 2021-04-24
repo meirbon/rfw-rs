@@ -222,12 +222,13 @@ impl WgpuBackend {
     }
 }
 
-impl WgpuBackend {
-    pub fn init<T: HasRawWindowHandle>(
-        window: &T,
-        window_size: (u32, u32),
-        scale_factor: f64,
-    ) -> Result<Self, Box<dyn Error>> {
+impl FromWindowHandle for WgpuBackend {
+    fn init<W: HasRawWindowHandle>(
+        window: &W,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<Box<Self>, Box<dyn Error>> {
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
         let surface = unsafe { instance.create_surface(window) };
 
@@ -239,10 +240,9 @@ impl WgpuBackend {
             Some(adapter) => adapter,
         };
 
-        let (width, height) = window_size;
         let (render_width, render_height) = (
-            (width as f64 * scale_factor) as u32,
-            (height as f64 * scale_factor) as u32,
+            (width as f64 * scale) as u32,
+            (height as f64 * scale) as u32,
         );
         let width = width as u32;
         let height = height as u32;
@@ -403,10 +403,10 @@ impl WgpuBackend {
             enable_skinning: true,
             device: device.clone(),
             queue: queue.clone(),
-            scale_factor,
+            scale_factor: scale,
         };
 
-        Ok(Self {
+        Ok(Box::new(Self {
             device,
             queue,
             surface,
@@ -445,7 +445,7 @@ impl WgpuBackend {
 
             d2_renderer,
             settings,
-        })
+        }))
     }
 }
 
@@ -713,8 +713,8 @@ impl Backend for WgpuBackend {
                     RenderMode::Albedo => WgpuView::Albedo,
                     RenderMode::GBuffer => WgpuView::GBuffer,
                     RenderMode::ScreenSpace => WgpuView::ScreenSpace,
-                    RenderMode::SSAO => WgpuView::Ssao,
-                    RenderMode::FilteredSSAO => WgpuView::FilteredSsao,
+                    RenderMode::Ssao => WgpuView::Ssao,
+                    RenderMode::FilteredSsao => WgpuView::FilteredSsao,
                 },
             );
         }

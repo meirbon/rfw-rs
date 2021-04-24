@@ -13,8 +13,8 @@ use winit::{
 use rfw::prelude::*;
 use rfw_font::{FontRenderer, Section, Text};
 
-type KeyHandler = rfw::utils::input::ButtonState<VirtualKeyCode>;
-type MouseButtonHandler = rfw::utils::input::ButtonState<MouseButtonCode>;
+type KeyHandler = rfw::utils::input::Input<VirtualKeyCode>;
+type MouseButtonHandler = rfw::utils::input::Input<MouseButtonCode>;
 
 #[derive(Debug, Default)]
 struct FpsSystem {

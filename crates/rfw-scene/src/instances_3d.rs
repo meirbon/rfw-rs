@@ -147,7 +147,7 @@ impl InstanceList3D {
         }
     }
 
-    pub fn any_changed(&mut self) -> bool {
+    pub fn any_changed(&self) -> bool {
         for flag in self.flags() {
             if !flag.is_empty() {
                 return true;

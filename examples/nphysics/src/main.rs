@@ -10,8 +10,8 @@ use winit::{
     window::WindowBuilder,
 };
 
-type KeyHandler = rfw::utils::input::ButtonState<VirtualKeyCode>;
-type MouseButtonHandler = rfw::utils::input::ButtonState<MouseButtonCode>;
+type KeyHandler = rfw::utils::input::Input<VirtualKeyCode>;
+type MouseButtonHandler = rfw::utils::input::Input<MouseButtonCode>;
 
 use nphysics3d::{
     algebra::{Force3, ForceType},

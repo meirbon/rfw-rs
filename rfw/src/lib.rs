@@ -1,17 +1,27 @@
 pub mod ecs;
+pub mod event;
+pub mod input;
 pub mod resources;
 pub mod system;
+pub mod window;
+use std::time::Duration;
 
+use event::Events;
 pub use rfw_backend as backend;
 pub use rfw_math as math;
 pub use rfw_scene as scene;
 pub use rfw_utils as utils;
+use utils::Timer;
+use window::{DeviceEvent, InputBundle, WindowEvent};
 
 pub mod prelude {
     pub use crate::ecs::*;
+    pub use crate::input;
+    pub use crate::input::*;
     pub use crate::resources::*;
     pub use crate::system::*;
-    pub use crate::Instance;
+
+    pub use winit::event::{MouseButton, VirtualKeyCode};
 
     pub use rfw_backend::*;
     pub use rfw_math::*;
@@ -25,97 +35,113 @@ pub mod prelude {
 use crate::ecs::component::Component;
 use crate::ecs::schedule::SystemDescriptor;
 use crate::resources::Resource;
+use backend::FromWindowHandle;
 use ecs::*;
-use rfw_backend::{Backend, DirectionalLight, PointLight, RenderMode, SpotLight};
+use prelude::Input;
+use rfw_backend::{Backend, RenderMode};
 use rfw_math::*;
-use rfw_scene::{Camera2D, Camera3D, GraphHandle, Scene};
-use std::error::Error;
+use rfw_scene::{Camera2D, Camera3D, Scene};
 use system::RenderSystem;
-
-pub struct PointLightRef(u32);
-
-pub struct SpotLightRef(u32);
-
-pub struct DirectionalLightRef(u32);
+use winit::event_loop::{ControlFlow, EventLoop};
 
 pub struct Instance {
     scheduler: ecs::Scheduler,
     world: ecs::World,
+    event_loop: EventLoop<()>,
+    window: winit::window::Window,
 }
 
-pub enum CameraRef3D<'a> {
-    ID(usize),
-    Ref(&'a Camera3D),
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GameTimer {
+    start: Timer,
+    frame: Timer,
+    dt_duration: Duration,
+    dt: f32,
 }
 
-impl<'a> From<&'a Camera3D> for CameraRef3D<'a> {
-    fn from(cam: &'a Camera3D) -> Self {
-        Self::Ref(cam)
+impl GameTimer {
+    fn reset_at_start(mut timer: ResMut<GameTimer>) {
+        timer.dt = timer.frame.elapsed_in_millis();
+        timer.dt_duration = timer.frame.elapsed();
+        timer.frame.reset();
+    }
+
+    pub fn elapsed_ms_since_start(&self) -> f32 {
+        self.start.elapsed_in_millis()
+    }
+
+    pub fn elapsed_since_start(&self) -> Duration {
+        self.start.elapsed()
+    }
+
+    pub fn elapsed_ms(&self) -> f32 {
+        self.dt
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.dt_duration
     }
 }
 
-impl From<usize> for CameraRef3D<'_> {
-    fn from(id: usize) -> Self {
-        Self::ID(id)
+impl Bundle for GameTimer {
+    fn init(self, instance: &mut Instance) {
+        instance
+            .add_resource(GameTimer::default())
+            .add_system_at_stage(CoreStage::PreUpdate, GameTimer::reset_at_start.system());
     }
 }
 
-pub enum CameraRef2D<'a> {
-    Ref(&'a scene::Camera2D),
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum ScaleMode {
+    HiDpi,
+    Regular,
+    Custom(f64),
 }
 
-impl<'a> From<&'a scene::Camera2D> for CameraRef2D<'a> {
-    fn from(cam: &'a scene::Camera2D) -> Self {
-        Self::Ref(cam)
-    }
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Settings {
+    pub scale_mode: ScaleMode,
 }
 
 impl Instance {
-    pub fn new<T: 'static + Sized + Backend>(
-        renderer: T,
-        window_size: (u32, u32),
-        scale_factor: Option<f64>,
-    ) -> Result<Self, Box<dyn Error>> {
-        rfw_utils::log::SimpleLogger::new().init().unwrap();
-        rfw_utils::log::info!("initialized renderer: {}", std::any::type_name::<T>());
+    pub fn new<T: 'static + Backend + FromWindowHandle>(width: u32, height: u32) -> Self {
+        let event_loop = EventLoop::new();
+        let window = winit::window::WindowBuilder::new()
+            .with_inner_size(winit::dpi::LogicalSize::new(width, height))
+            .with_title("rfw")
+            .build(&event_loop)
+            .expect("Could not create window.");
 
-        let mut world = World::new();
-        let mut scheduler = Scheduler::default();
+        let renderer = T::init(&window, width, height, 1.0).expect("Could not initialize renderer");
 
-        let mut system = RenderSystem {
-            width: window_size.0,
-            height: window_size.1,
-            scale_factor: scale_factor.unwrap_or(1.0),
-            renderer: Box::new(renderer),
-            mode: RenderMode::Default,
+        // rfw_utils::log::SimpleLogger::new().init().unwrap();
+        // rfw_utils::log::info!("initialized renderer: {}", std::any::type_name::<T>());
+
+        let world = World::new();
+        let scheduler = Scheduler::default();
+
+        let mut this = Self {
+            scheduler,
+            world,
+            event_loop,
+            window,
         };
 
-        system.init(&mut world, &mut scheduler);
-        world.insert_resource(system);
-        world.insert_resource(Scene::new());
-        world.insert_resource(
-            Camera3D::new().with_aspect_ratio(window_size.0 as f32 / window_size.1 as f32),
-        );
-        world.insert_resource(Camera2D::from_width_height(
-            window_size.0,
-            window_size.1,
-            scale_factor,
-        ));
-        scheduler.add_system(ecs::CoreStage::PostUpdate, render_system.system());
-
-        Ok(Self { scheduler, world })
-    }
-
-    #[cfg(feature = "serde")]
-    pub fn from_scene<T: 'static + Sized + Backend, P: AsRef<std::path::Path>>(
-        scene: P,
-        renderer: T,
-        window_size: (u32, u32),
-        scale_factor: Option<f64>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let mut result = Self::new(renderer, window_size, scale_factor)?;
-        *result.world.get_resource_mut::<Scene>().unwrap() = Scene::deserialize(scene)?;
-        Ok(result)
+        this.add_plugin(RenderSystem {
+            width,
+            height,
+            scale_factor: 1.0,
+            renderer,
+            mode: RenderMode::Default,
+        })
+        .add_resource(bevy_tasks::ComputeTaskPool(bevy_tasks::TaskPool::new()))
+        .add_resource(Scene::new())
+        .add_resource(Camera3D::new().with_aspect_ratio(width as f32 / height as f32))
+        .add_resource(Camera2D::from_width_height(width, height, None))
+        .add_resource(Input::<winit::event::VirtualKeyCode>::new())
+        .add_resource(Input::<winit::event::MouseButton>::new())
+        .add_system_at_stage(ecs::CoreStage::PostUpdate, render_system.system());
+        this
     }
 
     pub fn spawn(&mut self) -> ecs::world::EntityMut {
@@ -146,14 +172,41 @@ impl Instance {
         self.world.get_resource_mut().unwrap()
     }
 
-    pub fn with_resource<P: ecs::component::Component>(mut self, resource: P) -> Self {
+    pub fn with_resource(mut self, resource: impl Component) -> Self {
         self.world.insert_resource(resource);
         self
     }
 
-    pub fn with_plugin<P: ecs::Plugin + Resource>(mut self, mut plugin: P) -> Self {
-        plugin.init(&mut self.world, &mut self.scheduler);
+    pub fn add_resource(&mut self, resource: impl Component) -> &mut Self {
+        self.world.insert_resource(resource);
+        self
+    }
+
+    pub fn add_plugin<P: ecs::Plugin + Resource>(&mut self, mut plugin: P) -> &mut Self {
+        plugin.init(self);
         self.world.insert_resource(plugin);
+        self
+    }
+
+    pub fn with_plugin<P: ecs::Plugin + Resource>(mut self, mut plugin: P) -> Self {
+        plugin.init(&mut self);
+        self.world.insert_resource(plugin);
+        self
+    }
+
+    pub fn add_bundle<P: ecs::Bundle + Resource>(&mut self, bundle: P) -> &mut Self {
+        bundle.init(self);
+        self
+    }
+
+    pub fn with_bundle<P: ecs::Bundle + Resource>(mut self, bundle: P) -> Self {
+        bundle.init(&mut self);
+        self
+    }
+
+    pub fn with_startup_system(mut self, system: impl Into<SystemDescriptor>) -> Self {
+        self.scheduler
+            .add_startup_system(StartupStage::Startup, system);
         self
     }
 
@@ -185,6 +238,40 @@ impl Instance {
         self
     }
 
+    pub fn add_startup_system(&mut self, system: impl Into<SystemDescriptor>) -> &mut Self {
+        self.scheduler
+            .add_startup_system(StartupStage::Startup, system);
+        self
+    }
+
+    pub fn add_system(&mut self, system: impl Into<SystemDescriptor>) -> &mut Self {
+        self.scheduler.add_system(CoreStage::Update, system);
+        self
+    }
+
+    pub fn add_system_at_stage(
+        &mut self,
+        stage: impl StageLabel,
+        system: impl Into<SystemDescriptor>,
+    ) -> &mut Self {
+        self.scheduler.add_system(stage, system);
+        self
+    }
+
+    pub fn add_system_set(&mut self, system_set: SystemSet) -> &mut Self {
+        self.scheduler.add_system_set(CoreStage::Update, system_set);
+        self
+    }
+
+    pub fn add_system_set_at_stage(
+        &mut self,
+        stage: impl StageLabel,
+        system_set: SystemSet,
+    ) -> &mut Self {
+        self.scheduler.add_system_set(stage, system_set);
+        self
+    }
+
     pub fn resize(&mut self, window_size: (u32, u32), scale_factor: Option<f64>) {
         let mut system = self.world.get_resource_mut::<RenderSystem>().unwrap();
         let scale_factor = scale_factor.unwrap_or(system.scale_factor);
@@ -198,83 +285,6 @@ impl Instance {
         self.scheduler.run(&mut self.world);
     }
 
-    /// Will return a reference to the point light if the scene is not locked
-    pub fn add_point_light<B: Into<[f32; 3]>>(
-        &mut self,
-        position: B,
-        radiance: B,
-    ) -> PointLightRef {
-        let mut scene = self.world.get_resource_mut::<Scene>().unwrap();
-
-        let position: Vec3 = Vec3::from(position.into());
-        let radiance: Vec3 = Vec3::from(radiance.into());
-
-        let light = PointLight::new(position, radiance);
-        let id = scene.lights.point_lights.push(light);
-
-        PointLightRef(id as u32)
-    }
-
-    /// Will return a reference to the spot light if the scene is not locked
-    pub fn add_spot_light<B: Into<[f32; 3]>>(
-        &mut self,
-        position: B,
-        direction: B,
-        radiance: B,
-        inner_degrees: f32,
-        outer_degrees: f32,
-    ) -> SpotLightRef {
-        let mut scene = self.world.get_resource_mut::<Scene>().unwrap();
-
-        let position = Vec3::from(position.into());
-        let direction = Vec3::from(direction.into());
-        let radiance = Vec3::from(radiance.into());
-
-        let light = SpotLight::new(position, direction, inner_degrees, outer_degrees, radiance);
-
-        let id = scene.lights.spot_lights.push(light);
-        SpotLightRef(id as u32)
-    }
-
-    /// Will return a reference to the directional light if the scene is not locked
-    pub fn add_directional_light<B: Into<[f32; 3]>>(
-        &mut self,
-        direction: B,
-        radiance: B,
-    ) -> DirectionalLightRef {
-        let mut scene = self.world.get_resource_mut::<Scene>().unwrap();
-        let light =
-            DirectionalLight::new(Vec3::from(direction.into()), Vec3::from(radiance.into()));
-        let id = scene.lights.directional_lights.push(light);
-        DirectionalLightRef(id as u32)
-    }
-
-    pub fn set_animation_time(&mut self, handle: &GraphHandle, time: f32) {
-        let mut scene = self.world.get_resource_mut::<Scene>().unwrap();
-        scene.objects.graph.set_animation(handle, time);
-    }
-
-    pub fn set_animations_time(&mut self, time: f32) {
-        let mut scene = self.world.get_resource_mut::<Scene>().unwrap();
-        scene.objects.graph.set_animations(time);
-    }
-
-    // pub fn set_skybox<B: AsRef<Path>>(&mut self, path: B) -> Result<(), SceneError> {
-    //     if let Ok(texture) = Texture::load(path.as_ref(), Flip::FlipV) {
-    //         self.renderer.set_skybox(TextureData {
-    //             width: texture.width,
-    //             height: texture.height,
-    //             mip_levels: texture.mip_levels,
-    //             bytes: texture.data.as_bytes(),
-    //             format: rfw_backend::DataFormat::BGRA8,
-    //         });
-    //
-    //         Ok(())
-    //     } else {
-    //         Err(SceneError::LoadError(path.as_ref().to_path_buf()))
-    //     }
-    // }
-
     #[cfg(feature = "serde")]
     pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
         match self.scene.serialize(path) {
@@ -282,13 +292,133 @@ impl Instance {
             _ => Err(()),
         }
     }
+
+    pub fn run(mut self, settings: Settings) {
+        // TODO: we need to make a proper distinction between what plugins and bundles are, instead of this mess..
+        self.add_bundle(Events::<WindowEvent>::new())
+            .add_bundle(Events::<ResizeEvent>::new())
+            .add_bundle(InputBundle {})
+            .add_bundle(GameTimer::default());
+
+        let (event_loop, window, mut world, mut scheduler) =
+            (self.event_loop, self.window, self.world, self.scheduler);
+
+        let mut scale: f64 = match settings.scale_mode {
+            ScaleMode::HiDpi => 1.0,
+            ScaleMode::Regular => window
+                .current_monitor()
+                .map(|m| 1.0 / m.scale_factor())
+                .unwrap_or(1.0),
+            ScaleMode::Custom(scale) => scale,
+        };
+
+        // Update scale with user preference.
+        if let Some(mut events) = world.get_resource_mut::<Events<ResizeEvent>>() {
+            let size = window.inner_size();
+            let (width, height) = (size.width, size.height);
+
+            events.push(ResizeEvent {
+                width,
+                height,
+                scale,
+            });
+        }
+
+        event_loop.run(move |event, _, cf| {
+            *cf = ControlFlow::Poll;
+
+            match event {
+                winit::event::Event::WindowEvent { window_id, event }
+                    if window.id() == window_id =>
+                {
+                    match &event {
+                        winit::event::WindowEvent::CloseRequested => *cf = ControlFlow::Exit,
+                        winit::event::WindowEvent::ScaleFactorChanged {
+                            scale_factor,
+                            new_inner_size,
+                        } => {
+                            scale = match settings.scale_mode {
+                                ScaleMode::HiDpi => 1.0,
+                                ScaleMode::Regular => 1.0 / scale_factor,
+                                ScaleMode::Custom(scale) => scale,
+                            };
+
+                            if let Some(mut events) =
+                                world.get_resource_mut::<Events<ResizeEvent>>()
+                            {
+                                events.push(ResizeEvent {
+                                    width: new_inner_size.width,
+                                    height: new_inner_size.height,
+                                    scale: *scale_factor,
+                                });
+                            }
+                        }
+                        winit::event::WindowEvent::Resized(size) => {
+                            if let Some(mut events) =
+                                world.get_resource_mut::<Events<ResizeEvent>>()
+                            {
+                                events.push(ResizeEvent {
+                                    width: size.width,
+                                    height: size.height,
+                                    scale,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    if let Some(mut events) = world.get_resource_mut::<Events<WindowEvent>>() {
+                        events.push(WindowEvent::from(event));
+                    }
+                }
+                winit::event::Event::DeviceEvent { device_id, event } => {
+                    if let Some(mut events) = world.get_resource_mut::<Events<DeviceEvent>>() {
+                        events.push(DeviceEvent::from((device_id, event)));
+                    }
+                }
+                winit::event::Event::Suspended => {
+                    if let Some(mut events) = world.get_resource_mut::<Events<WindowEvent>>() {
+                        events.push(WindowEvent::Suspended);
+                    }
+                }
+                winit::event::Event::Resumed => {
+                    if let Some(mut events) = world.get_resource_mut::<Events<WindowEvent>>() {
+                        events.push(WindowEvent::Resumed);
+                    }
+                }
+                winit::event::Event::RedrawRequested(window_id) if window_id == window.id() => {
+                    scheduler.run(&mut world);
+                }
+                winit::event::Event::LoopDestroyed => *cf = ControlFlow::Exit,
+                winit::event::Event::MainEventsCleared => window.request_redraw(),
+                _ => {}
+            };
+        })
+    }
 }
 
-pub fn render_system(
-    camera_2d: Res<Camera2D>,
-    camera_3d: Res<Camera3D>,
+#[derive(Debug, Clone, Copy)]
+struct ResizeEvent {
+    width: u32,
+    height: u32,
+    scale: f64,
+}
+
+fn render_system(
+    mut camera_2d: ResMut<Camera2D>,
+    mut camera_3d: ResMut<Camera3D>,
+    resize_event: Res<Events<ResizeEvent>>,
     mut system: ResMut<RenderSystem>,
 ) {
+    if let Some(event) = resize_event.iter().last() {
+        *camera_2d = Camera2D::from_width_height(event.width, event.height, Some(event.scale));
+        camera_3d.set_aspect_ratio(event.width as f32 / event.height as f32);
+
+        system.width = event.width;
+        system.height = event.height;
+        system.resize(event.width, event.height, Some(event.scale));
+    }
+
     let view_2d = camera_2d.get_view();
     let view_3d = camera_3d.get_view(system.width, system.height);
     let mode = system.mode;

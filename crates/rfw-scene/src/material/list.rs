@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct MaterialList {
+pub struct Materials {
     light_flags: bitvec::prelude::BitVec,
     materials: TrackedStorage<Material>,
     device_materials: TrackedStorage<DeviceMaterial>,
@@ -25,7 +25,7 @@ pub struct MaterialList {
     tex_material_mapping: FlaggedStorage<HashSet<u32>>,
 }
 
-impl Display for MaterialList {
+impl Display for Materials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -270,7 +270,7 @@ impl IndexMut<usize> for Pixel {
     }
 }
 
-impl Default for MaterialList {
+impl Default for Materials {
     fn default() -> Self {
         Self::new()
     }
@@ -350,10 +350,10 @@ impl Default for TextureDescriptor {
 }
 
 #[allow(dead_code)]
-impl MaterialList {
+impl Materials {
     // Creates an empty material list
-    pub fn empty() -> MaterialList {
-        MaterialList {
+    pub fn empty() -> Materials {
+        Materials {
             light_flags: bitvec::prelude::BitVec::new(),
             materials: TrackedStorage::new(),
             device_materials: TrackedStorage::new(),
@@ -364,7 +364,7 @@ impl MaterialList {
     }
 
     /// Creates a material list with at least a single (empty) texture and (empty) material
-    pub fn new() -> MaterialList {
+    pub fn new() -> Materials {
         let mut materials = TrackedStorage::new();
         materials.push(Material::default());
 
@@ -377,7 +377,7 @@ impl MaterialList {
         let mut light_flags = bitvec::prelude::BitVec::new();
         light_flags.push(false);
 
-        MaterialList {
+        Materials {
             light_flags,
             materials,
             device_materials: TrackedStorage::new(),
@@ -738,7 +738,7 @@ impl MaterialList {
     }
 }
 
-impl Index<usize> for MaterialList {
+impl Index<usize> for Materials {
     type Output = Material;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -746,7 +746,7 @@ impl Index<usize> for MaterialList {
     }
 }
 
-impl IndexMut<usize> for MaterialList {
+impl IndexMut<usize> for Materials {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.materials[index]
     }

@@ -67,69 +67,8 @@ impl FontRenderer {
     }
 }
 
-// fn font_startup(mut scene: ResMut<Scene>, system: ResMut<RenderSystem>) {
-//     let (tex_width, tex_height) = self.brush.texture_dimensions();
-//     let tex_data = vec![0_u32; (tex_width * tex_height) as usize];
-//     let texture = Texture::from_bytes(
-//         unsafe {
-//             std::slice::from_raw_parts(
-//                 tex_data.as_ptr() as *const u8,
-//                 (tex_width * tex_height * 4) as usize,
-//             )
-//         },
-//         tex_width,
-//         tex_height,
-//         TextureFormat::BGRA,
-//         std::mem::size_of::<u32>(),
-//     );
-//
-//     let tex_id = scene.add_texture(texture);
-//     let mesh_id = scene.add_2d(Mesh2D::new(
-//         vec![
-//             [-0.5, -0.5, 0.5],
-//             [0.5, -0.5, 0.5],
-//             [0.5, 0.5, 0.5],
-//             [-0.5, 0.5, 0.5],
-//             [-0.5, -0.5, 0.5],
-//             [0.5, 0.5, 0.5],
-//         ],
-//         vec![
-//             [0.01, 0.01],
-//             [0.99, 0.01],
-//             [0.99, 0.99],
-//             [0.01, 0.99],
-//             [0.01, 0.01],
-//             [0.99, 0.99],
-//         ],
-//         Some(tex_id),
-//         [1.0; 4],
-//     ));
-//
-//     let mut instance = scene.add_2d_instance(mesh_id).unwrap();
-//     let width = system.render_width() as f32;
-//     let height = system.render_height() as f32;
-//     instance.set_matrix(
-//         Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0))
-//             * Mat4::from_translation(Vec3::new(
-//                 -(width as f32 / 2.0),
-//                 -(height as f32 / 2.0),
-//                 0.0,
-//             )),
-//     );
-//
-//     self.tex_width = tex_width;
-//     self.tex_height = tex_height;
-//     self.tex_id = tex_id;
-//     self.mesh_id = mesh_id;
-//     self.instance = Some(instance);
-//
-//     resources.insert_resource(FontSystem { tex_data });
-//
-//     scheduler.add_system(CoreStage::Update, update_fonts.system());
-// }
-
 impl Plugin for FontRenderer {
-    fn init(&mut self, resources: &mut World, scheduler: &mut Scheduler) {
+    fn init(&mut self, instance: &mut rfw::Instance) {
         let (tex_width, tex_height) = self.brush.texture_dimensions();
         let tex_data = vec![0_u32; (tex_width * tex_height) as usize];
         let texture = Texture::from_bytes(
@@ -145,11 +84,11 @@ impl Plugin for FontRenderer {
             std::mem::size_of::<u32>(),
         );
 
-        let tex_id = resources
+        let tex_id = instance
             .get_resource_mut::<Scene>()
             .unwrap()
             .add_texture(texture);
-        let mesh_id = resources
+        let mesh_id = instance
             .get_resource_mut::<Scene>()
             .unwrap()
             .add_2d(Mesh2D::new(
@@ -173,20 +112,21 @@ impl Plugin for FontRenderer {
                 [1.0; 4],
             ));
 
-        let mut instance = resources
+        let mut mesh_instance = instance
             .get_resource_mut::<Scene>()
             .unwrap()
             .add_2d_instance(mesh_id)
             .unwrap();
-        let width = resources
+
+        let width = instance
             .get_resource_mut::<RenderSystem>()
             .unwrap()
             .render_width() as f32;
-        let height = resources
+        let height = instance
             .get_resource_mut::<RenderSystem>()
             .unwrap()
             .render_height() as f32;
-        instance.set_matrix(
+        mesh_instance.set_matrix(
             Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0))
                 * Mat4::from_translation(Vec3::new(
                     -(width as f32 / 2.0),
@@ -199,11 +139,11 @@ impl Plugin for FontRenderer {
         self.tex_height = tex_height;
         self.tex_id = tex_id;
         self.mesh_id = mesh_id;
-        self.instance = Some(instance);
+        self.instance = Some(mesh_instance);
 
-        resources.insert_resource(FontSystem { tex_data });
-
-        scheduler.add_system(CoreStage::Update, update_fonts.system());
+        instance
+            .add_resource(FontSystem { tex_data })
+            .add_system(update_fonts.system());
     }
 }
 
@@ -307,7 +247,7 @@ fn update_fonts(
     }
 
     if tex_changed {
-        if let Some(tex) = scene.materials.get_texture_mut(font.tex_id) {
+        if let Some(tex) = scene.get_materials_mut().get_texture_mut(font.tex_id) {
             tex.data.resize(this.tex_data.len(), 0);
             tex.data.copy_from_slice(&this.tex_data);
             tex.width = font.tex_width;

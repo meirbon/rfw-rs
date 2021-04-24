@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use std::collections::HashMap;
 
-use crate::MaterialList;
+use crate::Materials;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
@@ -486,7 +486,7 @@ impl Bounds for Mesh3D {
 #[derive(Debug, Clone)]
 struct SerializedMesh {
     pub mesh: Mesh3D,
-    pub materials: MaterialList,
+    pub materials: Materials,
 }
 
 #[cfg(feature = "serde")]

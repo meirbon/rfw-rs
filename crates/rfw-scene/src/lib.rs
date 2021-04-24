@@ -44,6 +44,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub struct PointLightRef(usize);
+pub struct SpotLightRef(usize);
+pub struct DirectionalLightRef(usize);
+
 #[derive(Debug, Clone)]
 pub enum SceneError {
     InvalidObjectRef,
@@ -118,14 +122,14 @@ impl Default for Objects {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
-pub struct SceneLights {
+pub struct Lights {
     pub point_lights: TrackedStorage<PointLight>,
     pub spot_lights: TrackedStorage<SpotLight>,
     pub area_lights: TrackedStorage<AreaLight>,
     pub directional_lights: TrackedStorage<DirectionalLight>,
 }
 
-impl Default for SceneLights {
+impl Default for Lights {
     fn default() -> Self {
         Self {
             point_lights: TrackedStorage::new(),
@@ -141,10 +145,10 @@ impl Default for SceneLights {
 #[derive(Debug)]
 pub struct Scene {
     loaders: HashMap<String, Box<dyn ObjectLoader>>,
-    pub objects: Objects,
-    pub lights: SceneLights,
-    pub materials: MaterialList,
-    pub cameras: TrackedStorage<Camera3D>,
+    pub(crate) objects: Objects,
+    pub(crate) lights: Lights,
+    pub(crate) materials: Materials,
+    pub(crate) cameras: TrackedStorage<Camera3D>,
 }
 
 impl Default for Scene {
@@ -154,8 +158,8 @@ impl Default for Scene {
         Self {
             loaders,
             objects: Objects::default(),
-            lights: SceneLights::default(),
-            materials: MaterialList::new(),
+            lights: Lights::default(),
+            materials: Materials::new(),
             cameras: TrackedStorage::new(),
         }
     }
@@ -170,8 +174,8 @@ struct SerializableScene {
     meshes_2d: TrackedStorage<Mesh2D>,
     graph: graph::SceneGraph,
     skins: TrackedStorage<graph::Skin>,
-    lights: SceneLights,
-    materials: MaterialList,
+    lights: Lights,
+    materials: Materials,
     cameras: TrackedStorage<Camera3D>,
 }
 
@@ -217,10 +221,42 @@ impl Scene {
     pub fn new() -> Self {
         Self {
             objects: Objects::default(),
-            lights: SceneLights::default(),
-            materials: MaterialList::new(),
+            lights: Lights::default(),
+            materials: Materials::new(),
             ..Default::default()
         }
+    }
+
+    pub fn get_objects(&self) -> &Objects {
+        &self.objects
+    }
+
+    pub fn get_objects_mut(&mut self) -> &mut Objects {
+        &mut self.objects
+    }
+
+    pub fn get_lights(&self) -> &Lights {
+        &self.lights
+    }
+
+    pub fn get_lights_mut(&mut self) -> &mut Lights {
+        &mut self.lights
+    }
+
+    pub fn get_materials(&self) -> &Materials {
+        &self.materials
+    }
+
+    pub fn get_materials_mut(&mut self) -> &mut Materials {
+        &mut self.materials
+    }
+
+    pub fn synchronize_graph(&mut self) -> bool {
+        self.objects.graph.synchronize(
+            &mut self.objects.meshes_3d,
+            &mut self.objects.instances_3d,
+            &mut self.objects.skins,
+        )
     }
 
     /// Returns an id if a single mesh was loaded, otherwise it was a scene
@@ -486,49 +522,12 @@ impl Scene {
         }
     }
 
-    #[cfg(feature = "serde")]
-    pub fn serialize<S: AsRef<Path>>(&self, path: S) -> Result<(), Box<dyn Error>> {
-        use std::io::prelude::*;
-
-        let ser_object = SerializableScene::from(self);
-        let encoded: Vec<u8> = bincode::serialize(&ser_object)?;
-
-        let mut output = OsString::from(path.as_ref().as_os_str());
-        output.push(Self::FF_EXTENSION);
-
-        let mut file = File::create(output)?;
-        file.write_all(encoded.as_ref())?;
-        Ok(())
-    }
-
-    #[cfg(feature = "serde")]
-    pub fn deserialize<S: AsRef<Path>>(path: S) -> Result<Self, Box<dyn Error>> {
-        let mut input = OsString::from(path.as_ref().as_os_str());
-        input.push(Self::FF_EXTENSION);
-        let file = File::open(input)?;
-        let reader = BufReader::new(file);
-        let mut object: SerializableScene = bincode::deserialize_from(reader)?;
-
-        object.skins.trigger_changed_all();
-        object.materials.set_changed();
-        object.instances.trigger_changed_all();
-        object.meshes_3d.trigger_changed_all();
-        object.animated_meshes.trigger_changed_all();
-        object.lights.point_lights.trigger_changed_all();
-        object.lights.spot_lights.trigger_changed_all();
-        object.lights.area_lights.trigger_changed_all();
-        object.lights.directional_lights.trigger_changed_all();
-
-        let object: Self = object.into();
-
-        Ok(object)
-    }
-
-    pub fn add_point_light(&mut self, pos: Vec3, radiance: Vec3) -> usize {
-        self.lights
-            .point_lights
-            .push(PointLight::new(pos, radiance));
-        self.lights.point_lights.len() - 1
+    pub fn add_point_light(&mut self, pos: Vec3, radiance: Vec3) -> PointLightRef {
+        PointLightRef(
+            self.lights
+                .point_lights
+                .push(PointLight::new(pos, radiance)),
+        )
     }
 
     pub fn add_spot_light(
@@ -538,21 +537,26 @@ impl Scene {
         radiance: Vec3,
         inner_angle: f32,
         outer_angle: f32,
-    ) -> usize {
-        self.lights.spot_lights.push(SpotLight::new(
+    ) -> SpotLightRef {
+        SpotLightRef(self.lights.spot_lights.push(SpotLight::new(
             pos,
             direction,
             inner_angle,
             outer_angle,
             radiance,
-        ));
-        self.lights.spot_lights.len() - 1
+        )))
     }
 
-    pub fn add_directional_light(&mut self, direction: Vec3, radiance: Vec3) -> usize {
-        self.lights
-            .directional_lights
-            .push(DirectionalLight::new(direction, radiance))
+    pub fn add_directional_light(
+        &mut self,
+        direction: Vec3,
+        radiance: Vec3,
+    ) -> DirectionalLightRef {
+        DirectionalLightRef(
+            self.lights
+                .directional_lights
+                .push(DirectionalLight::new(direction, radiance)),
+        )
     }
 
     pub fn reset_changed(&mut self) {
@@ -560,8 +564,19 @@ impl Scene {
         self.lights.spot_lights.reset_changed();
         self.lights.area_lights.reset_changed();
         self.lights.directional_lights.reset_changed();
-
         self.materials.reset_changed();
+
+        self.objects.skins.reset_changed();
+        self.objects.meshes_2d.reset_changed();
+        self.objects.meshes_3d.reset_changed();
+        self.objects
+            .instances_2d
+            .iter_mut()
+            .for_each(|(_, i)| i.reset_changed());
+        self.objects
+            .instances_3d
+            .iter_mut()
+            .for_each(|(_, i)| i.reset_changed());
     }
 
     pub fn update_lights(&mut self) {
@@ -668,5 +683,13 @@ impl Scene {
 
     pub fn get_cameras_mut(&mut self) -> FlaggedIteratorMut<'_, Camera3D> {
         self.cameras.iter_mut()
+    }
+
+    pub fn set_animation_time(&mut self, handle: &GraphHandle, time: f32) {
+        self.objects.graph.set_animation(handle, time);
+    }
+
+    pub fn set_animations_time(&mut self, time: f32) {
+        self.objects.graph.set_animations(time);
     }
 }

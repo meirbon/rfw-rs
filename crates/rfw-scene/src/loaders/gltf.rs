@@ -1,6 +1,6 @@
 use crate::{
     graph::{NodeDescriptor, SceneDescriptor},
-    {LoadResult, MaterialList, Mesh3D, ObjectLoader, SceneError},
+    {LoadResult, Materials, Mesh3D, ObjectLoader, SceneError},
 };
 use rfw_backend::MeshId3D;
 use rfw_math::*;
@@ -27,7 +27,7 @@ impl ObjectLoader for GltfLoader {
     fn load(
         &self,
         path: PathBuf,
-        mat_manager: &mut MaterialList,
+        mat_manager: &mut Materials,
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
         let loader = l3d::LoadInstance::new().with_default();
