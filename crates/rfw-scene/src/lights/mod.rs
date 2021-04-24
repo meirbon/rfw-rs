@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[repr(C)]
 pub struct LightInfo {
     pub pm: Mat4,
-    pub pos: [f32; 3],
+    pub pos: Vec3,
     pub range: f32,
     // 80
     _padding0: [Vec4; 3],
@@ -30,7 +30,7 @@ impl Default for LightInfo {
     fn default() -> Self {
         Self {
             pm: Mat4::IDENTITY,
-            pos: [0.0; 3],
+            pos: Vec3::ZERO,
             range: 0.0,
             _padding0: [Vec4::ZERO; 3],
             _padding1: Mat4::IDENTITY,

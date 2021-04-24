@@ -224,16 +224,13 @@ fn set_animation_timers(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
 }
 
 fn rotate_spot_lights(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
-    let elapsed = time.elapsed_ms() / 1000.0;
+    let elapsed = time.elapsed_ms_since_start() / 1000.0;
     scene
         .get_lights_mut()
         .spot_lights
         .iter_mut()
         .for_each(|(_, sl)| {
-            let direction = Vec3::from(sl.direction);
-            let direction =
-                Quat::from_rotation_y((elapsed / 10.0).to_radians()).mul_vec3(direction);
-            sl.direction = direction.into();
+            sl.direction = Quat::from_rotation_y((elapsed / 10.0).to_radians()).mul_vec3(sl.direction);
         });
 }
 

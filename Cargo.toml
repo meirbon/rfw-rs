@@ -14,7 +14,6 @@ members = [
     "crates/rfw-math",
     "crates/rfw-utils",
     "crates/rfw-font",
-    "crates/rfw-window",
     #"renderers/gpu-rt",
 ]
 
