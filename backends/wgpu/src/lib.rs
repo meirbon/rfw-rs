@@ -65,8 +65,9 @@ pub struct InstanceMatrices {
 
 #[derive(Default, Debug, Clone)]
 pub struct InstanceExtra {
+    flags: Vec<InstanceFlags3D>,
     skin_ids: Vec<Option<u16>>,
-    local_aabb: AABB,
+    local_aabb: Aabb,
 }
 
 pub struct WgpuBackend {
@@ -75,6 +76,7 @@ pub struct WgpuBackend {
     surface: wgpu::Surface,
     swap_chain: wgpu::SwapChain,
 
+    mesh_flags: Vec<Mesh3dFlags>,
     vertices_3d: VertexList<Vertex3D, JointData>,
     instances_3d_storage: Vec<Rc<Vec<InstanceMatrices>>>,
     instances_3d: InstanceList<InstanceMatrices, InstanceExtra>,
@@ -96,7 +98,7 @@ pub struct WgpuBackend {
     camera_buffer: ManagedBuffer<UniformCamera>,
     output: output::WgpuOutput,
     pipeline: pipeline::RenderPipeline,
-    scene_bounds: AABB,
+    scene_bounds: Aabb,
 
     ssao_pass: pass::SsaoPass,
     radiance_pass: pass::RadiancePass,
@@ -412,6 +414,7 @@ impl FromWindowHandle for WgpuBackend {
             surface,
             swap_chain,
 
+            mesh_flags: Vec::new(),
             vertices_3d,
             instances_3d_storage,
             instances_3d,
@@ -435,7 +438,7 @@ impl FromWindowHandle for WgpuBackend {
             radiance_pass,
             blit_pass,
             output_pass,
-            scene_bounds: AABB::empty(),
+            scene_bounds: Aabb::empty(),
 
             skin_layout,
             skins: TrackedStorage::new(),
@@ -476,6 +479,14 @@ impl Backend for WgpuBackend {
     }
 
     fn set_3d_mesh(&mut self, id: usize, mesh: MeshData3D) {
+        if self.mesh_flags.len() <= id {
+            self.mesh_flags.resize(
+                (id + 1).max(self.mesh_flags.len() * 2),
+                Mesh3dFlags::default(),
+            );
+        }
+
+        self.mesh_flags[id] = mesh.flags;
         if self.vertices_3d.has(id) {
             self.vertices_3d
                 .update_pointer(id, mesh.vertices.to_vec(), mesh.skin_data.to_vec());
@@ -487,7 +498,7 @@ impl Backend for WgpuBackend {
         self.update_flags |= UpdateFlags::UPDATE_3D_MESHES;
     }
 
-    fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
+    fn unload_3d_meshes(&mut self, ids: &[usize]) {
         for id in ids.iter().copied() {
             self.instances_3d.remove_instances_list(id);
             self.vertices_3d.remove_pointer(id);
@@ -511,6 +522,7 @@ impl Backend for WgpuBackend {
             .collect();
 
         let extra = InstanceExtra {
+            flags: instances.flags.to_vec(),
             skin_ids: instances
                 .skin_ids
                 .iter()
@@ -823,8 +835,8 @@ impl WgpuBackend {
             &self.uniform_bind_group,
             &self.vertices_3d,
             &self.instances_3d,
+            self.mesh_flags.as_slice(),
             self.skins.as_slice(),
-            &self.settings,
         );
     }
 

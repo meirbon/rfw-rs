@@ -1,6 +1,6 @@
 use crate::{constants::EPSILON, objects_3d::*};
 use l3d::mat::{Material, Texture};
-use rtbvh::{Bounds, AABB};
+use rtbvh::{Bounds, Aabb};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -178,14 +178,14 @@ impl Plane {
 // }
 
 impl Bounds for Plane {
-    fn bounds(&self) -> AABB {
+    fn bounds(&self) -> Aabb {
         let right_offset = self.dims[0] * Vec3A::from(self.right);
         let forward_offset = self.dims[1] * Vec3A::from(self.forward);
 
         let min = Vec3A::from(self.pos) - right_offset - forward_offset - Vec3A::splat(EPSILON);
         let max = Vec3A::from(self.pos) + right_offset + forward_offset + Vec3A::splat(EPSILON);
 
-        AABB {
+        Aabb {
             min: min.into(),
             max: max.into(),
         }

@@ -381,6 +381,10 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
         }
     }
 
+    pub fn get_erased(&self) -> &[usize] {
+        self.erased.as_slice()
+    }
+
     /// Returns list of indices that were erased.
     /// List gets reset when this function is called.
     pub fn take_erased(&mut self) -> Vec<usize> {
@@ -507,6 +511,7 @@ impl<T: Default + Clone + std::fmt::Debug> TrackedStorage<T> {
 
     pub fn reset_changed(&mut self) {
         self.changed.set_all(false);
+        self.erased.clear();
     }
 
     pub fn as_ptr(&self) -> *const T {

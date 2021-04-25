@@ -1,6 +1,6 @@
 use rfw_backend::*;
 use rfw_math::*;
-use rtbvh::AABB;
+use rtbvh::Aabb;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -19,9 +19,9 @@ pub struct LightInfo {
 
 pub trait Light {
     fn set_radiance(&mut self, radiance: Vec3);
-    fn get_matrix(&self, scene_bounds: &AABB) -> Mat4;
-    fn get_light_info(&self, scene_bounds: &AABB) -> LightInfo;
-    fn get_range(&self, scene_bounds: &AABB) -> AABB;
+    fn get_matrix(&self, scene_bounds: &Aabb) -> Mat4;
+    fn get_light_info(&self, scene_bounds: &Aabb) -> LightInfo;
+    fn get_range(&self, scene_bounds: &Aabb) -> Aabb;
     fn get_radiance(&self) -> Vec3;
     fn get_energy(&self) -> f32;
 }
@@ -49,7 +49,7 @@ pub struct CubeLightInfo {
 }
 
 // impl PointLight {
-//     pub fn get_light_info(&self, _scene_bounds: &AABB) -> CubeLightInfo {
+//     pub fn get_light_info(&self, _scene_bounds: &Aabb) -> CubeLightInfo {
 //         unimplemented!()
 //     }
 // }
@@ -61,18 +61,18 @@ pub struct CubeLightInfo {
 impl Light for AreaLight {
     fn set_radiance(&mut self, radiance: Vec3) {
         let radiance = radiance.abs();
-        self.radiance = radiance.into();
+        self.radiance = radiance;
         self.energy = radiance.length();
     }
 
-    fn get_matrix(&self, _: &AABB) -> Mat4 {
-        let direction = Vec3::from(self.normal);
+    fn get_matrix(&self, _: &Aabb) -> Mat4 {
+        let direction = self.normal;
         let up = if direction.y.abs() > 0.99 {
             Vec3::Z
         } else {
             Vec3::Y
         };
-        let center: Vec3 = Vec3::from(self.position);
+        let center: Vec3 = self.position;
         let l = self.energy * self.area;
 
         let fov = 150.0_f32.to_radians();
@@ -82,7 +82,7 @@ impl Light for AreaLight {
         projection * view
     }
 
-    fn get_light_info(&self, scene_bounds: &AABB) -> LightInfo {
+    fn get_light_info(&self, scene_bounds: &Aabb) -> LightInfo {
         LightInfo {
             pm: self.get_matrix(scene_bounds),
             pos: self.position,
@@ -91,9 +91,9 @@ impl Light for AreaLight {
         }
     }
 
-    fn get_range(&self, _: &AABB) -> AABB {
-        let pos = Vec3::from(self.position);
-        let normal = Vec3::from(self.normal);
+    fn get_range(&self, _: &Aabb) -> Aabb {
+        let pos = self.position;
+        let normal = self.normal;
 
         let up = if normal.y.abs() > 0.99 {
             Vec3::Z
@@ -109,7 +109,7 @@ impl Light for AreaLight {
         let range_y = Vec3::new(0.0, l, 0.0) * normal;
         let range_z = Vec3::new(0.0, 0.0, l) * up;
 
-        let mut aabb = AABB::new();
+        let mut aabb = Aabb::new();
         aabb.grow(pos);
         aabb.grow(pos + range_x);
         aabb.grow(pos + range_y);
@@ -118,7 +118,7 @@ impl Light for AreaLight {
     }
 
     fn get_radiance(&self) -> Vec3 {
-        self.radiance.into()
+        self.radiance
     }
 
     fn get_energy(&self) -> f32 {
@@ -129,12 +129,12 @@ impl Light for AreaLight {
 impl Light for SpotLight {
     fn set_radiance(&mut self, radiance: Vec3) {
         let radiance = radiance.abs();
-        self.radiance = radiance.into();
+        self.radiance = radiance;
         self.energy = radiance.length();
     }
 
-    fn get_matrix(&self, _: &AABB) -> Mat4 {
-        let direction = Vec3::from(self.direction);
+    fn get_matrix(&self, _: &Aabb) -> Mat4 {
+        let direction = self.direction;
         let up = if direction.y.abs() > 0.99 {
             Vec3::Z
         } else {
@@ -142,14 +142,14 @@ impl Light for SpotLight {
         };
         let fov = self.cos_outer.acos() * 2.0;
 
-        let direction = Vec3::from(self.direction);
-        let center: Vec3 = Vec3::from(self.position);
+        let direction = self.direction;
+        let center: Vec3 = self.position;
         let projection = Mat4::perspective_rh_gl(fov, 1.0, 0.1, self.energy * 2.0);
         let view = Mat4::look_at_rh(center, center + direction, up);
         projection * view
     }
 
-    fn get_light_info(&self, scene_bounds: &AABB) -> LightInfo {
+    fn get_light_info(&self, scene_bounds: &Aabb) -> LightInfo {
         LightInfo {
             pm: self.get_matrix(scene_bounds),
             pos: self.position,
@@ -158,9 +158,9 @@ impl Light for SpotLight {
         }
     }
 
-    fn get_range(&self, _: &AABB) -> AABB {
-        let pos: Vec3 = self.position.into();
-        let direction: Vec3 = self.direction.into();
+    fn get_range(&self, _: &Aabb) -> Aabb {
+        let pos: Vec3 = self.position;
+        let direction: Vec3 = self.direction;
         let up = if direction.y.abs() > 0.99 {
             Vec3::Z
         } else {
@@ -177,7 +177,7 @@ impl Light for SpotLight {
         let width: Vec3 = right * width;
         let height: Vec3 = up * width;
 
-        let mut aabb = AABB::new();
+        let mut aabb = Aabb::new();
         aabb.grow(pos);
         aabb.grow(extent);
         aabb.grow(extent + width);
@@ -188,7 +188,7 @@ impl Light for SpotLight {
     }
 
     fn get_radiance(&self) -> Vec3 {
-        self.radiance.into()
+        self.radiance
     }
 
     fn get_energy(&self) -> f32 {
@@ -199,12 +199,12 @@ impl Light for SpotLight {
 impl Light for DirectionalLight {
     fn set_radiance(&mut self, radiance: Vec3) {
         let radiance = radiance.abs();
-        self.radiance = radiance.into();
+        self.radiance = radiance;
         self.energy = radiance.length();
     }
 
-    fn get_matrix(&self, scene_bounds: &AABB) -> Mat4 {
-        let direction = Vec3::from(self.direction);
+    fn get_matrix(&self, scene_bounds: &Aabb) -> Mat4 {
+        let direction = self.direction;
         let up = if direction.y.abs() > 0.99 {
             Vec3::Z
         } else {
@@ -224,8 +224,8 @@ impl Light for DirectionalLight {
         projection * view
     }
 
-    fn get_light_info(&self, scene_bounds: &AABB) -> LightInfo {
-        let direction = Vec3::from(self.direction);
+    fn get_light_info(&self, scene_bounds: &Aabb) -> LightInfo {
+        let direction = self.direction;
         let lengths: Vec3 = scene_bounds.lengths::<Vec3>();
         let dims: Vec3 = lengths * direction;
         let l = dims.length() * 1.5;
@@ -233,14 +233,14 @@ impl Light for DirectionalLight {
 
         LightInfo {
             pm: self.get_matrix(scene_bounds),
-            pos: center.into(),
+            pos: center,
             range: l,
             ..LightInfo::default()
         }
     }
 
-    fn get_range(&self, scene_bounds: &AABB) -> AABB {
-        let direction: Vec3 = self.direction.into();
+    fn get_range(&self, scene_bounds: &Aabb) -> Aabb {
+        let direction: Vec3 = self.direction;
         let up = if direction.y.abs() > 0.99 {
             Vec3::Z
         } else {
@@ -258,7 +258,7 @@ impl Light for DirectionalLight {
         let right = direction.cross(up).normalize();
         let up = right.cross(direction).normalize();
 
-        let mut aabb = AABB::new();
+        let mut aabb = Aabb::new();
         aabb.grow(center);
         aabb.grow(center + w * right);
         aabb.grow(center - w * right);
@@ -269,7 +269,7 @@ impl Light for DirectionalLight {
     }
 
     fn get_radiance(&self) -> Vec3 {
-        self.radiance.into()
+        self.radiance
     }
 
     fn get_energy(&self) -> f32 {

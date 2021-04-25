@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use rfw_math::*;
-use rtbvh::{spatial_sah::SpatialTriangle, Ray, RayPacket4, AABB};
+use rtbvh::{spatial_sah::SpatialTriangle, Aabb, Ray, RayPacket4};
 use std::{fmt::Debug, write};
 
 #[derive(Debug, Copy, Clone)]
@@ -25,11 +25,26 @@ impl InstancesData2D<'_> {
     }
 }
 
+bitflags::bitflags! {
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    #[repr(transparent)]
+    pub struct InstanceFlags3D: u32 {
+        const TRANSFORMED = 1;
+    }
+}
+
+impl Default for InstanceFlags3D {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct InstancesData3D<'a> {
     pub matrices: &'a [Mat4],
     pub skin_ids: &'a [SkinID],
-    pub local_aabb: AABB,
+    pub flags: &'a [InstanceFlags3D],
+    pub local_aabb: Aabb,
 }
 
 impl InstancesData3D<'_> {
@@ -166,9 +181,9 @@ impl From<usize> for SkinID {
     }
 }
 
-impl Into<usize> for SkinID {
-    fn into(self) -> usize {
-        self.0 as usize
+impl From<SkinID> for usize {
+    fn from(val: SkinID) -> Self {
+        val.0 as usize
     }
 }
 
@@ -255,9 +270,9 @@ pub struct JointData {
     pub weight: Vec4,
 }
 
-impl Into<([u32; 4], Vec4)> for JointData {
-    fn into(self) -> ([u32; 4], Vec4) {
-        (self.joint, self.weight)
+impl From<JointData> for ([u32; 4], Vec4) {
+    fn from(val: JointData) -> Self {
+        (val.joint, val.weight)
     }
 }
 
@@ -290,17 +305,33 @@ pub struct VertexMesh {
     pub first: u32,
     pub last: u32,
     pub mat_id: u32,
-    pub bounds: AABB,
+    pub bounds: Aabb,
+}
+
+bitflags::bitflags! {
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    #[repr(transparent)]
+    pub struct Mesh3dFlags: u32 {
+        const SHADOW_CASTER = 1;
+        const ALLOW_SKINNING = 2;
+    }
+}
+
+impl Default for Mesh3dFlags {
+    fn default() -> Self {
+        Self::SHADOW_CASTER | Self::ALLOW_SKINNING
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct MeshData3D<'a> {
     pub name: &'a str,
-    pub bounds: AABB,
+    pub bounds: Aabb,
     pub vertices: &'a [Vertex3D],
     pub triangles: &'a [RTTriangle],
     pub ranges: &'a [VertexMesh],
     pub skin_data: &'a [JointData],
+    pub flags: Mesh3dFlags,
 }
 
 impl<'a> MeshData3D<'a> {

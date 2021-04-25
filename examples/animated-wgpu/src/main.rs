@@ -230,7 +230,8 @@ fn rotate_spot_lights(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
         .spot_lights
         .iter_mut()
         .for_each(|(_, sl)| {
-            sl.direction = Quat::from_rotation_y((elapsed / 10.0).to_radians()).mul_vec3(sl.direction);
+            sl.direction =
+                Quat::from_rotation_y((elapsed / 10.0).to_radians()).mul_vec3(sl.direction);
         });
 }
 

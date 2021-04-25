@@ -1,6 +1,6 @@
 use crate::objects_3d::*;
 use l3d::mat::{Material, Texture};
-use rtbvh::{Bounds, AABB};
+use rtbvh::{Aabb, Bounds};
 use std::collections::HashMap;
 
 #[cfg(feature = "serde")]
@@ -272,7 +272,7 @@ impl Sphere {
 // }
 
 impl Bounds for Sphere {
-    fn bounds(&self) -> AABB {
+    fn bounds(&self) -> Aabb {
         let radius = self.radius2.sqrt() + crate::constants::AABB_EPSILON;
         let min: [f32; 3] = [
             self.pos[0] - radius,
@@ -284,7 +284,7 @@ impl Bounds for Sphere {
             self.pos[1] + radius,
             self.pos[2] + radius,
         ];
-        AABB { min, max }
+        Aabb { min, max }
     }
 }
 
@@ -513,6 +513,7 @@ impl ToMesh3D for Sphere {
             Vec::new(),
             uvs,
             material_ids,
+            Mesh3dFlags::default(),
             Some(String::from("sphere")),
         )
     }

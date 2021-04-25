@@ -1,6 +1,6 @@
 use crate::{
     material::*,
-    SceneError, {LoadResult, Mesh3D, ObjectLoader},
+    Mesh3dFlags, SceneError, {LoadResult, Mesh3D, ObjectLoader},
 };
 use l3d::mat::{Flip, Texture, TextureSource};
 use rfw_backend::MeshId3D;
@@ -31,8 +31,8 @@ impl ObjectLoader for ObjLoader {
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
         let object = tobj::load_obj(&path);
-        if let Err(_) = object {
-            return Err(SceneError::LoadError(path.to_path_buf()));
+        if object.is_err() {
+            return Err(SceneError::LoadError(path));
         }
         let (models, materials) = object.unwrap();
         let mut material_indices = vec![0; materials.len()];
@@ -53,12 +53,12 @@ impl ObjectLoader for ObjLoader {
                 PathBuf::new()
             };
 
-            let d_path = if material.diffuse_texture == "" {
+            let d_path = if material.diffuse_texture.is_empty() {
                 None
             } else {
                 Some(parent.join(material.diffuse_texture.as_str()).to_path_buf())
             };
-            let mut n_path = if material.normal_texture == "" {
+            let mut n_path = if material.normal_texture.is_empty() {
                 None
             } else {
                 Some(parent.join(material.normal_texture.as_str()).to_path_buf())
@@ -76,37 +76,35 @@ impl ObjectLoader for ObjLoader {
                     "ke" => {
                         // Emissive
                         let values = value.split_ascii_whitespace();
-                        let mut f_values = [0.0 as f32; 3];
-                        let mut i = 0;
+                        let mut f_values = [0.0_f32; 3];
 
-                        for value in values {
+                        for (i, value) in values.enumerate() {
                             assert!(i <= 2);
                             let value: f32 = value.parse().unwrap_or(0.0);
                             f_values[i] = value;
-                            i += 1;
                         }
 
                         let mut value: Vec3A = Vec3A::from(f_values);
                         if !value.cmpeq(Vec3A::ZERO).all() && value.cmple(Vec3A::ONE).all() {
-                            value = value * Vec3A::splat(10.0);
+                            value *= Vec3A::splat(10.0);
                         }
 
                         color = value.max(color.into()).into();
                     }
                     "map_pr" => {
-                        roughness_map = Some(parent.join(value.as_str()).to_path_buf());
+                        roughness_map = Some(parent.join(value.as_str()));
                     }
                     "map_ke" => {
-                        emissive_map = Some(parent.join(value.as_str()).to_path_buf());
+                        emissive_map = Some(parent.join(value.as_str()));
                     }
                     "ps" | "map_ps" => {
-                        sheen_map = Some(parent.join(value.as_str()).to_path_buf());
+                        sheen_map = Some(parent.join(value.as_str()));
                     }
                     "pm" | "map_pm" => {
-                        metallic_map = Some(parent.join(value.as_str()).to_path_buf());
+                        metallic_map = Some(parent.join(value.as_str()));
                     }
                     "norm" | "map_ns" | "map_bump" => {
-                        n_path = Some(parent.join(value.as_str()).to_path_buf());
+                        n_path = Some(parent.join(value.as_str()));
                     }
                     _ => {}
                 }
@@ -197,9 +195,8 @@ impl ObjectLoader for ObjLoader {
         for m in models.iter() {
             let mesh = &m.mesh;
 
-            let mut i = 0;
-            for idx in &mesh.indices {
-                let idx = *idx as usize;
+            for (i, idx) in mesh.indices.iter().copied().enumerate() {
+                let idx = idx as usize;
                 let i0 = 3 * idx;
                 let i1 = i0 + 1;
                 let i2 = i0 + 2;
@@ -233,8 +230,6 @@ impl ObjectLoader for ObjLoader {
 
                     material_ids.push(material_id as u32);
                 }
-
-                i = i + 1;
             }
         }
 
@@ -246,6 +241,7 @@ impl ObjectLoader for ObjLoader {
             Vec::new(),
             uvs,
             material_ids,
+            Mesh3dFlags::default(),
             Some(String::from(path.to_str().unwrap())),
         );
         Ok(LoadResult::Object(MeshId3D::from(mesh_id)))

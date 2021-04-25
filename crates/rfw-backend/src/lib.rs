@@ -1,7 +1,6 @@
 pub use bitvec::prelude::*;
 pub use lights::*;
 pub use raw_window_handle::*;
-pub use rtbvh::AABB;
 pub use structs::*;
 
 mod lights;
@@ -41,7 +40,7 @@ pub trait Backend {
 
     fn set_3d_mesh(&mut self, id: usize, data: MeshData3D<'_>);
 
-    fn unload_3d_meshes(&mut self, ids: Vec<usize>);
+    fn unload_3d_meshes(&mut self, ids: &[usize]);
 
     /// Sets an instance with a 4x4 transformation matrix in column-major format
     fn set_3d_instances(&mut self, mesh: usize, instances: InstancesData3D<'_>);

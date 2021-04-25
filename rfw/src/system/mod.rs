@@ -21,14 +21,11 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
     let mut update_lights = false;
     let mut found_light = false;
 
-    let scene: &mut Scene = &mut *scene;
-
     scene.synchronize_graph();
 
-    let objects = scene.get_objects();
-    if objects.skins.any_changed() {
-        let data: Vec<SkinData> = objects
-            .skins
+    let skins = scene.get_skins();
+    if skins.any_changed() {
+        let data: Vec<SkinData> = skins
             .iter()
             .map(|(_, s)| SkinData {
                 name: s.name.as_str(),
@@ -36,13 +33,12 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
                 joint_matrices: s.joint_matrices.as_slice(),
             })
             .collect();
-        system
-            .renderer
-            .set_skins(data.as_slice(), objects.skins.changed());
+        system.renderer.set_skins(data.as_slice(), skins.changed());
     }
 
-    if objects.meshes_2d.any_changed() {
-        for (i, m) in objects.meshes_2d.iter_changed() {
+    let meshes_2d = scene.get_meshes_2d();
+    if meshes_2d.any_changed() {
+        for (i, m) in meshes_2d.iter_changed() {
             system.renderer.set_2d_mesh(
                 i,
                 MeshData2D {
@@ -53,7 +49,8 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         }
     }
 
-    for (id, instances) in objects.instances_2d.iter() {
+    let instances_2d = scene.get_instances_2d();
+    for (id, instances) in instances_2d.iter() {
         if !instances.any_changed() {
             continue;
         }
@@ -61,8 +58,9 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         system.renderer.set_2d_instances(id, instances.into());
     }
 
-    if objects.meshes_3d.any_changed() {
-        for (i, m) in objects.meshes_3d.iter_changed() {
+    let meshes_3d = scene.get_meshes_3d();
+    if meshes_3d.any_changed() {
+        for (i, m) in meshes_3d.iter_changed() {
             system.renderer.set_3d_mesh(
                 i,
                 MeshData3D {
@@ -72,15 +70,17 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
                     triangles: m.triangles.as_slice(),
                     ranges: m.ranges.as_slice(),
                     skin_data: m.skin_data.as_slice(),
+                    flags: m.flags,
                 },
             );
         }
         changed = true;
     }
 
+    let instances_3d = scene.get_instances_3d();
     let light_flags = scene.get_materials().light_flags();
-    for (i, mesh) in objects.meshes_3d.iter() {
-        let instances = &objects.instances_3d[i];
+    for (i, mesh) in meshes_3d.iter() {
+        let instances = &instances_3d[i];
         if !instances.any_changed() {
             continue;
         }
@@ -105,7 +105,8 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
             InstancesData3D {
                 matrices: instances.matrices(),
                 skin_ids: instances.skin_ids(),
-                local_aabb: objects.meshes_3d[i].bounds,
+                flags: instances.flags(),
+                local_aabb: meshes_3d[i].bounds,
             },
         );
     }
@@ -147,11 +148,14 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
 
     update_lights = update_lights || mat_changed;
 
+    // Update automatically generated area lights in scene
     if update_lights {
         scene.update_lights();
     }
 
     let lights = scene.get_lights();
+
+    // Update point lights if necessary
     if lights.point_lights.any_changed() {
         system.renderer.set_point_lights(
             lights.point_lights.as_slice(),
@@ -160,6 +164,7 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         changed = true;
     }
 
+    // Update spot lights if necessary
     if lights.spot_lights.any_changed() {
         system
             .renderer
@@ -167,6 +172,7 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         changed = true;
     }
 
+    // Update area lights if necessary
     if lights.area_lights.any_changed() {
         system
             .renderer
@@ -174,6 +180,7 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         changed = true;
     }
 
+    // Update directional lights if necessary
     if lights.directional_lights.any_changed() {
         system.renderer.set_directional_lights(
             lights.directional_lights.as_slice(),
@@ -182,13 +189,17 @@ fn synchronize_system(mut system: ResMut<RenderSystem>, mut scene: ResMut<Scene>
         changed = true;
     }
 
-    let deleted_meshes = scene.get_objects_mut().meshes_3d.take_erased();
+    // Unload deleted meshes from renderer
+    let deleted_meshes = scene.get_erased_meshed_3d();
     if !deleted_meshes.is_empty() {
         changed = true;
         system.renderer.unload_3d_meshes(deleted_meshes);
     }
 
+    // Reset changes in scene
     scene.reset_changed();
+
+    // Notify renderer if stuff has changed
     if changed {
         system.renderer.synchronize();
     }

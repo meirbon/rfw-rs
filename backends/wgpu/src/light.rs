@@ -1,6 +1,10 @@
-use crate::{InstanceExtra, list::{InstanceList, VertexList}, mesh::WgpuSkin};
-use crate::{InstanceMatrices, WgpuSettings};
-use rfw::prelude::{AABB, *};
+use crate::InstanceMatrices;
+use crate::{
+    list::{InstanceList, VertexList},
+    mesh::WgpuSkin,
+    InstanceExtra,
+};
+use rfw::prelude::*;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
@@ -60,7 +64,7 @@ impl WgpuLights {
         &mut self,
         changed: &BitSlice,
         lights: &[SpotLight],
-        scene_bounds: &AABB,
+        scene_bounds: &Aabb,
     ) {
         self.spot_lights.set(changed, lights, scene_bounds);
     }
@@ -69,7 +73,7 @@ impl WgpuLights {
         &mut self,
         changed: &BitSlice,
         lights: &[AreaLight],
-        scene_bounds: &AABB,
+        scene_bounds: &Aabb,
     ) {
         self.area_lights.set(changed, lights, scene_bounds);
     }
@@ -78,7 +82,7 @@ impl WgpuLights {
         &mut self,
         changed: &BitSlice,
         lights: &[DirectionalLight],
-        scene_bounds: &AABB,
+        scene_bounds: &Aabb,
     ) {
         self.directional_lights.set(changed, lights, scene_bounds);
     }
@@ -104,38 +108,39 @@ impl WgpuLights {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         uniform_bind_group: &wgpu::BindGroup,
         vertices: &VertexList<Vertex3D, JointData>,
         instances: &InstanceList<InstanceMatrices, InstanceExtra>,
+        flags: &[Mesh3dFlags],
         skins: &[WgpuSkin],
-        settings: &WgpuSettings,
     ) {
         self.area_lights.render(
             encoder,
             uniform_bind_group,
             vertices,
             instances,
+            flags,
             skins,
-            settings,
         );
         self.spot_lights.render(
             encoder,
             uniform_bind_group,
             vertices,
             instances,
+            flags,
             skins,
-            settings,
         );
         self.directional_lights.render(
             encoder,
             uniform_bind_group,
             vertices,
             instances,
+            flags,
             skins,
-            settings,
         );
     }
 }
@@ -179,7 +184,7 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
-    pub fn set(&mut self, changed: &BitSlice, lights: &[T], scene_bounds: &AABB) {
+    pub fn set(&mut self, changed: &BitSlice, lights: &[T], scene_bounds: &Aabb) {
         self.lights = TrackedStorage::from(lights);
         self.lights.reset_changed();
         (0..lights.len())
@@ -282,14 +287,15 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         uniform_bind_group: &wgpu::BindGroup,
         vertices: &VertexList<Vertex3D, JointData>,
         instances: &InstanceList<InstanceMatrices, InstanceExtra>,
+        flags: &[Mesh3dFlags],
         skins: &[WgpuSkin],
-        settings: &WgpuSettings,
     ) {
         self.shadow_maps.render(
             0..self.lights.len() as u32,
@@ -297,8 +303,8 @@ impl<T: Sized + Light + Clone + Debug + Default> LightShadows<T> {
             uniform_bind_group,
             vertices,
             instances,
+            flags,
             skins,
-            settings,
         );
 
         self.lights.reset_changed();
@@ -1139,8 +1145,8 @@ impl ShadowMapArray {
         uniform_bind_group: &wgpu::BindGroup,
         vertices: &VertexList<Vertex3D, JointData>,
         instances: &InstanceList<InstanceMatrices, InstanceExtra>,
+        flags: &[Mesh3dFlags],
         skins: &[WgpuSkin],
-        settings: &WgpuSettings,
     ) {
         let start = range.start;
         let end = range.end;
@@ -1186,14 +1192,15 @@ impl ShadowMapArray {
             render_pass.set_bind_group(1, uniform_bind_group, &[]);
 
             for (i, r) in i_ranges.iter() {
-                if r.count == 0 {
+                let flags = flags[*i];
+                if !flags.contains(Mesh3dFlags::SHADOW_CASTER) || r.count == 0 {
                     continue;
                 }
 
                 let v = v_ranges.get(i).unwrap();
                 let skin_ids = r.extra.skin_ids.as_slice();
 
-                if settings.enable_skinning
+                if flags.contains(Mesh3dFlags::ALLOW_SKINNING)
                     && (v.jw_end - v.jw_start) > 0
                     && skin_ids.len() >= (r.count as usize)
                 {

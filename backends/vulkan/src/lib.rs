@@ -2,12 +2,16 @@ use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::{Surface, Swapchain};
 use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::*;
-use rfw::backend::{
-    AreaLight, BitSlice, CameraView2D, CameraView3D, DeviceMaterial, DirectionalLight,
-    HasRawWindowHandle, InstancesData2D, InstancesData3D, JointData, Lsb0, MeshData2D, MeshData3D,
-    PointLight, RenderMode, SkinData, SkinID, SpotLight, TextureData, Vertex2D, Vertex3D,
-};
 use rfw::math::*;
+use rfw::{
+    backend::{
+        AreaLight, BitSlice, CameraView2D, CameraView3D, DeviceMaterial, DirectionalLight,
+        HasRawWindowHandle, InstancesData2D, InstancesData3D, JointData, Lsb0, MeshData2D,
+        MeshData3D, PointLight, RenderMode, SkinData, SkinID, SpotLight, TextureData, Vertex2D,
+        Vertex3D,
+    },
+    prelude::FromWindowHandle,
+};
 use std::ffi::CString;
 use std::os::raw::c_char;
 use std::{error::Error, fmt::Display};
@@ -111,12 +115,13 @@ pub struct VkBackend {
     update_3d_instances: bool,
 }
 
-impl VkBackend {
-    pub fn new<T: HasRawWindowHandle>(
-        window: &T,
-        window_size: (u32, u32),
-        scale_factor: f64,
-    ) -> Result<Self, Box<dyn Error>> {
+impl FromWindowHandle for VkBackend {
+    fn init<W: HasRawWindowHandle>(
+        window: &W,
+        width: u32,
+        height: u32,
+        scale: f64,
+    ) -> Result<Box<Self>, Box<dyn Error>> {
         unsafe {
             let entry = Entry::new()?;
             let app_name = CString::new("RFW")?;
@@ -265,10 +270,7 @@ impl VkBackend {
                 desired_image_count = surface_capabilities.max_image_count;
             }
             let surface_resolution = match surface_capabilities.current_extent.width {
-                std::u32::MAX => vk::Extent2D {
-                    width: window_size.0,
-                    height: window_size.1,
-                },
+                std::u32::MAX => vk::Extent2D { width, height },
                 _ => surface_capabilities.current_extent,
             };
             let pre_transform = if surface_capabilities
@@ -529,14 +531,13 @@ impl VkBackend {
                 1,
             )?;
 
-            let pipeline =
-                RenderPipeline::new(&device, window_size.0, window_size.1, surface_format.format);
+            let pipeline = RenderPipeline::new(&device, width, height, surface_format.format);
             // let pipeline_2d =
-            //     RenderPipeline2D::new(&device, window_size.0, window_size.1, surface_format.format);
+            //     RenderPipeline2D::new(&device, width, height, surface_format.format);
 
             let textures = TextureList::new(&device, &allocator);
 
-            Ok(Self {
+            Ok(Box::new(Self {
                 entry,
                 instance,
                 device,
@@ -588,7 +589,7 @@ impl VkBackend {
                 update_2d_instances: false,
                 update_3d: false,
                 update_3d_instances: false,
-            })
+            }))
         }
     }
 }
@@ -664,8 +665,8 @@ impl rfw::backend::Backend for VkBackend {
         self.update_3d = true;
     }
 
-    fn unload_3d_meshes(&mut self, ids: Vec<usize>) {
-        for id in ids {
+    fn unload_3d_meshes(&mut self, ids: &[usize]) {
+        for id in ids.iter().copied() {
             self.vertex_list_3d.remove_pointer(id);
             self.instance_matrices_3d.remove_instances_list(id);
         }

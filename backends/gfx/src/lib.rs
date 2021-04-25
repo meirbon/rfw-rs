@@ -56,12 +56,13 @@ pub struct GfxBackendInternal<B: hal::Backend> {
     present_mode: PresentMode,
 }
 
-impl<B: hal::Backend> GfxBackendInternal<B> {
-    pub fn new<T: HasRawWindowHandle>(
-        window: &T,
-        window_size: (u32, u32),
-        _scale_factor: f64,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+impl<B: hal::Backend> FromWindowHandle for GfxBackendInternal<B> {
+    fn init<W: HasRawWindowHandle>(
+        window: &W,
+        width: u32,
+        height: u32,
+        _scale: f64,
+    ) -> Result<Box<Self>, Box<dyn std::error::Error>> {
         let config: Config<BasicDevicesConfigure, BasicHeapsConfigure, OneGraphicsQueue> =
             Config::default();
 
@@ -77,10 +78,7 @@ impl<B: hal::Backend> GfxBackendInternal<B> {
             .factory
             .create_target(
                 surface,
-                Extent2D {
-                    width: window_size.0,
-                    height: window_size.1,
-                },
+                Extent2D { width, height },
                 image_count,
                 present_mode,
                 Usage::COLOR_ATTACHMENT,
@@ -92,14 +90,14 @@ impl<B: hal::Backend> GfxBackendInternal<B> {
             .create_semaphore()
             .expect("Could not create present semaphore.");
 
-        Ok(Self {
+        Ok(Box::new(Self {
             rendy,
             target: ManuallyDrop::new(target),
             present_semaphore: ManuallyDrop::new(present_semaphore),
             textures: Default::default(),
             image_count,
             present_mode,
-        })
+        }))
     }
 }
 
@@ -110,7 +108,7 @@ impl<B: hal::Backend> rfw::prelude::Backend for GfxBackendInternal<B> {
 
     fn set_3d_mesh(&mut self, _id: usize, _mesh: MeshData3D) {}
 
-    fn unload_3d_meshes(&mut self, _ids: Vec<usize>) {}
+    fn unload_3d_meshes(&mut self, _ids: &[usize]) {}
 
     fn set_3d_instances(&mut self, _mesh: usize, _instances: InstancesData3D<'_>) {}
 

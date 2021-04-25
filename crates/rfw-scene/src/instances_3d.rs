@@ -7,14 +7,6 @@ use std::sync::Arc;
 
 use crate::utils::Transform;
 
-bitflags::bitflags! {
-    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-    #[repr(transparent)]
-    pub struct InstanceFlags3D: u32 {
-        const TRANSFORMED = 1;
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct InstanceList3D {
     pub(crate) list: Arc<UnsafeCell<List3D>>,
@@ -34,9 +26,9 @@ impl From<List3D> for InstanceList3D {
     }
 }
 
-impl Into<List3D> for InstanceList3D {
-    fn into(self) -> List3D {
-        self.clone_inner()
+impl From<InstanceList3D> for List3D {
+    fn from(val: InstanceList3D) -> Self {
+        val.clone_inner()
     }
 }
 

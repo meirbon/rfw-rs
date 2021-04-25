@@ -1,4 +1,5 @@
 use crate::{Mesh3D, ToMesh3D};
+use rfw_backend::Mesh3dFlags;
 use rfw_math::*;
 
 pub struct Quad3D {
@@ -82,6 +83,7 @@ impl ToMesh3D for Quad3D {
             Vec::new(),
             self.uvs.to_vec(),
             self.material_ids.to_vec(),
+            Mesh3dFlags::default(),
             Some("quad"),
         )
     }

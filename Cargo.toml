@@ -2,7 +2,7 @@
 members = [
     "rfw",
     "examples/animated-wgpu",
-#    "examples/animated-metal",
+   "examples/animated-metal",
     "examples/d2",
     "examples/nphysics",
     "backends/wgpu",

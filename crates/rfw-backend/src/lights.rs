@@ -1,6 +1,6 @@
 use super::structs::RTTriangle;
 use rfw_math::*;
-use rtbvh::AABB;
+use rtbvh::Aabb;
 use std::fmt::Display;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -67,6 +67,7 @@ impl Display for AreaLight {
 }
 
 impl AreaLight {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         position: Vec3,
         radiance: Vec3,
@@ -133,7 +134,7 @@ impl PointLight {
         self.energy = radiance.length();
     }
 
-    pub fn get_matrix(&self, _: &AABB) -> [Mat4; 6] {
+    pub fn get_matrix(&self, _: &Aabb) -> [Mat4; 6] {
         let fov = 90.0_f32.to_radians();
         let projection = Mat4::perspective_rh_gl(fov, 1.0, 0.1, 1e3);
         let center = self.position;
@@ -178,7 +179,7 @@ impl PointLight {
         ]
     }
 
-    pub fn get_range(&self, _scene_bounds: &AABB) -> AABB {
+    pub fn get_range(&self, _scene_bounds: &Aabb) -> Aabb {
         unimplemented!()
     }
 

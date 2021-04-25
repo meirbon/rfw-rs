@@ -13,9 +13,6 @@ use winit::{
 use rfw::prelude::*;
 use rfw_font::{FontRenderer, Section, Text};
 
-type KeyHandler = rfw::utils::input::Input<VirtualKeyCode>;
-type MouseButtonHandler = rfw::utils::input::Input<MouseButtonCode>;
-
 #[derive(Debug, Default)]
 struct FpsSystem {
     timer: Timer,

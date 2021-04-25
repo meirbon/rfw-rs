@@ -1,7 +1,8 @@
 use l3d::load::MeshDescriptor;
 use rayon::prelude::*;
 use rfw_backend::{
-    JointData, RTTriangle, SkinData, SkinnedMesh3D, SkinnedTriangles3D, Vertex3D, VertexMesh, AABB,
+    JointData, Mesh3dFlags, RTTriangle, SkinData, SkinnedMesh3D, SkinnedTriangles3D, Vertex3D,
+    VertexMesh,
 };
 use rfw_math::*;
 
@@ -11,7 +12,7 @@ mod sphere;
 
 pub use plane::*;
 pub use quad::*;
-use rtbvh::Bounds;
+use rtbvh::{Aabb, Bounds};
 pub use sphere::*;
 
 #[cfg(feature = "serde")]
@@ -34,6 +35,12 @@ pub trait ToMesh3D {
     fn into_mesh_3d(self) -> Mesh3D;
 }
 
+impl ToMesh3D for Mesh3D {
+    fn into_mesh_3d(self) -> Mesh3D {
+        self
+    }
+}
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +57,8 @@ pub struct Mesh3D {
     pub skin_data: Vec<JointData>,
     pub materials: Vec<u32>,
     pub ranges: Vec<VertexMesh>,
-    pub bounds: AABB,
+    pub bounds: Aabb,
+    pub flags: Mesh3dFlags,
     pub name: String,
 }
 
@@ -85,6 +93,7 @@ impl Mesh3D {
         original_weights: Vec<Vec<[f32; 4]>>,
         original_uvs: Vec<Vec2>,
         material_ids: Vec<u32>,
+        flags: Mesh3dFlags,
         name: Option<String>,
     ) -> Mesh3D {
         let mut vertices = Vec::with_capacity(indices.len() * 3);
@@ -145,6 +154,7 @@ impl Mesh3D {
             weights,
             uvs,
             material_indices,
+            flags,
             name,
         )
     }
@@ -156,6 +166,7 @@ impl Mesh3D {
         weights: Vec<Vec<[f32; 4]>>,
         uvs: Vec<Vec2>,
         material_ids: Vec<u32>,
+        flags: Mesh3dFlags,
         name: Option<T>,
     ) -> Mesh3D {
         debug_assert_eq!(vertices.len(), normals.len());
@@ -163,7 +174,7 @@ impl Mesh3D {
         debug_assert_eq!(uvs.len(), material_ids.len() * 3);
         debug_assert_eq!(vertices.len() % 3, 0);
 
-        let mut bounds = AABB::new();
+        let mut bounds = Aabb::new();
         let mut vertex_data = vec![Vertex3D::default(); vertices.len()];
 
         let normals: Vec<Vec3> = if normals[0].cmpeq(Vec3::ZERO).all() {
@@ -272,7 +283,7 @@ impl Mesh3D {
         let mut start = 0;
         let mut range = 0;
         let mut meshes: Vec<VertexMesh> = Vec::new();
-        let mut v_bounds = AABB::new();
+        let mut v_bounds = Aabb::new();
 
         for i in 0..material_ids.len() {
             range += 1;
@@ -288,7 +299,7 @@ impl Mesh3D {
                     bounds: v_bounds,
                 });
 
-                v_bounds = AABB::new();
+                v_bounds = Aabb::new();
                 last_id = material_ids[i];
                 start = i as u32;
                 range = 1;
@@ -395,6 +406,7 @@ impl Mesh3D {
             skin_data: joints_weights,
             ranges: meshes,
             bounds,
+            flags,
             name: if let Some(name) = name {
                 String::from(name.as_ref())
             } else {
@@ -439,7 +451,8 @@ impl Mesh3D {
             skin_data: Default::default(),
             materials: Default::default(),
             ranges: Default::default(),
-            bounds: AABB::new(),
+            bounds: Aabb::new(),
+            flags: Mesh3dFlags::all(),
             name: String::new(),
         }
     }
@@ -474,10 +487,20 @@ impl Mesh3D {
             skin.joint_matrices,
         )
     }
+
+    pub fn with_flags(mut self, flags: Mesh3dFlags) -> Self {
+        self.flags |= flags;
+        self
+    }
+
+    pub fn without_flags(mut self, flags: Mesh3dFlags) -> Self {
+        self.flags.remove(flags);
+        self
+    }
 }
 
 impl Bounds for Mesh3D {
-    fn bounds(&self) -> rfw_backend::AABB {
+    fn bounds(&self) -> Aabb {
         self.bounds
     }
 }
@@ -645,7 +668,7 @@ impl<'a> crate::SerializableObject<'a, Mesh3D> for Mesh3D {
 
 impl From<MeshDescriptor> for Mesh3D {
     fn from(desc: MeshDescriptor) -> Self {
-        let mut bounds = AABB::new();
+        let mut bounds = Aabb::new();
         let mut vertex_data = vec![Vertex3D::default(); desc.vertices.len()];
 
         let material_ids: Vec<u32> = desc.material_ids.chunks(3).map(|c| c[0] as u32).collect();
@@ -707,7 +730,7 @@ impl From<MeshDescriptor> for Mesh3D {
         let mut start = 0;
         let mut range = 0;
         let mut meshes: Vec<VertexMesh> = Vec::new();
-        let mut v_bounds = AABB::new();
+        let mut v_bounds = Aabb::new();
 
         (0..material_ids.len()).into_iter().for_each(|i| {
             range += 1;
@@ -727,7 +750,7 @@ impl From<MeshDescriptor> for Mesh3D {
                     bounds: v_bounds,
                 });
 
-                v_bounds = AABB::new();
+                v_bounds = Aabb::new();
                 last_id = material_ids[i];
                 start = i as u32;
                 range = 1;
@@ -857,6 +880,7 @@ impl From<MeshDescriptor> for Mesh3D {
             materials: material_ids,
             ranges: meshes,
             bounds,
+            flags: Mesh3dFlags::default(),
             name: desc.name,
         }
     }

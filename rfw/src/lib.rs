@@ -134,13 +134,16 @@ impl Instance {
             renderer,
             mode: RenderMode::Default,
         })
-        .add_resource(bevy_tasks::ComputeTaskPool(bevy_tasks::TaskPool::new()))
+        .add_resource(bevy_tasks::ComputeTaskPool(
+            bevy_tasks::TaskPoolBuilder::new().build(),
+        ))
         .add_resource(Scene::new())
         .add_resource(Camera3D::new().with_aspect_ratio(width as f32 / height as f32))
         .add_resource(Camera2D::from_width_height(width, height, None))
         .add_resource(Input::<winit::event::VirtualKeyCode>::new())
         .add_resource(Input::<winit::event::MouseButton>::new())
         .add_system_at_stage(ecs::CoreStage::PostUpdate, render_system.system());
+
         this
     }
 

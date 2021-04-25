@@ -26,7 +26,7 @@ impl InputBundle {
         mut key_input: ResMut<Input<VirtualKeyCode>>,
     ) {
         for event in events.iter() {
-            if let &WindowEvent::KeyboardInput { input, .. } = event {
+            if let WindowEvent::KeyboardInput { input, .. } = event {
                 if let Some(code) = input.virtual_keycode {
                     match input.state {
                         ElementState::Pressed => {
@@ -43,13 +43,13 @@ impl InputBundle {
 
     fn mousebutton_system(events: Res<Events<WindowEvent>>, mut input: ResMut<Input<MouseButton>>) {
         for event in events.iter() {
-            if let &WindowEvent::MouseInput { state, button, .. } = event {
+            if let WindowEvent::MouseInput { state, button, .. } = event {
                 match state {
                     ElementState::Pressed => {
-                        input.insert(button, true);
+                        input.insert(*button, true);
                     }
                     ElementState::Released => {
-                        input.insert(button, false);
+                        input.insert(*button, false);
                     }
                 }
             }
