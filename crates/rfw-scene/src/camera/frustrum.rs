@@ -263,17 +263,23 @@ mod tests {
         let point_in_front = Vec3::new(0.0, 0.0, 1.0);
         let aabb_in_front = Aabb {
             min: Vec3::new(0.2, 0.2, 5.0).into(),
+            extra1: 0,
             max: Vec3::new(0.2, 0.2, 5.0).into(),
+            extra2: 0,
         };
 
         let aabb_in_back = Aabb {
             min: Vec3::new(-1.0, 0.0, -2.0).into(),
+            extra1: 0,
             max: Vec3::new(1.0, 0.0, -2.0).into(),
+            extra2: 0,
         };
 
         let aabb_half = Aabb {
             min: Vec3::new(-5.0, 0.0, 2.0).into(),
+            extra1: 0,
             max: Vec3::new(0.0, 0.0, 2.0).into(),
+            extra2: 0,
         };
 
         assert_eq!(

@@ -102,22 +102,22 @@ impl Renderer {
                     attributes: &[
                         wgpu::VertexAttribute {
                             offset: 0,
-                            format: wgpu::VertexFormat::Float3,
+                            format: wgpu::VertexFormat::Float32x3,
                             shader_location: 0,
                         },
                         wgpu::VertexAttribute {
                             offset: 12,
-                            format: wgpu::VertexFormat::Uint,
+                            format: wgpu::VertexFormat::Uint32,
                             shader_location: 1,
                         },
                         wgpu::VertexAttribute {
                             offset: 16,
-                            format: wgpu::VertexFormat::Float2,
+                            format: wgpu::VertexFormat::Float32x2,
                             shader_location: 2,
                         },
                         wgpu::VertexAttribute {
                             offset: 24,
-                            format: wgpu::VertexFormat::Float4,
+                            format: wgpu::VertexFormat::Float32x4,
                             shader_location: 3,
                         },
                     ],
@@ -131,28 +131,35 @@ impl Renderer {
                 module: &device.create_shader_module(&frag),
                 targets: &[wgpu::ColorTargetState {
                     format: super::output::WgpuOutput::OUTPUT_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
                 }],
             }),
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                clamp_depth: false,
+                conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: super::output::WgpuOutput::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Always,
                 bias: wgpu::DepthBiasState::default(),
-                clamp_depth: false,
                 stencil: wgpu::StencilState::default(),
             }),
             multisample: wgpu::MultisampleState {
@@ -183,16 +190,16 @@ impl Renderer {
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: output,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: true,
                 },
+                view: output,
             }],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                attachment: depth_view,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth_view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0_f32),
                     store: true,

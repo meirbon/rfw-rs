@@ -44,21 +44,23 @@ impl WgpuTexture {
             let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;
 
             queue.write_texture(
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     mip_level: i as u32,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                     texture: &texture,
                 },
                 &tex.bytes[(offset as usize)..(offset + end) as usize],
-                wgpu::TextureDataLayout {
+                wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
-                    rows_per_image: tex.height,
+                    bytes_per_row: NonZeroU32::new(
+                        (width as usize * std::mem::size_of::<u32>()) as u32,
+                    ),
+                    rows_per_image: NonZeroU32::new(tex.height),
                 },
                 wgpu::Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
             );
 
@@ -74,7 +76,7 @@ impl WgpuTexture {
             size: wgpu::Extent3d {
                 width: tex.width,
                 height: tex.height,
-                depth: 1,
+                depth_or_array_layers: 1,
             },
             mip_level_count: tex.mip_levels,
             sample_count: 1,
@@ -92,21 +94,23 @@ impl WgpuTexture {
             let end = (width as usize * height as usize * std::mem::size_of::<u32>()) as u64;
 
             queue.write_texture(
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     mip_level: i as u32,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                     texture: &texture,
                 },
                 &tex.bytes[(offset as usize)..(offset + end) as usize],
-                wgpu::TextureDataLayout {
+                wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: ((width as usize * std::mem::size_of::<u32>()) as u32),
-                    rows_per_image: tex.height,
+                    bytes_per_row: NonZeroU32::new(
+                        (width as usize * std::mem::size_of::<u32>()) as u32,
+                    ),
+                    rows_per_image: NonZeroU32::new(tex.height),
                 },
                 wgpu::Extent3d {
                     width,
                     height,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
             );
 
@@ -121,9 +125,9 @@ impl WgpuTexture {
             dimension: Some(wgpu::TextureViewDimension::D2),
             aspect: Default::default(),
             base_mip_level: 0,
-            level_count: NonZeroU32::new(tex.mip_levels),
             base_array_layer: 0,
             array_layer_count: None,
+            mip_level_count: NonZeroU32::new(tex.mip_levels),
         });
 
         self.dims = (tex.width, tex.height);

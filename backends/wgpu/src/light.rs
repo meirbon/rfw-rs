@@ -369,7 +369,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: count as u32,
+                depth_or_array_layers: count as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -383,7 +383,7 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(count as _),
         });
@@ -396,7 +396,7 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: None,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
                 })
@@ -413,7 +413,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: count as u32,
+                depth_or_array_layers: count as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -427,7 +427,7 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(count as u32),
         });
@@ -440,7 +440,7 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: None,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
                 })
@@ -456,7 +456,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: 1,
+                depth_or_array_layers: 1,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -470,7 +470,7 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2),
             aspect: wgpu::TextureAspect::DepthOnly,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -504,11 +504,11 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-bind-group"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &uniform_buffer,
                     offset: 0,
                     size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
-                },
+                }),
             }],
         });
 
@@ -556,7 +556,7 @@ impl ShadowMapArray {
                     step_mode: wgpu::InputStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
                         offset: 0,
-                        format: wgpu::VertexFormat::Float4,
+                        format: wgpu::VertexFormat::Float32x4,
                         shader_location: 0,
                     }],
                 }],
@@ -568,9 +568,8 @@ impl ShadowMapArray {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: Self::FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 }],
             }),
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -579,14 +578,15 @@ impl ShadowMapArray {
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
-                clamp_depth: false,
             }),
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
+                clamp_depth: false,
+                conservative: false,
             },
             multisample: wgpu::MultisampleState {
                 count: 1,
@@ -611,7 +611,7 @@ impl ShadowMapArray {
                         step_mode: wgpu::InputStepMode::Vertex,
                         attributes: &[wgpu::VertexAttribute {
                             offset: 0,
-                            format: wgpu::VertexFormat::Float4,
+                            format: wgpu::VertexFormat::Float32x4,
                             shader_location: 0,
                         }],
                     },
@@ -621,12 +621,12 @@ impl ShadowMapArray {
                         attributes: &[
                             wgpu::VertexAttribute {
                                 offset: 0,
-                                format: wgpu::VertexFormat::Uint4,
+                                format: wgpu::VertexFormat::Uint32x4,
                                 shader_location: 1,
                             },
                             wgpu::VertexAttribute {
                                 offset: 16,
-                                format: wgpu::VertexFormat::Float4,
+                                format: wgpu::VertexFormat::Float32x4,
                                 shader_location: 2,
                             },
                         ],
@@ -640,9 +640,8 @@ impl ShadowMapArray {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: Self::FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 }],
             }),
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -651,14 +650,15 @@ impl ShadowMapArray {
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
-                clamp_depth: false,
             }),
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
+                clamp_depth: false,
+                conservative: false,
             },
             multisample: wgpu::MultisampleState {
                 count: 1,
@@ -688,7 +688,7 @@ impl ShadowMapArray {
                         ty: wgpu::BindingType::StorageTexture {
                             access: wgpu::StorageTextureAccess::ReadOnly,
                             view_dimension: wgpu::TextureViewDimension::D2,
-                            format: Self::DEPTH_FORMAT,
+                            format: Self::FORMAT,
                         },
                     },
                     wgpu::BindGroupLayoutEntry {
@@ -847,7 +847,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: size as u32,
+                depth_or_array_layers: size as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -861,7 +861,7 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(size as u32),
         });
@@ -874,7 +874,7 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: None,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
                 })
@@ -891,7 +891,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: size as u32,
+                depth_or_array_layers: size as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -905,7 +905,7 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::DepthOnly,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(size as u32),
         });
@@ -920,7 +920,7 @@ impl ShadowMapArray {
             size: wgpu::Extent3d {
                 width: Self::WIDTH as u32,
                 height: Self::HEIGHT as u32,
-                depth: size as u32,
+                depth_or_array_layers: size as u32,
             },
             dimension: wgpu::TextureDimension::D2,
             sample_count: 1,
@@ -934,7 +934,7 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(size as u32),
         });
@@ -947,7 +947,7 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
-                    level_count: None,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
                 })
@@ -961,7 +961,7 @@ impl ShadowMapArray {
         // Copy over shadow maps for already existing maps
         for i in 0..self.len() {
             encoder.copy_texture_to_texture(
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     mip_level: 0,
                     origin: wgpu::Origin3d {
                         x: 0,
@@ -970,7 +970,7 @@ impl ShadowMapArray {
                     },
                     texture: &self.map,
                 },
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     mip_level: 0,
                     origin: wgpu::Origin3d {
                         x: 0,
@@ -982,12 +982,12 @@ impl ShadowMapArray {
                 wgpu::Extent3d {
                     width: Self::WIDTH as u32,
                     height: Self::HEIGHT as u32,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
             );
 
             encoder.copy_texture_to_texture(
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     mip_level: 0,
                     origin: wgpu::Origin3d {
                         x: 0,
@@ -996,7 +996,7 @@ impl ShadowMapArray {
                     },
                     texture: &self.filter_map,
                 },
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     mip_level: 0,
                     origin: wgpu::Origin3d {
                         x: 0,
@@ -1008,7 +1008,7 @@ impl ShadowMapArray {
                 wgpu::Extent3d {
                     width: Self::WIDTH as u32,
                     height: Self::HEIGHT as u32,
-                    depth: 1,
+                    depth_or_array_layers: 1,
                 },
             );
         }
@@ -1079,11 +1079,11 @@ impl ShadowMapArray {
             label: Some("shadow-map-uniform-bind-group"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &uniform_buffer,
                     offset: 0,
                     size: wgpu::BufferSize::new(Self::UNIFORM_ELEMENT_SIZE as _),
-                },
+                }),
             }],
         });
 
@@ -1160,16 +1160,16 @@ impl ShadowMapArray {
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &self.views[v as usize],
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: &self.views[v as usize],
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: true,
                     },
                 }],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.depth_view,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,

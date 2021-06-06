@@ -735,11 +735,11 @@ impl From<MeshDescriptor> for Mesh3D {
         (0..material_ids.len()).into_iter().for_each(|i| {
             range += 1;
             for j in 0..3 {
-                v_bounds.grow([
+                v_bounds.grow(vec3(
                     desc.vertices[i * 3 + j][0],
                     desc.vertices[i * 3 + j][1],
                     desc.vertices[i * 3 + j][2],
-                ]);
+                ));
             }
 
             if last_id != material_ids[i] {

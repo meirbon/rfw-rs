@@ -4,8 +4,8 @@ use bitflags::bitflags;
 use futures::executor::block_on;
 use rfw::backend::RenderMode;
 use rfw::prelude::*;
-use std::error::Error;
-use std::num::{NonZeroU32, NonZeroU64, NonZeroU8};
+use std::{error::Error, num::NonZeroU8};
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 use std::{
     fmt::{Display, Formatter},
@@ -189,7 +189,7 @@ impl WgpuBackend {
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT | wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler {
-                        filtering: false,
+                        filtering: true,
                         comparison: false,
                     },
                 },
@@ -327,9 +327,9 @@ impl FromWindowHandle for WgpuBackend {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
             address_mode_w: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Nearest,
+            mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 5.0,
             compare: None,

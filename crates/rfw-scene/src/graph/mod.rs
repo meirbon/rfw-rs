@@ -177,7 +177,7 @@ impl AnimationNode for Node {
     }
 
     fn set_rotation(&mut self, rotation: [f32; 4]) {
-        self.rotation = Quat::from(Vec4::from(rotation));
+        self.rotation = Quat::from_array(rotation);
         self.changed = true;
     }
 
@@ -232,7 +232,7 @@ impl Node {
 
     /// Set rotation using an xyzw quaternion
     pub fn set_rotation<T: Into<[f32; 4]>>(&mut self, r: T) {
-        self.rotation = Quat::from(Vec4::from(r.into()));
+        self.rotation = Quat::from_array(r.into());
         self.changed = true;
     }
 

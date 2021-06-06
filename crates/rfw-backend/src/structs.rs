@@ -1,6 +1,6 @@
 use rayon::prelude::*;
 use rfw_math::*;
-use rtbvh::{spatial_sah::SpatialTriangle, Aabb, Ray, RayPacket4};
+use rtbvh::*;
 use std::{fmt::Debug, write};
 
 #[derive(Debug, Copy, Clone)]
@@ -89,9 +89,9 @@ impl MeshId2D {
     }
 }
 
-impl Into<usize> for MeshId2D {
-    fn into(self) -> usize {
-        self.0 as usize
+impl From<MeshId2D> for usize {
+    fn from(val: MeshId2D) -> Self {
+        val.0 as usize
     }
 }
 
@@ -132,9 +132,9 @@ impl MeshId3D {
     }
 }
 
-impl Into<usize> for MeshId3D {
-    fn into(self) -> usize {
-        self.0 as usize
+impl From<MeshId3D> for usize {
+    fn from(val: MeshId3D) -> Self {
+        val.0 as usize
     }
 }
 
@@ -530,25 +530,22 @@ impl CameraView3D {
         let xr = x1 * r2 + x2 * r3;
         let yr = y1 * r2 + y2 * r3;
 
-        let origin = Vec3::from(self.pos)
-            + self.lens_size * (Vec3::from(self.right) * xr + Vec3::from(self.up) * yr);
+        let origin = self.pos + self.lens_size * (self.right * xr + self.up * yr);
         let u = (x as f32 + r0) * self.inv_width;
         let v = (y as f32 + r1) * self.inv_height;
-        let point_on_pixel =
-            Vec3::from(self.p1) + u * Vec3::from(self.right) + v * Vec3::from(self.up);
+        let point_on_pixel = self.p1 + u * self.right + v * self.up;
         let direction = (point_on_pixel - origin).normalize();
 
-        Ray::new(origin.into(), direction.into())
+        Ray::new(origin, direction)
     }
 
     pub fn generate_ray(&self, x: u32, y: u32) -> Ray {
         let u = x as f32 * self.inv_width;
         let v = y as f32 * self.inv_height;
-        let point_on_pixel =
-            Vec3::from(self.p1) + u * Vec3::from(self.right) + v * Vec3::from(self.up);
-        let direction = (point_on_pixel - Vec3::from(self.pos)).normalize();
+        let point_on_pixel = self.p1 + u * self.right + v * self.up;
+        let direction = (point_on_pixel - self.pos).normalize();
 
-        Ray::new(self.pos.into(), direction.into())
+        Ray::new(self.pos, direction)
     }
 
     pub fn generate_lens_ray4(
@@ -580,8 +577,8 @@ impl CameraView3D {
 
         // #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
         let (x1, y1) = {
-            let mut x = [0.0 as f32; 4];
-            let mut y = [0.0 as f32; 4];
+            let mut x = [0.0_f32; 4];
+            let mut y = [0.0_f32; 4];
             for i in 0..4 {
                 let (cos, sin) = blade_param[i].sin_cos();
                 x[i] = cos;
@@ -593,8 +590,8 @@ impl CameraView3D {
 
         let blade_param = (blade + Vec4::ONE) * pi_over_4dot5;
         let (x2, y2) = {
-            let mut x = [0.0 as f32; 4];
-            let mut y = [0.0 as f32; 4];
+            let mut x = [0.0_f32; 4];
+            let mut y = [0.0_f32; 4];
             for i in 0..4 {
                 let (cos, sin) = blade_param[i].sin_cos();
                 x[i] = cos;
@@ -637,9 +634,9 @@ impl CameraView3D {
 
         let inv_length = Vec4::ONE / length;
 
-        let direction_x = (direction_x * inv_length).into();
-        let direction_y = (direction_y * inv_length).into();
-        let direction_z = (direction_z * inv_length).into();
+        let direction_x = direction_x * inv_length;
+        let direction_y = direction_y * inv_length;
+        let direction_z = direction_z * inv_length;
 
         let origin_x = Vec4::splat(self.pos[0]);
         let origin_y = Vec4::splat(self.pos[1]);
@@ -658,14 +655,17 @@ impl CameraView3D {
         let origin_z = origin_z + lens_size * (right_z * xr + up_z * yr);
 
         RayPacket4 {
-            origin_x: origin_x.into(),
-            origin_y: origin_y.into(),
-            origin_z: origin_z.into(),
+            origin_x,
+            origin_y,
+            origin_z,
             direction_x,
             direction_y,
             direction_z,
-            t: [1e34 as f32; 4],
-            pixel_ids: ids,
+            t: [1e34_f32; 4].into(),
+            pixel_ids: ids.into(),
+            inv_direction_x: 1.0 / direction_x,
+            inv_direction_y: 1.0 / direction_y,
+            inv_direction_z: 1.0 / direction_z,
         }
     }
 
@@ -702,13 +702,13 @@ impl CameraView3D {
 
         let inv_length = Vec4::ONE / length;
 
-        let direction_x = (direction_x * inv_length).into();
-        let direction_y = (direction_y * inv_length).into();
-        let direction_z = (direction_z * inv_length).into();
+        let direction_x = direction_x * inv_length;
+        let direction_y = direction_y * inv_length;
+        let direction_z = direction_z * inv_length;
 
-        let origin_x = [self.pos[0]; 4];
-        let origin_y = [self.pos[1]; 4];
-        let origin_z = [self.pos[2]; 4];
+        let origin_x = [self.pos[0]; 4].into();
+        let origin_y = [self.pos[1]; 4].into();
+        let origin_z = [self.pos[2]; 4].into();
 
         RayPacket4 {
             origin_x,
@@ -717,14 +717,17 @@ impl CameraView3D {
             direction_x,
             direction_y,
             direction_z,
-            t: [1e34 as f32; 4],
-            pixel_ids: ids,
+            t: [1e34_f32; 4].into(),
+            pixel_ids: ids.into(),
+            inv_direction_x: 1.0 / direction_x,
+            inv_direction_y: 1.0 / direction_y,
+            inv_direction_z: 1.0 / direction_z,
         }
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
         let y: Vec3 = Vec3::new(0.0, 1.0, 0.0);
-        let z: Vec3 = Vec3::from(self.direction).normalize();
+        let z: Vec3 = self.direction.normalize();
         let x: Vec3 = z.cross(y).normalize();
         let y: Vec3 = x.cross(z).normalize();
         (x, y, z)
@@ -736,10 +739,10 @@ impl CameraView3D {
         let projection =
             Mat4::perspective_rh_gl(self.fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = self.pos;
+        let dir = self.direction;
 
-        let view = Mat4::look_at_rh(pos.into(), (pos + dir).into(), up);
+        let view = Mat4::look_at_rh(pos, pos + dir, up);
 
         projection * view
     }
@@ -750,10 +753,10 @@ impl CameraView3D {
         let projection =
             Mat4::perspective_lh(self.fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = self.pos;
+        let dir = self.direction;
 
-        let view = Mat4::look_at_lh(pos.into(), (pos + dir).into(), up);
+        let view = Mat4::look_at_lh(pos, pos + dir, up);
 
         projection * view
     }
@@ -769,19 +772,19 @@ impl CameraView3D {
     pub fn get_rh_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = self.pos;
+        let dir = self.direction;
 
-        Mat4::look_at_rh(pos.into(), (pos + dir).into(), up)
+        Mat4::look_at_rh(pos, pos + dir, up)
     }
 
     pub fn get_lh_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
+        let pos = self.pos;
+        let dir = self.direction;
 
-        Mat4::look_at_lh(pos.into(), (pos + dir).into(), up)
+        Mat4::look_at_lh(pos, pos + dir, up)
     }
 }
 
@@ -811,9 +814,7 @@ impl SkinnedMesh3D {
 
             v.vertex = matrix * v.vertex;
             let matrix = matrix.inverse().transpose();
-            v.normal = (matrix * Vec3A::from(v.normal).extend(0.0))
-                .truncate()
-                .into();
+            v.normal = (matrix * Vec3A::from(v.normal).extend(0.0)).truncate();
             let tangent =
                 (matrix * Vec3A::new(v.tangent[0], v.tangent[1], v.tangent[2]).extend(0.0)).xyz();
             v.tangent = Vec4::new(tangent[0], tangent[1], tangent[2], v.tangent[3]);
@@ -959,16 +960,16 @@ impl Default for RTTriangle {
 }
 
 impl SpatialTriangle for RTTriangle {
-    fn vertex0(&self) -> [f32; 3] {
-        self.vertex0.into()
+    fn vertex0(&self) -> Vec3 {
+        self.vertex0
     }
 
-    fn vertex1(&self) -> [f32; 3] {
-        self.vertex1.into()
+    fn vertex1(&self) -> Vec3 {
+        self.vertex1
     }
 
-    fn vertex2(&self) -> [f32; 3] {
-        self.vertex2.into()
+    fn vertex2(&self) -> Vec3 {
+        self.vertex2
     }
 }
 
@@ -1018,25 +1019,25 @@ impl RTTriangle {
 
     // Transforms triangle using given matrix and normal_matrix (transposed of inverse of matrix)
     pub fn transform(&self, matrix: Mat4, normal_matrix: Mat3) -> RTTriangle {
-        let vertex0 = Vec3::from(self.vertex0).extend(1.0);
-        let vertex1 = Vec3::from(self.vertex1).extend(1.0);
-        let vertex2 = Vec3::from(self.vertex2).extend(1.0);
+        let vertex0 = self.vertex0.extend(1.0);
+        let vertex1 = self.vertex1.extend(1.0);
+        let vertex2 = self.vertex2.extend(1.0);
 
         let vertex0 = matrix * vertex0;
         let vertex1 = matrix * vertex1;
         let vertex2 = matrix * vertex2;
 
-        let n0 = normal_matrix * Vec3::from(self.n0);
-        let n1 = normal_matrix * Vec3::from(self.n1);
-        let n2 = normal_matrix * Vec3::from(self.n2);
+        let n0 = normal_matrix * self.n0;
+        let n1 = normal_matrix * self.n1;
+        let n2 = normal_matrix * self.n2;
 
         RTTriangle {
-            vertex0: vertex0.truncate().into(),
-            vertex1: vertex1.truncate().into(),
-            vertex2: vertex2.truncate().into(),
-            n0: n0.into(),
-            n1: n1.into(),
-            n2: n2.into(),
+            vertex0: vertex0.truncate(),
+            vertex1: vertex1.truncate(),
+            vertex2: vertex2.truncate(),
+            n0,
+            n1,
+            n2,
             ..(*self)
         }
     }

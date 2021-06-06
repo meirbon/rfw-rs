@@ -12,7 +12,7 @@ layout(location = 0) out vec4 C;
 void main() {
     vec4 color = Color;
     if (TexID > 0) {
-        color = color * textureLod(sampler2D(textures[TexID], Sampler), UvTex.xy, 0.0).rgba;
+        color = color * texture(sampler2D(textures[TexID], Sampler), UvTex.xy).rgba;
     }
 
     if (color.a <= 0.0) {

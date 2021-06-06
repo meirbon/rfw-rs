@@ -274,17 +274,16 @@ impl Sphere {
 impl Bounds for Sphere {
     fn bounds(&self) -> Aabb {
         let radius = self.radius2.sqrt() + crate::constants::AABB_EPSILON;
-        let min: [f32; 3] = [
-            self.pos[0] - radius,
-            self.pos[1] - radius,
-            self.pos[2] - radius,
-        ];
-        let max: [f32; 3] = [
-            self.pos[0] + radius,
-            self.pos[1] + radius,
-            self.pos[2] + radius,
-        ];
-        Aabb { min, max }
+
+        let min = Vec3::from(self.pos) - Vec3::splat(radius);
+        let max = Vec3::from(self.pos) + Vec3::splat(radius);
+
+        Aabb {
+            min,
+            extra1: 0,
+            max,
+            extra2: 0,
+        }
     }
 }
 

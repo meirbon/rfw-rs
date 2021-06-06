@@ -1,6 +1,6 @@
 use crate::{constants::EPSILON, objects_3d::*};
 use l3d::mat::{Material, Texture};
-use rtbvh::{Bounds, Aabb};
+use rtbvh::{Aabb, Bounds};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -187,7 +187,9 @@ impl Bounds for Plane {
 
         Aabb {
             min: min.into(),
+            extra1: 0,
             max: max.into(),
+            extra2: 0,
         }
     }
 }

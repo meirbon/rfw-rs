@@ -131,7 +131,7 @@ impl WgpuOutput {
                         count: None,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Uint,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
@@ -155,7 +155,7 @@ impl WgpuOutput {
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Uint,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -212,9 +212,8 @@ impl WgpuOutput {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: Self::OUTPUT_FORMAT,
-                    color_blend: wgpu::BlendState::REPLACE,
-                    alpha_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 }],
             }),
             primitive: wgpu::PrimitiveState {
@@ -222,7 +221,9 @@ impl WgpuOutput {
                 strip_index_format: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
+                clamp_depth: false,
+                conservative: false,
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
@@ -245,17 +246,18 @@ impl WgpuOutput {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: Self::OUTPUT_FORMAT,
-                    color_blend: wgpu::BlendState::REPLACE,
-                    alpha_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 }],
             }),
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                clamp_depth: false,
+                conservative: false,
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
@@ -272,11 +274,10 @@ impl WgpuOutput {
             format: Some(Self::OUTPUT_FORMAT),
             dimension: None,
             aspect: wgpu::TextureAspect::All,
-
             base_mip_level: 0,
-            level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
+            mip_level_count: None,
         });
 
         let depth_texture = Self::create_depth_texture(device, Self::DEPTH_FORMAT, width, height);
@@ -285,9 +286,8 @@ impl WgpuOutput {
             format: Some(Self::DEPTH_FORMAT),
             dimension: None,
             aspect: wgpu::TextureAspect::DepthOnly,
-
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -300,7 +300,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -313,7 +313,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -326,7 +326,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -339,7 +339,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -353,7 +353,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -367,7 +367,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -380,7 +380,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -394,7 +394,7 @@ impl WgpuOutput {
                 aspect: wgpu::TextureAspect::All,
 
                 base_mip_level: 0,
-                level_count: None,
+                mip_level_count: None,
                 base_array_layer: 0,
                 array_layer_count: None,
             });
@@ -407,7 +407,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -492,7 +492,7 @@ impl WgpuOutput {
             size: wgpu::Extent3d {
                 width,
                 height,
-                depth: 1,
+                depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -513,7 +513,7 @@ impl WgpuOutput {
             size: wgpu::Extent3d {
                 width,
                 height,
-                depth: 1,
+                depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -536,7 +536,7 @@ impl WgpuOutput {
             size: wgpu::Extent3d {
                 width,
                 height,
-                depth: 1,
+                depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -559,7 +559,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -572,7 +572,7 @@ impl WgpuOutput {
             dimension: None,
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -586,7 +586,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -600,7 +600,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -614,7 +614,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -627,7 +627,7 @@ impl WgpuOutput {
             dimension: None,
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -642,7 +642,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -657,7 +657,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -671,7 +671,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -686,7 +686,7 @@ impl WgpuOutput {
                 aspect: wgpu::TextureAspect::All,
 
                 base_mip_level: 0,
-                level_count: None,
+                mip_level_count: None,
                 base_array_layer: 0,
                 array_layer_count: None,
             });
@@ -700,7 +700,7 @@ impl WgpuOutput {
             aspect: wgpu::TextureAspect::All,
 
             base_mip_level: 0,
-            level_count: None,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
         });
@@ -742,9 +742,9 @@ impl WgpuOutput {
             .collect();
     }
 
-    pub fn as_descriptor(&self, view: WgpuView) -> wgpu::RenderPassColorAttachmentDescriptor {
-        wgpu::RenderPassColorAttachmentDescriptor {
-            attachment: match view {
+    pub fn as_descriptor(&self, view: WgpuView) -> wgpu::RenderPassColorAttachment {
+        wgpu::RenderPassColorAttachment {
+            view: match view {
                 WgpuView::Output => &self.output_texture_view,
                 WgpuView::Albedo => &self.albedo_view,
                 WgpuView::Normal => &self.normal_view,
@@ -763,9 +763,9 @@ impl WgpuOutput {
         }
     }
 
-    pub fn as_depth_descriptor(&self) -> wgpu::RenderPassDepthStencilAttachmentDescriptor {
-        wgpu::RenderPassDepthStencilAttachmentDescriptor {
-            attachment: &self.depth_texture_view,
+    pub fn as_depth_descriptor(&self) -> wgpu::RenderPassDepthStencilAttachment {
+        wgpu::RenderPassDepthStencilAttachment {
+            view: &self.depth_texture_view,
             depth_ops: Some(wgpu::Operations {
                 load: wgpu::LoadOp::Clear(1.0),
                 store: true,
@@ -784,7 +784,7 @@ impl WgpuOutput {
             count: None,
             visibility,
             ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Uint,
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },
@@ -845,8 +845,8 @@ impl WgpuOutput {
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: output,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: output,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: true,

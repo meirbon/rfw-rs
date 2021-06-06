@@ -32,7 +32,7 @@ impl ObjectLoader for GltfLoader {
     ) -> Result<LoadResult, SceneError> {
         let loader = l3d::LoadInstance::new().with_default();
         let scene: l3d::load::SceneDescriptor = match loader.load(l3d::load::LoadOptions {
-            path: path.clone(),
+            source: l3d::load::LoadSource::Path(path.clone()),
             ..Default::default()
         }) {
             l3d::LoadResult::Mesh(_) => return Err(SceneError::LoadError(path)),
@@ -88,6 +88,15 @@ impl ObjectLoader for GltfLoader {
             animations: scene.animations,
         }))
     }
+
+    fn load_from_str(
+        &self,
+        _string: &str,
+        _mat_manager: &mut Materials,
+        _mesh_storage: &mut TrackedStorage<Mesh3D>
+    )  -> Result<LoadResult, SceneError> {
+        todo!()
+    }
 }
 
 fn load_node(meshes: &Vec<u32>, node: &l3d::load::NodeDescriptor) -> NodeDescriptor {
@@ -109,7 +118,7 @@ fn load_node(meshes: &Vec<u32>, node: &l3d::load::NodeDescriptor) -> NodeDescrip
         child_nodes,
 
         translation: Vec3::from(node.translation),
-        rotation: Quat::from(Vec4::from(node.rotation)),
+        rotation: Quat::from_array(node.rotation),
         scale: Vec3::from(node.scale),
 
         meshes: node_meshes,

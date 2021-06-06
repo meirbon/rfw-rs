@@ -71,11 +71,11 @@ impl WgpuSkin {
             layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer {
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &buffer,
                     offset: 0,
                     size: None,
-                },
+                }),
             }],
         });
 
@@ -121,11 +121,11 @@ impl WgpuSkin {
                     layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::Buffer {
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: &self.buffer.as_ref().unwrap(),
                             offset: 0,
                             size: None,
-                        },
+                        }),
                     }],
                 },
             )));

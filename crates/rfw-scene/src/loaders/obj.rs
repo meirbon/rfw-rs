@@ -30,11 +30,20 @@ impl ObjectLoader for ObjLoader {
         mat_manager: &mut Materials,
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError> {
-        let object = tobj::load_obj(&path);
+        let object = tobj::load_obj(
+            &path,
+            &tobj::LoadOptions {
+                single_index: true,
+                triangulate: true,
+                ignore_points: true,
+                ignore_lines: true,
+            },
+        );
         if object.is_err() {
             return Err(SceneError::LoadError(path));
         }
         let (models, materials) = object.unwrap();
+        let materials = materials.unwrap_or_default();
         let mut material_indices = vec![0; materials.len()];
 
         for (i, material) in materials.iter().enumerate() {
@@ -245,5 +254,14 @@ impl ObjectLoader for ObjLoader {
             Some(String::from(path.to_str().unwrap())),
         );
         Ok(LoadResult::Object(MeshId3D::from(mesh_id)))
+    }
+
+    fn load_from_str(
+        &self,
+        _string: &str,
+        _mat_manager: &mut Materials,
+        _mesh_storage: &mut TrackedStorage<Mesh3D>,
+    ) -> Result<LoadResult, SceneError> {
+        Err(SceneError::UnknownError)
     }
 }
