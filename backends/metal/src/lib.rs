@@ -448,7 +448,6 @@ impl Backend for MetalBackend {
             depth_desc.set_store_action(MTLStoreAction::Store);
             depth_desc.set_load_action(MTLLoadAction::Clear);
             depth_desc.set_texture(Some(&self.depth_texture));
-            depth_desc.set_load_action(MTLLoadAction::Clear);
         }
         {
             let color_attachment = render_desc.color_attachments().object_at(0).unwrap();
@@ -592,10 +591,6 @@ impl Backend for MetalBackend {
     fn set_skybox(&mut self, _skybox: TextureData<'_>) {}
 
     fn set_skins(&mut self, _skins: &[SkinData<'_>], _changed: &BitSlice) {}
-
-    fn settings(&mut self) -> &mut Self::Settings {
-        &mut self.settings
-    }
 }
 
 impl MetalBackend {

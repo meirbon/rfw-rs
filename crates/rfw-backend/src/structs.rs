@@ -188,12 +188,14 @@ impl From<SkinID> for usize {
 }
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[repr(C)]
 pub enum DataFormat {
     BGRA8 = 0,
     RGBA8 = 1,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(C)]
 pub struct TextureData<'a> {
     pub width: u32,
     pub height: u32,
@@ -257,6 +259,8 @@ pub struct Vertex3D {
     pub mat_id: u32,
     // 32
     pub uv: Vec2,
+    pub pad0: f32,
+    pub pad1: f32,
     // 40
     pub tangent: Vec4,
     // 56
@@ -301,11 +305,13 @@ impl<T: Into<[f32; 4]>> From<([u16; 4], T)> for JointData {
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub struct VertexMesh {
+    pub bounds: Aabb,
     pub first: u32,
     pub last: u32,
     pub mat_id: u32,
-    pub bounds: Aabb,
+    pub padding: u32,
 }
 
 bitflags::bitflags! {
@@ -476,6 +482,7 @@ pub struct CameraView2D {
 }
 
 #[derive(Default, Debug, Copy, Clone)]
+#[repr(C)]
 pub struct CameraView3D {
     pub pos: Vec3,
     // 12

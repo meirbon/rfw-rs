@@ -276,6 +276,7 @@ impl Mesh3D {
                 mat_id: material_ids[i / 3],
                 uv: uvs[i],
                 tangent: tangents[i],
+                ..Default::default()
             };
         });
 
@@ -297,6 +298,7 @@ impl Mesh3D {
                     last: (start + range) * 3,
                     mat_id: last_id,
                     bounds: v_bounds,
+                    padding: 0,
                 });
 
                 v_bounds = Aabb::new();
@@ -313,6 +315,7 @@ impl Mesh3D {
                 last: vertices.len() as u32,
                 mat_id: material_ids[0],
                 bounds,
+                padding: 0,
             });
         } else if (start + range) != (material_ids.len() as u32 - 1) {
             // Add last mesh to list
@@ -321,6 +324,7 @@ impl Mesh3D {
                 last: (start + range) * 3,
                 mat_id: last_id,
                 bounds: v_bounds,
+                padding: 0,
             })
         }
 
@@ -723,6 +727,7 @@ impl From<MeshDescriptor> for Mesh3D {
                 mat_id: material_ids[i / 3],
                 uv: Vec2::from(desc.uvs[i]),
                 tangent: Vec4::from(desc.tangents[i]),
+                ..Default::default()
             };
         });
 
@@ -748,6 +753,7 @@ impl From<MeshDescriptor> for Mesh3D {
                     last: (start + range) * 3,
                     mat_id: last_id as _,
                     bounds: v_bounds,
+                    padding: 0,
                 });
 
                 v_bounds = Aabb::new();
@@ -764,6 +770,7 @@ impl From<MeshDescriptor> for Mesh3D {
                 last: desc.vertices.len() as u32,
                 mat_id: material_ids[0],
                 bounds,
+                padding: 0,
             });
         } else if (start + range) != (material_ids.len() as u32 - 1) {
             // Add last mesh to list
@@ -772,6 +779,7 @@ impl From<MeshDescriptor> for Mesh3D {
                 last: (start + range) * 3,
                 mat_id: last_id,
                 bounds: v_bounds,
+                padding: 0,
             })
         }
 

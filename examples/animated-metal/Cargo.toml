@@ -11,7 +11,7 @@ vulkan = ["rfw-backend-vulkan"]
 metal = ["rfw-backend-metal"]
 
 [dependencies]
-winit = "0.24"
+winit = "0.25"
 futures = "0.3"
 clap = "2.33"
 glyph_brush = "0.7.0"
@@ -19,5 +19,5 @@ rayon = "1.5"
 rfw = { path = "../../rfw" }
 rfw-backend-gfx = { path = "../../backends/gfx", optional = true }
 rfw-backend-vulkan = { path = "../../backends/vulkan", optional = true }
-rfw-backend-metal = { path = "../../backends/metal", optional = true }
+rfw-backend-metal = { path = "../../backends/metal-cpp", optional = true }
 rfw-font = { path = "../../crates/rfw-font" }
