@@ -11,15 +11,15 @@ version = "0.1.0"
 [dependencies]
 futures = "0.3"
 num_cpus = "1.13"
-rfw = { path = "../../rfw" }
-wgpu = "0.7"
+rfw = { path="../../rfw" }
+wgpu = { version="0.9", features=["cross"] }
 rayon = "1.5"
 num-integer = "0.1"
 bitflags = "1.2"
 # rfw = "0.1"
 
 [build-dependencies]
-rfw = { path = "../../rfw" }
+rfw = { path="../../rfw" }
 # rfw = "0.1"
 spirv-compiler = "0.1"
 

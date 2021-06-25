@@ -93,22 +93,22 @@ impl<T: Sized + std::fmt::Debug> ManagedBuffer<T> {
     }
 
     pub fn binding_resource(&self) -> wgpu::BindingResource {
-        wgpu::BindingResource::Buffer {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
             buffer: &self.buffer,
             offset: 0,
             size: None,
-        }
+        })
     }
 
     pub fn binding_resource_ranged(
         &self,
         range: Range<wgpu::BufferAddress>,
     ) -> wgpu::BindingResource {
-        wgpu::BindingResource::Buffer {
+        wgpu::BindingResource::Buffer(wgpu::BufferBinding {
             buffer: &self.buffer,
             offset: range.start,
             size: NonZeroU64::new(range.end - range.start),
-        }
+        })
     }
 
     pub fn buffer(&self) -> &wgpu::Buffer {

@@ -36,9 +36,9 @@ impl QuadPass {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
             ..Default::default()
@@ -88,17 +88,18 @@ impl QuadPass {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: WgpuOutput::OUTPUT_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
+                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrite::ALL,
                 }],
             }),
             primitive: wgpu::PrimitiveState {
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
                 front_face: wgpu::FrontFace::Ccw,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                clamp_depth: false,
+                conservative: false,
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
@@ -133,8 +134,8 @@ impl QuadPass {
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: output,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: output,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: true,
@@ -209,18 +210,19 @@ impl BlitPass {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: WgpuOutput::OUTPUT_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
+                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrite::ALL,
                 }],
             }),
             depth_stencil: None,
             primitive: wgpu::PrimitiveState {
-                cull_mode: wgpu::CullMode::None,
+                cull_mode: None,
                 front_face: wgpu::FrontFace::Ccw,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 strip_index_format: None,
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                clamp_depth: false,
+                conservative: false,
             },
             multisample: wgpu::MultisampleState {
                 count: 1,
@@ -251,8 +253,8 @@ impl BlitPass {
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, output: &wgpu::TextureView) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                attachment: output,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: output,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: true,
@@ -294,9 +296,9 @@ impl SsaoPass {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,
             ..Default::default()
@@ -670,7 +672,7 @@ impl RadiancePass {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::Sampler {
-                            filtering: false,
+                            filtering: true,
                             comparison: false,
                         },
                     },

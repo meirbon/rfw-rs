@@ -37,37 +37,32 @@ impl RenderPipeline {
                 wgpu::ColorTargetState {
                     // Albedo
                     format: WgpuOutput::STORAGE_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 },
                 wgpu::ColorTargetState {
                     // Normal
                     format: WgpuOutput::STORAGE_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 },
                 wgpu::ColorTargetState {
                     // World pos
                     format: WgpuOutput::STORAGE_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 },
                 wgpu::ColorTargetState {
                     // Screen space
                     format: WgpuOutput::STORAGE_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 },
                 wgpu::ColorTargetState {
                     // Mat params
                     format: WgpuOutput::MAT_PARAM_FORMAT,
-                    alpha_blend: wgpu::BlendState::REPLACE,
-                    color_blend: wgpu::BlendState::REPLACE,
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 },
             ],
         };
@@ -75,9 +70,11 @@ impl RenderPipeline {
         let primitive_state = wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
             front_face: wgpu::FrontFace::Ccw,
-            cull_mode: wgpu::CullMode::Back,
+            cull_mode: Some(wgpu::Face::Back),
             polygon_mode: wgpu::PolygonMode::Fill,
             strip_index_format: None,
+            clamp_depth: false,
+            conservative: false,
         };
 
         let depth_state = wgpu::DepthStencilState {
@@ -86,7 +83,6 @@ impl RenderPipeline {
             depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: Default::default(),
             bias: wgpu::DepthBiasState::default(),
-            clamp_depth: false,
         };
 
         let multisample_state = wgpu::MultisampleState {
@@ -113,36 +109,36 @@ impl RenderPipeline {
                     attributes: &[
                         wgpu::VertexAttribute {
                             offset: 0,
-                            format: wgpu::VertexFormat::Float4,
+                            format: wgpu::VertexFormat::Float32x4,
                             shader_location: 0,
                         },
                         wgpu::VertexAttribute {
                             offset: 16,
-                            format: wgpu::VertexFormat::Float3,
+                            format: wgpu::VertexFormat::Float32x3,
                             shader_location: 1,
                         },
                         wgpu::VertexAttribute {
                             offset: 28,
-                            format: wgpu::VertexFormat::Uint,
+                            format: wgpu::VertexFormat::Uint32,
                             shader_location: 2,
                         },
                         wgpu::VertexAttribute {
                             offset: 32,
-                            format: wgpu::VertexFormat::Float2,
+                            format: wgpu::VertexFormat::Float32x2,
                             shader_location: 3,
                         },
                         wgpu::VertexAttribute {
                             offset: 40,
-                            format: wgpu::VertexFormat::Float4,
+                            format: wgpu::VertexFormat::Float32x4,
                             shader_location: 4,
                         },
                     ],
                 }],
             },
             fragment: Some(fragment_state.clone()),
-            primitive: primitive_state.clone(),
+            primitive: primitive_state,
             depth_stencil: Some(depth_state.clone()),
-            multisample: multisample_state.clone(),
+            multisample: multisample_state,
         });
 
         let vert_shader: &[u8] = include_bytes!("../shaders/mesh_anim.vert.spv");
@@ -171,27 +167,27 @@ impl RenderPipeline {
                         attributes: &[
                             wgpu::VertexAttribute {
                                 offset: 0,
-                                format: wgpu::VertexFormat::Float4,
+                                format: wgpu::VertexFormat::Float32x4,
                                 shader_location: 0,
                             },
                             wgpu::VertexAttribute {
                                 offset: 16,
-                                format: wgpu::VertexFormat::Float3,
+                                format: wgpu::VertexFormat::Float32x3,
                                 shader_location: 1,
                             },
                             wgpu::VertexAttribute {
                                 offset: 28,
-                                format: wgpu::VertexFormat::Uint,
+                                format: wgpu::VertexFormat::Uint32,
                                 shader_location: 2,
                             },
                             wgpu::VertexAttribute {
                                 offset: 32,
-                                format: wgpu::VertexFormat::Float2,
+                                format: wgpu::VertexFormat::Float32x2,
                                 shader_location: 3,
                             },
                             wgpu::VertexAttribute {
                                 offset: 40,
-                                format: wgpu::VertexFormat::Float4,
+                                format: wgpu::VertexFormat::Float32x4,
                                 shader_location: 4,
                             },
                         ],
@@ -202,12 +198,12 @@ impl RenderPipeline {
                         attributes: &[
                             wgpu::VertexAttribute {
                                 offset: 0,
-                                format: wgpu::VertexFormat::Uint4,
+                                format: wgpu::VertexFormat::Uint32x4,
                                 shader_location: 5,
                             },
                             wgpu::VertexAttribute {
                                 offset: 16,
-                                format: wgpu::VertexFormat::Float4,
+                                format: wgpu::VertexFormat::Float32x4,
                                 shader_location: 6,
                             },
                         ],

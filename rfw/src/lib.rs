@@ -105,6 +105,7 @@ pub struct Settings {
 
 impl Instance {
     pub fn new<T: 'static + Backend + FromWindowHandle>(width: u32, height: u32) -> Self {
+        env_logger::init();
         let event_loop = EventLoop::new();
         let window = winit::window::WindowBuilder::new()
             .with_inner_size(winit::dpi::LogicalSize::new(width, height))
