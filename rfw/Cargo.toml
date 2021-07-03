@@ -5,16 +5,16 @@ edition = "2018"
 license = "Apache-2.0"
 name = "rfw"
 repository = "https://github.com/meirbon/rfw-rs"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
 downcast-rs = "1.2.0"
 rand = { version = "0.8", features = ["small_rng"] }
 rayon = "1.5"
-rfw-backend = { path = "../crates/rfw-backend" }
-rfw-math = { path = "../crates/rfw-math" }
-rfw-scene = { path = "../crates/rfw-scene" }
-rfw-utils = { path = "../crates/rfw-utils" }
+rfw-backend = { path = "../crates/rfw-backend", version = "0.2" }
+rfw-math = { path = "../crates/rfw-math", version = "0.2" }
+rfw-scene = { path = "../crates/rfw-scene", version = "0.2" }
+rfw-utils = { path = "../crates/rfw-utils", version = "0.2" }
 serde = { version = "1.0", features = ["derive"], optional = true }
 crossbeam = "0.8"
 bevy_ecs = "0.5"

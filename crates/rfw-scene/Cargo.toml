@@ -2,16 +2,16 @@
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 name = "rfw-scene"
-version = "0.1.0"
+version = "0.2.0"
 
 [dependencies]
 bitflags = "1.2.1"
 bitvec = "0.22"
 l3d = "0.3"
 rayon = "1.5"
-rfw-backend = {path = "../rfw-backend"}
-rfw-math = {path = "../rfw-math"}
-rfw-utils = {path = "../rfw-utils"}
+rfw-backend = { path="../rfw-backend", version="0.2" }
+rfw-math = { path="../rfw-math", version="0.2" }
+rfw-utils = { path="../rfw-utils", version="0.2" }
 rtbvh = "0.6"
-serde = {version = "1.0", features = ["derive"], optional = true}
+serde = { version="1.0", features=["derive"], optional=true }
 tobj = "3.0"
