@@ -1,5 +1,4 @@
 use rfw::{prelude::*, GameTimer};
-use rfw_backend_wgpu::WgpuBackend;
 use rfw_font::*;
 
 #[derive(Debug, Default)]
@@ -236,7 +235,64 @@ fn rotate_spot_lights(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
 }
 
 fn main() {
-    rfw::Instance::new::<WgpuBackend>(1280, 720)
+    use clap::*;
+    let mut app = App::new("rfw animated example")
+        .author("Mèir Noordermeer")
+        .about("Renders an animated scene using rfw.");
+
+    app.arg(
+        Arg::with_name("width")
+            .short("w")
+            .takes_value(true)
+            .multiple(false)
+            .default_value("1280"),
+    )
+    .arg(
+        Arg::with_name("height")
+            .short("h")
+            .takes_value(true)
+            .multiple(false)
+            .default_value("720"),
+    )
+    .arg(Arg::with_name("hipdi"));
+
+    #[cfg(target_vendor = "apple")]
+    {
+        app.arg(
+            Arg::with_name("renderer")
+                .short("r")
+                .takes_value(true)
+                .multiple(false)
+                .default_value("wgpu")
+                .possible_values(["wgpu", "metal"]),
+        );
+    }
+
+    let matches = app.get_matches();
+    let width: u32 = matches.value_of("width").unwrap_or("1280").parse();
+    let height: u32 = matches.value_of("height").unwrap_or("720").parse();
+    let scale_mode = if matches.is_present("hidpi") {
+        rfw::ScaleMode::HiDpi
+    } else {
+        rfw::ScaleMode::Regular
+    };
+
+    let mut instance: rfw::Instance;
+    #[cfg(target_vendor = "apple")]
+    {
+        instance = if matches.value_of("renderer").unwrap_or("wgpu") == "wgpu" {
+            rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height);
+        } else {
+            rfw::Instance::new::<rfw_backend_metal::MetalBackend>(width, height);
+        };
+    }
+
+    #[cfg(target_vendor != "apple")]
+    {
+        instance = rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height);
+    }
+
+    instance
         .with_plugin(FontRenderer::from_bytes(include_bytes!(
             "../../../assets/good-times-rg.ttf"
         )))
@@ -247,7 +303,5 @@ fn main() {
         .with_system(bounce_spheres.system())
         .with_system(set_animation_timers.system())
         .with_system(rotate_spot_lights.system())
-        .run(rfw::Settings {
-            scale_mode: rfw::ScaleMode::Regular,
-        })
+        .run(rfw::Settings { scale_mode })
 }
