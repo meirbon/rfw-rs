@@ -19,8 +19,7 @@ bitflags = "1.2"
 # rfw = "0.1"
 
 [build-dependencies]
-rfw = { path="../../rfw" }
-# rfw = "0.1"
+rfw-utils = { path="../../crates/rfw-utils", version="0.2" }
 spirv-compiler = "0.1"
 
 [features]
