@@ -1,6 +1,8 @@
 [package]
 name = "rfw-utils"
 version = "0.2.0"
+description = "Utils for the rfw framework."
+license = "Apache-2.0"
 authors = ["Mèir Noordermeer <meirnoordermeer@me.com>"]
 edition = "2018"
 
