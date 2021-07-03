@@ -5,6 +5,7 @@ version = "0.2.0"
 description = "Font rendering plugin for rfw."
 license = "Apache-2.0"
 edition = "2018"
+repository = "https://github.com/meirbon/rfw-rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -5,6 +5,7 @@ name = "rfw-backend"
 version = "0.2.0"
 description = "Backend API for rfw framework."
 license = "Apache-2.0"
+repository = "https://github.com/meirbon/rfw-rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

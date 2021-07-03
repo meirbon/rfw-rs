@@ -5,6 +5,7 @@ name = "rfw-scene"
 description = "Scene implementation used in rfw."
 version = "0.2.0"
 license = "Apache-2.0"
+repository = "https://github.com/meirbon/rfw-rs"
 
 [dependencies]
 bitflags = "1.2.1"
