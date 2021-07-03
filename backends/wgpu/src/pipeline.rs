@@ -38,31 +38,46 @@ impl RenderPipeline {
                     // Albedo
                     format: WgpuOutput::STORAGE_FORMAT,
                     write_mask: wgpu::ColorWrite::ALL,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 },
                 wgpu::ColorTargetState {
                     // Normal
                     format: WgpuOutput::STORAGE_FORMAT,
                     write_mask: wgpu::ColorWrite::ALL,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 },
                 wgpu::ColorTargetState {
                     // World pos
                     format: WgpuOutput::STORAGE_FORMAT,
                     write_mask: wgpu::ColorWrite::ALL,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 },
                 wgpu::ColorTargetState {
                     // Screen space
                     format: WgpuOutput::STORAGE_FORMAT,
                     write_mask: wgpu::ColorWrite::ALL,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 },
                 wgpu::ColorTargetState {
                     // Mat params
                     format: WgpuOutput::MAT_PARAM_FORMAT,
                     write_mask: wgpu::ColorWrite::ALL,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 },
             ],
         };

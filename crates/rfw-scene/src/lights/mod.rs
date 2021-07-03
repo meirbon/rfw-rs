@@ -211,10 +211,10 @@ impl Light for DirectionalLight {
             Vec3::Y
         };
 
-        let lengths: Vec3 = scene_bounds.lengths::<Vec3>();
+        let lengths: Vec3 = scene_bounds.lengths();
         let dims: Vec3 = lengths * direction;
         let l = dims.length() * 1.5;
-        let center = scene_bounds.center::<Vec3>() - Vec3::splat(0.5 * l) * direction;
+        let center = scene_bounds.center() - Vec3::splat(0.5 * l) * direction;
 
         let h = (up * l).length();
         let w = (direction.cross(up).normalize() * l).length();
@@ -226,10 +226,10 @@ impl Light for DirectionalLight {
 
     fn get_light_info(&self, scene_bounds: &Aabb) -> LightInfo {
         let direction = self.direction;
-        let lengths: Vec3 = scene_bounds.lengths::<Vec3>();
+        let lengths: Vec3 = scene_bounds.lengths();
         let dims: Vec3 = lengths * direction;
         let l = dims.length() * 1.5;
-        let center = scene_bounds.center::<Vec3>() - Vec3::splat(0.5 * l) * direction;
+        let center = scene_bounds.center() - Vec3::splat(0.5 * l) * direction;
 
         LightInfo {
             pm: self.get_matrix(scene_bounds),
@@ -247,10 +247,10 @@ impl Light for DirectionalLight {
             Vec3::Y
         };
 
-        let lengths: Vec3 = scene_bounds.lengths::<Vec3>();
+        let lengths: Vec3 = scene_bounds.lengths();
         let dims: Vec3 = lengths * direction;
         let l = dims.length() * 1.5;
-        let center = scene_bounds.center::<Vec3>() - Vec3::splat(0.5 * l) * direction;
+        let center = scene_bounds.center() - Vec3::splat(0.5 * l) * direction;
 
         let h = (up * l).length();
         let w = (direction.cross(up).normalize() * l).length();

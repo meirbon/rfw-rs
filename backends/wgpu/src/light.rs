@@ -383,9 +383,9 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(count as _),
-            mip_level_count: None,
         });
 
         let views: Vec<wgpu::TextureView> = (0..count)
@@ -396,9 +396,9 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
-                    mip_level_count: None,
                 })
             })
             .collect();
@@ -427,9 +427,9 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(count as u32),
-            mip_level_count: None,
         });
 
         let filter_views: Vec<wgpu::TextureView> = (0..count)
@@ -440,9 +440,9 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
-                    mip_level_count: None,
                 })
             })
             .collect();
@@ -470,9 +470,9 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2),
             aspect: wgpu::TextureAspect::DepthOnly,
             base_mip_level: 0,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
-            mip_level_count: None,
         });
 
         let uniform_size = (count * Self::UNIFORM_ELEMENT_SIZE) as wgpu::BufferAddress;
@@ -861,9 +861,9 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(size as u32),
-            mip_level_count: None
         });
 
         let views: Vec<wgpu::TextureView> = (0..size)
@@ -874,9 +874,9 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
-                    mip_level_count: None
                 })
             })
             .collect();
@@ -905,9 +905,9 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::DepthOnly,
             base_mip_level: 0,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(size as u32),
-            mip_level_count: None
         });
 
         let filter_map = device.create_texture(&wgpu::TextureDescriptor {
@@ -934,9 +934,9 @@ impl ShadowMapArray {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             aspect: wgpu::TextureAspect::All,
             base_mip_level: 0,
+            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: NonZeroU32::new(size as u32),
-            mip_level_count: None
         });
 
         let filter_views: Vec<wgpu::TextureView> = (0..size)
@@ -947,9 +947,9 @@ impl ShadowMapArray {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     aspect: wgpu::TextureAspect::All,
                     base_mip_level: 0,
+                    mip_level_count: None,
                     base_array_layer: i as u32,
                     array_layer_count: NonZeroU32::new(1),
-                    mip_level_count: None
                 })
             })
             .collect();

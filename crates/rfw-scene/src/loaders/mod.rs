@@ -59,4 +59,11 @@ pub trait ObjectLoader: std::fmt::Display + std::fmt::Debug + Send + Sync {
         mat_manager: &mut Materials,
         mesh_storage: &mut TrackedStorage<Mesh3D>,
     ) -> Result<LoadResult, SceneError>;
+
+    fn load_from_str(
+        &self,
+        string: &str,
+        mat_manager: &mut Materials,
+        mesh_storage: &mut TrackedStorage<Mesh3D>
+    )  -> Result<LoadResult, SceneError>;
 }

@@ -155,7 +155,7 @@ impl WgpuOutput {
                     count: None,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -212,8 +212,8 @@ impl WgpuOutput {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: Self::OUTPUT_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 }],
             }),
             primitive: wgpu::PrimitiveState {
@@ -246,8 +246,8 @@ impl WgpuOutput {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: Self::OUTPUT_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState::REPLACE),
                 }],
             }),
             primitive: wgpu::PrimitiveState {
@@ -274,11 +274,10 @@ impl WgpuOutput {
             format: Some(Self::OUTPUT_FORMAT),
             dimension: None,
             aspect: wgpu::TextureAspect::All,
-
             base_mip_level: 0,
-            mip_level_count: None,
             base_array_layer: 0,
             array_layer_count: None,
+            mip_level_count: None,
         });
 
         let depth_texture = Self::create_depth_texture(device, Self::DEPTH_FORMAT, width, height);
@@ -287,7 +286,6 @@ impl WgpuOutput {
             format: Some(Self::DEPTH_FORMAT),
             dimension: None,
             aspect: wgpu::TextureAspect::DepthOnly,
-
             base_mip_level: 0,
             mip_level_count: None,
             base_array_layer: 0,
@@ -786,7 +784,7 @@ impl WgpuOutput {
             count: None,
             visibility,
             ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
                 view_dimension: wgpu::TextureViewDimension::D2,
                 multisampled: false,
             },

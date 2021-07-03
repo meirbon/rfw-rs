@@ -24,7 +24,7 @@ impl QuadPass {
                     binding: 1,
                     visibility: wgpu::ShaderStage::FRAGMENT,
                     ty: wgpu::BindingType::Sampler {
-                        filtering: false,
+                        filtering: true,
                         comparison: false,
                     },
                     count: None,
@@ -88,8 +88,11 @@ impl QuadPass {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: WgpuOutput::OUTPUT_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 }],
             }),
             primitive: wgpu::PrimitiveState {
@@ -210,8 +213,11 @@ impl BlitPass {
                 module: &frag_module,
                 targets: &[wgpu::ColorTargetState {
                     format: WgpuOutput::OUTPUT_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrite::ALL,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                 }],
             }),
             depth_stencil: None,
@@ -313,7 +319,7 @@ impl SsaoPass {
                     count: None,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler {
-                        filtering: false,
+                        filtering: true,
                         comparison: false,
                     },
                 },
@@ -681,7 +687,7 @@ impl RadiancePass {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
@@ -691,7 +697,7 @@ impl RadiancePass {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
@@ -701,7 +707,7 @@ impl RadiancePass {
                         count: None,
                         visibility: wgpu::ShaderStage::COMPUTE,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },

@@ -153,35 +153,35 @@ fn camera_handler(
     let mut pos_change = Vec3::new(0.0, 0.0, 0.0);
 
     if keys.pressed(VirtualKeyCode::Up) {
-        view_change += (0.0, 1.0, 0.0).into();
+        view_change += vec3(0.0, 1.0, 0.0);
     }
     if keys.pressed(VirtualKeyCode::Down) {
-        view_change -= (0.0, 1.0, 0.0).into();
+        view_change -= vec3(0.0, 1.0, 0.0);
     }
     if keys.pressed(VirtualKeyCode::Left) {
-        view_change -= (1.0, 0.0, 0.0).into();
+        view_change -= vec3(1.0, 0.0, 0.0);
     }
     if keys.pressed(VirtualKeyCode::Right) {
-        view_change += (1.0, 0.0, 0.0).into();
+        view_change += vec3(1.0, 0.0, 0.0);
     }
 
     if keys.pressed(VirtualKeyCode::W) {
-        pos_change += (0.0, 0.0, 1.0).into();
+        pos_change += vec3(0.0, 0.0, 1.0);
     }
     if keys.pressed(VirtualKeyCode::S) {
-        pos_change -= (0.0, 0.0, 1.0).into();
+        pos_change -= vec3(0.0, 0.0, 1.0);
     }
     if keys.pressed(VirtualKeyCode::A) {
-        pos_change -= (1.0, 0.0, 0.0).into();
+        pos_change -= vec3(1.0, 0.0, 0.0);
     }
     if keys.pressed(VirtualKeyCode::D) {
-        pos_change += (1.0, 0.0, 0.0).into();
+        pos_change += vec3(1.0, 0.0, 0.0);
     }
     if keys.pressed(VirtualKeyCode::E) {
-        pos_change += (0.0, 1.0, 0.0).into();
+        pos_change += vec3(0.0, 1.0, 0.0);
     }
     if keys.pressed(VirtualKeyCode::Q) {
-        pos_change -= (0.0, 1.0, 0.0).into();
+        pos_change -= vec3(0.0, 1.0, 0.0);
     }
 
     let m = if keys.pressed(VirtualKeyCode::LShift) {
@@ -236,58 +236,64 @@ fn rotate_spot_lights(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
 
 fn main() {
     use clap::*;
-    let mut app = App::new("rfw animated example")
-        .author("Mèir Noordermeer")
-        .about("Renders an animated scene using rfw.");
-
-    app.arg(
-        Arg::with_name("width")
-            .short("w")
-            .takes_value(true)
-            .multiple(false)
-            .default_value("1280"),
-    )
-    .arg(
-        Arg::with_name("height")
-            .short("h")
-            .takes_value(true)
-            .multiple(false)
-            .default_value("720"),
-    )
-    .arg(Arg::with_name("hipdi"));
+    let mut app = App::new("rfw animated example").author("Mèir Noordermeer")
+        .about("Renders an animated scene using rfw.")
+        .arg(
+            Arg::with_name("width")
+                .short("w")
+                .takes_value(true)
+                .multiple(false)
+                .default_value("1280"),
+        )
+        .arg(
+            Arg::with_name("height")
+                .short("h")
+                .takes_value(true)
+                .multiple(false)
+                .default_value("720"),
+        )
+        .arg(Arg::with_name("hipdi"));
 
     #[cfg(target_vendor = "apple")]
     {
-        app.arg(
+        app = app.arg(
             Arg::with_name("renderer")
                 .short("r")
                 .takes_value(true)
                 .multiple(false)
                 .default_value("wgpu")
-                .possible_values(["wgpu", "metal"]),
+                .possible_values(&["wgpu", "metal"]),
         );
     }
 
     let matches = app.get_matches();
-    let width: u32 = matches.value_of("width").unwrap_or("1280").parse();
-    let height: u32 = matches.value_of("height").unwrap_or("720").parse();
+    let width: u32 = matches
+        .value_of("width")
+        .unwrap_or("1280")
+        .parse::<u32>()
+        .unwrap();
+    let height: u32 = matches
+        .value_of("height")
+        .unwrap_or("720")
+        .parse::<u32>()
+        .unwrap();
     let scale_mode = if matches.is_present("hidpi") {
         rfw::ScaleMode::HiDpi
     } else {
         rfw::ScaleMode::Regular
     };
 
-    let mut instance: rfw::Instance;
+    let instance: rfw::Instance;
     #[cfg(target_vendor = "apple")]
     {
         instance = if matches.value_of("renderer").unwrap_or("wgpu") == "wgpu" {
-            rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height);
+            rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height)
         } else {
-            rfw::Instance::new::<rfw_backend_metal::MetalBackend>(width, height);
+            rfw::Instance::new::<rfw_backend_metal::MetalBackend>(width, height)
         };
     }
 
-    #[cfg(target_vendor != "apple")]
+    #[cfg(not(target_vendor = "apple"))]
     {
         instance = rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height);
     }

@@ -26,7 +26,7 @@ pub enum Quality {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Sphere {
-    pos: [f32; 3],
+    pos: Vec3,
     radius2: f32,
     pub mat_id: u32,
     pub quality: Quality,
@@ -36,9 +36,9 @@ pub struct Sphere {
 impl Sphere {
     /// Creates new sphere with specified radius, material and segments.
     /// Segments is only used when this sphere is procedurally transformed into a mesh.
-    pub fn new<T: Into<[f32; 3]>>(pos: T, radius: f32, mat_id: u32) -> Sphere {
+    pub fn new(pos: Vec3, radius: f32, mat_id: u32) -> Sphere {
         Sphere {
-            pos: pos.into(),
+            pos,
             radius2: radius * radius,
             mat_id,
             quality: Quality::High,
@@ -51,7 +51,7 @@ impl Sphere {
     }
 
     pub fn normal(&self, p: Vec3) -> Vec3 {
-        (p - self.pos.into()).normalize()
+        (p - self.pos).normalize()
     }
 
     pub fn get_uv(&self, n: Vec3) -> Vec2 {
@@ -274,17 +274,16 @@ impl Sphere {
 impl Bounds for Sphere {
     fn bounds(&self) -> Aabb {
         let radius = self.radius2.sqrt() + crate::constants::AABB_EPSILON;
-        let min: [f32; 3] = [
-            self.pos[0] - radius,
-            self.pos[1] - radius,
-            self.pos[2] - radius,
-        ];
-        let max: [f32; 3] = [
-            self.pos[0] + radius,
-            self.pos[1] + radius,
-            self.pos[2] + radius,
-        ];
-        Aabb { min, max }
+
+        let min = Vec3::from(self.pos) - Vec3::splat(radius);
+        let max = Vec3::from(self.pos) + Vec3::splat(radius);
+
+        Aabb {
+            min,
+            extra1: 0,
+            max,
+            extra2: 0,
+        }
     }
 }
 
