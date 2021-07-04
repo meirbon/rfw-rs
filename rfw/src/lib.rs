@@ -112,11 +112,7 @@ impl Instance {
             .with_title("rfw")
             .build(&event_loop)
             .expect("Could not create window.");
-
         let renderer = T::init(&window, width, height, 1.0).expect("Could not initialize renderer");
-
-        // rfw_utils::log::SimpleLogger::new().init().unwrap();
-        // rfw_utils::log::info!("initialized renderer: {}", std::any::type_name::<T>());
 
         let world = World::new();
         let scheduler = Scheduler::default();

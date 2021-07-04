@@ -93,23 +93,23 @@ impl Plugin for FontRenderer {
             .unwrap()
             .add_2d(Mesh2D::new(
                 vec![
-                    [-0.5, -0.5, 0.5],
-                    [0.5, -0.5, 0.5],
-                    [0.5, 0.5, 0.5],
-                    [-0.5, 0.5, 0.5],
-                    [-0.5, -0.5, 0.5],
-                    [0.5, 0.5, 0.5],
+                    vec3(-0.5, -0.5, 0.5),
+                    vec3(0.5, -0.5, 0.5),
+                    vec3(0.5, 0.5, 0.5),
+                    vec3(-0.5, 0.5, 0.5),
+                    vec3(-0.5, -0.5, 0.5),
+                    vec3(0.5, 0.5, 0.5),
                 ],
                 vec![
-                    [0.01, 0.01],
-                    [0.99, 0.01],
-                    [0.99, 0.99],
-                    [0.01, 0.99],
-                    [0.01, 0.01],
-                    [0.99, 0.99],
+                    vec2(0.01, 0.01),
+                    vec2(0.99, 0.01),
+                    vec2(0.99, 0.99),
+                    vec2(0.01, 0.99),
+                    vec2(0.01, 0.01),
+                    vec2(0.99, 0.99),
                 ],
                 Some(tex_id),
-                [1.0; 4],
+                Vec4::ONE,
             ));
 
         let mut mesh_instance = instance
@@ -204,26 +204,26 @@ fn update_fonts(
 
             for (i, v) in vertices.into_iter().enumerate() {
                 let v0 = Vertex2D {
-                    vertex: [v.min_x, v.min_y, 0.5],
-                    uv: [v.uv_min_x, v.uv_min_y],
+                    vertex: vec3(v.min_x, v.min_y, 0.5),
+                    uv: vec2(v.uv_min_x, v.uv_min_y),
                     tex,
                     color: v.color,
                 };
                 let v1 = Vertex2D {
-                    vertex: [v.max_x, v.min_y, 0.5],
-                    uv: [v.uv_max_x, v.uv_min_y],
+                    vertex: vec3(v.max_x, v.min_y, 0.5),
+                    uv: vec2(v.uv_max_x, v.uv_min_y),
                     tex,
                     color: v.color,
                 };
                 let v2 = Vertex2D {
-                    vertex: [v.max_x, v.max_y, 0.5],
-                    uv: [v.uv_max_x, v.uv_max_y],
+                    vertex: vec3(v.max_x, v.max_y, 0.5),
+                    uv: vec2(v.uv_max_x, v.uv_max_y),
                     tex,
                     color: v.color,
                 };
                 let v3 = Vertex2D {
-                    vertex: [v.min_x, v.max_y, 0.5],
-                    uv: [v.uv_min_x, v.uv_max_y],
+                    vertex: vec3(v.min_x, v.max_y, 0.5),
+                    uv: vec2(v.uv_min_x, v.uv_max_y),
                     tex,
                     color: v.color,
                 };
@@ -235,6 +235,8 @@ fn update_fonts(
                 font_object.vertices[i * 6 + 4] = v0;
                 font_object.vertices[i * 6 + 5] = v2;
             }
+
+            font_object.update_triangles();
         }
         Ok(BrushAction::ReDraw) => {}
         Err(BrushError::TextureTooSmall { suggested }) => {
@@ -267,7 +269,7 @@ struct BrushVertex {
     pub uv_min_y: f32,
     pub uv_max_x: f32,
     pub uv_max_y: f32,
-    pub color: [f32; 4],
+    pub color: Vec4,
 }
 
 #[inline]
@@ -279,49 +281,47 @@ fn to_vertex(
         extra,
     }: glyph_brush::GlyphVertex,
 ) -> BrushVertex {
-    let gl_bounds = bounds;
-
     use glyph_brush::ab_glyph::Rect;
 
-    let mut gl_rect = Rect {
+    let mut rect = Rect {
         min: point(pixel_coords.min.x as f32, pixel_coords.min.y as f32),
         max: point(pixel_coords.max.x as f32, pixel_coords.max.y as f32),
     };
 
     // handle overlapping bounds, modify uv_rect to preserve texture aspect
-    if gl_rect.max.x > gl_bounds.max.x {
-        let old_width = gl_rect.width();
-        gl_rect.max.x = gl_bounds.max.x;
-        tex_coords.max.x = tex_coords.min.x + tex_coords.width() * gl_rect.width() / old_width;
+    if rect.max.x > bounds.max.x {
+        let old_width = rect.width();
+        rect.max.x = bounds.max.x;
+        tex_coords.max.x = tex_coords.min.x + tex_coords.width() * rect.width() / old_width;
     }
 
-    if gl_rect.min.x < gl_bounds.min.x {
-        let old_width = gl_rect.width();
-        gl_rect.min.x = gl_bounds.min.x;
-        tex_coords.min.x = tex_coords.max.x - tex_coords.width() * gl_rect.width() / old_width;
+    if rect.min.x < bounds.min.x {
+        let old_width = rect.width();
+        rect.min.x = bounds.min.x;
+        tex_coords.min.x = tex_coords.max.x - tex_coords.width() * rect.width() / old_width;
     }
 
-    if gl_rect.max.y > gl_bounds.max.y {
-        let old_height = gl_rect.height();
-        gl_rect.max.y = gl_bounds.max.y;
-        tex_coords.max.y = tex_coords.min.y + tex_coords.height() * gl_rect.height() / old_height;
+    if rect.max.y > bounds.max.y {
+        let old_height = rect.height();
+        rect.max.y = bounds.max.y;
+        tex_coords.max.y = tex_coords.min.y + tex_coords.height() * rect.height() / old_height;
     }
 
-    if gl_rect.min.y < gl_bounds.min.y {
-        let old_height = gl_rect.height();
-        gl_rect.min.y = gl_bounds.min.y;
-        tex_coords.min.y = tex_coords.max.y - tex_coords.height() * gl_rect.height() / old_height;
+    if rect.min.y < bounds.min.y {
+        let old_height = rect.height();
+        rect.min.y = bounds.min.y;
+        tex_coords.min.y = tex_coords.max.y - tex_coords.height() * rect.height() / old_height;
     }
 
     BrushVertex {
-        min_x: gl_rect.min.x,
-        min_y: gl_rect.min.y,
-        max_x: gl_rect.max.x,
-        max_y: gl_rect.max.y,
+        min_x: rect.min.x,
+        min_y: rect.min.y,
+        max_x: rect.max.x,
+        max_y: rect.max.y,
         uv_min_x: tex_coords.min.x,
         uv_min_y: tex_coords.min.y,
         uv_max_x: tex_coords.max.x,
         uv_max_y: tex_coords.max.y,
-        color: extra.color,
+        color: Vec4::from(extra.color),
     }
 }

@@ -236,7 +236,8 @@ fn rotate_spot_lights(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
 
 fn main() {
     use clap::*;
-    let mut app = App::new("rfw animated example").author("Mèir Noordermeer")
+    let mut app = App::new("rfw animated example")
+        .author("Mèir Noordermeer")
         .about("Renders an animated scene using rfw.")
         .arg(
             Arg::with_name("width")
@@ -263,6 +264,18 @@ fn main() {
                 .multiple(false)
                 .default_value("wgpu")
                 .possible_values(&["wgpu", "metal"]),
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        app = app.arg(
+            Arg::with_name("renderer")
+                .short("r")
+                .takes_value(true)
+                .multiple(false)
+                .default_value("wgpu")
+                .possible_values(&["wgpu", "vulkan_rt"]),
         );
     }
 
@@ -293,7 +306,16 @@ fn main() {
         };
     }
 
-    #[cfg(not(target_vendor = "apple"))]
+    #[cfg(target_os = "windows")]
+    {
+        instance = if matches.value_of("renderer").unwrap_or("wgpu") == "wgpu" {
+            rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height)
+        } else {
+            rfw::Instance::new::<rfw_backend_vulkan_rt::VulkanBackend>(width, height)
+        };
+    }
+
+    #[cfg(all(not(target_vendor = "apple"), not(target_os = "windows")))]
     {
         instance = rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height);
     }

@@ -1,11 +1,12 @@
 [workspace]
 members = [
     "rfw",
-    # "examples/animated",
-    # "examples/d2",
-    # "examples/nphysics",
+    "examples/animated",
+    "examples/d2",
+    "examples/nphysics",
     "backends/wgpu",
-#    "backends/metal",
+    #    "backends/metal",
+    "backends/vulkan_rt",
     "crates/rfw-backend",
     "crates/rfw-scene",
     "crates/rfw-math",

@@ -5,6 +5,7 @@ use rfw_backend::{
     VertexMesh,
 };
 use rfw_math::*;
+use rtbvh::*;
 
 mod plane;
 mod quad;
@@ -12,7 +13,6 @@ mod sphere;
 
 pub use plane::*;
 pub use quad::*;
-use rtbvh::{Aabb, Bounds};
 pub use sphere::*;
 
 #[cfg(feature = "serde")]

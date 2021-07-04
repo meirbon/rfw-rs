@@ -73,9 +73,12 @@ impl ToMesh2D for Quad2D {
             color: self.color.into(),
         });
 
-        Mesh2D {
+        let mut mesh = Mesh2D {
             vertices,
             tex_id: self.texture,
-        }
+            ..Default::default()
+        };
+        mesh.update_triangles();
+        mesh
     }
 }

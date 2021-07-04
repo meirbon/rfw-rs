@@ -54,7 +54,7 @@ impl std::fmt::Display for NodeMesh {
 #[derive(Debug, Clone)]
 pub struct NodeDescriptor {
     pub name: String,
-    pub child_nodes: Vec<NodeDescriptor>,
+    pub child_nodes: Vec<Self>,
 
     pub translation: Vec3,
     pub rotation: Quat,

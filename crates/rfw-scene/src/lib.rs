@@ -1,3 +1,4 @@
+use bvh::{Aabb, Bounds};
 use rfw_backend::*;
 use rfw_math::*;
 
@@ -11,7 +12,7 @@ mod loaders;
 mod material;
 mod objects_2d;
 mod objects_3d;
-
+mod raycast;
 mod utils;
 
 pub use camera::*;
@@ -28,12 +29,14 @@ pub use loaders::*;
 pub use material::*;
 pub use objects_2d::*;
 pub use objects_3d::*;
+pub use raycast::*;
 pub use rtbvh as bvh;
 pub use utils::*;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use std::num::NonZeroUsize;
 #[cfg(feature = "serde")]
 use std::{error::Error, ffi::OsString, fs::File, io::BufReader};
 
@@ -117,12 +120,35 @@ impl Default for Lights {
     }
 }
 
+bitflags::bitflags! {
+    pub struct SceneFlags: u32 {
+        const ALL = u32::MAX;
+
+        const INSTANCES_2D_CHANGED = 1;
+        const MESHES_2D_CHANGED = 2;
+
+        const INSTANCES_3D_CHANGED = 1;
+        const MESHES_3D_CHANGED = 2;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CastResult {
+    None,
+    Mesh2D { id: u32, instance_id: u32 },
+    Mesh3D { id: u32, instance_id: u32 },
+}
+
 /// Scene optimized for triangles
 /// Does not support objects other than Meshes, but does not require virtual calls because of this.
 #[derive(Debug)]
 pub struct Scene {
     loaders: HashMap<String, Box<dyn ObjectLoader>>,
     loaded_meshes_3d: HashMap<String, usize>,
+    pub(crate) intersectables_2d_mbvh: bvh::Mbvh,
+    pub(crate) intersectables_2d: FlaggedStorage<Intersectable>,
+    pub(crate) intersectables_3d_mbvh: bvh::Mbvh,
+    pub(crate) intersectables_3d: FlaggedStorage<Intersectable>,
     pub(crate) instances_2d: FlaggedStorage<InstanceList2D>,
     pub(crate) instances_3d: FlaggedStorage<InstanceList3D>,
     pub(crate) meshes_3d: TrackedStorage<Mesh3D>,
@@ -132,6 +158,7 @@ pub struct Scene {
     pub(crate) lights: Lights,
     pub(crate) materials: Materials,
     pub(crate) cameras: TrackedStorage<Camera3D>,
+    pub(crate) flags: SceneFlags,
 }
 
 impl Default for Scene {
@@ -140,16 +167,21 @@ impl Default for Scene {
 
         Self {
             loaders,
-            loaded_meshes_3d: HashMap::new(),
+            loaded_meshes_3d: Default::default(),
+            intersectables_2d_mbvh: Default::default(),
+            intersectables_2d: Default::default(),
+            intersectables_3d_mbvh: Default::default(),
+            intersectables_3d: Default::default(),
             instances_2d: Default::default(),
             instances_3d: Default::default(),
             meshes_3d: Default::default(),
             meshes_2d: Default::default(),
             graph: Default::default(),
             skins: Default::default(),
-            lights: Lights::default(),
+            lights: Default::default(),
             materials: Materials::new(),
-            cameras: TrackedStorage::new(),
+            cameras: Default::default(),
+            flags: SceneFlags::ALL,
         }
     }
 }
@@ -157,6 +189,10 @@ impl Default for Scene {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct SerializableScene {
+    intersectables_2d_mbvh: bvh::Mbvh,
+    intersectables_2d: FlaggedStorage<Intersectable>,
+    intersectables_3d_mbvh: bvh::Mbvh,
+    intersectables_3d: FlaggedStorage<Intersectable>,
     instances_3d: FlaggedStorage<InstanceList3D>,
     instances_2d: FlaggedStorage<InstanceList2D>,
     meshes_3d: TrackedStorage<Mesh3D>,
@@ -171,6 +207,10 @@ struct SerializableScene {
 impl From<&Scene> for SerializableScene {
     fn from(scene: &Scene) -> Self {
         Self {
+            intersectables_2d_mbvh: scene.intersectables_2d_mbvh.clone(),
+            intersectables_2d: scene.intersectables_2d.clone(),
+            intersectables_3d_mbvh: scene.intersectables_3d_mbvh.clone(),
+            intersectables_3d: scene.intersectables_3d.clone(),
             instances_3d: scene.instances_3d.clone(),
             instances_2d: scene.instances_2d.clone(),
             meshes_3d: scene.meshes_3d.clone(),
@@ -189,6 +229,10 @@ impl From<SerializableScene> for Scene {
         Scene {
             loaders: Scene::create_loaders(),
             loaded_meshes_3d: HashMap::new(),
+            intersectables_2d_mbvh: s.intersectables_2d_mbvh,
+            intersectables_2d: s.intersectables_2d,
+            intersectables_3d_mbvh: s.intersectables_3d_mbvh,
+            intersectables_3d: s.intersectables_3d,
             instances_2d: s.instances_2d,
             instances_3d: s.instances_3d,
             meshes_3d: s.meshes_3d,
@@ -198,6 +242,7 @@ impl From<SerializableScene> for Scene {
             lights: s.lights,
             materials: s.materials,
             cameras: s.cameras,
+            flags: SceneFlags::ALL,
         }
     }
 }
@@ -263,8 +308,136 @@ impl Scene {
     }
 
     pub fn synchronize_graph(&mut self) -> bool {
-        self.graph
-            .synchronize(&mut self.meshes_3d, &mut self.instances_3d, &mut self.skins)
+        let changed =
+            self.graph
+                .synchronize(&mut self.meshes_3d, &mut self.instances_3d, &mut self.skins);
+
+        if changed {
+            let mut flags: BitVec<Lsb0, usize> = BitVec::repeat(false, self.meshes_3d.len());
+            for (index, mesh) in self.meshes_3d.iter_changed() {
+                self.intersectables_3d.overwrite_val(
+                    index,
+                    Intersectable::from_3d_instance_list(mesh, &self.instances_3d[index])
+                        .unwrap_or_default(),
+                );
+                // Keep track which intersectables were rebuilt from scratch
+                flags.set(index, true);
+            }
+
+            for (index, instances) in self.instances_3d.iter() {
+                // Only rebuild instances bvh for intersectables that have not already been rebuild by the loop above
+                if !flags.get(index).map(|v| *v).unwrap_or(false) || instances.any_changed() {
+                    self.intersectables_3d[index].rebuild_3d_instances_list(instances);
+                }
+                flags.set(index, true);
+            }
+
+            // Rebuild top-level bvh if necessary
+            if flags.any() {
+                let aabbs: Vec<Aabb> = (0..self.intersectables_3d.len())
+                    .into_iter()
+                    .map(|i| {
+                        if let Some(i) = self.intersectables_3d.get(i) {
+                            i.bounds()
+                        } else {
+                            Aabb::empty()
+                        }
+                    })
+                    .collect();
+
+                self.intersectables_3d_mbvh = bvh::Mbvh::from(
+                    bvh::Builder {
+                        aabbs: Some(&aabbs),
+                        primitives: &aabbs,
+                        primitives_per_leaf: NonZeroUsize::new(1),
+                    }
+                    .construct_binned_sah()
+                    .unwrap_or_default(),
+                );
+            }
+
+            let mut flags: BitVec<Lsb0, usize> = BitVec::repeat(false, self.meshes_2d.len());
+            for (index, mesh) in self.meshes_2d.iter_changed() {
+                self.intersectables_2d.overwrite_val(
+                    index,
+                    Intersectable::from_2d_instance_list(mesh, &self.instances_2d[index])
+                        .unwrap_or_default(),
+                );
+                // Keep track which intersectables were rebuilt from scratch
+                flags.set(index, true);
+            }
+
+            for (index, instances) in self.instances_2d.iter() {
+                // Only rebuild instances bvh for intersectables that have not already been rebuild by the loop above
+                if !flags.get(index).map(|v| *v).unwrap_or(false) || instances.any_changed() {
+                    self.intersectables_2d[index].rebuild_2d_instances_list(instances);
+                }
+                flags.set(index, true);
+            }
+
+            // Rebuild top-level bvh if necessary
+            if flags.any() {
+                let aabbs: Vec<Aabb> = (0..self.intersectables_2d.len())
+                    .into_iter()
+                    .map(|i| {
+                        if let Some(i) = self.intersectables_2d.get(i) {
+                            i.bounds()
+                        } else {
+                            Aabb::empty()
+                        }
+                    })
+                    .collect();
+
+                self.intersectables_2d_mbvh = bvh::Mbvh::from(
+                    bvh::Builder {
+                        aabbs: Some(&aabbs),
+                        primitives: &aabbs,
+                        primitives_per_leaf: NonZeroUsize::new(1),
+                    }
+                    .construct_binned_sah()
+                    .unwrap_or_default(),
+                );
+            }
+        }
+
+        changed
+    }
+
+    /// Traverses a ray through the scene intersecting objects according to the hitmask.
+    pub fn cast(&self, ray: &mut bvh::Ray, mask: HitMask) -> CastResult {
+        let mut result = CastResult::None;
+
+        if mask.contains(HitMask::MESH_2D) {
+            for (id, ray) in self.intersectables_2d_mbvh.traverse_iter_indices(ray) {
+                if let Some(hit) = self.intersectables_2d[id as usize].intersect_2d(
+                    ray,
+                    &self.meshes_2d[id as usize],
+                    &self.instances_2d[id as usize],
+                ) {
+                    result = CastResult::Mesh2D {
+                        id,
+                        instance_id: hit,
+                    };
+                }
+            }
+        }
+
+        if mask.contains(HitMask::MESH_3D) {
+            for (id, ray) in self.intersectables_3d_mbvh.traverse_iter_indices(ray) {
+                if let Some(hit) = self.intersectables_3d[id as usize].intersect_3d(
+                    ray,
+                    &self.meshes_3d[id as usize],
+                    &self.instances_3d[id as usize],
+                ) {
+                    result = CastResult::Mesh3D {
+                        id,
+                        instance_id: hit,
+                    };
+                }
+            }
+        }
+
+        result
     }
 
     /// Returns an id if a single mesh was loaded, otherwise it was a scene
@@ -292,7 +465,7 @@ impl Scene {
                     }),
                 }
             }
-
+            self.flags |= SceneFlags::MESHES_3D_CHANGED;
             return result;
         }
 
@@ -308,6 +481,7 @@ impl Scene {
 
         rfw_utils::log::info!("added graph \"{}\" with id {}", name, handle.get_id());
 
+        self.flags |= SceneFlags::INSTANCES_3D_CHANGED;
         handle
     }
 
@@ -319,6 +493,7 @@ impl Scene {
             &mut self.instances_3d,
             &mut self.skins,
         );
+        self.flags |= SceneFlags::INSTANCES_3D_CHANGED;
     }
 
     pub fn add_3d_object<T: ToMesh3D>(&mut self, object: T) -> MeshId3D {
@@ -328,6 +503,7 @@ impl Scene {
         self.instances_3d
             .overwrite_val(id, InstanceList3D::default());
         rfw_utils::log::info!("added 3d mesh \"{}\" with id {}", name, id);
+        self.flags |= SceneFlags::MESHES_3D_CHANGED;
         MeshId3D(id as _)
     }
 
@@ -341,6 +517,7 @@ impl Scene {
 
     pub fn get_3d_object_mut(&mut self, id: MeshId3D) -> Option<&mut Mesh3D> {
         if let Some(index) = id.as_index() {
+            self.flags |= SceneFlags::MESHES_3D_CHANGED;
             self.meshes_3d.get_mut(index)
         } else {
             None
@@ -353,6 +530,7 @@ impl Scene {
         rfw_utils::log::info!("added 2d mesh with id {}", id);
         self.instances_2d
             .overwrite_val(id, InstanceList2D::default());
+        self.flags |= SceneFlags::MESHES_2D_CHANGED;
         MeshId2D(id as _)
     }
 
@@ -366,6 +544,7 @@ impl Scene {
 
     pub fn get_2d_object_mut(&mut self, id: MeshId2D) -> Option<&mut Mesh2D> {
         if let Some(index) = id.as_index() {
+            self.flags |= SceneFlags::MESHES_2D_CHANGED;
             self.meshes_2d.get_mut(index)
         } else {
             None
@@ -392,6 +571,7 @@ impl Scene {
         }
 
         self.meshes_3d[index] = object;
+        self.flags |= SceneFlags::MESHES_3D_CHANGED;
         Ok(())
     }
 
@@ -414,6 +594,7 @@ impl Scene {
             Err(SceneError::InvalidObjectIndex(index))
         } else {
             self.meshes_2d[index] = object;
+            self.flags |= SceneFlags::MESHES_2D_CHANGED;
             Ok(())
         }
     }
@@ -430,6 +611,7 @@ impl Scene {
             Ok(m) => {
                 rfw_utils::log::info!("removed 3d mesh \"{}\" with id {}", m.name, index);
                 self.instances_3d.erase(index).unwrap();
+                self.flags |= SceneFlags::MESHES_3D_CHANGED;
                 Ok(())
             }
             Err(_) => {
@@ -448,6 +630,7 @@ impl Scene {
                 Ok(_) => {
                     rfw_utils::log::info!("removed 2d mesh with id {}", index);
                     self.instances_2d.erase(index).unwrap();
+                    self.flags |= SceneFlags::MESHES_2D_CHANGED;
                     return Ok(());
                 }
                 Err(_) => {
@@ -479,6 +662,7 @@ impl Scene {
 
         let id = self.instances_3d[id].allocate();
         rfw_utils::log::info!("allocated instance {} for 3d mesh {}", id.get_id(), mesh.0,);
+        self.flags |= SceneFlags::INSTANCES_3D_CHANGED;
         Ok(id)
     }
 
@@ -497,11 +681,13 @@ impl Scene {
 
         let id = self.instances_2d[id].allocate();
         rfw_utils::log::info!("allocated instance {} for 2d mesh {}", id.get_id(), mesh.0,);
+        self.flags |= SceneFlags::INSTANCES_2D_CHANGED;
         Ok(id)
     }
 
     pub fn remove_2d_instance(&mut self, handle: InstanceHandle2D) {
         rfw_utils::log::info!("invalidated instance {}", handle.get_id());
+        self.flags |= SceneFlags::INSTANCES_2D_CHANGED;
         handle.make_invalid();
     }
 
@@ -570,6 +756,7 @@ impl Scene {
         self.instances_3d
             .iter_mut()
             .for_each(|(_, i)| i.reset_changed());
+        self.flags = SceneFlags::empty();
     }
 
     pub fn update_lights(&mut self) {

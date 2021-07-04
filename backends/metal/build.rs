@@ -30,7 +30,7 @@ fn main() {
             Ok(c) => {
                 let output = c
                     .wait_with_output()
-                    .expect(format!("Failed to compile: {}", path.display()).as_str());
+                    .unwrap_or_else(|e| panic!("Failed to compile: {}: {}", path.display(), e));
 
                 if !output.stdout.is_empty() {
                     println!("\tstdout: {}", unsafe {
