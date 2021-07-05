@@ -1,3 +1,5 @@
+use core::panic;
+
 use rfw::prelude::*;
 
 #[allow(dead_code, non_snake_case, improper_ctypes, non_camel_case_types)]
@@ -17,6 +19,10 @@ pub struct VulkanBackend {
     instance: *mut std::ffi::c_void,
 }
 
+const XLIB_HANDLE: u32 = 0;
+const XCB_HANDLE: u32 = 1;
+const WAYLAND_HANDLE: u32 = 2;
+
 impl FromWindowHandle for VulkanBackend {
     fn init<W: HasRawWindowHandle>(
         window: &W,
@@ -32,11 +38,49 @@ impl FromWindowHandle for VulkanBackend {
             match handle {
                 RawWindowHandle::Windows(handle) => {
                     instance = unsafe {
-                        ffi::create_instance(handle.hwnd, handle.hinstance, width, height, scale_factor)
+                        ffi::create_instance(
+                            handle.hwnd as u64,
+                            handle.hinstance as u64,
+                            0,
+                            width,
+                            height,
+                            scale_factor,
+                        )
                     };
                 }
                 _ => panic!("Unsupported window handle {:?}", handle),
             }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let handle = window.raw_window_handle();
+            let handle0: u64;
+            let handle1: u64;
+            let handle2: u64;
+
+            match handle {
+                RawWindowHandle::Xlib(handle) => {
+                    handle0 = handle.display as u64;
+                    handle1 = handle.window as u64;
+                    handle2 = XLIB_HANDLE as u64;
+                }
+                RawWindowHandle::Xcb(handle) => {
+                    handle0 = handle.connection as u64;
+                    handle1 = handle.window as u64;
+                    handle2 = XCB_HANDLE as u64;
+                }
+                RawWindowHandle::Wayland(handle) => {
+                    handle0 = handle.surface as u64;
+                    handle1 = handle.display as u64;
+                    handle2 = WAYLAND_HANDLE as u64;
+                }
+                _ => panic!("Unsupported window handle {:?}", handle),
+            }
+
+            instance = unsafe {
+                ffi::create_instance(handle0, handle1, handle2, width, height, scale_factor)
+            };
         }
 
         if !instance.is_null() {

@@ -17,3 +17,6 @@ rfw-backend-metal = { path="../../backends/metal" }
 
 [target.'cfg(windows)'.dependencies]
 rfw-backend-vulkan-rt = { path="../../backends/vulkan_rt" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rfw-backend-vulkan-rt = { path="../../backends/vulkan_rt" }

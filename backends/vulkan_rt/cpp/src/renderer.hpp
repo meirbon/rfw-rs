@@ -21,7 +21,7 @@ class VulkanRenderer
   public:
 	enum Flags : unsigned int
 	{
-		None = 0,
+		Empty = 0,
 		Update3D = 1,
 		UpdateInstances3D = 2,
 		Update2D = 4,

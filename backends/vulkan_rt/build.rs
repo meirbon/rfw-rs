@@ -3,8 +3,12 @@ use std::{fs, path::PathBuf};
 fn main() {
     let mut definitions = vec![];
 
-    if cfg!(windows) {
+    if cfg!(target_os = "windows") {
         definitions.push(("WINDOWS", "1"));
+    }
+
+    if cfg!(target_os = "linux") {
+        definitions.push(("LINUX", "1"));
     }
 
     let vulkan_sdk = std::env!("VULKAN_SDK");
@@ -13,7 +17,11 @@ fn main() {
     }
 
     let vulkan_sdk = PathBuf::from(vulkan_sdk);
-    let vulkan_libs = vec!["vulkan-1", "VkLayer_utils"];
+    let vulkan_libs = if cfg!(windows) {
+        vec!["vulkan-1", "VkLayer_utils"]
+    } else {
+        vec![]
+    };
     let vulkan_include_dir = vulkan_sdk.join("include");
     if cfg!(target_pointer_width = "64") {
         println!(
