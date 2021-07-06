@@ -33,7 +33,7 @@ std::set<uint32_t> findQueueFamilyIndices(vk::PhysicalDevice physicalDevice, vk:
 
 	if (graphicsQueue)
 		*graphicsQueue = graphicsQueueFamilyIndex;
-	if (presentQueueFamilyIndex)
+	if (presentQueue)
 		*presentQueue = presentQueueFamilyIndex;
 
 	return {graphicsQueueFamilyIndex, presentQueueFamilyIndex};
