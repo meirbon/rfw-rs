@@ -30,7 +30,12 @@ fn main() {
     let files_to_ignore = vec![];
     let mut build = cc::Build::new();
     build
-        .files(vec!["cpp/src/renderer.cpp", "cpp/src/library.cpp"])
+        .files(vec![
+            "cpp/src/renderer.cpp",
+            "cpp/src/library.cpp",
+            "cpp/src/device.cpp",
+            "cpp/src/vulkan_loader.cpp",
+        ])
         .includes(vec![
             "cpp/deps",
             vulkan_include_dir.to_string_lossy().as_ref(),

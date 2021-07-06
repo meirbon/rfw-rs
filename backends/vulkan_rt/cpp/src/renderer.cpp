@@ -8,9 +8,8 @@
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 
+#include "device.h"
 #include "shaders.h"
-
-VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 using namespace glm;
 
@@ -52,23 +51,50 @@ mat4 get_rh_view_matrix(const CameraView3D &view)
 	return lookAtRH(pos, pos + direction, up);
 }
 
-VulkanRenderer *VulkanRenderer::create_instance(vk::Instance instance, vk::SurfaceKHR surface, unsigned int width,
-												unsigned int height, double scale)
+VulkanRenderer *VulkanRenderer::create_instance(vk::UniqueInstance instance, vk::UniqueSurfaceKHR surface,
+												unsigned int width, unsigned int height, double scale)
 {
-	return new VulkanRenderer(instance, surface, width, height, scale);
+	return new VulkanRenderer(std::move(instance), std::move(surface), width, height, scale);
 }
 
 VulkanRenderer::~VulkanRenderer()
 {
-	_instance.destroySurfaceKHR(_surface);
-	_instance.destroy();
 }
 
-VulkanRenderer::VulkanRenderer(vk::Instance instance, vk::SurfaceKHR surface, unsigned int width, unsigned int height,
-							   double scale)
-	: _instance(instance), _surface(surface)
+VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR surface, unsigned int width,
+							   unsigned int height, double scale)
+	: _instance(std::move(instance)), _surface(std::move(surface))
 {
-	std::cout << "Received Vulkan instance: " << instance << ", surface: " << surface << std::endl;
+	std::cout << "Received Vulkan instance: " << _instance.get() << ", surface: " << _surface.get() << std::endl;
+
+	vk::PhysicalDevice physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "NVIDIA");
+	if (!physicalDevice)
+		physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "AMD");
+	if (!physicalDevice)
+		physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "Intel");
+
+	if (!physicalDevice)
+	{
+		std::cerr << "Could not find a suitable Vulkan device.";
+		exit(-1);
+	}
+
+	std::set<uint32_t> uniqueQueueFamilyIndices =
+		vkh::findQueueFamilyIndices(physicalDevice, _surface.get(), nullptr, nullptr);
+	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
+	queueCreateInfos.reserve(uniqueQueueFamilyIndices.size());
+
+	const float queuePriority = 1.0f;
+	for (uint32_t queueFamilyIndex : uniqueQueueFamilyIndices)
+	{
+		queueCreateInfos.push_back(vk::DeviceQueueCreateInfo({}, queueFamilyIndex, 1, &queuePriority));
+	}
+
+	const std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+	_device = physicalDevice.createDeviceUnique(vk::DeviceCreateInfo({}, queueCreateInfos, {}, deviceExtensions, {}));
+
+	vk::PhysicalDeviceProperties deviceProperties = physicalDevice.getProperties();
+	std::cout << "Picked Vulkan device: " << deviceProperties.deviceName.data() << std::endl;
 }
 
 void VulkanRenderer::set_2d_mesh(unsigned int id, MeshData2D data)

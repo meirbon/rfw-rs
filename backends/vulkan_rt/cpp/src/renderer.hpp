@@ -2,11 +2,9 @@
 #define RENDERER_HPP
 
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#include "vulkan_loader.h"
 
 #include "structs.h"
-
-#include <vulkan/vulkan.hpp>
 
 #include <memory>
 #include <vector>
@@ -33,7 +31,7 @@ class VulkanRenderer
 	VulkanRenderer(const VulkanRenderer &other) = delete;
 	~VulkanRenderer();
 
-	static VulkanRenderer *create_instance(vk::Instance, vk::SurfaceKHR surface, unsigned int width,
+	static VulkanRenderer *create_instance(vk::UniqueInstance, vk::UniqueSurfaceKHR surface, unsigned int width,
 										   unsigned int height, double scale);
 
 	void set_2d_mesh(unsigned int id, MeshData2D data);
@@ -52,10 +50,11 @@ class VulkanRenderer
 	void resize(unsigned int width, unsigned int height, double scale);
 
   private:
-	VulkanRenderer(vk::Instance instance, vk::SurfaceKHR surface, unsigned int width, unsigned int height,
+	VulkanRenderer(vk::UniqueInstance, vk::UniqueSurfaceKHR surface, unsigned int width, unsigned int height,
 				   double scale);
 
-	vk::Instance _instance;
-	vk::SurfaceKHR _surface;
+	vk::UniqueInstance _instance;
+	vk::UniqueSurfaceKHR _surface;
+	vk::UniqueDevice _device;
 };
 #endif

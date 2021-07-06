@@ -114,7 +114,7 @@ impl Instance {
             .expect("Could not create window.");
         let renderer = T::init(&window, width, height, 1.0).expect("Could not initialize renderer");
 
-        let world = World::new();
+        let world = World::default();
         let scheduler = Scheduler::default();
 
         let mut this = Self {
@@ -286,7 +286,7 @@ impl Instance {
     }
 
     #[cfg(feature = "serde")]
-    pub fn save_scene<B: AsRef<Path>>(&self, path: B) -> Result<(), ()> {
+    pub fn save_scene<B: AsRef<std::path::Path>>(&self, path: B) -> Result<(), ()> {
         match self.scene.serialize(path) {
             Ok(_) => Ok(()),
             _ => Err(()),

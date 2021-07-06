@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 add_library(${PROJECT_NAME}
 		src/library.cpp
 		src/renderer.cpp
-		)
+		src/device.cpp
+		src/vulkan_loader.cpp)
 
 if (WIN32)
 	target_compile_definitions(${PROJECT_NAME} PUBLIC -DWINDOWS=1)

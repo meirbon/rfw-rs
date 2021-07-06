@@ -274,7 +274,7 @@ fn main() {
                 .short("r")
                 .takes_value(true)
                 .multiple(false)
-                .default_value("wgpu")
+                .default_value("vulkan_rt")
                 .possible_values(&["wgpu", "vulkan_rt"]),
         );
     }

@@ -1,8 +1,11 @@
 #define API extern "C"
+
 #if WINDOWS
 #include <Windows.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
+
+#include "vulkan_loader.h"
 
 #include "library.h"
 #include "renderer.hpp"
@@ -12,7 +15,6 @@
 // Storage for dynamic Vulkan library loader
 using Renderer = VulkanRenderer;
 
-const std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 constexpr bool enableValidationLayers = true;
 
 std::vector<const char *> getRequiredExtensions()
@@ -35,6 +37,7 @@ bool checkValidationLayerSupport()
 	std::vector<vk::LayerProperties> availableLayers(layerCount);
 	CheckVK(vk::enumerateInstanceLayerProperties(&layerCount, availableLayers.data()));
 
+	const std::array<const char *, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 	for (const char *layerName : validationLayers)
 	{
 		bool layerFound = false;
@@ -70,7 +73,7 @@ extern "C" void *create_instance(void *hwnd, void *hinstance, unsigned int width
 {
 	const std::vector<const char *> extensions = getRequiredExtensions();
 
-	vk::ApplicationInfo applicationInfo = vk::ApplicationInfo("", 0, "rfw", 2, VK_API_VERSION_1_2);
+	vk::ApplicationInfo applicationInfo = vk::ApplicationInfo("", 0, "rfw", 2, VK_API_VERSION_1_0);
 	vk::InstanceCreateInfo createInfo = {};
 	createInfo.pApplicationInfo = &applicationInfo;
 	createInfo.enabledExtensionCount = extensions.size();
@@ -83,6 +86,8 @@ extern "C" void *create_instance(void *hwnd, void *hinstance, unsigned int width
 		vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
 			vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
 		debugCallback);
+
+	const std::array<const char *, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 	if constexpr (enableValidationLayers)
 	{
 		createInfo.enabledLayerCount = validationLayers.size();
@@ -99,17 +104,16 @@ extern "C" void *create_instance(void *hwnd, void *hinstance, unsigned int width
 	auto vkGetInstanceProcAddrPtr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddrPtr);
 
-	vk::Instance instance;
-	CheckVK(vk::createInstance(&createInfo, nullptr, &instance));
+	vk::UniqueInstance instance = vk::createInstanceUnique(createInfo);
 
-	VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(instance.get());
 
 	vk::Win32SurfaceCreateInfoKHR surfaceCreateInfo =
 		vk::Win32SurfaceCreateInfoKHR({}, reinterpret_cast<HINSTANCE>(hinstance), reinterpret_cast<HWND>(hwnd));
-	vk::SurfaceKHR surface;
-	CheckVK(instance.createWin32SurfaceKHR(&surfaceCreateInfo, nullptr, &surface));
 
-	return VulkanRenderer::create_instance(instance, surface, width, height, scale);
+	vk::UniqueSurfaceKHR surface = instance->createWin32SurfaceKHRUnique(surfaceCreateInfo);
+
+	return VulkanRenderer::create_instance(std::move(instance), std::move(surface), width, height, scale);
 }
 #endif
 
