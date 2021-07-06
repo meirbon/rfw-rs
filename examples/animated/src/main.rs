@@ -279,6 +279,18 @@ fn main() {
         );
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        app = app.arg(
+            Arg::with_name("renderer")
+                .short("r")
+                .takes_value(true)
+                .multiple(false)
+                .default_value("wgpu")
+                .possible_values(&["wgpu", "vulkan_rt"]),
+        );
+    }
+
     let matches = app.get_matches();
     let width: u32 = matches
         .value_of("width")
@@ -315,7 +327,20 @@ fn main() {
         };
     }
 
-    #[cfg(all(not(target_vendor = "apple"), not(target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        instance = if matches.value_of("renderer").unwrap_or("wgpu") == "wgpu" {
+            rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height)
+        } else {
+            rfw::Instance::new::<rfw_backend_vulkan_rt::VulkanBackend>(width, height)
+        };
+    }
+
+    #[cfg(all(
+        not(target_vendor = "apple"),
+        not(target_os = "windows"),
+        not(target_os = "linux")
+    ))]
     {
         instance = rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height);
     }

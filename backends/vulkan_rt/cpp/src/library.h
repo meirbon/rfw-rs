@@ -5,11 +5,25 @@
 #define API
 #endif
 
+#define XLIB_HANDLE 0
+#define XCB_HANDLE 1
+#define WAYLAND_HANDLE 2
+
 #include "structs.h"
 
-#if WINDOWS
-API void *create_instance(void *hwnd, void *hinstance, unsigned int width, unsigned int height, double scale);
-#endif
+/**
+ * @brief Create a instance object
+ *
+ * @param handle0 On Windows: hwnd
+ * @param handle1 On Windows: hinstance
+ * @param handle2
+ * @param width
+ * @param height
+ * @param scale
+ * @return API*
+ */
+API void *create_instance(unsigned long long handle0, unsigned long long handle1, unsigned long long handle2,
+						  unsigned int width, unsigned int height, double scale);
 
 API void destroy_instance(void *instance);
 

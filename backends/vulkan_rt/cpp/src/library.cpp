@@ -3,6 +3,10 @@
 #if WINDOWS
 #include <Windows.h>
 #define VK_USE_PLATFORM_WIN32_KHR
+#elif LINUX
+#define VK_USE_PLATFORM_XLIB_KHR
+#define VK_USE_PLATFORM_XCB_KHR
+#define VK_USE_PLATFORM_WAYLAND_KHR
 #endif
 
 #include "vulkan_loader.h"
@@ -17,16 +21,34 @@ using Renderer = VulkanRenderer;
 
 constexpr bool enableValidationLayers = true;
 
-std::vector<const char *> getRequiredExtensions()
+std::vector<const char *> getRequiredExtensions(unsigned long long handle)
 {
+	std::vector<const char *> extensions = {VK_KHR_SURFACE_EXTENSION_NAME};
+
 	if constexpr (enableValidationLayers)
 	{
-		return {VK_KHR_WIN32_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+		extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 	}
-	else
+#if WINDOWS
+	extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#elif LINUX
+	switch (handle)
 	{
-		return {VK_KHR_WIN32_SURFACE_EXTENSION_NAME, VK_KHR_SURFACE_EXTENSION_NAME};
+	case XLIB_HANDLE: {
+		extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+		break;
 	}
+	case XCB_HANDLE: {
+		extensions.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+		break;
+	}
+	case WAYLAND_HANDLE: {
+		extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+		break;
+	}
+	}
+#endif
+	return extensions;
 }
 
 bool checkValidationLayerSupport()
@@ -68,10 +90,10 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBits
 	return VK_FALSE;
 }
 
-#if WINDOWS
-extern "C" void *create_instance(void *hwnd, void *hinstance, unsigned int width, unsigned int height, double scale)
+API void *create_instance(unsigned long long handle0, unsigned long long handle1, unsigned long long handle2,
+						  unsigned int width, unsigned int height, double scale)
 {
-	const std::vector<const char *> extensions = getRequiredExtensions();
+	const std::vector<const char *> extensions = getRequiredExtensions(handle2);
 
 	vk::ApplicationInfo applicationInfo = vk::ApplicationInfo("", 0, "rfw", 2, VK_API_VERSION_1_0);
 	vk::InstanceCreateInfo createInfo = {};
@@ -108,14 +130,44 @@ extern "C" void *create_instance(void *hwnd, void *hinstance, unsigned int width
 
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(instance.get());
 
+	vk::UniqueSurfaceKHR surface;
+#if WINDOWS
 	vk::Win32SurfaceCreateInfoKHR surfaceCreateInfo =
-		vk::Win32SurfaceCreateInfoKHR({}, reinterpret_cast<HINSTANCE>(hinstance), reinterpret_cast<HWND>(hwnd));
-
-	vk::UniqueSurfaceKHR surface = instance->createWin32SurfaceKHRUnique(surfaceCreateInfo);
+		vk::Win32SurfaceCreateInfoKHR({}, reinterpret_cast<HINSTANCE>(handle1), reinterpret_cast<HWND>(handle0));
+	surface = instance->createWin32SurfaceKHRUnique(surfaceCreateInfo);
+#elif LINUX
+	switch (handle2)
+	{
+	case XLIB_HANDLE: {
+		std::cout << "Surface type: XLIB" << std::endl;
+		Display *display = reinterpret_cast<Display *>(handle0);
+		Window window = static_cast<Window>(handle1);
+		vk::XlibSurfaceCreateInfoKHR createInfoKhr = vk::XlibSurfaceCreateInfoKHR({}, display, window);
+		surface = instance->createXlibSurfaceKHRUnique(createInfoKhr);
+		break;
+	}
+	case XCB_HANDLE: {
+		std::cout << "Surface type: XCB" << std::endl;
+		xcb_connection_t *connection = reinterpret_cast<xcb_connection_t *>(handle0);
+		xcb_window_t window = static_cast<xcb_window_t>(handle1);
+		vk::XcbSurfaceCreateInfoKHR createInfoKhr = vk::XcbSurfaceCreateInfoKHR({}, connection, window);
+		surface = instance->createXcbSurfaceKHRUnique(createInfoKhr);
+		break;
+	}
+	case WAYLAND_HANDLE: {
+		std::cout << "Surface type: WAYLAND" << std::endl;
+		wl_surface *wlSurface = reinterpret_cast<wl_surface *>(handle0);
+		wl_display *display = reinterpret_cast<wl_display *>(handle1);
+		vk::WaylandSurfaceCreateInfoKHR createInfoKhr = vk::WaylandSurfaceCreateInfoKHR({}, display, wlSurface);
+		surface = instance->createWaylandSurfaceKHRUnique(createInfoKhr);
+		break;
+	}
+	}
+	// TODO
+#endif
 
 	return VulkanRenderer::create_instance(std::move(instance), std::move(surface), width, height, scale);
 }
-#endif
 
 extern "C" void destroy_instance(void *instance)
 {

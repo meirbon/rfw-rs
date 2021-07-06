@@ -13,6 +13,11 @@ if (WIN32)
 	target_compile_definitions(${PROJECT_NAME} PUBLIC -DWINDOWS=1)
 endif (WIN32)
 
+if (UNIX AND NOT APPLE)
+	target_compile_definitions(${PROJECT_NAME} PUBLIC -DLINUX=1)
+endif (UNIX AND NOT APPLE)
+
+
 find_package(Vulkan REQUIRED)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan)
