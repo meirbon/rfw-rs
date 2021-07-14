@@ -1,4 +1,32 @@
+use rfw_utils::BytesConversion;
+use spirv_compiler::*;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
+use std::process::Command;
 use std::{fs, path::PathBuf};
+
+const EXTENSIONS: [&'static str; 15] = [
+    "vert", "vs", "frag", "fs", "comp", "geom", "tese", "tesc", "rgen", "chit", "ahit", "miss",
+    "call", "mesh", "rint",
+];
+const KINDS: [ShaderKind; 15] = [
+    ShaderKind::Vertex,
+    ShaderKind::Vertex,
+    ShaderKind::Fragment,
+    ShaderKind::Fragment,
+    ShaderKind::Compute,
+    ShaderKind::Geometry,
+    ShaderKind::TessEvaluation,
+    ShaderKind::TessControl,
+    ShaderKind::RayGeneration,
+    ShaderKind::ClosestHit,
+    ShaderKind::AnyHit,
+    ShaderKind::Miss,
+    ShaderKind::Callable,
+    ShaderKind::Mesh,
+    ShaderKind::Intersection,
+];
 
 fn main() {
     let mut definitions = vec![];
@@ -9,6 +37,10 @@ fn main() {
 
     if cfg!(target_os = "linux") {
         definitions.push(("LINUX", "1"));
+    }
+
+    if cfg!(feature = "validation_layers") {
+        definitions.push(("ENABLE_VALIDATION_LAYERS", "1"));
     }
 
     let vulkan_sdk = std::env!("VULKAN_SDK");
@@ -112,4 +144,68 @@ fn main() {
         }
         Err(_) => panic!("Could not generate bindings for \"src/ffi.rs\""),
     };
+
+    // Shader compilation
+    let mut extensions: HashMap<&str, ShaderKind> = HashMap::new();
+    EXTENSIONS.iter().enumerate().for_each(|(i, ext)| {
+        extensions.insert(ext, KINDS[i]);
+    });
+
+    // Create compiler
+    let mut compiler = CompilerBuilder::new().build().unwrap();
+
+    // Read directory
+    let dir = PathBuf::from("./shaders").as_path().read_dir().unwrap();
+
+    // Filter entries
+    let entries = dir
+        .map(|d| d)
+        .filter(|d| d.is_ok())
+        .map(|e| e.unwrap())
+        .filter(|e| {
+            if !e.path().is_file() {
+                return false;
+            }
+
+            if let Some(extension) = e.path().extension() {
+                extensions.contains_key(extension.to_str().unwrap())
+            } else {
+                false
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Compile shaders
+    for entry in entries.into_iter() {
+        println!("cargo:rerun-if-changed={}", entry.path().display());
+        let shader = match compiler.compile_from_file(
+            entry.path(),
+            *extensions
+                .get(entry.path().extension().unwrap().to_str().unwrap())
+                .unwrap(),
+            true,
+        ) {
+            Ok(shader) => shader,
+            Err(e) => {
+                panic!("compile error: {}", e);
+            }
+        };
+
+        let mut save_path = entry.path().to_str().unwrap().to_string();
+        save_path.push_str(".spv");
+        let mut file = File::create(&save_path).unwrap();
+        file.write_all(shader.as_bytes()).unwrap();
+
+        let mut out_path = save_path.clone();
+        out_path.push_str(".h");
+
+        Command::new("xxd")
+            .arg("-i")
+            .arg(format!("{}", save_path))
+            .arg(format!("{}", out_path))
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
+    }
 }

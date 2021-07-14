@@ -76,13 +76,18 @@ impl Intersectable {
 
     pub fn from_3d_instance_list(mesh: &Mesh3D, list: &InstanceList3D) -> Result<Self, BuildError> {
         // Construct a performant bvh representation of the mesh itself
+        let bvh = Builder {
+            aabbs: None,
+            primitives: &mesh.triangles,
+            primitives_per_leaf: None,
+        }
+        .construct_binned_sah()?;
+
+        // TODO: Remove this
+        bvh.validate(mesh.triangles.len());
+
         let mesh_mbvh = Mbvh::from(
-            Builder {
-                aabbs: None,
-                primitives: &mesh.triangles,
-                primitives_per_leaf: None,
-            }
-            .construct_binned_sah()?,
+            bvh
         );
 
         // Construct a bvh over all instances

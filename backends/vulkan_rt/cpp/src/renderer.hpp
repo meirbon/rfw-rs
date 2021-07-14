@@ -7,16 +7,43 @@
 #include "structs.h"
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 vk::Result _CheckVK(vk::Result result, const char *command, const char *file, int line);
+template <typename T> T _CheckVK(vk::ResultValue<T> result, const char *command, const char *file, const int line)
+{
+	_CheckVK(result.result, command, file, line);
+	return result.value;
+}
+
 #define CheckVK(x) _CheckVK((x), #x, __FILE__, __LINE__)
 
 class VulkanRenderer
 {
   public:
+	struct SM
+	{
+		SM() = default;
+
+		SM(vk::SharingMode mode, uint32_t indicesCount = 0, uint32_t *indices = nullptr) : sharingMode(mode)
+		{
+			if (indicesCount > 0 && indices)
+			{
+				familyIndices = std::vector<uint32_t>(indices, indices + indicesCount);
+			}
+		}
+
+		SM(vk::SharingMode mode, std::vector<uint32_t> indices) : sharingMode(mode), familyIndices(std::move(indices))
+		{
+		}
+
+		vk::SharingMode sharingMode = vk::SharingMode::eConcurrent;
+		std::vector<uint32_t> familyIndices;
+	};
+
 	enum Flags : unsigned int
 	{
 		Empty = 0,
@@ -53,8 +80,38 @@ class VulkanRenderer
 	VulkanRenderer(vk::UniqueInstance, vk::UniqueSurfaceKHR surface, unsigned int width, unsigned int height,
 				   double scale);
 
+	/**
+	 * This function assumes _sharingModeUtil was filled correctly.
+	 * @param fromOldSwapchain Whether to (re)create the swapchain from an old swapchain.
+	 */
+	void create_swapchain(unsigned int width, unsigned int height, bool force = false);
+
 	vk::UniqueInstance _instance;
 	vk::UniqueSurfaceKHR _surface;
 	vk::UniqueDevice _device;
+
+	std::vector<uint32_t> _queueFamilyIndices;
+	SM _sharingModeUtil;
+
+	vk::UniqueSwapchainKHR _swapchain;
+	std::vector<vk::Image> _swapchainImages;
+	std::vector<vk::UniqueImageView> _swapchainImageViews;
+
+	vk::UniqueCommandPool _commandPool;
+	std::vector<vk::UniqueCommandBuffer> _commandBuffers;
+
+	vk::Queue _graphicsQueue;
+	vk::Queue _presentQueue;
+
+	vk::UniquePipelineLayout _pipelineLayout;
+	vk::UniquePipeline _pipeline;
+	vk::UniqueShaderModule _vertModule;
+	vk::UniqueShaderModule _fragModule;
+	vk::UniqueRenderPass _renderPass;
+	vk::UniqueSemaphore _imageAvailableSemaphore;
+	vk::UniqueSemaphore _renderFinishedSemaphore;
+
+	vk::Extent2D _extent;
+	std::vector<vk::UniqueFramebuffer> _framebuffers;
 };
 #endif

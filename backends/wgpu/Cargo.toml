@@ -11,15 +11,15 @@ version = "0.2.0"
 [dependencies]
 futures = "0.3"
 num_cpus = "1.13"
-rfw = { path="../../rfw", version="0.2" }
-wgpu = { version="0.9", features=["cross"] }
+rfw = { path = "../../rfw", version = "0.2" }
+wgpu = "0.9"
 rayon = "1.5"
 num-integer = "0.1"
 bitflags = "1.2"
 # rfw = "0.1"
 
 [build-dependencies]
-rfw-utils = { path="../../crates/rfw-utils", version="0.2" }
+rfw-utils = { path = "../../crates/rfw-utils", version = "0.2" }
 spirv-compiler = "0.1"
 
 [features]

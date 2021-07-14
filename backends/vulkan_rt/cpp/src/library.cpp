@@ -19,16 +19,14 @@
 // Storage for dynamic Vulkan library loader
 using Renderer = VulkanRenderer;
 
-constexpr bool enableValidationLayers = true;
-
 std::vector<const char *> getRequiredExtensions(unsigned long long handle)
 {
 	std::vector<const char *> extensions = {VK_KHR_SURFACE_EXTENSION_NAME};
 
-	if constexpr (enableValidationLayers)
-	{
-		extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-	}
+#if !defined(NDEBUG) || (defined(ENABLE_VALIDATION_LAYERS) && ENABLE_VALIDATION_LAYERS)
+	extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#endif
+
 #if WINDOWS
 	extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif LINUX
@@ -86,7 +84,24 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBits
 											 VkDebugUtilsMessageTypeFlagsEXT messageType,
 											 const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData)
 {
-	std::cerr << "Validation layer: " << pCallbackData->pMessage << std::endl;
+	switch ((vk::DebugUtilsMessageSeverityFlagBitsEXT)messageSeverity)
+	{
+	case vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo:
+		std::cout << "Validation info: " << pCallbackData->pMessage << std::endl;
+		break;
+	case vk::DebugUtilsMessageSeverityFlagBitsEXT::eError:
+		std::cerr << "Validation error: " << pCallbackData->pMessage << std::endl;
+		break;
+	case vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose:
+		std::cout << "Validation verbose: " << pCallbackData->pMessage << std::endl;
+		break;
+	case vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning:
+		std::cerr << "Validation warning: " << pCallbackData->pMessage << std::endl;
+		break;
+	default:
+		std::cout << "Validation layer: " << pCallbackData->pMessage << std::endl;
+		break;
+	}
 	return VK_FALSE;
 }
 
@@ -110,17 +125,14 @@ API void *create_instance(unsigned long long handle0, unsigned long long handle1
 		debugCallback);
 
 	const std::array<const char *, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-	if constexpr (enableValidationLayers)
-	{
-		createInfo.enabledLayerCount = validationLayers.size();
-		createInfo.ppEnabledLayerNames = validationLayers.data();
-		createInfo.pNext = &debugCreateInfo;
-	}
-	else
-	{
-		createInfo.enabledLayerCount = 0;
-		createInfo.pNext = nullptr;
-	}
+#if !defined(NDEBUG) || defined(ENABLE_VALIDATION_LAYERS) && ENABLE_VALIDATION_LAYERS
+	createInfo.enabledLayerCount = validationLayers.size();
+	createInfo.ppEnabledLayerNames = validationLayers.data();
+	createInfo.pNext = &debugCreateInfo;
+#else
+	createInfo.enabledLayerCount = 0;
+	createInfo.pNext = nullptr;
+#endif
 
 	vk::DynamicLoader dl;
 	auto vkGetInstanceProcAddrPtr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
@@ -141,7 +153,8 @@ API void *create_instance(unsigned long long handle0, unsigned long long handle1
 	case XLIB_HANDLE: {
 		std::cout << "Surface type: XLIB" << std::endl;
 		Display *display = reinterpret_cast<Display *>(handle0);
-		Window window = static_cast<Window>(handle1);
+		Window window;
+		memcpy(&window, &handle1, sizeof(Window));
 		vk::XlibSurfaceCreateInfoKHR createInfoKhr = vk::XlibSurfaceCreateInfoKHR({}, display, window);
 		surface = instance->createXlibSurfaceKHRUnique(createInfoKhr);
 		break;
