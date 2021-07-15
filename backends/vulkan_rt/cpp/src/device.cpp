@@ -5,12 +5,19 @@ namespace vkh
 
 vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance, const char *vendorName)
 {
+	std::string vendor = vendorName;
+	std::transform(vendor.begin(), vendor.end(), vendor.begin(), ::tolower);
+
 	auto physicalDevices = instance.enumeratePhysicalDevices();
-	return physicalDevices[std::distance(
-		physicalDevices.begin(), std::find_if(physicalDevices.begin(), physicalDevices.end(),
-											  [&vendorName](const vk::PhysicalDevice &physicalDevice) {
-												  return strstr(physicalDevice.getProperties().deviceName, vendorName);
-											  }))];
+	return physicalDevices[std::distance(physicalDevices.begin(),
+										 std::find_if(physicalDevices.begin(), physicalDevices.end(),
+													  [&vendor](const vk::PhysicalDevice &physicalDevice) {
+														  const auto properties = physicalDevice.getProperties();
+														  std::string deviceName = properties.deviceName;
+														  std::transform(deviceName.begin(), deviceName.end(),
+																		 deviceName.begin(), ::tolower);
+														  return deviceName.find(vendor) != std::string::npos;
+													  }))];
 }
 
 std::set<uint32_t> findQueueFamilyIndices(vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface,

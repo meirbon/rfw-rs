@@ -84,11 +84,12 @@ class VulkanRenderer
 	 * This function assumes _sharingModeUtil was filled correctly.
 	 * @param fromOldSwapchain Whether to (re)create the swapchain from an old swapchain.
 	 */
-	void create_swapchain(unsigned int width, unsigned int height, bool force = false);
+	void create_swapchain(unsigned int width, unsigned int height);
 
 	vk::UniqueInstance _instance;
 	vk::UniqueSurfaceKHR _surface;
 	vk::UniqueDevice _device;
+	vk::PhysicalDevice _physicalDevice;
 
 	std::vector<uint32_t> _queueFamilyIndices;
 	SM _sharingModeUtil;
@@ -112,6 +113,7 @@ class VulkanRenderer
 	vk::UniqueSemaphore _renderFinishedSemaphore;
 
 	vk::Extent2D _extent;
+	double _scale = 1.0;
 	std::vector<vk::UniqueFramebuffer> _framebuffers;
 };
 #endif

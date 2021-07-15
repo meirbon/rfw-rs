@@ -17,6 +17,7 @@
 using namespace glm;
 
 constexpr vk::Format gFormat = vk::Format::eB8G8R8A8Unorm;
+constexpr uint32_t gImageCount = 2;
 
 vk::Result _CheckVK(vk::Result result, const char *command, const char *file, const int line)
 {
@@ -64,8 +65,16 @@ VulkanRenderer *VulkanRenderer::create_instance(vk::UniqueInstance instance, vk:
 
 VulkanRenderer::~VulkanRenderer()
 {
-	_swapchainImageViews.clear();
-	_commandBuffers.clear();
+	try
+	{
+		_device->waitIdle();
+		_swapchainImageViews.clear();
+		_commandBuffers.clear();
+	}
+	catch (const std::exception &e)
+	{
+		std::cerr << "Exception occurred: " << e.what() << std::endl;
+	}
 }
 
 VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR surface, unsigned int width,
@@ -74,13 +83,13 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 {
 	std::cout << "Received Vulkan instance: " << _instance.get() << ", surface: " << _surface.get() << std::endl;
 
-	vk::PhysicalDevice physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "NVIDIA");
-	if (!physicalDevice)
-		physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "AMD");
-	if (!physicalDevice)
-		physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "Intel");
+	_physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "NVIDIA");
+	if (!_physicalDevice)
+		_physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "AMD");
+	if (!_physicalDevice)
+		_physicalDevice = vkh::pickPhysicalDevice(_instance.get(), "Intel");
 
-	if (!physicalDevice)
+	if (!_physicalDevice)
 	{
 		std::cerr << "Could not find a suitable Vulkan device.";
 		exit(-1);
@@ -88,7 +97,7 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 
 	uint32_t graphicsQueue, presentQueue;
 	std::set<uint32_t> uniqueQueueFamilyIndices =
-		vkh::findQueueFamilyIndices(physicalDevice, _surface.get(), &graphicsQueue, &presentQueue);
+		vkh::findQueueFamilyIndices(_physicalDevice, _surface.get(), &graphicsQueue, &presentQueue);
 	std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
 
 	_queueFamilyIndices = std::vector<uint32_t>(uniqueQueueFamilyIndices.begin(), uniqueQueueFamilyIndices.end());
@@ -101,9 +110,9 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 	}
 
 	const std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-	_device = physicalDevice.createDeviceUnique(vk::DeviceCreateInfo({}, queueCreateInfos, {}, deviceExtensions, {}));
+	_device = _physicalDevice.createDeviceUnique(vk::DeviceCreateInfo({}, queueCreateInfos, {}, deviceExtensions, {}));
 
-	vk::PhysicalDeviceProperties deviceProperties = physicalDevice.getProperties();
+	vk::PhysicalDeviceProperties deviceProperties = _physicalDevice.getProperties();
 	std::cout << "Picked Vulkan device: " << deviceProperties.deviceName.data() << std::endl;
 
 	uint32_t *familyIndices = !_queueFamilyIndices.empty() ? _queueFamilyIndices.data() : nullptr;
@@ -156,21 +165,32 @@ void VulkanRenderer::synchronize()
 
 void VulkanRenderer::render(mat4 matrix_2d, CameraView3D view_3d)
 {
-	const uint32_t imageIndex = CheckVK(
-		_device->acquireNextImageKHR(*_swapchain, std::numeric_limits<uint64_t>::max(), *_imageAvailableSemaphore));
+	uint32_t imageIndex = 0;
+	if (_device->acquireNextImageKHR(*_swapchain, std::numeric_limits<uint64_t>::max(), *_imageAvailableSemaphore, {},
+									 &imageIndex) != vk::Result::eSuccess)
+		return;
 
 	vk::PipelineStageFlags waitStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-	vk::SubmitInfo submitInfo =
-		vk::SubmitInfo(1, &*_imageAvailableSemaphore, &waitStageMask, 1, &*_commandBuffers[imageIndex]);
-	_graphicsQueue.submit(submitInfo, {});
+	vk::SubmitInfo submitInfo = vk::SubmitInfo(1, &*_imageAvailableSemaphore, &waitStageMask, 1,
+											   &*_commandBuffers[imageIndex], 1, &*_renderFinishedSemaphore);
+	if (_graphicsQueue.submit(1, &submitInfo, {}) != vk::Result::eSuccess)
+		return;
+
 	vk::PresentInfoKHR presentInfoKhr = vk::PresentInfoKHR(1, &*_renderFinishedSemaphore, 1, &*_swapchain, &imageIndex);
-	CheckVK(_presentQueue.presentKHR(presentInfoKhr));
+	if (_presentQueue.presentKHR(&presentInfoKhr) != vk::Result::eSuccess)
+		return;
 }
 
 void VulkanRenderer::resize(unsigned int width, unsigned int height, double scale)
 {
+	// Wait till device is idle, a command buffer might still be running
+	_device->waitIdle();
+	_scale = scale;
+
+	// (Re)create swap chain
 	create_swapchain(width, height);
 
+	// Reinitialize pipelines
 	vk::PipelineShaderStageCreateInfo vertShaderStageInfo =
 		vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eVertex, *_vertModule, "main"};
 
@@ -180,15 +200,11 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 	std::vector<vk::PipelineShaderStageCreateInfo> pipelineShaderStages = {vertShaderStageInfo, fragShaderStageInfo};
 
 	auto vertexInputInfo = vk::PipelineVertexInputStateCreateInfo{{}, 0u, nullptr, 0u, nullptr};
-
 	auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{{}, vk::PrimitiveTopology::eTriangleList, false};
-
-	auto viewport = vk::Viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f};
-
+	auto viewport =
+		vk::Viewport{0.0f, 0.0f, static_cast<float>(_extent.width), static_cast<float>(_extent.height), 0.0f, 1.0f};
 	auto scissor = vk::Rect2D{{0, 0}, _extent};
-
 	auto viewportState = vk::PipelineViewportStateCreateInfo{{}, 1, &viewport, 1, &scissor};
-
 	auto rasterizer = vk::PipelineRasterizationStateCreateInfo{{},
 															   /*depthClamp*/ false,
 															   /*rasterizeDiscard*/ false,
@@ -255,26 +271,24 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 			vk::RenderPassCreateInfo{{}, 1, &colorAttachment, 1, &subpass, 1, &subpassDependency});
 	}
 
-	if (!_pipeline)
-	{
-		auto pipelineCreateInfo = vk::GraphicsPipelineCreateInfo{{},
-																 2,
-																 pipelineShaderStages.data(),
-																 &vertexInputInfo,
-																 &inputAssembly,
-																 nullptr,
-																 &viewportState,
-																 &rasterizer,
-																 &multisampling,
-																 nullptr,
-																 &colorBlending,
-																 nullptr,
-																 *_pipelineLayout,
-																 *_renderPass,
-																 0};
+	// Need to (re)create pipeline if viewport changes
+	vk::GraphicsPipelineCreateInfo pipelineCreateInfo = vk::GraphicsPipelineCreateInfo{{},
+																					   2,
+																					   pipelineShaderStages.data(),
+																					   &vertexInputInfo,
+																					   &inputAssembly,
+																					   nullptr,
+																					   &viewportState,
+																					   &rasterizer,
+																					   &multisampling,
+																					   nullptr,
+																					   &colorBlending,
+																					   nullptr,
+																					   *_pipelineLayout,
+																					   *_renderPass,
+																					   0};
 
-		_pipeline = _device->createGraphicsPipelineUnique({}, pipelineCreateInfo).value;
-	}
+	_pipeline = _device->createGraphicsPipelineUnique({}, pipelineCreateInfo).value;
 
 	_framebuffers = std::vector<vk::UniqueFramebuffer>(_swapchainImageViews.size());
 	for (size_t i = 0; i < _swapchainImageViews.size(); i++)
@@ -288,8 +302,7 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 
 	for (size_t i = 0; i < _commandBuffers.size(); i++)
 	{
-
-		auto beginInfo = vk::CommandBufferBeginInfo{};
+		auto beginInfo = vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eSimultaneousUse);
 		_commandBuffers[i]->begin(beginInfo);
 		vk::ClearValue clearValues =
 			vk::ClearValue(vk::ClearColorValue(std::array<float, 4>({0.0f, 0.0f, 0.0f, 1.0f})));
@@ -308,19 +321,17 @@ void VulkanRenderer::set_textures(const TextureData *data, unsigned int num_text
 {
 }
 
-void VulkanRenderer::create_swapchain(unsigned int width, unsigned int height, bool force)
+void VulkanRenderer::create_swapchain(unsigned int width, unsigned int height)
 {
-	if (!force && width == _extent.width && height == _extent.height)
-		return;
+	const vk::SurfaceCapabilitiesKHR capabilitiesKhr = _physicalDevice.getSurfaceCapabilitiesKHR(_surface.get());
+	width = glm::clamp(capabilitiesKhr.minImageExtent.width, capabilitiesKhr.maxImageExtent.width, width);
+	height = glm::clamp(capabilitiesKhr.minImageExtent.height + 1, capabilitiesKhr.maxImageExtent.height + 1, height);
 
 	_extent.width = width;
 	_extent.height = height;
 
-	const uint32_t imageCount = 2;
-	const vk::Extent2D extent = vk::Extent2D(width, height);
-
 	vk::SwapchainCreateInfoKHR swapchainCreateInfoKhr = vk::SwapchainCreateInfoKHR(
-		{}, *_surface, imageCount, gFormat, vk::ColorSpaceKHR::eSrgbNonlinear, extent, 1,
+		{}, *_surface, gImageCount, gFormat, vk::ColorSpaceKHR::eSrgbNonlinear, _extent, 1,
 		vk::ImageUsageFlagBits::eColorAttachment, _sharingModeUtil.sharingMode, _sharingModeUtil.familyIndices.size(),
 		_sharingModeUtil.familyIndices.data(), vk::SurfaceTransformFlagBitsKHR::eIdentity,
 		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, true, *_swapchain);

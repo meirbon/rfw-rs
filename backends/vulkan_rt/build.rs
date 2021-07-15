@@ -52,7 +52,7 @@ fn main() {
     let vulkan_libs = if cfg!(windows) {
         vec!["vulkan-1", "VkLayer_utils"]
     } else {
-        vec![]
+        vec!["vulkan"]
     };
     let vulkan_include_dir = vulkan_sdk.join("include");
     if cfg!(target_pointer_width = "64") {
