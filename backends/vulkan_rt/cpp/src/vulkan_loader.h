@@ -3,8 +3,12 @@
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 
+#if WINDOWS
 #pragma warning(push, 0)
+#endif
 #include <vulkan/vulkan.hpp>
+#if WINDOWS
 #pragma warning(pop)
+#endif
 
 #endif // VULKANRTCPP_BACKENDS_VULKAN_RT_CPP_SRC_VULKAN_LOADER_H
