@@ -112,6 +112,9 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 	const std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 	_device = _physicalDevice.createDeviceUnique(vk::DeviceCreateInfo({}, queueCreateInfos, {}, deviceExtensions, {}));
 
+	// Final initialization of dynamic dispatcher
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(_instance.get(), _device.get());
+
 	vk::PhysicalDeviceProperties deviceProperties = _physicalDevice.getProperties();
 	std::cout << "Picked Vulkan device: " << deviceProperties.deviceName.data() << std::endl;
 
@@ -135,27 +138,27 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 	resize(width, height, scale);
 }
 
-void VulkanRenderer::set_2d_mesh(unsigned int id, MeshData2D data)
+void VulkanRenderer::set_2d_mesh(unsigned int /*id*/, MeshData2D /*data*/)
 {
 }
 
-void VulkanRenderer::set_2d_instances(unsigned int id, InstancesData2D data)
+void VulkanRenderer::set_2d_instances(unsigned int /*id*/, InstancesData2D /*data*/)
 {
 }
 
-void VulkanRenderer::set_3d_mesh(unsigned int id, MeshData3D data)
+void VulkanRenderer::set_3d_mesh(unsigned int /*id*/, MeshData3D /*data*/)
 {
 }
 
-void VulkanRenderer::set_3d_instances(unsigned int id, InstancesData3D data)
+void VulkanRenderer::set_3d_instances(unsigned int /*id*/, InstancesData3D /*data*/)
 {
 }
 
-void VulkanRenderer::unload_3d_meshes(const unsigned int *ids, unsigned int num)
+void VulkanRenderer::unload_3d_meshes(const unsigned int * /*ids*/, unsigned int /*num*/)
 {
 }
 
-void VulkanRenderer::set_materials(const DeviceMaterial *materials, unsigned int num_materials)
+void VulkanRenderer::set_materials(const DeviceMaterial * /*materials*/, unsigned int /*num_materials*/)
 {
 }
 
@@ -163,7 +166,7 @@ void VulkanRenderer::synchronize()
 {
 }
 
-void VulkanRenderer::render(mat4 matrix_2d, CameraView3D view_3d)
+void VulkanRenderer::render(const mat4 /*matrix_2d*/, const CameraView3D /*view_3d*/)
 {
 	uint32_t imageIndex = 0;
 	if (_device->acquireNextImageKHR(*_swapchain, std::numeric_limits<uint64_t>::max(), *_imageAvailableSemaphore, {},
@@ -317,7 +320,8 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 	}
 }
 
-void VulkanRenderer::set_textures(const TextureData *data, unsigned int num_textures, const unsigned int *changed)
+void VulkanRenderer::set_textures(const TextureData * /*data*/, unsigned int /*num_textures*/,
+								  const unsigned int * /*changed*/)
 {
 }
 
@@ -332,9 +336,10 @@ void VulkanRenderer::create_swapchain(unsigned int width, unsigned int height)
 
 	vk::SwapchainCreateInfoKHR swapchainCreateInfoKhr = vk::SwapchainCreateInfoKHR(
 		{}, *_surface, gImageCount, gFormat, vk::ColorSpaceKHR::eSrgbNonlinear, _extent, 1,
-		vk::ImageUsageFlagBits::eColorAttachment, _sharingModeUtil.sharingMode, _sharingModeUtil.familyIndices.size(),
-		_sharingModeUtil.familyIndices.data(), vk::SurfaceTransformFlagBitsKHR::eIdentity,
-		vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, true, *_swapchain);
+		vk::ImageUsageFlagBits::eColorAttachment, _sharingModeUtil.sharingMode,
+		static_cast<uint32_t>(_sharingModeUtil.familyIndices.size()), _sharingModeUtil.familyIndices.data(),
+		vk::SurfaceTransformFlagBitsKHR::eIdentity, vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo,
+		true, *_swapchain);
 
 	auto swapchain = _device->createSwapchainKHRUnique(swapchainCreateInfoKhr);
 	_swapchain = std::move(swapchain);

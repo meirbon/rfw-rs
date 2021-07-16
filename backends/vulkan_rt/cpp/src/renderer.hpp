@@ -1,6 +1,7 @@
 #ifndef RENDERER_HPP
 #define RENDERER_HPP
 
+#define GLM_FORCE_SILENT_WARNINGS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "vulkan_loader.h"
 

@@ -83,7 +83,8 @@ fn main() {
         .cpp(true)
         .flag_if_supported("-std=c++17")
         .flag_if_supported("/std:c++17")
-        .warnings_into_errors(false);
+        .flag_if_supported("/EHsc")
+        .warnings_into_errors(true);
 
     for (def, val) in definitions.iter() {
         build.define(*def, *val);

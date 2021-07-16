@@ -19,7 +19,11 @@
 // Storage for dynamic Vulkan library loader
 using Renderer = VulkanRenderer;
 
-std::vector<const char *> getRequiredExtensions(unsigned long long handle)
+std::vector<const char *> getRequiredExtensions(unsigned long long
+#if LINUX
+													handle
+#endif
+)
 {
 	std::vector<const char *> extensions = {VK_KHR_SURFACE_EXTENSION_NAME};
 
@@ -81,8 +85,9 @@ bool checkValidationLayerSupport()
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-											 VkDebugUtilsMessageTypeFlagsEXT messageType,
-											 const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData, void *pUserData)
+											 VkDebugUtilsMessageTypeFlagsEXT /*messageType*/,
+											 const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+											 void * /*pUserData*/)
 {
 	switch ((vk::DebugUtilsMessageSeverityFlagBitsEXT)messageSeverity)
 	{
@@ -115,7 +120,7 @@ API void *create_instance(unsigned long long handle0, unsigned long long handle1
 		vk::ApplicationInfo applicationInfo = vk::ApplicationInfo("", 0, "rfw", 2, VK_API_VERSION_1_0);
 		vk::InstanceCreateInfo createInfo = {};
 		createInfo.pApplicationInfo = &applicationInfo;
-		createInfo.enabledExtensionCount = extensions.size();
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 		createInfo.ppEnabledExtensionNames = extensions.data();
 
 		vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo = vk::DebugUtilsMessengerCreateInfoEXT(
@@ -128,7 +133,7 @@ API void *create_instance(unsigned long long handle0, unsigned long long handle1
 
 		const std::array<const char *, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 #if !defined(NDEBUG) || defined(ENABLE_VALIDATION_LAYERS) && ENABLE_VALIDATION_LAYERS
-		createInfo.enabledLayerCount = validationLayers.size();
+		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 		createInfo.ppEnabledLayerNames = validationLayers.data();
 		createInfo.pNext = &debugCreateInfo;
 #else
@@ -138,11 +143,11 @@ API void *create_instance(unsigned long long handle0, unsigned long long handle1
 
 		vk::DynamicLoader dl;
 		auto vkGetInstanceProcAddrPtr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-		//	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddrPtr);
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddrPtr);
 
 		vk::UniqueInstance instance = vk::createInstanceUnique(createInfo);
 
-		//	VULKAN_HPP_DEFAULT_DISPATCHER.init(instance.get());
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(instance.get());
 
 		vk::UniqueSurfaceKHR surface;
 #if WINDOWS

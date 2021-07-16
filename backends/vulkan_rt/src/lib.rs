@@ -19,10 +19,6 @@ pub struct VulkanBackend {
     instance: *mut std::ffi::c_void,
 }
 
-const XLIB_HANDLE: u32 = 0;
-const XCB_HANDLE: u32 = 1;
-const WAYLAND_HANDLE: u32 = 2;
-
 impl FromWindowHandle for VulkanBackend {
     fn init<W: HasRawWindowHandle>(
         window: &W,
@@ -54,6 +50,10 @@ impl FromWindowHandle for VulkanBackend {
 
         #[cfg(target_os = "linux")]
         {
+            const XLIB_HANDLE: u32 = 0;
+            const XCB_HANDLE: u32 = 1;
+            const WAYLAND_HANDLE: u32 = 2;
+
             let handle = window.raw_window_handle();
             let handle0: u64;
             let handle1: u64;
