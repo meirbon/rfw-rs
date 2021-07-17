@@ -6,6 +6,7 @@
 #include "vulkan_loader.h"
 
 #include "structs.h"
+#include "vkh/swapchain.h"
 
 #include <memory>
 #include <utility>
@@ -81,26 +82,17 @@ class VulkanRenderer
 	VulkanRenderer(vk::UniqueInstance, vk::UniqueSurfaceKHR surface, unsigned int width, unsigned int height,
 				   double scale);
 
-	/**
-	 * This function assumes _sharingModeUtil was filled correctly.
-	 * @param fromOldSwapchain Whether to (re)create the swapchain from an old swapchain.
-	 */
-	void create_swapchain(unsigned int width, unsigned int height);
-
 	vk::UniqueInstance _instance;
-	vk::UniqueSurfaceKHR _surface;
 	vk::UniqueDevice _device;
 	vk::PhysicalDevice _physicalDevice;
 
 	std::vector<uint32_t> _queueFamilyIndices;
-	SM _sharingModeUtil;
-
-	vk::UniqueSwapchainKHR _swapchain;
-	std::vector<vk::Image> _swapchainImages;
-	std::vector<vk::UniqueImageView> _swapchainImageViews;
+	std::unique_ptr<vkh::Swapchain> _swapchain;
 
 	vk::UniqueCommandPool _commandPool;
 	std::vector<vk::UniqueCommandBuffer> _commandBuffers;
+	std::vector<vk::UniqueFence> _inFlightFences;
+	std::vector<vk::Fence> _imagesInFlight;
 
 	vk::Queue _graphicsQueue;
 	vk::Queue _presentQueue;
@@ -110,10 +102,11 @@ class VulkanRenderer
 	vk::UniqueShaderModule _vertModule;
 	vk::UniqueShaderModule _fragModule;
 	vk::UniqueRenderPass _renderPass;
-	vk::UniqueSemaphore _imageAvailableSemaphore;
-	vk::UniqueSemaphore _renderFinishedSemaphore;
+	std::vector<vk::UniqueSemaphore> _imageAvailableSemaphores;
+	std::vector<vk::UniqueSemaphore> _renderFinishedSemaphores;
+	size_t _currentFrame = 0;
 
-	vk::Extent2D _extent;
+	//	vk::Extent2D _extent;
 	double _scale = 1.0;
 	std::vector<vk::UniqueFramebuffer> _framebuffers;
 };

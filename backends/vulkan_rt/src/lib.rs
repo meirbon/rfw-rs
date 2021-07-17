@@ -34,8 +34,9 @@ impl FromWindowHandle for VulkanBackend {
             match handle {
                 RawWindowHandle::Windows(handle) => {
                     instance = unsafe {
-                        ffi::create_instance(
-                            handle.hwnd as u64,
+                        ffi::vulkan_create_instance(
+                            handle,
+                            hwnd as u64,
                             handle.hinstance as u64,
                             0,
                             width,
@@ -79,8 +80,48 @@ impl FromWindowHandle for VulkanBackend {
             }
 
             instance = unsafe {
-                ffi::create_instance(handle0, handle1, handle2, width, height, scale_factor)
+                ffi::vulkan_create_instance(handle0, handle1, handle2, width, height, scale_factor)
             };
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let handle = window.raw_window_handle();
+            match handle {
+                RawWindowHandle::MacOS(handle) => {
+                    instance = unsafe {
+                        ffi::vulkan_create_instance(
+                            handle.ns_view as u64,
+                            handle.ns_window as u64,
+                            0,
+                            width,
+                            height,
+                            scale_factor,
+                        )
+                    };
+                }
+                _ => panic!("Unsupported window handle {:?}", handle),
+            }
+        }
+
+        #[cfg(target_os = "ios")]
+        {
+            let handle = window.raw_window_handle();
+            match handle {
+                RawWindowHandle::iOS(handle) => {
+                    instance = unsafe {
+                        ffi::vulkan_create_instance(
+                            handle.ui_view as u64,
+                            handle.ui_window as u64,
+                            0,
+                            width,
+                            height,
+                            scale_factor,
+                        )
+                    };
+                }
+                _ => panic!("Unsupported window handle {:?}", handle),
+            }
         }
 
         if !instance.is_null() {
@@ -94,7 +135,7 @@ impl FromWindowHandle for VulkanBackend {
 impl Backend for VulkanBackend {
     fn set_2d_mesh(&mut self, id: usize, data: MeshData2D<'_>) {
         unsafe {
-            ffi::set_2d_mesh(
+            ffi::vulkan_set_2d_mesh(
                 self.instance,
                 id as u32,
                 ffi::MeshData2D {
@@ -108,7 +149,7 @@ impl Backend for VulkanBackend {
 
     fn set_2d_instances(&mut self, mesh: usize, instances: InstancesData2D<'_>) {
         unsafe {
-            ffi::set_2d_instances(
+            ffi::vulkan_set_2d_instances(
                 self.instance,
                 mesh as u32,
                 ffi::InstancesData2D {
@@ -131,7 +172,7 @@ impl Backend for VulkanBackend {
                 *(&data.bounds.max as *const Vec3 as *const ffi::Vector4),
             );
 
-            ffi::set_3d_mesh(
+            ffi::vulkan_set_3d_mesh(
                 self.instance,
                 id as u32,
                 ffi::MeshData3D {
@@ -152,7 +193,7 @@ impl Backend for VulkanBackend {
     fn unload_3d_meshes(&mut self, ids: &[usize]) {
         unsafe {
             let ids = ids.iter().copied().map(|i| i as u32).collect::<Vec<_>>();
-            ffi::unload_3d_meshes(self.instance, ids.as_ptr(), ids.len() as _);
+            ffi::vulkan_unload_3d_meshes(self.instance, ids.as_ptr(), ids.len() as _);
         }
     }
 
@@ -168,7 +209,7 @@ impl Backend for VulkanBackend {
                 *(&instances.local_aabb.max as *const Vec3 as *const ffi::Vector4),
             );
 
-            ffi::set_3d_instances(
+            ffi::vulkan_set_3d_instances(
                 self.instance,
                 mesh as _,
                 ffi::InstancesData3D {
@@ -186,7 +227,7 @@ impl Backend for VulkanBackend {
 
     fn set_materials(&mut self, materials: &[DeviceMaterial], _changed: &BitSlice) {
         unsafe {
-            ffi::set_materials(
+            ffi::vulkan_set_materials(
                 self.instance,
                 materials.as_ptr() as *const ffi::DeviceMaterial,
                 materials.len() as _,
@@ -214,7 +255,7 @@ impl Backend for VulkanBackend {
             .map(|i| if *i { 1 } else { 0 })
             .collect::<Vec<u32>>();
         unsafe {
-            ffi::set_textures(
+            ffi::vulkan_set_textures(
                 self.instance,
                 textures.as_ptr(),
                 textures.len() as _,
@@ -225,13 +266,13 @@ impl Backend for VulkanBackend {
 
     fn synchronize(&mut self) {
         unsafe {
-            ffi::synchronize(self.instance);
+            ffi::vulkan_synchronize(self.instance);
         }
     }
 
     fn render(&mut self, camera_2d: CameraView2D, camera: CameraView3D, _mode: RenderMode) {
         unsafe {
-            ffi::render(
+            ffi::vulkan_render(
                 self.instance,
                 std::ptr::read(&camera_2d.matrix as *const Mat4 as *const ffi::Vector4x4),
                 ffi::CameraView3D {
@@ -278,7 +319,7 @@ impl Backend for VulkanBackend {
 
     fn resize(&mut self, window_size: (u32, u32), scale_factor: f64) {
         unsafe {
-            ffi::resize(self.instance, window_size.0, window_size.1, scale_factor);
+            ffi::vulkan_resize(self.instance, window_size.0, window_size.1, scale_factor);
         }
     }
 
@@ -297,7 +338,7 @@ impl Backend for VulkanBackend {
 
 impl Drop for VulkanBackend {
     fn drop(&mut self) {
-        unsafe { ffi::destroy_instance(self.instance) };
+        unsafe { ffi::vulkan_destroy_instance(self.instance) };
         self.instance = std::ptr::null_mut();
     }
 }

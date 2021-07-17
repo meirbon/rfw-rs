@@ -7,16 +7,14 @@ edition = "2018"
 [dependencies]
 futures = "0.3"
 rayon = "1.5"
-rfw = { path="../../rfw" }
-rfw-backend-wgpu = { path="../../backends/wgpu" }
-rfw-font = { path="../../crates/rfw-font" }
+rfw = { path = "../../rfw" }
+rfw-backend-wgpu = { path = "../../backends/wgpu" }
+rfw-backend-vulkan-rt = { path = "../../backends/vulkan_rt" }
+rfw-font = { path = "../../crates/rfw-font" }
 clap = "2.33.3"
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
-rfw-backend-metal = { path="../../backends/metal" }
-
-[target.'cfg(windows)'.dependencies]
-rfw-backend-vulkan-rt = { path="../../backends/vulkan_rt" }
+rfw-backend-metal = { path = "../../backends/metal" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rfw-backend-vulkan-rt = { path="../../backends/vulkan_rt" }
+rfw-backend-vulkan-rt = { path = "../../backends/vulkan_rt" }

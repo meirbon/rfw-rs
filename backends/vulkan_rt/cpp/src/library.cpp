@@ -7,6 +7,12 @@
 #define VK_USE_PLATFORM_XLIB_KHR
 #define VK_USE_PLATFORM_XCB_KHR
 #define VK_USE_PLATFORM_WAYLAND_KHR
+#elif MACOS
+#include "create_metal_layer.h"
+#define VK_USE_PLATFORM_MACOS_MVK 1
+#elif IOS
+#include "create_metal_layer.h"
+#define VK_USE_PLATFORM_IOS_MVK 1
 #endif
 
 #include "vulkan_loader.h"
@@ -19,18 +25,22 @@
 // Storage for dynamic Vulkan library loader
 using Renderer = VulkanRenderer;
 
+constexpr bool enableValidationLayers = true;
+
 std::vector<const char *> getRequiredExtensions(unsigned long long
 #if LINUX
 													handle
 #endif
 )
 {
-	std::vector<const char *> extensions = {VK_KHR_SURFACE_EXTENSION_NAME};
+	std::vector<const char *> extensions = {VK_KHR_SURFACE_EXTENSION_NAME,
+											VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+											VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
 
-#if !defined(NDEBUG) || (defined(ENABLE_VALIDATION_LAYERS) && ENABLE_VALIDATION_LAYERS)
-	extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-#endif
-
+	if constexpr (enableValidationLayers)
+	{
+		extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+	}
 #if WINDOWS
 	extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #elif LINUX
@@ -49,6 +59,10 @@ std::vector<const char *> getRequiredExtensions(unsigned long long
 		break;
 	}
 	}
+#elif MACOS
+	extensions.push_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
+#elif IOS
+	extensions.push_back(VK_MVK_IOS_SURFACE_EXTENSION_NAME);
 #endif
 	return extensions;
 }
@@ -110,97 +124,97 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBits
 	return VK_FALSE;
 }
 
-API void *create_instance(unsigned long long handle0, unsigned long long handle1, unsigned long long handle2,
-						  unsigned int width, unsigned int height, double scale)
+API void *vulkan_create_instance(unsigned long long handle0, unsigned long long handle1, unsigned long long handle2,
+								 unsigned int width, unsigned int height, double scale)
 {
-	try
-	{
-		const std::vector<const char *> extensions = getRequiredExtensions(handle2);
+	const std::vector<const char *> extensions = getRequiredExtensions(handle2);
 
-		vk::ApplicationInfo applicationInfo = vk::ApplicationInfo("", 0, "rfw", 2, VK_API_VERSION_1_0);
-		vk::InstanceCreateInfo createInfo = {};
-		createInfo.pApplicationInfo = &applicationInfo;
-		createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-		createInfo.ppEnabledExtensionNames = extensions.data();
+	vk::ApplicationInfo applicationInfo = vk::ApplicationInfo("", 0, "rfw", 2, VK_API_VERSION_1_0);
+	vk::InstanceCreateInfo createInfo = {};
+	createInfo.pApplicationInfo = &applicationInfo;
+	createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+	createInfo.ppEnabledExtensionNames = extensions.data();
 
-		vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo = vk::DebugUtilsMessengerCreateInfoEXT(
-			{},
-			vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose | vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-				vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
-			vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-				vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
-			debugCallback);
+	vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo = vk::DebugUtilsMessengerCreateInfoEXT(
+		{},
+		vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose | vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+			vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
+		vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+			vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
+		debugCallback);
 
-		const std::array<const char *, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+	const std::array<const char *, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 #if !defined(NDEBUG) || defined(ENABLE_VALIDATION_LAYERS) && ENABLE_VALIDATION_LAYERS
-		createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-		createInfo.ppEnabledLayerNames = validationLayers.data();
-		createInfo.pNext = &debugCreateInfo;
+	createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+	createInfo.ppEnabledLayerNames = validationLayers.data();
+	createInfo.pNext = &debugCreateInfo;
 #else
-		createInfo.enabledLayerCount = 0;
-		createInfo.pNext = nullptr;
+	createInfo.enabledLayerCount = 0;
+	createInfo.pNext = nullptr;
 #endif
 
-		vk::DynamicLoader dl;
-		auto vkGetInstanceProcAddrPtr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-		VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddrPtr);
+	vk::DynamicLoader dl;
+	auto vkGetInstanceProcAddrPtr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddrPtr);
 
-		vk::UniqueInstance instance = vk::createInstanceUnique(createInfo);
+	vk::UniqueInstance instance = vk::createInstanceUnique(createInfo);
 
-		VULKAN_HPP_DEFAULT_DISPATCHER.init(instance.get());
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(instance.get());
 
-		vk::UniqueSurfaceKHR surface;
+	vk::UniqueSurfaceKHR surface;
 #if WINDOWS
-		vk::Win32SurfaceCreateInfoKHR surfaceCreateInfo =
-			vk::Win32SurfaceCreateInfoKHR({}, reinterpret_cast<HINSTANCE>(handle1), reinterpret_cast<HWND>(handle0));
-		surface = instance->createWin32SurfaceKHRUnique(surfaceCreateInfo);
+	vk::Win32SurfaceCreateInfoKHR surfaceCreateInfo =
+		vk::Win32SurfaceCreateInfoKHR({}, reinterpret_cast<HINSTANCE>(handle1), reinterpret_cast<HWND>(handle0));
+	surface = instance->createWin32SurfaceKHRUnique(surfaceCreateInfo);
 #elif LINUX
-		switch (handle2)
-		{
-		case XLIB_HANDLE: {
-			std::cout << "Surface type: XLIB" << std::endl;
-			Display *display = reinterpret_cast<Display *>(handle0);
-			Window window;
-			memcpy(&window, &handle1, sizeof(Window));
-			vk::XlibSurfaceCreateInfoKHR createInfoKhr = vk::XlibSurfaceCreateInfoKHR({}, display, window);
-			surface = instance->createXlibSurfaceKHRUnique(createInfoKhr);
-			break;
-		}
-		case XCB_HANDLE: {
-			std::cout << "Surface type: XCB" << std::endl;
-			xcb_connection_t *connection = reinterpret_cast<xcb_connection_t *>(handle0);
-			xcb_window_t window = static_cast<xcb_window_t>(handle1);
-			vk::XcbSurfaceCreateInfoKHR createInfoKhr = vk::XcbSurfaceCreateInfoKHR({}, connection, window);
-			surface = instance->createXcbSurfaceKHRUnique(createInfoKhr);
-			break;
-		}
-		case WAYLAND_HANDLE: {
-			std::cout << "Surface type: WAYLAND" << std::endl;
-			wl_surface *wlSurface = reinterpret_cast<wl_surface *>(handle0);
-			wl_display *display = reinterpret_cast<wl_display *>(handle1);
-			vk::WaylandSurfaceCreateInfoKHR createInfoKhr = vk::WaylandSurfaceCreateInfoKHR({}, display, wlSurface);
-			surface = instance->createWaylandSurfaceKHRUnique(createInfoKhr);
-			break;
-		}
-		}
-		// TODO
+	switch (handle2)
+	{
+	case XLIB_HANDLE: {
+		std::cout << "Surface type: XLIB" << std::endl;
+		Display *display = reinterpret_cast<Display *>(handle0);
+		Window window = static_cast<Window>(handle1);
+		vk::XlibSurfaceCreateInfoKHR createInfoKhr = vk::XlibSurfaceCreateInfoKHR({}, display, window);
+		surface = instance->createXlibSurfaceKHRUnique(createInfoKhr);
+		break;
+	}
+	case XCB_HANDLE: {
+		std::cout << "Surface type: XCB" << std::endl;
+		xcb_connection_t *connection = reinterpret_cast<xcb_connection_t *>(handle0);
+		xcb_window_t window = static_cast<xcb_window_t>(handle1);
+		vk::XcbSurfaceCreateInfoKHR createInfoKhr = vk::XcbSurfaceCreateInfoKHR({}, connection, window);
+		surface = instance->createXcbSurfaceKHRUnique(createInfoKhr);
+		break;
+	}
+	case WAYLAND_HANDLE: {
+		std::cout << "Surface type: WAYLAND" << std::endl;
+		wl_surface *wlSurface = reinterpret_cast<wl_surface *>(handle0);
+		wl_display *display = reinterpret_cast<wl_display *>(handle1);
+		vk::WaylandSurfaceCreateInfoKHR createInfoKhr = vk::WaylandSurfaceCreateInfoKHR({}, display, wlSurface);
+		surface = instance->createWaylandSurfaceKHRUnique(createInfoKhr);
+		break;
+	}
+	}
+#elif MACOS
+	void *ns_view = vulkan_create_metal_layer(reinterpret_cast<void *>(handle0), reinterpret_cast<void *>(handle1));
+	vk::MacOSSurfaceCreateInfoMVK surfaceCreateInfoMvk =
+		vk::MacOSSurfaceCreateInfoMVK({}, reinterpret_cast<const void *>(ns_view));
+	surface = instance->createMacOSSurfaceMVKUnique(surfaceCreateInfoMvk);
+#elif IOS
+	void *ui_view = vulkan_create_metal_layer(reinterpret_cast<void *>(handle0), reinterpret_cast<void *>(handle1));
+	vk::IOSSurfaceCreateInfoMVK surfaceCreateInfoMvk =
+		vk::IOSSurfaceCreateInfoMVK({}, reinterpret_cast<const void *>(ui_view));
+	surface = instance->createIOSSurfaceMVKUnique(surfaceCreateInfoMvk);
 #endif
 
-		return VulkanRenderer::create_instance(std::move(instance), std::move(surface), width, height, scale);
-	}
-	catch (const std::exception &e)
-	{
-		std::cerr << "Exception occurred(" << __FILE__ << ":" << __LINE__ << "): " << e.what() << std::endl;
-	}
-	return nullptr;
+	return VulkanRenderer::create_instance(std::move(instance), std::move(surface), width, height, scale);
 }
 
-extern "C" void destroy_instance(void *instance)
+extern "C" void vulkan_destroy_instance(void *instance)
 {
 	delete reinterpret_cast<Renderer *>(instance);
 }
 
-extern "C" void set_2d_mesh(void *instance, unsigned int id, MeshData2D data)
+extern "C" void vulkan_set_2d_mesh(void *instance, unsigned int id, MeshData2D data)
 {
 	try
 	{
@@ -212,7 +226,7 @@ extern "C" void set_2d_mesh(void *instance, unsigned int id, MeshData2D data)
 		std::cerr << "Exception occurred(" << __FILE__ << ":" << __LINE__ << "): " << e.what() << std::endl;
 	}
 }
-extern "C" void set_2d_instances(void *instance, unsigned int id, InstancesData2D data)
+extern "C" void vulkan_set_2d_instances(void *instance, unsigned int id, InstancesData2D data)
 {
 	try
 	{
@@ -225,7 +239,7 @@ extern "C" void set_2d_instances(void *instance, unsigned int id, InstancesData2
 	}
 }
 
-extern "C" void set_3d_mesh(void *instance, unsigned int id, MeshData3D data)
+extern "C" void vulkan_set_3d_mesh(void *instance, unsigned int id, MeshData3D data)
 {
 	try
 	{
@@ -237,7 +251,7 @@ extern "C" void set_3d_mesh(void *instance, unsigned int id, MeshData3D data)
 		std::cerr << "Exception occurred(" << __FILE__ << ":" << __LINE__ << "): " << e.what() << std::endl;
 	}
 }
-extern "C" void unload_3d_meshes(void *instance, const unsigned int *ids, unsigned int num)
+extern "C" void vulkan_unload_3d_meshes(void *instance, const unsigned int *ids, unsigned int num)
 {
 	try
 	{
@@ -249,7 +263,7 @@ extern "C" void unload_3d_meshes(void *instance, const unsigned int *ids, unsign
 		std::cerr << "Exception occurred(" << __FILE__ << ":" << __LINE__ << "): " << e.what() << std::endl;
 	}
 }
-extern "C" void set_3d_instances(void *instance, unsigned int id, InstancesData3D data)
+extern "C" void vulkan_set_3d_instances(void *instance, unsigned int id, InstancesData3D data)
 {
 	try
 	{
@@ -262,7 +276,7 @@ extern "C" void set_3d_instances(void *instance, unsigned int id, InstancesData3
 	}
 }
 
-extern "C" void set_materials(void *instance, const DeviceMaterial *materials, unsigned int num_materials)
+extern "C" void vulkan_set_materials(void *instance, const DeviceMaterial *materials, unsigned int num_materials)
 {
 	try
 	{
@@ -274,8 +288,8 @@ extern "C" void set_materials(void *instance, const DeviceMaterial *materials, u
 		std::cerr << "Exception occurred(" << __FILE__ << ":" << __LINE__ << "): " << e.what() << std::endl;
 	}
 }
-extern "C" void set_textures(void *instance, const TextureData *const data, unsigned int num_textures,
-							 const unsigned int *changed)
+extern "C" void vulkan_set_textures(void *instance, const TextureData *const data, unsigned int num_textures,
+									const unsigned int *changed)
 {
 	try
 	{
@@ -288,7 +302,7 @@ extern "C" void set_textures(void *instance, const TextureData *const data, unsi
 	}
 }
 
-extern "C" void render(void *instance, Vector4x4 matrix_2d, CameraView3D view_3d)
+extern "C" void vulkan_render(void *instance, Vector4x4 matrix_2d, CameraView3D view_3d)
 {
 	try
 	{
@@ -304,7 +318,7 @@ extern "C" void render(void *instance, Vector4x4 matrix_2d, CameraView3D view_3d
 	}
 }
 
-extern "C" void synchronize(void *instance)
+extern "C" void vulkan_synchronize(void *instance)
 {
 	try
 	{
@@ -317,7 +331,7 @@ extern "C" void synchronize(void *instance)
 	}
 }
 
-extern "C" void resize(void *instance, unsigned int width, unsigned int height, double scale_factor)
+extern "C" void vulkan_resize(void *instance, unsigned int width, unsigned int height, double scale_factor)
 {
 	try
 	{

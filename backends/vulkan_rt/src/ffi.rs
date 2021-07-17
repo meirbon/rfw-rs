@@ -285,7 +285,7 @@ extern "C" {
     #[doc = " @param height"]
     #[doc = " @param scale"]
     #[doc = " @return API*"]
-    pub fn create_instance(
+    pub fn vulkan_create_instance(
         handle0: ::std::os::raw::c_ulonglong,
         handle1: ::std::os::raw::c_ulonglong,
         handle2: ::std::os::raw::c_ulonglong,
@@ -295,52 +295,52 @@ extern "C" {
     ) -> *mut ::std::os::raw::c_void;
 }
 extern "C" {
-    pub fn destroy_instance(instance: *mut ::std::os::raw::c_void);
+    pub fn vulkan_destroy_instance(instance: *mut ::std::os::raw::c_void);
 }
 extern "C" {
-    pub fn set_2d_mesh(
+    pub fn vulkan_set_2d_mesh(
         instance: *mut ::std::os::raw::c_void,
         id: ::std::os::raw::c_uint,
         data: MeshData2D,
     );
 }
 extern "C" {
-    pub fn set_2d_instances(
+    pub fn vulkan_set_2d_instances(
         instance: *mut ::std::os::raw::c_void,
         id: ::std::os::raw::c_uint,
         data: InstancesData2D,
     );
 }
 extern "C" {
-    pub fn set_3d_mesh(
+    pub fn vulkan_set_3d_mesh(
         instance: *mut ::std::os::raw::c_void,
         id: ::std::os::raw::c_uint,
         data: MeshData3D,
     );
 }
 extern "C" {
-    pub fn unload_3d_meshes(
+    pub fn vulkan_unload_3d_meshes(
         instance: *mut ::std::os::raw::c_void,
         ids: *const ::std::os::raw::c_uint,
         num: ::std::os::raw::c_uint,
     );
 }
 extern "C" {
-    pub fn set_3d_instances(
+    pub fn vulkan_set_3d_instances(
         instance: *mut ::std::os::raw::c_void,
         id: ::std::os::raw::c_uint,
         data: InstancesData3D,
     );
 }
 extern "C" {
-    pub fn set_materials(
+    pub fn vulkan_set_materials(
         instance: *mut ::std::os::raw::c_void,
         materials: *const DeviceMaterial,
         num_materials: ::std::os::raw::c_uint,
     );
 }
 extern "C" {
-    pub fn set_textures(
+    pub fn vulkan_set_textures(
         instance: *mut ::std::os::raw::c_void,
         data: *const TextureData,
         num_textures: ::std::os::raw::c_uint,
@@ -348,17 +348,17 @@ extern "C" {
     );
 }
 extern "C" {
-    pub fn render(
+    pub fn vulkan_render(
         instance: *mut ::std::os::raw::c_void,
         matrix_2d: Vector4x4,
         view_3d: CameraView3D,
     );
 }
 extern "C" {
-    pub fn synchronize(instance: *mut ::std::os::raw::c_void);
+    pub fn vulkan_synchronize(instance: *mut ::std::os::raw::c_void);
 }
 extern "C" {
-    pub fn resize(
+    pub fn vulkan_resize(
         instance: *mut ::std::os::raw::c_void,
         width: ::std::os::raw::c_uint,
         height: ::std::os::raw::c_uint,

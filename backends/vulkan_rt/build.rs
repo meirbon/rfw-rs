@@ -29,6 +29,71 @@ const KINDS: [ShaderKind; 15] = [
 ];
 
 fn main() {
+    // Shader compilation
+    let mut extensions: HashMap<&str, ShaderKind> = HashMap::new();
+    EXTENSIONS.iter().enumerate().for_each(|(i, ext)| {
+        extensions.insert(ext, KINDS[i]);
+    });
+
+    // Create compiler
+    let mut compiler = CompilerBuilder::new().build().unwrap();
+
+    // Read directory
+    let dir = PathBuf::from("./shaders").as_path().read_dir().unwrap();
+
+    // Filter entries
+    let entries = dir
+        .map(|d| d)
+        .filter(|d| d.is_ok())
+        .map(|e| e.unwrap())
+        .filter(|e| {
+            if !e.path().is_file() {
+                return false;
+            }
+
+            if let Some(extension) = e.path().extension() {
+                extensions.contains_key(extension.to_str().unwrap())
+            } else {
+                false
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Compile shaders
+    for entry in entries.into_iter() {
+        println!("cargo:rerun-if-changed={}", entry.path().display());
+        let shader = match compiler.compile_from_file(
+            entry.path(),
+            *extensions
+                .get(entry.path().extension().unwrap().to_str().unwrap())
+                .unwrap(),
+            true,
+        ) {
+            Ok(shader) => shader,
+            Err(e) => {
+                panic!("compile error: {}", e);
+            }
+        };
+
+        let mut save_path = entry.path().to_str().unwrap().to_string();
+        save_path.push_str(".spv");
+        let mut file = File::create(&save_path).unwrap();
+        file.write_all(shader.as_bytes()).unwrap();
+
+        let mut out_path = save_path.clone();
+        out_path.push_str(".h");
+
+        Command::new("xxd")
+            .arg("-i")
+            .arg(format!("{}", save_path))
+            .arg(format!("{}", out_path))
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap();
+    }
+
+    // Library compilation
     let mut definitions = vec![];
 
     if cfg!(target_os = "windows") {
@@ -37,6 +102,14 @@ fn main() {
 
     if cfg!(target_os = "linux") {
         definitions.push(("LINUX", "1"));
+    }
+
+    if cfg!(target_os = "macos") {
+        definitions.push(("MACOS", "1"));
+    }
+
+    if cfg!(target_os = "ios") {
+        definitions.push(("IOS", "1"));
     }
 
     if cfg!(feature = "validation_layers") {
@@ -55,27 +128,28 @@ fn main() {
         vec!["vulkan"]
     };
     let vulkan_include_dir = vulkan_sdk.join("include");
-    if cfg!(target_pointer_width = "64") {
-        println!(
-            "cargo:rustc-link-search={}",
-            vulkan_sdk.join("Lib32").display()
-        );
-    } else {
-        println!(
-            "cargo:rustc-link-search={}",
-            vulkan_sdk.join("Lib").display()
-        );
+    println!(
+        "cargo:rustc-link-search={}",
+        vulkan_sdk.join("macOS").join("lib").display()
+    );
+
+    let mut sources = vec![
+        "cpp/src/renderer.cpp",
+        "cpp/src/library.cpp",
+        "cpp/src/device.cpp",
+        "cpp/src/vulkan_loader.cpp",
+        "cpp/src/vk_mem_alloc.cpp",
+        "cpp/src/vkh/swapchain.cpp",
+    ];
+
+    if cfg!(target_vendor = "apple") {
+        sources.push("cpp/src/create_metal_layer.mm");
     }
 
     let files_to_ignore = vec![];
     let mut build = cc::Build::new();
     build
-        .files(vec![
-            "cpp/src/renderer.cpp",
-            "cpp/src/library.cpp",
-            "cpp/src/device.cpp",
-            "cpp/src/vulkan_loader.cpp",
-        ])
+        .files(sources)
         .includes(vec![
             "cpp/deps",
             vulkan_include_dir.to_string_lossy().as_ref(),
@@ -145,68 +219,4 @@ fn main() {
         }
         Err(_) => panic!("Could not generate bindings for \"src/ffi.rs\""),
     };
-
-    // Shader compilation
-    let mut extensions: HashMap<&str, ShaderKind> = HashMap::new();
-    EXTENSIONS.iter().enumerate().for_each(|(i, ext)| {
-        extensions.insert(ext, KINDS[i]);
-    });
-
-    // Create compiler
-    let mut compiler = CompilerBuilder::new().build().unwrap();
-
-    // Read directory
-    let dir = PathBuf::from("./shaders").as_path().read_dir().unwrap();
-
-    // Filter entries
-    let entries = dir
-        .map(|d| d)
-        .filter(|d| d.is_ok())
-        .map(|e| e.unwrap())
-        .filter(|e| {
-            if !e.path().is_file() {
-                return false;
-            }
-
-            if let Some(extension) = e.path().extension() {
-                extensions.contains_key(extension.to_str().unwrap())
-            } else {
-                false
-            }
-        })
-        .collect::<Vec<_>>();
-
-    // Compile shaders
-    for entry in entries.into_iter() {
-        println!("cargo:rerun-if-changed={}", entry.path().display());
-        let shader = match compiler.compile_from_file(
-            entry.path(),
-            *extensions
-                .get(entry.path().extension().unwrap().to_str().unwrap())
-                .unwrap(),
-            true,
-        ) {
-            Ok(shader) => shader,
-            Err(e) => {
-                panic!("compile error: {}", e);
-            }
-        };
-
-        let mut save_path = entry.path().to_str().unwrap().to_string();
-        save_path.push_str(".spv");
-        let mut file = File::create(&save_path).unwrap();
-        file.write_all(shader.as_bytes()).unwrap();
-
-        let mut out_path = save_path.clone();
-        out_path.push_str(".h");
-
-        Command::new("xxd")
-            .arg("-i")
-            .arg(format!("{}", save_path))
-            .arg(format!("{}", out_path))
-            .spawn()
-            .unwrap()
-            .wait_with_output()
-            .unwrap();
-    }
 }

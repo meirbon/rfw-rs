@@ -15,24 +15,27 @@ vk::PhysicalDevice pickPhysicalDevice(vk::Instance instance, const char *vendorN
 	std::string vendor = vendorName;
 	std::transform(vendor.begin(), vendor.end(), vendor.begin(), ascii_tolower);
 
-	auto physicalDevices = instance.enumeratePhysicalDevices();
-	return physicalDevices[std::distance(physicalDevices.begin(),
-										 std::find_if(physicalDevices.begin(), physicalDevices.end(),
-													  [&vendor](const vk::PhysicalDevice &physicalDevice) {
-														  const auto properties = physicalDevice.getProperties();
-														  std::string deviceName = properties.deviceName;
-														  std::transform(deviceName.begin(), deviceName.end(),
-																		 deviceName.begin(), ascii_tolower);
-														  return deviceName.find(vendor) != std::string::npos;
-													  }))];
+	std::vector<vk::PhysicalDevice> physicalDevices = instance.enumeratePhysicalDevices();
+	const size_t index =
+		std::distance(physicalDevices.begin(), std::find_if(physicalDevices.begin(), physicalDevices.end(),
+															[&vendor](const vk::PhysicalDevice &physicalDevice) {
+																const auto properties = physicalDevice.getProperties();
+																std::string deviceName = properties.deviceName;
+																std::transform(deviceName.begin(), deviceName.end(),
+																			   deviceName.begin(), ascii_tolower);
+																return deviceName.find(vendor) != std::string::npos;
+															}));
+
+	if (index >= physicalDevices.size())
+		return nullptr;
+	return physicalDevices[index];
 }
 
 std::set<uint32_t> findQueueFamilyIndices(vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface,
 										  uint32_t *graphicsQueue, uint32_t *presentQueue)
 {
-	auto queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
-
-	uint32_t graphicsQueueFamilyIndex = static_cast<uint32_t>(std::distance(
+	const std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+	const uint32_t graphicsQueueFamilyIndex = static_cast<uint32_t>(std::distance(
 		queueFamilyProperties.begin(), std::find_if(queueFamilyProperties.begin(), queueFamilyProperties.end(),
 													[](vk::QueueFamilyProperties const &qfp) {
 														return qfp.queueFlags & vk::QueueFlagBits::eGraphics;

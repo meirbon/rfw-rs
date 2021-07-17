@@ -263,7 +263,7 @@ fn main() {
                 .takes_value(true)
                 .multiple(false)
                 .default_value("wgpu")
-                .possible_values(&["wgpu", "metal"]),
+                .possible_values(&["wgpu", "vulkan_rt", "metal"]),
         );
     }
 
@@ -311,8 +311,11 @@ fn main() {
     let instance: rfw::Instance;
     #[cfg(target_vendor = "apple")]
     {
-        instance = if matches.value_of("renderer").unwrap_or("wgpu") == "wgpu" {
+        let value = matches.value_of("renderer").unwrap_or("wgpu");
+        instance = if value == "wgpu" {
             rfw::Instance::new::<rfw_backend_wgpu::WgpuBackend>(width, height)
+        } else if value == "vulkan_rt" {
+            rfw::Instance::new::<rfw_backend_vulkan_rt::VulkanBackend>(width, height)
         } else {
             rfw::Instance::new::<rfw_backend_metal::MetalBackend>(width, height)
         };
