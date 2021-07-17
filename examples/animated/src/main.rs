@@ -59,6 +59,12 @@ fn startup(mut commands: Commands<'_>, mut scene: ResMut<Scene>) {
 
     scene.add_directional_light(vec3(0.0, -1.0, 0.5), vec3(0.6, 0.4, 0.4));
 
+    // let material = scene
+    //     .get_materials_mut()
+    //     .add(vec3(1.0, 0.2, 0.2), 1.0, Vec3::ONE, 0.0);
+    // let dragon = scene.load("assets/models/dragon.obj").expect("Could not load dragon.obj");
+    // let dragon = scene.add_3d(&dragon);
+
     let material = scene
         .get_materials_mut()
         .add(vec3(1.0, 0.2, 0.03), 1.0, Vec3::ONE, 0.0);

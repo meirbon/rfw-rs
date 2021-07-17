@@ -58,11 +58,8 @@ VulkanRenderer::~VulkanRenderer()
 	{
 		_device->waitIdle();
 
-		_meshes3D.clear();
-		_instances3D.clear();
-
-		_meshes2D.clear();
-		_instances2D.clear();
+		_vertexList3D.reset();
+		_vertexList2D.reset();
 
 		_materials.free();
 		_uniformBuffers.clear();
@@ -192,98 +189,66 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 		width, height);
 
 	resize(width, height, scale);
+
+	_vertexList2D = std::make_unique<VertexDataList<Vertex2D, int>>(_allocator);
+	_vertexList3D = std::make_unique<VertexDataList<Vertex3D, JointData>>(_allocator);
+
+	_instanceList2D = std::make_unique<InstanceDataList<glm::mat4>>(_allocator);
+	_instanceList3D = std::make_unique<InstanceDataList<glm::mat4>>(_allocator);
+
+	_materials = vkh::Buffer<DeviceMaterial>(_allocator);
 }
 
 void VulkanRenderer::set_2d_mesh(unsigned int id, MeshData2D data)
 {
-	if (_meshes2D.size() <= id)
-	{
-		while (_meshes2D.size() <= id)
-		{
-			_meshes2D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
-								   vk::MemoryPropertyFlagBits::eDeviceLocal | vk::MemoryPropertyFlagBits::eHostVisible,
-								   VMA_MEMORY_USAGE_GPU_ONLY);
-		}
-	}
+	if (_vertexList2D->has(id))
+		_vertexList2D->update_pointer(id, data.vertices, data.num_vertices);
+	else
+		_vertexList2D->add_pointer(id, data.vertices, data.num_vertices);
 
-	if (_meshes2D[id].size() != data.num_vertices ||
-		_meshes2D[id].set_data(data.vertices, data.num_vertices) == vkh::BufferResult::Reallocated)
-		_updateFlags |= Flags::UpdateCommandBuffers;
 	_updateFlags |= Flags::Update2D;
 }
 
 void VulkanRenderer::set_2d_instances(unsigned int id, InstancesData2D data)
 {
-	if (_instances2D.size() <= id)
-	{
-		while (_instances2D.size() <= id)
-		{
-			_instances2D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
-									  vk::MemoryPropertyFlagBits::eDeviceLocal |
-										  vk::MemoryPropertyFlagBits::eHostVisible,
-									  VMA_MEMORY_USAGE_GPU_ONLY);
-		}
-	}
+	if (_instanceList2D->has(id))
+		_instanceList2D->update_instances_list(id, reinterpret_cast<const mat4 *>(data.matrices), data.num_matrices);
+	else
+		_instanceList2D->add_instances_list(id, reinterpret_cast<const mat4 *>(data.matrices), data.num_matrices);
 
-	if (_instances2D[id].size() != data.num_matrices ||
-		_instances2D[id].set_data(reinterpret_cast<const glm::mat4 *>(data.matrices), data.num_matrices) ==
-			vkh::BufferResult::Reallocated)
-		_updateFlags |= Flags::UpdateCommandBuffers;
 	_updateFlags |= Flags::UpdateInstances2D;
 }
 
 void VulkanRenderer::set_3d_mesh(unsigned int id, MeshData3D data)
 {
-	if (_meshes3D.size() <= id)
-	{
-		while (_meshes3D.size() <= id)
-		{
-			_meshes3D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
-								   vk::MemoryPropertyFlagBits::eDeviceLocal | vk::MemoryPropertyFlagBits::eHostVisible,
-								   VMA_MEMORY_USAGE_GPU_ONLY);
-		}
-	}
+	if (_vertexList3D->has(id))
+		_vertexList3D->update_pointer(id, data.vertices, data.num_vertices, data.skin_data);
+	else
+		_vertexList3D->add_pointer(id, data.vertices, data.num_vertices, data.skin_data);
 
-	if (_meshes3D[id].size() != data.num_vertices ||
-		_meshes3D[id].set_data(data.vertices, data.num_vertices) == vkh::BufferResult::Reallocated)
-		_updateFlags |= Flags::UpdateCommandBuffers;
 	_updateFlags |= Flags::Update3D;
 }
 
 void VulkanRenderer::set_3d_instances(unsigned int id, InstancesData3D data)
 {
-	if (_instances3D.size() <= id)
-	{
-		while (_instances3D.size() <= id)
-		{
-			_instances3D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
-									  vk::MemoryPropertyFlagBits::eDeviceLocal |
-										  vk::MemoryPropertyFlagBits::eHostVisible,
-									  VMA_MEMORY_USAGE_GPU_ONLY);
-		}
-	}
+	if (_instanceList3D->has(id))
+		_instanceList3D->update_instances_list(id, reinterpret_cast<const mat4 *>(data.matrices), data.num_matrices);
+	else
+		_instanceList3D->add_instances_list(id, reinterpret_cast<const mat4 *>(data.matrices), data.num_matrices);
 
-	if (_instances3D[id].size() != data.num_matrices ||
-		_instances3D[id].set_data(reinterpret_cast<const glm::mat4 *>(data.matrices), data.num_matrices) ==
-			vkh::BufferResult::Reallocated)
-		_updateFlags |= Flags::UpdateCommandBuffers;
-	_updateFlags |= Flags::UpdateInstances3D;
+	_updateFlags |= Flags::UpdateInstances2D;
 }
 
 void VulkanRenderer::unload_3d_meshes(const unsigned int *ids, unsigned int num)
 {
 	for (size_t i = 0; i < num; i++)
 	{
-		const size_t id = static_cast<size_t>(ids[i]);
-		if (id < _meshes3D.size())
-		{
-			_updateFlags |= Flags::UpdateCommandBuffers;
-			_meshes3D[id].free();
-			_instances3D[id].free();
-		}
+		const unsigned int id = ids[i];
+		_vertexList3D->remove_pointer(id);
+		_instanceList3D->remove_instances_list(id);
 	}
 
-	_updateFlags |= Flags::Update3D;
+	_updateFlags |= Flags::UpdateCommandBuffers;
 }
 
 void VulkanRenderer::set_materials(const DeviceMaterial *materials, unsigned int num_materials)
@@ -302,6 +267,37 @@ void VulkanRenderer::set_textures(const TextureData * /*data*/, unsigned int /*n
 
 void VulkanRenderer::synchronize()
 {
+	if (_updateFlags & Flags::Update3D)
+	{
+		_vertexList3D->update_ranges();
+		_vertexList3D->update_data();
+	}
+
+	if (_updateFlags & Flags::Update2D)
+	{
+		_vertexList2D->update_ranges();
+		_vertexList2D->update_data();
+	}
+
+	if (_updateFlags & Flags::UpdateInstances2D)
+	{
+		_instanceList2D->update_ranges();
+		_instanceList2D->update_data();
+	}
+
+	if (_updateFlags & Flags::UpdateInstances3D)
+	{
+		_instanceList3D->update_ranges();
+		_instanceList3D->update_data();
+	}
+
+	_updateFlags = Flags::Empty;
+
+	VmaStats stats = {};
+	vmaCalculateStats(_allocator, &stats);
+
+	//	fmt::print("Allocations: (count: {}, usedBytes: {}, unusedBytes: {})\n", stats.total.allocationCount,
+	//			   stats.total.usedBytes, stats.total.unusedBytes);
 }
 
 void VulkanRenderer::render(const mat4 matrix_2d, const CameraView3D view_3d)

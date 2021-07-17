@@ -12,7 +12,7 @@ version = "0.2.0"
 futures = "0.3"
 num_cpus = "1.13"
 rfw = { path = "../../rfw", version = "0.2" }
-wgpu = "0.9"
+wgpu = { version = "0.9", features = ["cross"] }
 rayon = "1.5"
 num-integer = "0.1"
 bitflags = "1.2"

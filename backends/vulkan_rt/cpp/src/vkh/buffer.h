@@ -11,6 +11,7 @@ enum BufferResult
 	Error = 0,
 	Ok = 1,
 	Reallocated = 2,
+	NotAllocated = 4,
 };
 
 template <typename T> class Buffer
@@ -34,10 +35,29 @@ template <typename T> class Buffer
 		  _flags(buffer._flags), _usage(buffer._usage)
 	{
 		buffer._allocator = nullptr;
-		buffer._allocation = nullptr;
+		buffer._allocation = {};
+		buffer._buffer = nullptr;
 	}
 
 	Buffer(const Buffer &buffer) = delete;
+
+	Buffer &operator=(Buffer buffer)
+	{
+		free();
+		_bufferSize = buffer._bufferSize;
+		_buffer = buffer._buffer;
+		_allocation = buffer._allocation;
+		_allocationInfo = buffer._allocationInfo;
+		_allocator = buffer._allocator;
+		_usageFlags = buffer._usageFlags;
+		_flags = buffer._flags;
+		_usage = buffer._usage;
+
+		buffer._allocator = nullptr;
+		buffer._allocation = {};
+		buffer._buffer = nullptr;
+		return *this;
+	}
 
 	Buffer clone() const
 	{
@@ -94,8 +114,6 @@ template <typename T> class Buffer
 	BufferResult set_data(VmaAllocator allocator, vk::BufferUsageFlags usageFlags, vk::MemoryPropertyFlags flags,
 						  VmaMemoryUsage usage, const T *data, size_t count)
 	{
-		free();
-
 		_allocator = allocator;
 		_usageFlags = usageFlags;
 		_flags = flags;
@@ -160,7 +178,7 @@ template <typename T> class Buffer
 		{
 			void *mappedMemory = nullptr;
 			if (CheckVK(vmaMapMemory(_allocator, _allocation, &mappedMemory)) == vk::Result::eSuccess)
-				return mappedMemory;
+				return reinterpret_cast<T *>(mappedMemory);
 		}
 		return nullptr;
 	}
@@ -174,7 +192,7 @@ template <typename T> class Buffer
 		{
 			void *mappedMemory = nullptr;
 			if (CheckVK(vmaMapMemory(_allocator, _allocation, &mappedMemory)) == vk::Result::eSuccess)
-				return mappedMemory;
+				return reinterpret_cast<const T *>(mappedMemory);
 		}
 		return nullptr;
 	}
@@ -186,6 +204,27 @@ template <typename T> class Buffer
 
 		if (_allocator && _allocation)
 			vmaUnmapMemory(_allocator, _allocation);
+	}
+
+	BufferResult reserve(size_t count, bool force = false)
+	{
+		return allocate(count * sizeof(T), force);
+	}
+
+	BufferResult allocate(vk::DeviceSize sizeInBytes, bool force = false)
+	{
+		if (!force && (sizeInBytes == 0 || sizeInBytes < _bufferSize))
+			return BufferResult::Ok;
+
+		vk::BufferCreateInfo bufferCreateInfo = vk::BufferCreateInfo({}, sizeInBytes, _usageFlags, {});
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = _usage;
+		allocInfo.requiredFlags = static_cast<VkMemoryPropertyFlags>(_flags);
+
+		vmaCreateBuffer(_allocator, reinterpret_cast<VkBufferCreateInfo *>(&bufferCreateInfo), &allocInfo,
+						reinterpret_cast<VkBuffer *>(&_buffer), &_allocation, &_allocationInfo);
+		_bufferSize = sizeInBytes;
+		return BufferResult::NotAllocated;
 	}
 
 	void free()
@@ -214,18 +253,6 @@ template <typename T> class Buffer
 	}
 
   private:
-	void allocate(vk::DeviceSize size)
-	{
-		vk::BufferCreateInfo bufferCreateInfo = vk::BufferCreateInfo({}, size, _usageFlags, {});
-		VmaAllocationCreateInfo allocInfo = {};
-		allocInfo.usage = _usage;
-		allocInfo.requiredFlags = static_cast<VkMemoryPropertyFlags>(_flags);
-
-		vmaCreateBuffer(_allocator, reinterpret_cast<VkBufferCreateInfo *>(&bufferCreateInfo), &allocInfo,
-						reinterpret_cast<VkBuffer *>(&_buffer), &_allocation, &_allocationInfo);
-		_bufferSize = size;
-	}
-
 	vk::DeviceSize _bufferSize = 0;
 	vk::Buffer _buffer = VK_NULL_HANDLE;
 	VmaAllocation _allocation = VK_NULL_HANDLE;

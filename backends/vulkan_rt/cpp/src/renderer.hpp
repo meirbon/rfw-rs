@@ -5,10 +5,12 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "vulkan_loader.h"
 
-#include "3d/mesh.h"
 #include "structs.h"
 #include "vkh/buffer.h"
 #include "vkh/swapchain.h"
+
+#include "instance_list.h"
+#include "vertex_list.h"
 
 #include <memory>
 #include <utility>
@@ -106,11 +108,16 @@ class VulkanRenderer
 	VmaAllocator _allocator;
 	VmaVulkanFunctions _allocatorFunctions;
 
-	std::vector<vkh::Buffer<Vertex2D>> _meshes2D;
-	std::vector<vkh::Buffer<glm::mat4>> _instances2D;
+	std::unique_ptr<VertexDataList<Vertex3D, JointData>> _vertexList3D;
+	std::unique_ptr<VertexDataList<Vertex2D, int>> _vertexList2D;
+	std::unique_ptr<InstanceDataList<glm::mat4>> _instanceList2D;
+	std::unique_ptr<InstanceDataList<glm::mat4>> _instanceList3D;
 
-	std::vector<vkh::Buffer<Vertex3D>> _meshes3D;
-	std::vector<vkh::Buffer<glm::mat4>> _instances3D;
+	//	std::vector<vkh::Buffer<Vertex2D>> _meshes2D;
+	//	std::vector<vkh::Buffer<glm::mat4>> _instances2D;
+	//
+	//	std::vector<vkh::Buffer<Vertex3D>> _meshes3D;
+	//	std::vector<vkh::Buffer<glm::mat4>> _instances3D;
 
 	vkh::Buffer<DeviceMaterial> _materials;
 	std::vector<vkh::Buffer<Uniforms>> _uniformBuffers;

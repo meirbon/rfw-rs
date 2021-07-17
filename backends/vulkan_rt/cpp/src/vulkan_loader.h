@@ -3,6 +3,7 @@
 
 #include <iostream>
 
+#define FMT_HEADER_ONLY
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 
 #define VK_ENABLE_BETA_EXTENSIONS
@@ -22,6 +23,9 @@
 #pragma GCC diagnostic ignored "-Wtype-limits"
 #endif
 #include <vulkan/vulkan.hpp>
+
+#include <fmt/format.h>
+#include <fmt/printf.h>
 
 #include <vk_mem_alloc.h>
 #if WINDOWS
