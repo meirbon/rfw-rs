@@ -16,16 +16,6 @@
 
 using namespace glm;
 
-vk::Result _CheckVK(vk::Result result, const char *command, const char *file, const int line)
-{
-	if (result != vk::Result::eSuccess)
-	{
-		std::cerr << file << ":" << line << " :: " << command << "; error: " << vk::to_string(result) << std::endl;
-		exit(-1);
-	}
-	return result;
-}
-
 mat4 get_rh_matrix(const CameraView3D &view)
 {
 	const float width = 1.0f / view.inv_width;
@@ -67,6 +57,17 @@ VulkanRenderer::~VulkanRenderer()
 	try
 	{
 		_device->waitIdle();
+
+		_meshes3D.clear();
+		_instances3D.clear();
+
+		_meshes2D.clear();
+		_instances2D.clear();
+
+		_materials.free();
+		_uniformBuffers.clear();
+
+		vmaDestroyAllocator(_allocator);
 		_commandBuffers.clear();
 	}
 	catch (const std::exception &e)
@@ -110,7 +111,9 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 		queueCreateInfos.push_back(vk::DeviceQueueCreateInfo({}, queueFamilyIndex, 1, &queuePriority));
 	}
 
-	std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+	std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+												  VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+												  VK_KHR_BIND_MEMORY_2_EXTENSION_NAME};
 #if MACOS || IOS
 	deviceExtensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 #endif
@@ -127,6 +130,49 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 
 	_graphicsQueue = _device->getQueue(graphicsQueue, 0);
 	_presentQueue = _device->getQueue(presentQueue, 0);
+
+	VmaAllocatorCreateInfo allocatorCreateInfo = {};
+	allocatorCreateInfo.instance = *_instance;
+	allocatorCreateInfo.physicalDevice = _physicalDevice;
+	allocatorCreateInfo.device = *_device;
+	allocatorCreateInfo.frameInUseCount = 2;
+	allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_2;
+	allocatorCreateInfo.pVulkanFunctions = &_allocatorFunctions;
+	_allocatorFunctions.vkGetPhysicalDeviceProperties = vk::defaultDispatchLoaderDynamic.vkGetPhysicalDeviceProperties;
+	_allocatorFunctions.vkGetPhysicalDeviceMemoryProperties =
+		vk::defaultDispatchLoaderDynamic.vkGetPhysicalDeviceMemoryProperties;
+	_allocatorFunctions.vkAllocateMemory = vk::defaultDispatchLoaderDynamic.vkAllocateMemory;
+	_allocatorFunctions.vkFreeMemory = vk::defaultDispatchLoaderDynamic.vkFreeMemory;
+	_allocatorFunctions.vkMapMemory = vk::defaultDispatchLoaderDynamic.vkMapMemory;
+	_allocatorFunctions.vkUnmapMemory = vk::defaultDispatchLoaderDynamic.vkUnmapMemory;
+	_allocatorFunctions.vkFlushMappedMemoryRanges = vk::defaultDispatchLoaderDynamic.vkFlushMappedMemoryRanges;
+	_allocatorFunctions.vkInvalidateMappedMemoryRanges =
+		vk::defaultDispatchLoaderDynamic.vkInvalidateMappedMemoryRanges;
+	_allocatorFunctions.vkBindBufferMemory = vk::defaultDispatchLoaderDynamic.vkBindBufferMemory;
+	_allocatorFunctions.vkBindImageMemory = vk::defaultDispatchLoaderDynamic.vkBindImageMemory;
+	_allocatorFunctions.vkGetBufferMemoryRequirements = vk::defaultDispatchLoaderDynamic.vkGetBufferMemoryRequirements;
+	_allocatorFunctions.vkGetImageMemoryRequirements = vk::defaultDispatchLoaderDynamic.vkGetImageMemoryRequirements;
+	_allocatorFunctions.vkCreateBuffer = vk::defaultDispatchLoaderDynamic.vkCreateBuffer;
+	_allocatorFunctions.vkDestroyBuffer = vk::defaultDispatchLoaderDynamic.vkDestroyBuffer;
+	_allocatorFunctions.vkCreateImage = vk::defaultDispatchLoaderDynamic.vkCreateImage;
+	_allocatorFunctions.vkDestroyImage = vk::defaultDispatchLoaderDynamic.vkDestroyImage;
+	_allocatorFunctions.vkCmdCopyBuffer = vk::defaultDispatchLoaderDynamic.vkCmdCopyBuffer;
+#if VMA_DEDICATED_ALLOCATION || VMA_VULKAN_VERSION >= 1001000
+	_allocatorFunctions.vkGetBufferMemoryRequirements2KHR =
+		vk::defaultDispatchLoaderDynamic.vkGetBufferMemoryRequirements2KHR;
+	_allocatorFunctions.vkGetImageMemoryRequirements2KHR =
+		vk::defaultDispatchLoaderDynamic.vkGetImageMemoryRequirements2KHR;
+#endif
+#if VMA_BIND_MEMORY2 || VMA_VULKAN_VERSION >= 1001000
+	_allocatorFunctions.vkBindBufferMemory2KHR = vk::defaultDispatchLoaderDynamic.vkBindBufferMemory2KHR;
+	_allocatorFunctions.vkBindImageMemory2KHR = vk::defaultDispatchLoaderDynamic.vkBindImageMemory2KHR;
+#endif
+#if VMA_MEMORY_BUDGET || VMA_VULKAN_VERSION >= 1001000
+	_allocatorFunctions.vkGetPhysicalDeviceMemoryProperties2KHR =
+		vk::defaultDispatchLoaderDynamic.vkGetPhysicalDeviceMemoryProperties2KHR;
+#endif
+
+	vmaCreateAllocator(&allocatorCreateInfo, &_allocator);
 
 	vk::ShaderModuleCreateInfo vertShaderCreateInfo = vk::ShaderModuleCreateInfo(
 		{}, __shaders_minimal_vert_spv_len, reinterpret_cast<const uint32_t *>(__shaders_minimal_vert_spv));
@@ -148,35 +194,117 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 	resize(width, height, scale);
 }
 
-void VulkanRenderer::set_2d_mesh(unsigned int /*id*/, MeshData2D /*data*/)
+void VulkanRenderer::set_2d_mesh(unsigned int id, MeshData2D data)
 {
+	if (_meshes2D.size() <= id)
+	{
+		while (_meshes2D.size() <= id)
+		{
+			_meshes2D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
+								   vk::MemoryPropertyFlagBits::eDeviceLocal | vk::MemoryPropertyFlagBits::eHostVisible,
+								   VMA_MEMORY_USAGE_GPU_ONLY);
+		}
+	}
+
+	if (_meshes2D[id].size() != data.num_vertices ||
+		_meshes2D[id].set_data(data.vertices, data.num_vertices) == vkh::BufferResult::Reallocated)
+		_updateFlags |= Flags::UpdateCommandBuffers;
+	_updateFlags |= Flags::Update2D;
 }
 
-void VulkanRenderer::set_2d_instances(unsigned int /*id*/, InstancesData2D /*data*/)
+void VulkanRenderer::set_2d_instances(unsigned int id, InstancesData2D data)
 {
+	if (_instances2D.size() <= id)
+	{
+		while (_instances2D.size() <= id)
+		{
+			_instances2D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
+									  vk::MemoryPropertyFlagBits::eDeviceLocal |
+										  vk::MemoryPropertyFlagBits::eHostVisible,
+									  VMA_MEMORY_USAGE_GPU_ONLY);
+		}
+	}
+
+	if (_instances2D[id].size() != data.num_matrices ||
+		_instances2D[id].set_data(reinterpret_cast<const glm::mat4 *>(data.matrices), data.num_matrices) ==
+			vkh::BufferResult::Reallocated)
+		_updateFlags |= Flags::UpdateCommandBuffers;
+	_updateFlags |= Flags::UpdateInstances2D;
 }
 
-void VulkanRenderer::set_3d_mesh(unsigned int /*id*/, MeshData3D /*data*/)
+void VulkanRenderer::set_3d_mesh(unsigned int id, MeshData3D data)
 {
+	if (_meshes3D.size() <= id)
+	{
+		while (_meshes3D.size() <= id)
+		{
+			_meshes3D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
+								   vk::MemoryPropertyFlagBits::eDeviceLocal | vk::MemoryPropertyFlagBits::eHostVisible,
+								   VMA_MEMORY_USAGE_GPU_ONLY);
+		}
+	}
+
+	if (_meshes3D[id].size() != data.num_vertices ||
+		_meshes3D[id].set_data(data.vertices, data.num_vertices) == vkh::BufferResult::Reallocated)
+		_updateFlags |= Flags::UpdateCommandBuffers;
+	_updateFlags |= Flags::Update3D;
 }
 
-void VulkanRenderer::set_3d_instances(unsigned int /*id*/, InstancesData3D /*data*/)
+void VulkanRenderer::set_3d_instances(unsigned int id, InstancesData3D data)
 {
+	if (_instances3D.size() <= id)
+	{
+		while (_instances3D.size() <= id)
+		{
+			_instances3D.emplace_back(_allocator, vk::BufferUsageFlagBits::eVertexBuffer,
+									  vk::MemoryPropertyFlagBits::eDeviceLocal |
+										  vk::MemoryPropertyFlagBits::eHostVisible,
+									  VMA_MEMORY_USAGE_GPU_ONLY);
+		}
+	}
+
+	if (_instances3D[id].size() != data.num_matrices ||
+		_instances3D[id].set_data(reinterpret_cast<const glm::mat4 *>(data.matrices), data.num_matrices) ==
+			vkh::BufferResult::Reallocated)
+		_updateFlags |= Flags::UpdateCommandBuffers;
+	_updateFlags |= Flags::UpdateInstances3D;
 }
 
-void VulkanRenderer::unload_3d_meshes(const unsigned int * /*ids*/, unsigned int /*num*/)
+void VulkanRenderer::unload_3d_meshes(const unsigned int *ids, unsigned int num)
 {
+	for (size_t i = 0; i < num; i++)
+	{
+		const size_t id = static_cast<size_t>(ids[i]);
+		if (id < _meshes3D.size())
+		{
+			_updateFlags |= Flags::UpdateCommandBuffers;
+			_meshes3D[id].free();
+			_instances3D[id].free();
+		}
+	}
+
+	_updateFlags |= Flags::Update3D;
 }
 
-void VulkanRenderer::set_materials(const DeviceMaterial * /*materials*/, unsigned int /*num_materials*/)
+void VulkanRenderer::set_materials(const DeviceMaterial *materials, unsigned int num_materials)
 {
+	_materials.set_data(_allocator, vk::BufferUsageFlagBits::eStorageBuffer,
+						vk::MemoryPropertyFlagBits::eDeviceLocal | vk::MemoryPropertyFlagBits::eHostVisible,
+						VMA_MEMORY_USAGE_GPU_ONLY, materials, num_materials);
+	_updateFlags |= Flags::UpdateMaterials;
+}
+
+void VulkanRenderer::set_textures(const TextureData * /*data*/, unsigned int /*num_textures*/,
+								  const unsigned int * /*changed*/)
+{
+	_updateFlags |= Flags::UpdateTextures;
 }
 
 void VulkanRenderer::synchronize()
 {
 }
 
-void VulkanRenderer::render(const mat4 /*matrix_2d*/, const CameraView3D /*view_3d*/)
+void VulkanRenderer::render(const mat4 matrix_2d, const CameraView3D view_3d)
 {
 	const vk::ResultValue<uint32_t> value =
 		_swapchain->acquire_next_image(std::numeric_limits<uint64_t>::max(), *_imageAvailableSemaphores[_currentFrame]);
@@ -189,15 +317,28 @@ void VulkanRenderer::render(const mat4 /*matrix_2d*/, const CameraView3D /*view_
 
 	_imagesInFlight[imageIndex] = _inFlightFences[_currentFrame].get();
 
+	// Update uniform data
+	Uniforms data = {};
+	data.matrix_2d = matrix_2d;
+	data.view = get_rh_view_matrix(view_3d);
+	data.projection = get_rh_projection_matrix(view_3d);
+	data.combined = get_rh_matrix(view_3d);
+	data.cameraPosition = glm::vec4(view_3d.pos.x, view_3d.pos.y, view_3d.pos.z, 1.0f);
+	data.cameraDirection = glm::vec4(view_3d.direction.x, view_3d.direction.y, view_3d.direction.z, 1.0f);
+	_uniformBuffers[imageIndex].set_data(&data, 1);
+
+	// Wait till previous frame finished presenting
 	vk::PipelineStageFlags waitStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 	vk::SubmitInfo submitInfo =
 		vk::SubmitInfo(1, &*_imageAvailableSemaphores[_currentFrame], &waitStageMask, 1, &*_commandBuffers[imageIndex],
 					   1, &*_renderFinishedSemaphores[_currentFrame]);
 
+	// Reset fence for this frame
 	CheckVK(_device->resetFences(1, &_imagesInFlight[imageIndex]));
 	if (_graphicsQueue.submit(1, &submitInfo, _imagesInFlight[imageIndex]) != vk::Result::eSuccess)
 		return;
 
+	// Present image
 	vk::PresentInfoKHR presentInfoKhr =
 		vk::PresentInfoKHR(1, &*_renderFinishedSemaphores[_currentFrame], 1, &_swapchain->get(), &imageIndex);
 	if (_presentQueue.presentKHR(&presentInfoKhr) != vk::Result::eSuccess)
@@ -213,9 +354,7 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 	_scale = scale;
 
 	// (Re)create swap chain
-
 	_swapchain->resize(width, height);
-	//	create_swapchain(width, height);
 
 	// Reinitialize pipelines
 	vk::PipelineShaderStageCreateInfo vertShaderStageInfo =
@@ -339,6 +478,16 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 	_renderFinishedSemaphores.clear();
 	_renderFinishedSemaphores.resize(_commandBuffers.size());
 
+	if (_uniformBuffers.size() != _commandBuffers.size())
+	{
+		_uniformBuffers.clear();
+		for (size_t i = 0; i < _commandBuffers.size(); i++)
+		{
+			_uniformBuffers.emplace_back(_allocator, vk::BufferUsageFlagBits::eUniformBuffer,
+										 vk::MemoryPropertyFlagBits::eHostVisible, VMA_MEMORY_USAGE_CPU_TO_GPU);
+		}
+	}
+
 	for (size_t i = 0; i < _commandBuffers.size(); i++)
 	{
 		_inFlightFences[i] = _device->createFenceUnique(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled));
@@ -363,9 +512,4 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 		_commandBuffers[i]->endRenderPass();
 		_commandBuffers[i]->end();
 	}
-}
-
-void VulkanRenderer::set_textures(const TextureData * /*data*/, unsigned int /*num_textures*/,
-								  const unsigned int * /*changed*/)
-{
 }

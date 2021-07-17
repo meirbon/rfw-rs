@@ -133,17 +133,46 @@ fn main() {
         vulkan_sdk.join("macOS").join("lib").display()
     );
 
-    let mut sources = vec![
-        "cpp/src/renderer.cpp",
-        "cpp/src/library.cpp",
-        "cpp/src/device.cpp",
-        "cpp/src/vulkan_loader.cpp",
-        "cpp/src/vk_mem_alloc.cpp",
-        "cpp/src/vkh/swapchain.cpp",
-    ];
+    let mut sources = vec![];
+    for entry in glob::glob("cpp/src/**/*.cpp").expect("Failed to read glob pattern") {
+        match entry {
+            Ok(path) => {
+                sources.push(
+                    path.to_str()
+                        .expect("Could not convert path to string")
+                        .to_string(),
+                );
+            }
+            Err(e) => eprintln!("cargo:warning={:?}", e),
+        }
+    }
 
     if cfg!(target_vendor = "apple") {
-        sources.push("cpp/src/create_metal_layer.mm");
+        for entry in glob::glob("cpp/src/**/*.m").expect("Failed to read glob pattern") {
+            match entry {
+                Ok(path) => {
+                    sources.push(
+                        path.to_str()
+                            .expect("Could not convert path to string")
+                            .to_string(),
+                    );
+                }
+                Err(e) => eprintln!("cargo:warning={:?}", e),
+            }
+        }
+
+        for entry in glob::glob("cpp/src/**/*.mm").expect("Failed to read glob pattern") {
+            match entry {
+                Ok(path) => {
+                    sources.push(
+                        path.to_str()
+                            .expect("Could not convert path to string")
+                            .to_string(),
+                    );
+                }
+                Err(e) => eprintln!("cargo:warning={:?}", e),
+            }
+        }
     }
 
     let files_to_ignore = vec![];

@@ -38,7 +38,7 @@ class Swapchain
 		return *_swapchain;
 	}
 
-	vk::SwapchainKHR &operator*() VULKAN_HPP_NOEXCEPT
+	vk::SwapchainKHR &operator*()
 	{
 		return *_swapchain;
 	}

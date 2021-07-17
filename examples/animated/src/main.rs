@@ -7,8 +7,8 @@ struct FpsSystem {
     average: Averager<f32>,
 }
 
-static SPHERE_X: i32 = 1_i32;
-static SPHERE_Z: i32 = 1_i32;
+static SPHERE_X: i32 = 20_i32;
+static SPHERE_Z: i32 = 15_i32;
 
 fn fps_system(mut font_renderer: ResMut<FontRenderer>, mut fps_component: Query<&mut FpsSystem>) {
     for mut c in fps_component.iter_mut() {
@@ -286,7 +286,7 @@ fn main() {
                 .short("r")
                 .takes_value(true)
                 .multiple(false)
-                .default_value("wgpu")
+                .default_value("vulkan_rt")
                 .possible_values(&["wgpu", "vulkan_rt"]),
         );
     }

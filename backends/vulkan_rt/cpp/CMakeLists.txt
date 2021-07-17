@@ -9,12 +9,18 @@ if (APPLE)
 			src/renderer.cpp
 			src/device.cpp
 			src/vulkan_loader.cpp
-			src/create_metal_layer.mm src/vkh/swapchain.cpp src/vkh/swapchain.h src/vk_mem_alloc.cpp)
+			src/create_metal_layer.mm
+			src/vkh/swapchain.cpp
+			src/vk_mem_alloc.cpp
+			src/3d/mesh.cpp)
 else (APPLE)
 	set(SOURCES src/library.cpp
 			src/renderer.cpp
 			src/device.cpp
-			src/vulkan_loader.cpp src/vkh/swapchain.cpp src/vkh/swapchain.h src/vk_mem_alloc.cpp)
+			src/vulkan_loader.cpp
+			src/vkh/swapchain.cpp
+			src/vk_mem_alloc.cpp
+			src/3d/mesh.cpp)
 endif (APPLE)
 
 add_library(${PROJECT_NAME} STATIC ${SOURCES})

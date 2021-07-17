@@ -22,3 +22,4 @@ bindgen = "0.58"
 md5 = "0.7"
 rfw-utils = { path = "../../crates/rfw-utils", version = "0.2" }
 spirv-compiler = "0.1"
+glob = "0.3.0"

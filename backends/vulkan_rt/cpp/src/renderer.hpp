@@ -5,7 +5,9 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "vulkan_loader.h"
 
+#include "3d/mesh.h"
 #include "structs.h"
+#include "vkh/buffer.h"
 #include "vkh/swapchain.h"
 
 #include <memory>
@@ -14,14 +16,17 @@
 
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
-vk::Result _CheckVK(vk::Result result, const char *command, const char *file, int line);
-template <typename T> T _CheckVK(vk::ResultValue<T> result, const char *command, const char *file, const int line)
-{
-	_CheckVK(result.result, command, file, line);
-	return result.value;
-}
 
-#define CheckVK(x) _CheckVK((x), #x, __FILE__, __LINE__)
+struct Uniforms
+{
+	glm::mat4 matrix_2d;
+	glm::mat4 view;
+	glm::mat4 projection;
+	glm::mat4 combined;
+
+	glm::vec4 cameraPosition;
+	glm::vec4 cameraDirection;
+};
 
 class VulkanRenderer
 {
@@ -49,12 +54,13 @@ class VulkanRenderer
 	enum Flags : unsigned int
 	{
 		Empty = 0,
-		Update3D = 1,
-		UpdateInstances3D = 2,
-		Update2D = 4,
-		UpdateInstances2D = 8,
-		UpdateMaterials = 16,
-		UpdateTextures = 32
+		UpdateCommandBuffers = 1,
+		Update3D = 2,
+		UpdateInstances3D = 4,
+		Update2D = 8,
+		UpdateInstances2D = 16,
+		UpdateMaterials = 32,
+		UpdateTextures = 64
 	};
 
 	VulkanRenderer(const VulkanRenderer &other) = delete;
@@ -97,11 +103,24 @@ class VulkanRenderer
 	vk::Queue _graphicsQueue;
 	vk::Queue _presentQueue;
 
+	VmaAllocator _allocator;
+	VmaVulkanFunctions _allocatorFunctions;
+
+	std::vector<vkh::Buffer<Vertex2D>> _meshes2D;
+	std::vector<vkh::Buffer<glm::mat4>> _instances2D;
+
+	std::vector<vkh::Buffer<Vertex3D>> _meshes3D;
+	std::vector<vkh::Buffer<glm::mat4>> _instances3D;
+
+	vkh::Buffer<DeviceMaterial> _materials;
+	std::vector<vkh::Buffer<Uniforms>> _uniformBuffers;
+
 	vk::UniquePipelineLayout _pipelineLayout;
 	vk::UniquePipeline _pipeline;
 	vk::UniqueShaderModule _vertModule;
 	vk::UniqueShaderModule _fragModule;
 	vk::UniqueRenderPass _renderPass;
+
 	std::vector<vk::UniqueSemaphore> _imageAvailableSemaphores;
 	std::vector<vk::UniqueSemaphore> _renderFinishedSemaphores;
 	size_t _currentFrame = 0;
@@ -109,5 +128,7 @@ class VulkanRenderer
 	//	vk::Extent2D _extent;
 	double _scale = 1.0;
 	std::vector<vk::UniqueFramebuffer> _framebuffers;
+
+	unsigned int _updateFlags;
 };
 #endif
