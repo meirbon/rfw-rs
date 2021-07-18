@@ -42,6 +42,8 @@ template <typename T> T _CheckVK(vk::ResultValue<T> result, const char *command,
 	return result.value;
 }
 
+vk::Device getAllocatorDevice(VmaAllocator allocator);
+
 #define CheckVK(x) _CheckVK((x), #x, __FILE__, __LINE__)
 
 #endif // VULKANRTCPP_BACKENDS_VULKAN_RT_CPP_SRC_VULKAN_LOADER_H

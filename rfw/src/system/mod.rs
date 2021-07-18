@@ -5,12 +5,19 @@ use rfw_backend::{Backend, DataFormat, MeshData2D, MeshData3D, SkinData, Texture
 use rfw_scene::Scene;
 use rfw_utils::BytesConversion;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RenderState {
+    Running,
+    Paused,
+}
+
 pub struct RenderSystem {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) scale_factor: f64,
     pub(crate) renderer: Box<dyn Backend>,
     pub mode: RenderMode,
+    pub state: RenderState,
 }
 
 unsafe impl Send for RenderSystem {}

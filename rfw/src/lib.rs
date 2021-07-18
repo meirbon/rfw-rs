@@ -41,7 +41,7 @@ use prelude::Input;
 use rfw_backend::{Backend, RenderMode};
 use rfw_math::*;
 use rfw_scene::{Camera2D, Camera3D, Scene};
-use system::RenderSystem;
+use system::{RenderState, RenderSystem};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 pub struct Instance {
@@ -130,6 +130,7 @@ impl Instance {
             scale_factor: 1.0,
             renderer,
             mode: RenderMode::Default,
+            state: system::RenderState::Running,
         })
         .add_resource(bevy_tasks::ComputeTaskPool(
             bevy_tasks::TaskPoolBuilder::new().build(),
@@ -411,16 +412,24 @@ fn render_system(
     mut system: ResMut<RenderSystem>,
 ) {
     if let Some(event) = resize_event.iter().last() {
-        *camera_2d = Camera2D::from_width_height(event.width, event.height, Some(event.scale));
-        camera_3d.set_aspect_ratio(event.width as f32 / event.height as f32);
+        // Sometimes, e.g. when a window is minimized, a width and height of 0 is reported
+        if event.width > 0 && event.height > 0 {
+            system.state = RenderState::Running;
+            *camera_2d = Camera2D::from_width_height(event.width, event.height, Some(event.scale));
+            camera_3d.set_aspect_ratio(event.width as f32 / event.height as f32);
 
-        system.width = event.width;
-        system.height = event.height;
-        system.resize(event.width, event.height, Some(event.scale));
+            system.width = event.width;
+            system.height = event.height;
+            system.resize(event.width, event.height, Some(event.scale));
+        } else {
+            system.state = RenderState::Paused;
+        }
     }
 
-    let view_2d = camera_2d.get_view();
-    let view_3d = camera_3d.get_view(system.width, system.height);
-    let mode = system.mode;
-    system.renderer.render(view_2d, view_3d, mode);
+    if system.state == RenderState::Running {
+        let view_2d = camera_2d.get_view();
+        let view_3d = camera_3d.get_view(system.width, system.height);
+        let mode = system.mode;
+        system.renderer.render(view_2d, view_3d, mode);
+    }
 }

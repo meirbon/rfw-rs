@@ -239,6 +239,18 @@ template <typename T> class Buffer
 		}
 	}
 
+	vk::Device device() const
+	{
+		if (_allocator)
+			return getAllocatorDevice(_allocator);
+		return VK_NULL_HANDLE;
+	}
+
+	VmaAllocator allocator() const
+	{
+		return _allocator;
+	}
+
 	operator bool() const
 	{
 		return _buffer;

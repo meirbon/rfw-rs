@@ -1,3 +1,5 @@
+#define VMA_IMPLEMENTATION
+
 #include "vulkan_loader.h"
 
 #include <iostream>
@@ -19,4 +21,11 @@ vk::Result _CheckVK(vk::Result result, const char *command, const char *file, co
 		exit(-1);
 	}
 	return result;
+}
+
+vk::Device getAllocatorDevice(VmaAllocator allocator)
+{
+	if (allocator)
+		return static_cast<vk::Device>(allocator->m_hDevice);
+	return VK_NULL_HANDLE;
 }

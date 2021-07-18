@@ -405,6 +405,9 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 	_device->waitIdle();
 	_scale = scale;
 
+	if (width == 0 || height == 0)
+		return;
+
 	// (Re)create swap chain
 	_swapchain->resize(width, height);
 

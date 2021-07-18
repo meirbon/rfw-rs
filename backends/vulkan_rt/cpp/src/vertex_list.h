@@ -192,7 +192,11 @@ template <typename T, typename JW, size_t ALIGNMENT = 2048> class VertexDataList
 
 		unsigned int total = _total_vertices;
 		if (!_buffer || _buffer.size() < total)
+		{
+			// Need to wait till Device is idle as buffers might be in use in draw calls
+			_buffer.device().waitIdle();
 			_buffer.reserve(total);
+		}
 
 		T *data = reinterpret_cast<T *>(_buffer.map());
 		for (const auto &[id, desc] : _pointers)
@@ -205,6 +209,8 @@ template <typename T, typename JW, size_t ALIGNMENT = 2048> class VertexDataList
 
 		if (!_jwBuffer || _jwBuffer.size() < total)
 		{
+			// Need to wait till Device is idle as buffers might be in use in draw calls
+			_buffer.device().waitIdle();
 			_jwBuffer.reserve(next_multiple_of(total, ALIGNMENT));
 			_animBuffer.reserve(next_multiple_of(total, ALIGNMENT));
 		}

@@ -106,7 +106,11 @@ template <typename T> class InstanceDataList
 			return;
 
 		if (_buffer.size() < _total)
+		{
+			// Need to wait till Device is idle as buffers might be in use in draw calls
+			_buffer.device().waitIdle();
 			_buffer.reserve(next_multiple_of(_total, 512));
+		}
 
 		T *data = _buffer.map();
 		for (const auto &[id, desc] : _lists)

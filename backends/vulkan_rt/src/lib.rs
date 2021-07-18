@@ -35,8 +35,7 @@ impl FromWindowHandle for VulkanBackend {
                 RawWindowHandle::Windows(handle) => {
                     instance = unsafe {
                         ffi::vulkan_create_instance(
-                            handle,
-                            hwnd as u64,
+                            handle.hwnd as u64,
                             handle.hinstance as u64,
                             0,
                             width,

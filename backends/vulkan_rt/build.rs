@@ -85,8 +85,8 @@ fn main() {
 
         Command::new("xxd")
             .arg("-i")
-            .arg(format!("{}", save_path))
-            .arg(format!("{}", out_path))
+            .arg(save_path.to_string())
+            .arg(out_path.to_string())
             .spawn()
             .unwrap()
             .wait_with_output()
@@ -128,10 +128,18 @@ fn main() {
         vec!["vulkan"]
     };
     let vulkan_include_dir = vulkan_sdk.join("include");
-    println!(
-        "cargo:rustc-link-search={}",
-        vulkan_sdk.join("macOS").join("lib").display()
-    );
+
+    if cfg!(windows) {
+        println!(
+            "cargo:rustc-link-search={}",
+            vulkan_sdk.join("Lib").display()
+        );
+    } else if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
+        println!(
+            "cargo:rustc-link-search={}",
+            vulkan_sdk.join("macOS").join("lib").display()
+        );
+    }
 
     let mut sources = vec![];
     for entry in glob::glob("cpp/src/**/*.cpp").expect("Failed to read glob pattern") {
