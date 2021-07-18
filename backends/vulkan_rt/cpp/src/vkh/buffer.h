@@ -47,7 +47,7 @@ template <typename T> class Buffer
 		_bufferSize = buffer._bufferSize;
 		_buffer = buffer._buffer;
 		_allocation = buffer._allocation;
-		_allocationInfo = buffer._allocationInfo;
+		memcpy(&_allocationInfo, &buffer._allocationInfo, sizeof(VmaAllocationInfo));
 		_allocator = buffer._allocator;
 		_usageFlags = buffer._usageFlags;
 		_flags = buffer._flags;
@@ -215,6 +215,8 @@ template <typename T> class Buffer
 	{
 		if (!force && (sizeInBytes == 0 || sizeInBytes < _bufferSize))
 			return BufferResult::Ok;
+
+		free();
 
 		vk::BufferCreateInfo bufferCreateInfo = vk::BufferCreateInfo({}, sizeInBytes, _usageFlags, {});
 		VmaAllocationCreateInfo allocInfo = {};

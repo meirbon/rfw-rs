@@ -13,9 +13,9 @@ use crate::utils::{HasMatrix, HasRotation, HasTranslation, Transform};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Camera3D {
-    pub pos: [f32; 3],
-    up: [f32; 3],
-    pub direction: [f32; 3],
+    pub position: Vec3,
+    up: Vec3,
+    pub direction: Vec3,
     fov: f32,
     pub aspect_ratio: f32,
     pub aperture: f32,
@@ -28,9 +28,9 @@ pub struct Camera3D {
 impl Default for Camera3D {
     fn default() -> Self {
         Self {
-            pos: [0.0; 3],
-            up: [0.0, 1.0, 0.0],
-            direction: [0.0, 0.0, 1.0],
+            position: Vec3::ZERO,
+            up: Vec3::Y,
+            direction: Vec3::Z,
             fov: 60.0,
             aspect_ratio: 1024_f32 / 768_f32,
             aperture: 0.0001,
@@ -46,9 +46,9 @@ impl Default for Camera3D {
 impl Camera3D {
     pub fn zero() -> Camera3D {
         Camera3D {
-            pos: [0.0; 3],
-            up: [0.0; 3],
-            direction: [0.0, 0.0, 1.0],
+            position: Vec3::ZERO,
+            up: Vec3::Y,
+            direction: Vec3::Z,
             fov: 90.0,
             aspect_ratio: 1.0,
             aperture: 0.0001,
@@ -61,9 +61,9 @@ impl Camera3D {
 
     pub fn new() -> Camera3D {
         Camera3D {
-            pos: [0.0; 3],
-            up: [0.0; 3],
-            direction: [0.0, 0.0, 1.0],
+            position: Vec3::ZERO,
+            up: Vec3::Y,
+            direction: Vec3::Z,
             fov: 40.0,
             aspect_ratio: 1.0,
             aperture: 0.0001,
@@ -76,11 +76,10 @@ impl Camera3D {
 
     pub fn get_view(&self, width: u32, height: u32) -> CameraView3D {
         let (right, up, forward) = self.calculate_matrix();
-        let pos = Vec3::from(self.pos);
         let fov = self.fov;
         let spread_angle = (fov * std::f32::consts::PI / 180.0) * (1.0 / height as f32);
         let screen_size = (fov * 0.5 / (180.0 / std::f32::consts::PI)).tan();
-        let center = pos + self.focal_distance * forward;
+        let center = self.position + self.focal_distance * forward;
 
         let p1 = center - screen_size * right * self.focal_distance * self.aspect_ratio
             + screen_size * self.focal_distance * up;
@@ -96,13 +95,13 @@ impl Camera3D {
         let up = p3 - p1;
 
         CameraView3D {
-            pos: pos.into(),
+            position: self.position,
             lens_size: aperture,
-            right: right.into(),
-            p1: p1.into(),
-            direction: forward.into(),
+            right,
+            p1,
+            direction: forward,
             spread_angle,
-            up: up.into(),
+            up,
             epsilon: crate::constants::EPSILON,
             inv_width: 1.0 / width as f32,
             inv_height: 1.0 / height as f32,
@@ -142,7 +141,7 @@ impl Camera3D {
 
     pub fn get_transform(&mut self) -> Transform<Self> {
         Transform {
-            translation: self.pos.into(),
+            translation: self.position,
             rotation: Quat::IDENTITY,
             scale: Vec3::default(),
             handle: self,
@@ -150,39 +149,31 @@ impl Camera3D {
         }
     }
 
-    pub fn with_position<T: Into<[f32; 3]>>(mut self, position: T) -> Self {
-        self.pos = position.into();
+    pub fn with_position(mut self, position: Vec3) -> Self {
+        self.position = position;
         self
     }
 
-    pub fn with_direction<T: Into<[f32; 3]>>(mut self, direction: T) -> Self {
-        let direction: Vec3 = Vec3::from(direction.into());
-        self.direction = direction.normalize().into();
+    pub fn with_direction(mut self, direction: Vec3) -> Self {
+        self.direction = direction.normalize();
         self
     }
 
-    pub fn translate_relative<T: Into<[f32; 3]>>(&mut self, delta: T) {
-        let delta = Vec3::from(delta.into());
+    pub fn translate_relative(&mut self, delta: Vec3) {
         let delta = delta * self.speed;
         let (right, up, forward) = self.calculate_matrix();
-        self.pos =
-            (Vec3::from(self.pos) + (delta.x * right + delta.y * up + delta.z * forward)).into();
+        self.position += delta.x * right + delta.y * up + delta.z * forward;
     }
 
-    pub fn translate_target<T: Into<[f32; 3]>>(&mut self, delta: T) {
+    pub fn translate_target(&mut self, delta: Vec3) {
         let (right, up, forward) = self.calculate_matrix();
-        let delta: [f32; 3] = delta.into();
         self.direction =
-            (Vec3::from(self.direction) + delta[0] * right + delta[1] * up + delta[2] * forward)
-                .normalize()
-                .into();
+            (self.direction + delta[0] * right + delta[1] * up + delta[2] * forward).normalize();
     }
 
-    pub fn look_at<T: Into<[f32; 3]>>(&mut self, origin: T, target: T) {
-        let origin: Vec3 = Vec3::from(origin.into());
-        let target: Vec3 = Vec3::from(target.into());
-        self.pos = origin.into();
-        self.direction = (target - origin).normalize().into();
+    pub fn look_at(&mut self, origin: Vec3, target: Vec3) {
+        self.position = origin;
+        self.direction = (target - origin).normalize();
     }
 
     pub fn get_rh_matrix(&self) -> Mat4 {
@@ -191,11 +182,7 @@ impl Camera3D {
 
         let projection =
             Mat4::perspective_rh_gl(fov, self.aspect_ratio, self.near_plane, self.far_plane);
-
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
-
-        let view = Mat4::look_at_rh(pos, pos + dir, up);
+        let view = Mat4::look_at_rh(self.position, self.position + self.direction, up);
 
         projection * view
     }
@@ -207,10 +194,7 @@ impl Camera3D {
         let projection =
             Mat4::perspective_lh(fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
-
-        let view = Mat4::look_at_lh(pos, pos + dir, up);
+        let view = Mat4::look_at_lh(self.position, self.position + self.direction, up);
 
         projection * view
     }
@@ -227,25 +211,17 @@ impl Camera3D {
 
     pub fn get_rh_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
-
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
-
-        Mat4::look_at_rh(pos, pos + dir, up)
+        Mat4::look_at_rh(self.position, self.position + self.direction, up)
     }
 
     pub fn get_lh_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
-
-        let pos = Vec3::from(self.pos);
-        let dir = Vec3::from(self.direction);
-
-        Mat4::look_at_lh(pos, pos + dir, up)
+        Mat4::look_at_lh(self.position, self.position + self.direction, up)
     }
 
     fn calculate_matrix(&self) -> (Vec3, Vec3, Vec3) {
         let y: Vec3 = Vec3::new(0.0, 1.0, 0.0);
-        let z: Vec3 = Vec3::from(self.direction).normalize();
+        let z: Vec3 = self.direction.normalize();
         let x: Vec3 = z.cross(y).normalize();
         let y: Vec3 = x.cross(z).normalize();
         (x, y, z)
@@ -282,8 +258,8 @@ impl Camera3D {
 
 impl HasMatrix for Camera3D {
     fn update(&mut self, t: Vec3, r: Quat, _s: Vec3) {
-        self.pos = t.into();
-        self.direction = r.mul_vec3(self.direction.into()).into();
+        self.position = t;
+        self.direction = r.mul_vec3(self.direction);
     }
 }
 

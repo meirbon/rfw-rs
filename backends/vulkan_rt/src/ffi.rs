@@ -52,22 +52,12 @@ pub struct Vertex2D {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]
 pub struct Vertex3D {
-    pub v_x: f32,
-    pub v_y: f32,
-    pub v_z: f32,
-    pub v_w: f32,
-    pub n_x: f32,
-    pub n_y: f32,
-    pub n_z: f32,
+    pub vertex: Vector4,
+    pub normal: Vector3,
     pub mat_id: ::std::os::raw::c_uint,
-    pub u: f32,
-    pub v: f32,
-    pub pad0: f32,
-    pub pad1: f32,
-    pub t_x: f32,
-    pub t_y: f32,
-    pub t_z: f32,
-    pub t_w: f32,
+    pub uv: Vector2,
+    pub padding: Vector2,
+    pub tangent: Vector4,
 }
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone)]

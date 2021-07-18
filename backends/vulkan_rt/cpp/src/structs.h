@@ -50,25 +50,14 @@ typedef struct
 
 typedef struct
 {
-	float v_x;
-	float v_y;
-	float v_z;
-	float v_w;
-
-	float n_x;
-	float n_y;
-	float n_z;
+	Vector4 vertex;
+	Vector3 normal;
 	unsigned int mat_id;
 
-	float u;
-	float v;
-	float pad0;
-	float pad1;
+	Vector2 uv;
+	Vector2 padding;
 
-	float t_x;
-	float t_y;
-	float t_z;
-	float t_w;
+	Vector4 tangent;
 } Vertex3D;
 
 typedef struct

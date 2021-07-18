@@ -52,6 +52,9 @@ template <typename T, typename JW, size_t ALIGNMENT = 2048> class VertexDataList
 					  VMA_MEMORY_USAGE_GPU_ONLY),
 		  _total_vertices(0), _total_jw(0), _recalculate_ranges(true)
 	{
+		_buffer.allocate(1024, true);
+		_jwBuffer.allocate(1024, true);
+		_animBuffer.allocate(1024, true);
 	}
 
 	void add_pointer(unsigned int id, const T *pointer, unsigned int count, const JW *joints_weights = nullptr)
@@ -77,8 +80,6 @@ template <typename T, typename JW, size_t ALIGNMENT = 2048> class VertexDataList
 
 	size_t size() const
 	{
-		if (!_buffer)
-			return 0;
 		return _buffer.size();
 	}
 

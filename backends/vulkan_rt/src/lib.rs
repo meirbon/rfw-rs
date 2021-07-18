@@ -277,9 +277,9 @@ impl Backend for VulkanBackend {
                 std::ptr::read(&camera_2d.matrix as *const Mat4 as *const ffi::Vector4x4),
                 ffi::CameraView3D {
                     pos: ffi::Vector3 {
-                        x: camera.pos.x,
-                        y: camera.pos.y,
-                        z: camera.pos.z,
+                        x: camera.position.x,
+                        y: camera.position.y,
+                        z: camera.position.z,
                     },
                     right: ffi::Vector3 {
                         x: camera.right.x,

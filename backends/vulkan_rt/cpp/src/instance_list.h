@@ -27,11 +27,17 @@ template <typename T> class InstanceDataList
 				  VMA_MEMORY_USAGE_CPU_TO_GPU),
 		  _total(0), _recalculate_ranges(true)
 	{
+		_buffer.allocate(1024, true);
 	}
 
 	bool has(unsigned int id) const
 	{
 		return _lists.find(id) != _lists.end();
+	}
+
+	size_t size() const
+	{
+		return _lists.size();
 	}
 
 	void add_instances_list(unsigned int id, const T *ptr, unsigned int count)

@@ -484,7 +484,7 @@ pub struct CameraView2D {
 #[derive(Default, Debug, Copy, Clone)]
 #[repr(C)]
 pub struct CameraView3D {
-    pub pos: Vec3,
+    pub position: Vec3,
     // 12
     pub right: Vec3,
     // 24
@@ -537,7 +537,7 @@ impl CameraView3D {
         let xr = x1 * r2 + x2 * r3;
         let yr = y1 * r2 + y2 * r3;
 
-        let origin = self.pos + self.lens_size * (self.right * xr + self.up * yr);
+        let origin = self.position + self.lens_size * (self.right * xr + self.up * yr);
         let u = (x as f32 + r0) * self.inv_width;
         let v = (y as f32 + r1) * self.inv_height;
         let point_on_pixel = self.p1 + u * self.right + v * self.up;
@@ -550,9 +550,9 @@ impl CameraView3D {
         let u = x as f32 * self.inv_width;
         let v = y as f32 * self.inv_height;
         let point_on_pixel = self.p1 + u * self.right + v * self.up;
-        let direction = (point_on_pixel - self.pos).normalize();
+        let direction = (point_on_pixel - self.position).normalize();
 
-        Ray::new(self.pos, direction)
+        Ray::new(self.position, direction)
     }
 
     pub fn generate_lens_ray4(
@@ -621,9 +621,9 @@ impl CameraView3D {
         let p_y = Vec4::from([self.p1[1]; 4]) + u * self.p1[1] + v * self.up[1];
         let p_z = Vec4::from([self.p1[2]; 4]) + u * self.p1[2] + v * self.up[2];
 
-        let direction_x = p_x - Vec4::from([self.pos[0]; 4]);
-        let direction_y = p_y - Vec4::from([self.pos[1]; 4]);
-        let direction_z = p_z - Vec4::from([self.pos[2]; 4]);
+        let direction_x = p_x - Vec4::from([self.position[0]; 4]);
+        let direction_y = p_y - Vec4::from([self.position[1]; 4]);
+        let direction_z = p_z - Vec4::from([self.position[2]; 4]);
 
         let length_squared = direction_x * direction_x;
         let length_squared = length_squared + direction_y * direction_y;
@@ -637,9 +637,9 @@ impl CameraView3D {
         let direction_y = direction_y * inv_length;
         let direction_z = direction_z * inv_length;
 
-        let origin_x = Vec4::splat(self.pos[0]);
-        let origin_y = Vec4::splat(self.pos[1]);
-        let origin_z = Vec4::splat(self.pos[2]);
+        let origin_x = Vec4::splat(self.position[0]);
+        let origin_y = Vec4::splat(self.position[1]);
+        let origin_z = Vec4::splat(self.position[2]);
 
         let lens_size = Vec4::splat(self.lens_size);
         let right_x = Vec4::splat(self.p1[0]);
@@ -678,9 +678,9 @@ impl CameraView3D {
         let p_y = Vec4::from([self.p1[1]; 4]) + u * self.p1[1] + v * self.up[1];
         let p_z = Vec4::from([self.p1[2]; 4]) + u * self.p1[2] + v * self.up[2];
 
-        let direction_x = p_x - Vec4::from([self.pos[0]; 4]);
-        let direction_y = p_y - Vec4::from([self.pos[1]; 4]);
-        let direction_z = p_z - Vec4::from([self.pos[2]; 4]);
+        let direction_x = p_x - Vec4::from([self.position[0]; 4]);
+        let direction_y = p_y - Vec4::from([self.position[1]; 4]);
+        let direction_z = p_z - Vec4::from([self.position[2]; 4]);
 
         let length_squared = direction_x * direction_x;
         let length_squared = length_squared + direction_y * direction_y;
@@ -694,9 +694,9 @@ impl CameraView3D {
         let direction_y = direction_y * inv_length;
         let direction_z = direction_z * inv_length;
 
-        let origin_x = [self.pos[0]; 4].into();
-        let origin_y = [self.pos[1]; 4].into();
-        let origin_z = [self.pos[2]; 4].into();
+        let origin_x = [self.position[0]; 4].into();
+        let origin_y = [self.position[1]; 4].into();
+        let origin_z = [self.position[2]; 4].into();
 
         RayPacket4 {
             origin_x,
@@ -726,7 +726,7 @@ impl CameraView3D {
         let projection =
             Mat4::perspective_rh_gl(self.fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
-        let pos = self.pos;
+        let pos = self.position;
         let dir = self.direction;
 
         let view = Mat4::look_at_rh(pos, pos + dir, up);
@@ -740,7 +740,7 @@ impl CameraView3D {
         let projection =
             Mat4::perspective_lh(self.fov, self.aspect_ratio, self.near_plane, self.far_plane);
 
-        let pos = self.pos;
+        let pos = self.position;
         let dir = self.direction;
 
         let view = Mat4::look_at_lh(pos, pos + dir, up);
@@ -759,7 +759,7 @@ impl CameraView3D {
     pub fn get_rh_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
 
-        let pos = self.pos;
+        let pos = self.position;
         let dir = self.direction;
 
         Mat4::look_at_rh(pos, pos + dir, up)
@@ -768,7 +768,7 @@ impl CameraView3D {
     pub fn get_lh_view_matrix(&self) -> Mat4 {
         let up = Vec3::new(0.0, 1.0, 0.0);
 
-        let pos = self.pos;
+        let pos = self.position;
         let dir = self.direction;
 
         Mat4::look_at_lh(pos, pos + dir, up)

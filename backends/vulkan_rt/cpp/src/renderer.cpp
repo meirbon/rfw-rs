@@ -1,4 +1,4 @@
-#include "renderer.hpp"
+#include "renderer.h"
 
 #include <cassert>
 #include <cstring>
@@ -11,8 +11,8 @@
 #include "device.h"
 #include "shaders.h"
 
-#include "../../shaders/minimal.frag.spv.h"
-#include "../../shaders/minimal.vert.spv.h"
+#include "../../shaders/3d.frag.spv.h"
+#include "../../shaders/3d.vert.spv.h"
 
 using namespace glm;
 
@@ -24,7 +24,8 @@ mat4 get_rh_matrix(const CameraView3D &view)
 	const vec3 pos = vec3(view.pos.x, view.pos.y, view.pos.z);
 	const vec3 direction = vec3(view.direction.x, view.direction.y, view.direction.z);
 	const vec3 up = vec3(0, 1, 0);
-	const mat4 projection = perspectiveFovRH(view.fov, width, height, view.near_plane, view.far_plane);
+	const mat4 projection = perspectiveFovRH(view.fov, width, height, view.near_plane, view.far_plane) *
+							glm::scale(glm::mat4(1.0f), vec3(1, -1, 1));
 	const mat4 v = lookAtRH(pos, pos + direction, up);
 	return projection * v;
 }
@@ -61,11 +62,22 @@ VulkanRenderer::~VulkanRenderer()
 		_vertexList3D.reset();
 		_vertexList2D.reset();
 
+		_instanceList3D.reset();
+		_instanceList2D.reset();
+
 		_materials.free();
 		_uniformBuffers.clear();
 
-		vmaDestroyAllocator(_allocator);
+		_descriptorSets.clear();
+		_descriptorLayout.reset();
+		_descriptorPool.reset();
+
 		_commandBuffers.clear();
+
+		_depthImageView.reset();
+		vmaDestroyImage(_allocator, _depthImage, _depthImageAllocation);
+
+		vmaDestroyAllocator(_allocator);
 	}
 	catch (const std::exception &e)
 	{
@@ -108,9 +120,10 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 		queueCreateInfos.push_back(vk::DeviceQueueCreateInfo({}, queueFamilyIndex, 1, &queuePriority));
 	}
 
-	std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-												  VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-												  VK_KHR_BIND_MEMORY_2_EXTENSION_NAME};
+	std::vector<const char *> deviceExtensions = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,	 VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+		VK_KHR_BIND_MEMORY_2_EXTENSION_NAME, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+		VK_KHR_MAINTENANCE1_EXTENSION_NAME,	 VK_KHR_MAINTENANCE3_EXTENSION_NAME};
 #if MACOS || IOS
 	deviceExtensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 #endif
@@ -122,8 +135,8 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 
 	uint32_t *familyIndices = !_queueFamilyIndices.empty() ? _queueFamilyIndices.data() : nullptr;
 
-	SM sharingModeUtil = (graphicsQueue != presentQueue) ? SM(vk::SharingMode::eConcurrent, 2u, familyIndices)
-														 : SM(vk::SharingMode::eExclusive);
+	_sharingModeUtil = (graphicsQueue != presentQueue) ? SM(vk::SharingMode::eConcurrent, 2u, familyIndices)
+													   : SM(vk::SharingMode::eExclusive);
 
 	_graphicsQueue = _device->getQueue(graphicsQueue, 0);
 	_presentQueue = _device->getQueue(presentQueue, 0);
@@ -171,24 +184,63 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 
 	vmaCreateAllocator(&allocatorCreateInfo, &_allocator);
 
+	const std::array<vk::DescriptorPoolSize, 4> poolSizes = {
+		vk::DescriptorPoolSize(vk::DescriptorType::eSampledImage, 1024),
+		vk::DescriptorPoolSize(vk::DescriptorType::eStorageBuffer, 128),
+		vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 128),
+		vk::DescriptorPoolSize(vk::DescriptorType::eSampler, 64),
+	};
+
+	_descriptorPool = _device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo(
+		vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind | vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, 512,
+		poolSizes));
+
+	std::array<vk::DescriptorSetLayoutBinding, 3> descriptorSetLayoutBindings = {
+		vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBuffer, 1,
+									   vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
+										   vk::ShaderStageFlagBits::eCompute),
+		vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eStorageBuffer, 1,
+									   vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
+										   vk::ShaderStageFlagBits::eCompute),
+		vk::DescriptorSetLayoutBinding(2, vk::DescriptorType::eStorageBuffer, 1,
+									   vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment |
+										   vk::ShaderStageFlagBits::eCompute),
+	};
+
+	_descriptorLayout = _device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo(
+		vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool, descriptorSetLayoutBindings));
+
 	vk::ShaderModuleCreateInfo vertShaderCreateInfo = vk::ShaderModuleCreateInfo(
-		{}, __shaders_minimal_vert_spv_len, reinterpret_cast<const uint32_t *>(__shaders_minimal_vert_spv));
+		{}, __shaders_3d_vert_spv_len, reinterpret_cast<const uint32_t *>(__shaders_3d_vert_spv));
 	_vertModule = _device->createShaderModuleUnique(vertShaderCreateInfo);
 
 	vk::ShaderModuleCreateInfo fragShaderCreateInfo = vk::ShaderModuleCreateInfo(
-		{}, __shaders_minimal_frag_spv_len, reinterpret_cast<const uint32_t *>(__shaders_minimal_frag_spv));
+		{}, __shaders_3d_frag_spv_len, reinterpret_cast<const uint32_t *>(__shaders_3d_frag_spv));
 	_fragModule = _device->createShaderModuleUnique(fragShaderCreateInfo);
 
-	_commandPool = _device->createCommandPoolUnique({{}, static_cast<uint32_t>(graphicsQueue)});
+	_commandPool = _device->createCommandPoolUnique(vk::CommandPoolCreateInfo(
+		vk::CommandPoolCreateFlagBits::eResetCommandBuffer, static_cast<uint32_t>(graphicsQueue)));
 
 	_swapchain = vkh::Swapchain::create(
-		_device.get(), _physicalDevice, std::move(surface), vk::Format::eB8G8R8A8Unorm, 2, sharingModeUtil.sharingMode,
-		sharingModeUtil.familyIndices,
+		_device.get(), _physicalDevice, std::move(surface), vk::Format::eB8G8R8A8Unorm, 2, _sharingModeUtil.sharingMode,
+		_sharingModeUtil.familyIndices,
 		vk::ImageViewCreateInfo({}, {}, vk::ImageViewType::e2D, {}, {},
 								vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)),
 		width, height);
 
-	resize(width, height, scale);
+	// Create new depth image
+	vk::ImageCreateInfo imageCreateInfo = vk::ImageCreateInfo(
+		{}, vk::ImageType::e2D, vk::Format::eD24UnormS8Uint, vk::Extent3D(_swapchain->extent(), 1), 1, 1,
+		vk::SampleCountFlagBits::e1, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment,
+		_sharingModeUtil.sharingMode, _sharingModeUtil.familyIndices, vk::ImageLayout::eUndefined);
+	VmaAllocationCreateInfo allocationCreateInfo{};
+	allocationCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+	vmaCreateImage(_allocator, reinterpret_cast<const VkImageCreateInfo *>(&imageCreateInfo), &allocationCreateInfo,
+				   reinterpret_cast<VkImage *>(&_depthImage), &_depthImageAllocation, nullptr);
+	_depthImageView = _device->createImageViewUnique(vk::ImageViewCreateInfo(
+		{}, _depthImage, vk::ImageViewType::e2D, vk::Format::eD24UnormS8Uint, vk::ComponentMapping(),
+		vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1)));
 
 	_vertexList2D = std::make_unique<VertexDataList<Vertex2D, int>>(_allocator);
 	_vertexList3D = std::make_unique<VertexDataList<Vertex3D, JointData>>(_allocator);
@@ -197,6 +249,13 @@ VulkanRenderer::VulkanRenderer(vk::UniqueInstance instance, vk::UniqueSurfaceKHR
 	_instanceList3D = std::make_unique<InstanceDataList<glm::mat4>>(_allocator);
 
 	_materials = vkh::Buffer<DeviceMaterial>(_allocator);
+
+	_scale = scale;
+	setup_pipelines();
+	setup_framebuffers();
+
+	update_descriptorsets();
+	record_commandbuffers();
 }
 
 void VulkanRenderer::set_2d_mesh(unsigned int id, MeshData2D data)
@@ -236,7 +295,7 @@ void VulkanRenderer::set_3d_instances(unsigned int id, InstancesData3D data)
 	else
 		_instanceList3D->add_instances_list(id, reinterpret_cast<const mat4 *>(data.matrices), data.num_matrices);
 
-	_updateFlags |= Flags::UpdateInstances2D;
+	_updateFlags |= Flags::UpdateInstances3D;
 }
 
 void VulkanRenderer::unload_3d_meshes(const unsigned int *ids, unsigned int num)
@@ -292,12 +351,9 @@ void VulkanRenderer::synchronize()
 	}
 
 	_updateFlags = Flags::Empty;
-
-	VmaStats stats = {};
-	vmaCalculateStats(_allocator, &stats);
-
-	//	fmt::print("Allocations: (count: {}, usedBytes: {}, unusedBytes: {})\n", stats.total.allocationCount,
-	//			   stats.total.usedBytes, stats.total.unusedBytes);
+	setup_pipelines();
+	update_descriptorsets();
+	record_commandbuffers();
 }
 
 void VulkanRenderer::render(const mat4 matrix_2d, const CameraView3D view_3d)
@@ -352,6 +408,46 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 	// (Re)create swap chain
 	_swapchain->resize(width, height);
 
+	// Destroy old depth image
+	_depthImageView.reset();
+	vmaDestroyImage(_allocator, _depthImage, _depthImageAllocation);
+
+	// Create new depth image
+	vk::ImageCreateInfo imageCreateInfo = vk::ImageCreateInfo(
+		{}, vk::ImageType::e2D, vk::Format::eD24UnormS8Uint, vk::Extent3D(_swapchain->extent(), 1), 1, 1,
+		vk::SampleCountFlagBits::e1, vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment,
+		_sharingModeUtil.sharingMode, _sharingModeUtil.familyIndices, vk::ImageLayout::eUndefined);
+	VmaAllocationCreateInfo allocationCreateInfo{};
+	allocationCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+	vmaCreateImage(_allocator, reinterpret_cast<const VkImageCreateInfo *>(&imageCreateInfo), &allocationCreateInfo,
+				   reinterpret_cast<VkImage *>(&_depthImage), &_depthImageAllocation, nullptr);
+	_depthImageView = _device->createImageViewUnique(vk::ImageViewCreateInfo(
+		{}, _depthImage, vk::ImageViewType::e2D, vk::Format::eD24UnormS8Uint, vk::ComponentMapping(),
+		vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1)));
+
+	// TODO: We should really be using dynamic viewports instead of recreating pipelines
+	setup_pipelines();
+	setup_framebuffers();
+	record_commandbuffers();
+}
+
+void VulkanRenderer::setup_framebuffers()
+{
+	_framebuffers = std::vector<vk::UniqueFramebuffer>(_swapchain->size());
+	for (size_t i = 0; i < _swapchain->size(); i++)
+	{
+		vk::ImageView attachments[] = {_swapchain->image_view_at(static_cast<uint32_t>(i)), _depthImageView.get()};
+
+		_framebuffers[i] = _device->createFramebufferUnique(
+			vk::FramebufferCreateInfo{{}, *_renderPass, 2, attachments, _swapchain->width(), _swapchain->height(), 1});
+	}
+}
+
+void VulkanRenderer::setup_pipelines()
+{
+	_device->waitIdle();
+
 	// Reinitialize pipelines
 	vk::PipelineShaderStageCreateInfo vertShaderStageInfo =
 		vk::PipelineShaderStageCreateInfo{{}, vk::ShaderStageFlagBits::eVertex, *_vertModule, "main"};
@@ -361,7 +457,22 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 
 	std::vector<vk::PipelineShaderStageCreateInfo> pipelineShaderStages = {vertShaderStageInfo, fragShaderStageInfo};
 
-	auto vertexInputInfo = vk::PipelineVertexInputStateCreateInfo{{}, 0u, nullptr, 0u, nullptr};
+	auto vertexBindingDescriptions =
+		vk::VertexInputBindingDescription(0, sizeof(Vertex3D), vk::VertexInputRate::eVertex);
+
+	std::array<vk::VertexInputAttributeDescription, 5> vertexAttributeDescriptions = {
+		vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(Vertex3D, vertex)),
+		vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex3D, normal)),
+		vk::VertexInputAttributeDescription(2, 0, vk::Format::eR32Uint, offsetof(Vertex3D, mat_id)),
+		vk::VertexInputAttributeDescription(3, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex3D, padding)),
+		vk::VertexInputAttributeDescription(4, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(Vertex3D, tangent))};
+
+	auto vertexInputInfo =
+		vk::PipelineVertexInputStateCreateInfo{{},
+											   1u,
+											   &vertexBindingDescriptions,
+											   static_cast<uint32_t>(vertexAttributeDescriptions.size()),
+											   vertexAttributeDescriptions.data()};
 	auto inputAssembly = vk::PipelineInputAssemblyStateCreateInfo{{}, vk::PrimitiveTopology::eTriangleList, false};
 	const vk::Viewport viewport = _swapchain->viewport();
 	const vk::Rect2D scissor = vk::Rect2D{{0, 0}, _swapchain->extent()};
@@ -370,7 +481,7 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 															   /*depthClamp*/ false,
 															   /*rasterizeDiscard*/ false,
 															   vk::PolygonMode::eFill,
-															   {},
+															   vk::CullModeFlagBits::eBack,
 															   /*frontFace*/ vk::FrontFace::eCounterClockwise,
 															   {},
 															   {},
@@ -398,7 +509,14 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 															   /*colourAttachments=*/&colorBlendAttachment};
 
 	if (!_pipelineLayout)
-		_pipelineLayout = _device->createPipelineLayoutUnique({}, nullptr);
+		_pipelineLayout =
+			_device->createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo({}, 1, &*_descriptorLayout), nullptr);
+
+	auto depthAttachment = vk::AttachmentDescription(
+		{}, vk::Format::eD24UnormS8Uint, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eClear,
+		vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare,
+		vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+	auto depthAttachmentRef = vk::AttachmentReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
 
 	auto colorAttachment = vk::AttachmentDescription{{},
 													 _swapchain->format(),
@@ -409,28 +527,29 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 													 {},
 													 {},
 													 vk::ImageLayout::ePresentSrcKHR};
+	auto colorAttachmentRef = vk::AttachmentReference(0, vk::ImageLayout::eColorAttachmentOptimal);
 
-	auto colourAttachmentRef = vk::AttachmentReference{0, vk::ImageLayout::eColorAttachmentOptimal};
-
-	auto subpass = vk::SubpassDescription{{},
-										  vk::PipelineBindPoint::eGraphics,
-										  /*inAttachmentCount*/ 0,
-										  nullptr,
-										  1,
-										  &colourAttachmentRef};
+	auto subpass = vk::SubpassDescription({}, vk::PipelineBindPoint::eGraphics,
+										  /*inAttachmentCount*/ 0, nullptr, 1, &colorAttachmentRef, {},
+										  &depthAttachmentRef, {}, {});
 
 	if (!_renderPass)
 	{
-		auto subpassDependency =
-			vk::SubpassDependency{VK_SUBPASS_EXTERNAL,
-								  0,
-								  vk::PipelineStageFlagBits::eColorAttachmentOutput,
-								  vk::PipelineStageFlagBits::eColorAttachmentOutput,
-								  {},
-								  vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite};
+		auto subpassDependency = vk::SubpassDependency{
+			VK_SUBPASS_EXTERNAL,
+			0,
+			vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlagBits::eEarlyFragmentTests,
+			vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlagBits::eEarlyFragmentTests,
+			{},
+			vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite |
+				vk::AccessFlagBits::eDepthStencilAttachmentWrite};
+		vk::AttachmentDescription attachments[] = {colorAttachment, depthAttachment};
 		_renderPass = _device->createRenderPassUnique(
-			vk::RenderPassCreateInfo{{}, 1, &colorAttachment, 1, &subpass, 1, &subpassDependency});
+			vk::RenderPassCreateInfo{{}, 2, attachments, 1, &subpass, 1, &subpassDependency});
 	}
+
+	vk::PipelineDepthStencilStateCreateInfo depthStencilState =
+		vk::PipelineDepthStencilStateCreateInfo({}, true, true, vk::CompareOp::eLess, false, false, {}, {}, 0.0f, 1.0f);
 
 	// Need to (re)create pipeline if viewport changes
 	vk::GraphicsPipelineCreateInfo pipelineCreateInfo = vk::GraphicsPipelineCreateInfo{{},
@@ -442,7 +561,7 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 																					   &viewportState,
 																					   &rasterizer,
 																					   &multisampling,
-																					   nullptr,
+																					   &depthStencilState,
 																					   &colorBlending,
 																					   nullptr,
 																					   *_pipelineLayout,
@@ -450,43 +569,95 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 																					   0};
 
 	_pipeline = _device->createGraphicsPipelineUnique({}, pipelineCreateInfo).value;
+}
 
-	_framebuffers = std::vector<vk::UniqueFramebuffer>(_swapchain->size());
-	for (size_t i = 0; i < _swapchain->size(); i++)
+void VulkanRenderer::update_descriptorsets()
+{
+	if (_descriptorSets.size() < _swapchain->size())
 	{
-		vk::ImageView imageView = _swapchain->image_view_at(static_cast<uint32_t>(i));
-		_framebuffers[i] = _device->createFramebufferUnique(
-			vk::FramebufferCreateInfo{{}, *_renderPass, 1, &imageView, _swapchain->width(), _swapchain->height(), 1});
+		const auto layouts = std::vector<vk::DescriptorSetLayout>(_swapchain->size(), *_descriptorLayout);
+		_descriptorSets = _device->allocateDescriptorSetsUnique(
+			vk::DescriptorSetAllocateInfo(*_descriptorPool, static_cast<uint32_t>(_swapchain->size()), layouts.data()));
 	}
 
-	_commandBuffers = _device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo(
-		_commandPool.get(), vk::CommandBufferLevel::ePrimary, static_cast<uint32_t>(_framebuffers.size())));
+	Uniforms uniforms = {};
+	_uniformBuffers.resize(_swapchain->size());
+	for (size_t i = 0; i < _swapchain->size(); i++)
+	{
+		_uniformBuffers[i].set_data(_allocator, vk::BufferUsageFlagBits::eUniformBuffer,
+									vk::MemoryPropertyFlagBits::eHostVisible, VMA_MEMORY_USAGE_CPU_TO_GPU, &uniforms,
+									1);
+	}
 
-	_inFlightFences.clear();
-	_inFlightFences.resize(_commandBuffers.size());
+	std::vector<vk::WriteDescriptorSet> descriptorWrites = {};
+	std::vector<vk::DescriptorBufferInfo> bufferInfos = {};
+	bufferInfos.reserve(_swapchain->size() * 3);
+	for (size_t i = 0; i < _swapchain->size(); i++)
+	{
+		vk::Buffer uniformBuffer = _uniformBuffers[i].get();
+		assert(uniformBuffer);
 
+		size_t index = bufferInfos.size();
+		bufferInfos.push_back(vk::DescriptorBufferInfo(uniformBuffer, 0, VK_WHOLE_SIZE));
+		descriptorWrites.push_back(vk::WriteDescriptorSet(
+			*_descriptorSets[i], 0, 0, 1, vk::DescriptorType::eUniformBuffer, {}, &bufferInfos[index], {}));
+
+		vk::Buffer instance3DBuffer = _instanceList3D->buffer();
+		assert(instance3DBuffer);
+
+		index = bufferInfos.size();
+		bufferInfos.push_back(vk::DescriptorBufferInfo(instance3DBuffer, 0, VK_WHOLE_SIZE));
+		descriptorWrites.push_back(vk::WriteDescriptorSet(*_descriptorSets[i], 1, 0, 1,
+														  vk::DescriptorType::eStorageBuffer, {}, &bufferInfos[index]));
+
+		vk::Buffer instance2DBuffer = _instanceList2D->buffer();
+		assert(instance2DBuffer);
+
+		index = bufferInfos.size();
+		bufferInfos.push_back(vk::DescriptorBufferInfo(instance2DBuffer, 0, VK_WHOLE_SIZE));
+		descriptorWrites.push_back(vk::WriteDescriptorSet(*_descriptorSets[i], 2, 0, 1,
+														  vk::DescriptorType::eStorageBuffer, {}, &bufferInfos[index]));
+	}
+
+	_device->updateDescriptorSets(descriptorWrites, {});
+}
+
+void VulkanRenderer::record_commandbuffers()
+{
+	_device->waitIdle();
+
+	if (_commandBuffers.size() < _swapchain->size())
+	{
+		_commandBuffers = _device->allocateCommandBuffersUnique(vk::CommandBufferAllocateInfo(
+			_commandPool.get(), vk::CommandBufferLevel::ePrimary, static_cast<uint32_t>(_framebuffers.size())));
+
+		_inFlightFences.clear();
+		_inFlightFences.resize(_commandBuffers.size());
+
+		for (size_t i = 0; i < _commandBuffers.size(); i++)
+			_inFlightFences[i] = _device->createFenceUnique(vk::FenceCreateInfo());
+	}
+
+	std::vector<vk::Fence> fences(_inFlightFences.size());
+	for (size_t i = 0; i < _inFlightFences.size(); i++)
+		fences[i] = _inFlightFences[i].get();
+	_device->resetFences(fences);
+
+	// Always reset fences in flight, these are set once an image is presented
 	_imagesInFlight.clear();
 	_imagesInFlight.resize(_commandBuffers.size(), VK_NULL_HANDLE);
 
 	vk::SemaphoreCreateInfo semaphoreCreateInfo = {};
-	_imageAvailableSemaphores.clear();
 	_imageAvailableSemaphores.resize(_commandBuffers.size());
-	_renderFinishedSemaphores.clear();
 	_renderFinishedSemaphores.resize(_commandBuffers.size());
 
-	if (_uniformBuffers.size() != _commandBuffers.size())
-	{
-		_uniformBuffers.clear();
-		for (size_t i = 0; i < _commandBuffers.size(); i++)
-		{
-			_uniformBuffers.emplace_back(_allocator, vk::BufferUsageFlagBits::eUniformBuffer,
-										 vk::MemoryPropertyFlagBits::eHostVisible, VMA_MEMORY_USAGE_CPU_TO_GPU);
-		}
-	}
+	const vk::Buffer vertexBuffer = _vertexList3D->vertex_buffer();
 
+	const uint32_t offsets[] = {0};
+	const vk::DeviceSize vertexOffsets[] = {0};
 	for (size_t i = 0; i < _commandBuffers.size(); i++)
 	{
-		_inFlightFences[i] = _device->createFenceUnique(vk::FenceCreateInfo(vk::FenceCreateFlagBits::eSignaled));
+
 		const std::string objectName = "_inFlightFences[" + std::to_string(i) + "]";
 		const auto debugNameInfo = vk::DebugUtilsObjectNameInfoEXT(
 			vk::ObjectType::eFence, reinterpret_cast<const uint64_t &>(_inFlightFences[i].get()), objectName.c_str());
@@ -497,14 +668,30 @@ void VulkanRenderer::resize(unsigned int width, unsigned int height, double scal
 
 		auto beginInfo = vk::CommandBufferBeginInfo();
 		_commandBuffers[i]->begin(beginInfo);
-		vk::ClearValue clearValues =
-			vk::ClearValue(vk::ClearColorValue(std::array<float, 4>({0.0f, 0.0f, 0.0f, 1.0f})));
+		vk::ClearValue clearValues[] = {
+			vk::ClearValue(vk::ClearColorValue(std::array<float, 4>({0.0f, 0.0f, 0.0f, 1.0f}))),
+			vk::ClearValue(vk::ClearDepthStencilValue(1.0f, 0))};
+
 		vk::RenderPassBeginInfo renderPassBeginInfo = vk::RenderPassBeginInfo(
-			_renderPass.get(), _framebuffers[i].get(), vk::Rect2D{{0, 0}, _swapchain->extent()}, 1, &clearValues);
+			_renderPass.get(), _framebuffers[i].get(), vk::Rect2D{{0, 0}, _swapchain->extent()}, 2, clearValues);
 
 		_commandBuffers[i]->beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 		_commandBuffers[i]->bindPipeline(vk::PipelineBindPoint::eGraphics, *_pipeline);
-		_commandBuffers[i]->draw(3, 1, 0, 0);
+		_commandBuffers[i]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *_pipelineLayout, 0, 1,
+											   &*_descriptorSets[i], 0, offsets);
+		_commandBuffers[i]->bindVertexBuffers(0, 1, &vertexBuffer, vertexOffsets);
+		const auto &drawRanges = _vertexList3D->get_draw_ranges();
+		const auto &instanceLists = _instanceList3D->get_ranges();
+
+		for (const auto &it : drawRanges)
+		{
+			const unsigned int id = it.first;
+			const DrawDescriptor &range = it.second;
+
+			const InstanceRange<mat4> &instances = instanceLists.at(id);
+			_commandBuffers[i]->draw(range.end - range.start, instances.count, range.start, instances.start);
+		}
+
 		_commandBuffers[i]->endRenderPass();
 		_commandBuffers[i]->end();
 	}

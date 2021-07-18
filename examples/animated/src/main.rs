@@ -32,7 +32,10 @@ fn fps_system(mut font_renderer: ResMut<FontRenderer>, mut fps_component: Query<
     }
 }
 
-fn startup(mut commands: Commands<'_>, mut scene: ResMut<Scene>) {
+fn startup(mut commands: Commands<'_>, mut scene: ResMut<Scene>, mut camera: ResMut<Camera3D>) {
+    camera.position = vec3(-15.0, 10.0, 15.0);
+    camera.direction = vec3(0.5, -0.3, -0.6).normalize();
+
     scene.add_spot_light(
         vec3(2.5, 15.0, 0.0),
         vec3(0.0, -1.0, 0.3),
@@ -62,7 +65,9 @@ fn startup(mut commands: Commands<'_>, mut scene: ResMut<Scene>) {
     // let material = scene
     //     .get_materials_mut()
     //     .add(vec3(1.0, 0.2, 0.2), 1.0, Vec3::ONE, 0.0);
-    // let dragon = scene.load("assets/models/dragon.obj").expect("Could not load dragon.obj");
+    // let dragon = scene
+    //     .load("assets/models/dragon.obj")
+    //     .expect("Could not load dragon.obj");
     // let dragon = scene.add_3d(&dragon);
 
     let material = scene
@@ -229,14 +234,21 @@ fn set_animation_timers(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
 }
 
 fn rotate_spot_lights(time: Res<GameTimer>, mut scene: ResMut<Scene>) {
-    let elapsed = time.elapsed_ms_since_start() / 1000.0;
+    let directions = [
+        vec3(0.0, -1.0, 0.3),
+        vec3(0.3, -1.0, 0.6),
+        vec3(0.2, -1.0, -0.3),
+    ];
+
+    let elapsed = time.elapsed_ms_since_start() / 10.0;
     scene
         .get_lights_mut()
         .spot_lights
         .iter_mut()
-        .for_each(|(_, sl)| {
-            sl.direction =
-                Quat::from_rotation_y((elapsed / 10.0).to_radians()).mul_vec3(sl.direction);
+        .for_each(|(i, sl)| {
+            let direction = directions[i];
+            let angle = elapsed.to_radians();
+            sl.direction = Quat::from_rotation_y(angle).mul_vec3(direction.normalize());
         });
 }
 

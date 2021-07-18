@@ -683,7 +683,7 @@ impl Backend for WgpuBackend {
             cam.proj = camera_3d.get_rh_projection();
             cam.matrix_2d = camera_2d.matrix;
             cam.light_count = self.lights.counts();
-            cam.position = camera_3d.pos.extend(1.0);
+            cam.position = camera_3d.position.extend(1.0);
         }
         self.camera_buffer.copy_to_device();
 

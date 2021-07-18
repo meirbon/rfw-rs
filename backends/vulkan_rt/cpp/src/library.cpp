@@ -18,7 +18,7 @@
 #include "vulkan_loader.h"
 
 #include "library.h"
-#include "renderer.hpp"
+#include "renderer.h"
 
 #include <iostream>
 

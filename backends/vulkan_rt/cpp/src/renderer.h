@@ -85,17 +85,25 @@ class VulkanRenderer
 	void render(glm::mat4 matrix_2d, CameraView3D view_3d);
 
 	void resize(unsigned int width, unsigned int height, double scale);
+	void setup_framebuffers();
+	void setup_pipelines();
+	void update_descriptorsets();
+	void record_commandbuffers();
 
   private:
 	VulkanRenderer(vk::UniqueInstance, vk::UniqueSurfaceKHR surface, unsigned int width, unsigned int height,
 				   double scale);
 
+	SM _sharingModeUtil;
 	vk::UniqueInstance _instance;
 	vk::UniqueDevice _device;
 	vk::PhysicalDevice _physicalDevice;
 
 	std::vector<uint32_t> _queueFamilyIndices;
 	std::unique_ptr<vkh::Swapchain> _swapchain;
+	vk::Image _depthImage;
+	VmaAllocation _depthImageAllocation;
+	vk::UniqueImageView _depthImageView;
 
 	vk::UniqueCommandPool _commandPool;
 	std::vector<vk::UniqueCommandBuffer> _commandBuffers;
@@ -118,6 +126,11 @@ class VulkanRenderer
 	//
 	//	std::vector<vkh::Buffer<Vertex3D>> _meshes3D;
 	//	std::vector<vkh::Buffer<glm::mat4>> _instances3D;
+
+	vk::UniqueDescriptorPool _descriptorPool;
+	vk::UniqueDescriptorSetLayout _descriptorLayout;
+	//	vk::UniqueDescriptorUpdateTemplate _descriptorUpdateTemplate;
+	std::vector<vk::UniqueDescriptorSet> _descriptorSets;
 
 	vkh::Buffer<DeviceMaterial> _materials;
 	std::vector<vkh::Buffer<Uniforms>> _uniformBuffers;
